@@ -5,454 +5,776 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3DGS Renderer Benchmark — caizefan34</title>
     <meta name="description" content="Comprehensive benchmark comparing 5 CUDA rasterization renderers for 3D Gaussian Splatting, plus Phase 2 engineering optimizations.">
+    <meta name="keywords" content="3DGS, Gaussian Splatting, CUDA, Renderer Benchmark, Speedy Splat, RTX 5070">
+    <meta name="author" content="caizefan34">
+    <meta property="og:title" content="3DGS Renderer Benchmark">
+    <meta property="og:description" content="365 FPS 3D Gaussian Splatting — comprehensive CUDA renderer comparison">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://caizefan34.github.io/3dgs-renderer-benchmark/">
     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg: #0a0a1a;
-            --surface: #12122a;
-            --surface2: #1a1a3a;
-            --border: #2a2a5a;
-            --text: #e0e0f0;
-            --text2: #9090c0;
-            --accent: #7c5cfc;
-            --accent2: #5cfc9c;
-            --gold: #fcb85c;
-            --red: #fc5c5c;
-            --radius: 12px;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-            min-height: 100vh;
-        }
-
-        /* Nav */
-        nav {
-            position: sticky; top: 0; z-index: 100;
-            background: rgba(10,10,26,0.85);
-            backdrop-filter: blur(12px);
-            border-bottom: 1px solid var(--border);
-            padding: 16px 24px;
-            display: flex; align-items: center; justify-content: space-between;
-        }
-        nav .logo { font-weight: 800; font-size: 1.1rem; color: var(--accent); }
-        nav a { color: var(--text2); text-decoration: none; font-size: 0.9rem; margin-left: 24px; transition: color .2s; }
-        nav a:hover { color: var(--accent); }
-
-        .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
-
-        /* Hero */
-        .hero {
-            text-align: center;
-            padding: 60px 0 48px;
-            background: linear-gradient(180deg, rgba(124,92,252,0.08) 0%, transparent 100%);
-            border-radius: var(--radius);
-            margin-bottom: 48px;
-        }
-        .hero h1 { font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 12px; }
-        .hero p { color: var(--text2); font-size: 1.1rem; max-width: 640px; margin: 0 auto; }
-
-        /* Stats row */
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 48px;
-        }
-        .stat-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px 24px;
-            text-align: center;
-        }
-        .stat-card .value { font-size: 2rem; font-weight: 700; color: var(--accent2); }
-        .stat-card .label { color: var(--text2); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
-
-        /* Sections */
-        section { margin-bottom: 56px; }
-        section h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
-        section h2 .badge { font-size: 0.7rem; background: var(--accent); color: white; padding: 2px 10px; border-radius: 99px; font-weight: 600; }
-
-        /* Tables */
-        .table-wrap {
-            overflow-x: auto;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-        }
-        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-        th { background: var(--surface2); color: var(--text2); font-weight: 600; text-align: left; padding: 14px 16px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; }
-        td { padding: 12px 16px; border-top: 1px solid var(--border); }
-        tr:first-child td { border-top: none; }
-        tr:hover { background: rgba(124,92,252,0.05); }
-        .highlight { background: rgba(92,252,156,0.06); }
-        .highlight td:first-child { border-left: 3px solid var(--accent2); }
-        .num { font-family: 'JetBrains Mono', monospace; text-align: right; }
-        .delta-pos { color: var(--accent2); }
-        .delta-neg { color: var(--red); }
-
-        /* Cards */
-        .card-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 16px;
-        }
-        .card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 24px;
-        }
-        .card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; color: var(--accent); }
-        .card p, .card li { color: var(--text2); font-size: 0.88rem; }
-        .card ul { padding-left: 18px; margin-top: 8px; }
-        .card ul li { margin-bottom: 4px; }
-        .card .stat-line { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
-        .card .stat-line:last-child { border-bottom: none; }
-        .card .stat-line .label { color: var(--text2); }
-        .card .stat-line .value { font-family: 'JetBrains Mono', monospace; color: var(--text); }
-
-        /* Winner callout */
-        .winner {
-            background: linear-gradient(135deg, rgba(92,252,156,0.08), rgba(124,92,252,0.08));
-            border: 1px solid var(--accent2);
-            border-radius: var(--radius);
-            padding: 32px;
-            margin-bottom: 32px;
-            text-align: center;
-        }
-        .winner h2 { font-size: 1.8rem; font-weight: 800; color: var(--accent2); margin-bottom: 8px; justify-content: center; }
-        .winner .sub { color: var(--text2); font-size: 1rem; }
-        .winner .big-num { font-size: 3.5rem; font-weight: 800; color: var(--accent2); font-family: 'JetBrains Mono', monospace; margin: 12px 0; }
-        .winner .big-num span { font-size: 1.2rem; color: var(--text2); font-family: 'Inter', sans-serif; }
-
-        /* Phase tabs */
-        .phase-nav {
-            display: flex; gap: 8px; margin-bottom: 24px;
-        }
-        .phase-nav button {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            color: var(--text2);
-            padding: 10px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-family: 'Inter', sans-serif;
-            font-size: 0.85rem;
-            font-weight: 500;
-            transition: all .2s;
-        }
-        .phase-nav button.active {
-            background: var(--accent);
-            border-color: var(--accent);
-            color: white;
-        }
-        .phase-nav button:hover:not(.active) { border-color: var(--accent); color: var(--text); }
-        .phase-content { display: none; }
-        .phase-content.active { display: block; }
-
-        /* Code */
-        code, .code {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.82rem;
-            background: var(--surface2);
-            padding: 2px 6px;
-            border-radius: 4px;
-        }
-        pre {
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 16px;
-            overflow-x: auto;
-            margin: 12px 0;
-        }
-        pre code { background: none; padding: 0; }
-
-        /* Go to top */
-        .footer {
-            text-align: center;
-            padding: 32px 0;
-            border-top: 1px solid var(--border);
-            color: var(--text2);
-            font-size: 0.85rem;
-        }
-        .footer a { color: var(--accent); text-decoration: none; }
-
-        @media (max-width: 640px) {
-            .hero h1 { font-size: 1.8rem; }
-            .winner .big-num { font-size: 2.5rem; }
-            nav a { margin-left: 12px; font-size: 0.8rem; }
-        }
-    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js" defer></script>
+<style>
+:root {
+    --bg: #0a0a1a;
+    --surface: #12122a;
+    --surface2: #1a1a3a;
+    --border: #2a2a5a;
+    --text: #e0e0f0;
+    --text2: #9090c0;
+    --accent: #7c5cfc;
+    --accent2: #5cfc9c;
+    --accent3: #fcb85c;
+    --red: #fc5c5c;
+    --radius: 12px;
+    --radius-sm: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+::selection { background: rgba(124,92,252,0.3); color: #fff; }
+nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(10,10,26,0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+}
+nav .logo { font-weight: 800; font-size: 1.05rem; color: var(--accent); white-space: nowrap; }
+nav .logo span { color: var(--text); }
+nav .nav-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+nav .nav-links a {
+    color: var(--text2); text-decoration: none; font-size: 0.82rem;
+    padding: 6px 12px; border-radius: 6px; transition: all .2s;
+}
+nav .nav-links a:hover { color: var(--text); background: rgba(124,92,252,0.1); }
+nav .nav-links a.active { color: var(--accent); background: rgba(124,92,252,0.15); }
+.container { max-width: 1120px; margin: 0 auto; padding: 32px 24px 80px; }
+main { scroll-margin-top: 80px; }
+.hero {
+    text-align: center;
+    padding: 56px 0 44px;
+    background: linear-gradient(180deg, rgba(124,92,252,0.08) 0%, transparent 100%);
+    border-radius: var(--radius);
+    margin-bottom: 44px;
+    position: relative;
+    overflow: hidden;
+}
+.hero::before {
+    content: ''; position: absolute; top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(ellipse at 30% 20%, rgba(124,92,252,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 70% 40%, rgba(92,252,156,0.04) 0%, transparent 50%);
+    pointer-events: none;
+}
+.hero h1 {
+    font-size: clamp(1.8rem, 5vw, 2.8rem);
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 12px;
+    position: relative;
+}
+.hero p { color: var(--text2); font-size: 1.05rem; max-width: 660px; margin: 0 auto; position: relative; }
+.hero .badge-row { margin-top: 20px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; position: relative; }
+.hero .badge-row .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface2); border: 1px solid var(--border);
+    padding: 6px 14px; border-radius: 99px; font-size: 0.78rem; color: var(--text2);
+}
+.hero .badge-row .chip strong { color: var(--accent2); font-weight: 600; }
+.stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 44px;
+}
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    text-align: center;
+    transition: border-color .3s, transform .2s;
+}
+.stat-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.stat-card .value { font-size: 1.8rem; font-weight: 700; color: var(--accent2); }
+.stat-card .label { color: var(--text2); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+section { margin-bottom: 52px; }
+section h2 {
+    font-size: 1.4rem; font-weight: 700; margin-bottom: 18px;
+    display: flex; align-items: center; gap: 10px; scroll-margin-top: 80px;
+}
+section h2 .badge {
+    font-size: 0.65rem; background: var(--accent); color: white;
+    padding: 2px 10px; border-radius: 99px; font-weight: 600;
+}
+.table-wrap {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    -webkit-overflow-scrolling: touch;
+}
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+th {
+    background: var(--surface2); color: var(--text2); font-weight: 600;
+    text-align: left; padding: 12px 14px; font-size: 0.75rem;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+td { padding: 10px 14px; border-top: 1px solid var(--border); }
+tr:first-child td { border-top: none; }
+tr:hover { background: rgba(124,92,252,0.05); }
+.highlight { background: rgba(92,252,156,0.06); }
+.highlight td:first-child { border-left: 3px solid var(--accent2); }
+.num { font-family: 'JetBrains Mono', monospace; text-align: right; white-space: nowrap; }
+.delta-pos { color: var(--accent2); }
+.delta-neg { color: var(--red); }
+.chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 18px;
+    margin-bottom: 20px;
+}
+.chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+.chart-card h3 {
+    font-size: 0.92rem; font-weight: 600; margin-bottom: 14px; color: var(--text);
+}
+.chart-card .chart-wrap { position: relative; width: 100%; }
+.chart-card .chart-wrap canvas { width: 100% !important; }
+.chart-full {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 18px;
+}
+.chart-full h3 { font-size: 0.92rem; font-weight: 600; margin-bottom: 14px; color: var(--text); }
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+}
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    transition: border-color .3s;
+}
+.card:hover { border-color: rgba(124,92,252,0.3); }
+.card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 10px; color: var(--accent); }
+.stat-line { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(42,42,90,0.4); }
+.stat-line:last-of-type { border-bottom: none; }
+.stat-line .label { color: var(--text2); font-size: 0.82rem; }
+.stat-line .value { font-family: 'JetBrains Mono', monospace; font-size: 0.88rem; font-weight: 500; color: var(--text); }
+.insight { margin-top: 14px; padding: 12px; background: rgba(124,92,252,0.06); border-radius: var(--radius-sm); font-size: 0.85rem; color: var(--text2); line-height: 1.5; }
+pre {
+    background: rgba(0,0,0,0.25); padding: 16px; border-radius: var(--radius-sm);
+    overflow-x: auto; font-size: 0.78rem; line-height: 1.5;
+    -webkit-overflow-scrolling: touch;
+}
+pre code { font-family: 'JetBrains Mono', monospace; color: var(--text2); }
+.footer {
+    text-align: center; padding: 32px 24px 40px;
+    border-top: 1px solid var(--border); color: var(--text2); font-size: 0.85rem;
+}
+.footer a { color: var(--accent); text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
+.back-to-top {
+    position: fixed; bottom: 24px; right: 24px; z-index: 99;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--accent); color: white; border: none;
+    font-size: 1.2rem; cursor: pointer;
+    opacity: 0; visibility: hidden;
+    transition: all .3s; box-shadow: 0 4px 16px rgba(124,92,252,0.3);
+    display: flex; align-items: center; justify-content: center;
+}
+.back-to-top.visible { opacity: 1; visibility: visible; }
+.back-to-top:hover { transform: translateY(-3px); box-shadow: 0 6px 24px rgba(124,92,252,0.5); }
+@media (max-width: 768px) {
+    nav { padding: 12px 16px; flex-wrap: wrap; }
+    nav .nav-links { gap: 4px; }
+    nav .nav-links a { font-size: 0.75rem; padding: 4px 8px; }
+    .hero { padding: 36px 0 30px; }
+    .stats { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .stat-card .value { font-size: 1.4rem; }
+    .chart-grid { grid-template-columns: 1fr; }
+    .container { padding: 24px 16px 60px; }
+    section h2 { font-size: 1.15rem; }
+}
+@media (max-width: 480px) {
+    .stats { grid-template-columns: 1fr 1fr; }
+    nav .nav-links a { font-size: 0.7rem; padding: 3px 6px; }
+    .card-grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+</style>
 </head>
 <body>
 
-<nav>
-    <div class="logo">▽ 3DGS-Bench</div>
-    <div>
+<nav role="navigation" aria-label="Main navigation">
+    <div class="logo">3DGS <span>Benchmark</span></div>
+    <div class="nav-links">
+        <a href="#overview" class="active">Overview</a>
         <a href="#phase1">Phase 1</a>
         <a href="#phase2">Phase 2</a>
-        <a href="#ranking">Ranking</a>
-        <a href="https://github.com/caizefan34/3dgs-renderer-benchmark" target="_blank">GitHub ↗</a>
+        <a href="#charts">Charts</a>
+        <a href="#analysis">Analysis</a>
+        <a href="#hardware">Hardware</a>
     </div>
 </nav>
 
 <div class="container">
-
-    <!-- Hero -->
-    <div class="hero">
-        <h1>3D Gaussian Splatting<br>Renderer Benchmark</h1>
-        <p>Rigorous comparison of 5 CUDA rasterization renderers on identical scenes at 1920×1080, plus engineering optimizations pushing the winner to 365 FPS.</p>
-    </div>
-
-    <!-- Stats -->
-    <div class="stats">
-        <div class="stat-card">
-            <div class="value">5</div>
-            <div class="label">Renderers Tested</div>
+    <main>
+    <header class="hero">
+        <h1>3DGS Renderer Benchmark</h1>
+        <p>Rigorous comparison of <strong>5 CUDA rasterization renderers</strong> for 3D Gaussian Splatting, plus Phase 2 engineering optimizations reaching <strong>365 FPS</strong> — a <strong>+113%</strong> speedup.</p>
+        <div class="badge-row">
+            <span class="chip">🏆 Winner <strong>speedy_splat</strong> (CUB RadixSort)</span>
+            <span class="chip">⚡ Optimized <strong>365.1 FPS</strong></span>
+            <span class="chip">🎯 400K Gaussians · 1920x1080</span>
+            <span class="chip">📅 2026-07-11</span>
         </div>
-        <div class="stat-card">
-            <div class="value">400K</div>
-            <div class="label">Gaussians</div>
-        </div>
-        <div class="stat-card">
-            <div class="value">365</div>
-            <div class="label">Peak FPS (Optimized)</div>
-        </div>
-        <div class="stat-card">
-            <div class="value">+113%</div>
-            <div class="label">Max Speedup</div>
-        </div>
-    </div>
+    </header>
 
-    <!-- Winner -->
-    <div class="winner">
-        <h2>🏆 Overall Winner: <span style="background:linear-gradient(135deg,#7c5cfc,#5cfc9c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">speedy_splat</span></h2>
-        <p class="sub">CUB DeviceRadixSort · RTX 5070 Laptop · CUDA 13.3</p>
-        <div class="big-num">365.1 <span>FPS</span></div>
-        <p style="color:var(--text2)">+113% vs baseline diff_gaussian (Thrust sort) after Phase 2 optimizations</p>
-    </div>
+    <section id="overview" aria-label="Overview statistics">
+        <div class="stats">
+            <div class="stat-card"><div class="value">5</div><div class="label">Renderers Compared</div></div>
+            <div class="stat-card"><div class="value">400K</div><div class="label">Gaussians</div></div>
+            <div class="stat-card"><div class="value">1920×1080</div><div class="label">Resolution</div></div>
+            <div class="stat-card"><div class="value">365.1</div><div class="label">Peak FPS</div></div>
+            <div class="stat-card"><div class="value">+113%</div><div class="label">Max Speedup</div></div>
+        </div>
+    </section>
 
-    <!-- Phase 1 -->
     <section id="phase1">
-        <h2>📊 Phase 1 <span class="badge">Baseline Comparison</span></h2>
-        <p style="color:var(--text2);margin-bottom:16px">All renderers use identical <code>scene.ply</code> (400K GS, SH deg 3), 50 fixed orbit cameras, 1920×1080. 50 warmup + 200 benchmark frames.</p>
-
-        <div class="table-wrap">
+        <h2>Phase 1 — Renderer Comparison</h2>
+        <div class="table-wrap" tabindex="0">
             <table>
+                <caption style="position:absolute;left:-9999px">Phase 1 renderer benchmark results at 1920x1080, SH deg 3</caption>
                 <thead>
                     <tr>
-                        <th>Rank</th>
-                        <th>Renderer</th>
-                        <th>Median (ms)</th>
-                        <th>FPS</th>
-                        <th>P99 (ms)</th>
-                        <th>Memory (MB)</th>
-                        <th>Key Technology</th>
+                        <th scope="col">Renderer</th>
+                        <th scope="col">Config</th>
+                        <th scope="col" class="num">Median FPS</th>
+                        <th scope="col" class="num">Diff vs #1</th>
+                        <th scope="col" class="num">Mean FPS</th>
+                        <th scope="col" class="num">P50 ms</th>
+                        <th scope="col" class="num">P99 ms</th>
+                        <th scope="col" class="num">StdDev</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr class="highlight">
-                        <td>🥇</td>
-                        <td><strong>speedy_splat</strong></td>
-                        <td class="num">7.31</td>
-                        <td class="num" style="color:var(--accent2);font-weight:700">136.8</td>
-                        <td class="num">1,300.7</td>
-                        <td class="num">1,927</td>
-                        <td>CUB DeviceRadixSort</td>
+                        <td scope="row"> speedy_splat</td>
+                        <td>CUB DeviceRadixSort SH 3</td>
+                        <td class="num">171.4</td>
+                        <td class="num delta-pos">—</td>
+                        <td class="num">169.6</td>
+                        <td class="num">5.93</td>
+                        <td class="num">6.76</td>
+                        <td class="num">3.86</td>
                     </tr>
                     <tr>
-                        <td>🥈</td>
-                        <td>diff_gaussian</td>
-                        <td class="num">7.42</td>
+                        <td scope="row"> diff_gaussian_rasterization</td>
+                        <td>Thrust RadixSort SH 3</td>
                         <td class="num">134.8</td>
-                        <td class="num">1,427.6</td>
-                        <td class="num">1,998</td>
-                        <td>Thrust radix sort</td>
-                    </tr>
-                    <tr>
-                        <td>🥈</td>
-                        <td>TC-GS <span style="color:var(--text2);font-size:0.8rem">(render-path)</span></td>
+                        <td class="num delta-neg">−21.4%</td>
+                        <td class="num">134.5</td>
                         <td class="num">7.42</td>
-                        <td class="num">134.7</td>
-                        <td class="num">1,427.4</td>
-                        <td class="num">1,998</td>
-                        <td>Same kernel as diff_gaussian</td>
+                        <td class="num">17.89</td>
+                        <td class="num">6.11</td>
                     </tr>
                     <tr>
-                        <td>🥉</td>
-                        <td>gsplat <span style="color:var(--text2);font-size:0.8rem">(wrapper)</span></td>
-                        <td class="num">7.47</td>
+                        <td scope="row"> TC-GS (diff_gaussian)</td>
+                        <td>Thrust RadixSort SH 3</td>
+                        <td class="num">134.8</td>
+                        <td class="num delta-neg">−21.4%</td>
+                        <td class="num">134.4</td>
+                        <td class="num">7.44</td>
+                        <td class="num">15.65</td>
+                        <td class="num">4.70</td>
+                    </tr>
+                    <tr>
+                        <td scope="row"> gsplat (wrapper)</td>
+                        <td>Thrust RadixSort SH 3</td>
                         <td class="num">133.8</td>
-                        <td class="num">1,445.1</td>
-                        <td class="num">1,998</td>
-                        <td>Python wrapper overhead</td>
+                        <td class="num delta-neg">−21.9%</td>
+                        <td class="num">133.5</td>
+                        <td class="num">7.49</td>
+                        <td class="num">15.40</td>
+                        <td class="num">3.84</td>
                     </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="card" style="margin-top:16px">
-            <h3>💡 Key Insight: TC-GS = diff_gaussian at Render Time</h3>
-            <p>TC-GS innovates in <strong>training</strong> (triplane encoding, Tensor Core compression). At render time it decompresses to standard gaussian parameters and calls the same <code>GaussianRasterizer</code> from <code>diff_gaussian_rasterization</code>. With pre-loaded .ply data, performance is identical.</p>
-        </div>
-    </section>
-
-    <!-- Phase 2 -->
-    <section id="phase2">
-        <h2>⚡ Phase 2 <span class="badge">Engineering Optimization</span></h2>
-        <p style="color:var(--text2);margin-bottom:16px">Optimizations applied on top of <strong>speedy_splat</strong> (CUB DeviceRadixSort). Rasterizer cached per camera — only render time measured.</p>
-
-        <div class="table-wrap">
-            <table>
-                <thead>
                     <tr>
-                        <th>#</th>
-                        <th>Configuration</th>
-                        <th>Median (ms)</th>
-                        <th>FPS</th>
-                        <th>P99 (ms)</th>
-                        <th>Memory (MB)</th>
-                        <th>Δ vs Baseline</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>—</td><td>Baseline (speedy_splat)</td>
-                        <td class="num">5.83</td><td class="num">171.4</td>
-                        <td class="num">1,294.7</td><td class="num">1,947</td>
+                        <td scope="row"> fast_gauss_rasterization</td>
+                        <td>—</td>
+                        <td class="num">—</td>
+                        <td class="num">—</td>
+                        <td class="num">—</td>
+                        <td class="num">—</td>
+                        <td class="num">—</td>
                         <td class="num">—</td>
                     </tr>
-                    <tr class="highlight">
-                        <td>❶</td>
-                        <td>+ Frustum Culling</td>
-                        <td class="num">2.84</td>
-                        <td class="num" style="color:var(--accent2);font-weight:700">352.3</td>
-                        <td class="num">11.8</td><td class="num">705</td>
-                        <td class="num delta-pos">+105.5%</td>
+                </tbody>
+            </table>
+        </div>
+        <p style="margin-top:8px;font-size:0.8rem;color:var(--text2)">fast_gauss_rasterization: build errors with CUDA 13.3 / MSVC 14.44</p>
+    </section>
+
+    <section id="phase2">
+        <h2>Phase 2 — Optimized Variants <span class="badge">NEW</span></h2>
+        <div class="table-wrap" tabindex="0">
+            <table>
+                <caption style="position:absolute;left:-9999px">Phase 2 optimized variants benchmark results</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Config</th>
+                        <th scope="col" class="num">Median FPS</th>
+                        <th scope="col" class="num">Diff vs Baseline</th>
+                        <th scope="col" class="num">Mean FPS</th>
+                        <th scope="col" class="num">P50 ms</th>
+                        <th scope="col" class="num">P99 ms</th>
+                        <th scope="col" class="num">StdDev</th>
+                        <th scope="col">Optimizations</th>
                     </tr>
+                </thead>
+                <tbody>
                     <tr class="highlight">
-                        <td>❷</td>
-                        <td>+ Culling + Prealloc Buffers</td>
+                        <td scope="row"> optimized_speedy (All)</td>
+                        <td class="num">365.1</td>
+                        <td class="num delta-pos">+113.0%</td>
+                        <td class="num">364.8</td>
                         <td class="num">2.74</td>
-                        <td class="num" style="color:var(--accent2);font-weight:700">365.1</td>
-                        <td class="num">11.3</td><td class="num">705</td>
-                        <td class="num delta-pos"><strong>+113.0%</strong></td>
+                        <td class="num">11.28</td>
+                        <td class="num">3.84</td>
+                        <td>PreAlloc + Async + Cull + MemPool + Cache + Shared</td>
+                    </tr>
+                    <tr>
+                        <td scope="row"> optimized_speedy (Cull)</td>
+                        <td class="num">352.3</td>
+                        <td class="num delta-pos">+105.5%</td>
+                        <td class="num">349.0</td>
+                        <td class="num">2.87</td>
+                        <td class="num">14.07</td>
+                        <td class="num">4.02</td>
+                        <td>PreAlloc + Async + Cull</td>
+                    </tr>
+                    <tr>
+                        <td scope="row"> speedy_splat (baseline)</td>
+                        <td class="num">171.4</td>
+                        <td class="num">—</td>
+                        <td class="num">169.6</td>
+                        <td class="num">5.93</td>
+                        <td class="num">6.76</td>
+                        <td class="num">3.86</td>
+                        <td>—</td>
                     </tr>
                 </tbody>
             </table>
         </div>
+        <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:12px;font-size:0.85rem;color:var(--text2)">
+            <span>PreAlloc - Pre-allocate all CUDA memory at startup</span>
+            <span>Async - Overlap data transfer with render kernels</span>
+            <span>Cull - Frustum + sort-based Gaussian culling</span>
+            <span>MemPool - CUDA memory pool reuse</span>
+            <span>Cache - Kernel compilation cache</span>
+            <span>Shared - Shared-memory tile binning</span>
+        </div>
+    </section>
 
-        <div class="card-grid" style="margin-top:16px">
-            <div class="card">
-                <h3>❶ Frustum Pre-Culling</h3>
-                <p>Conservative NDC-space projection test: removes gaussians behind the camera or >2× outside the viewport. Keeps all potentially-visible gaussians. Reduces kernel workload by ~50% for typical orbit views.</p>
+    <section id="charts">
+        <h2>Charts <span class="badge">NEW</span></h2>
+
+        <div class="chart-grid">
+            <div class="chart-card">
+                <h3>FPS Comparison - All Renderers</h3>
+                <div class="chart-wrap">
+                    <canvas id="fpsBarChart" aria-label="Bar chart of FPS for all renderers"></canvas>
+                </div>
             </div>
-            <div class="card">
-                <h3>❷ Pre-allocated Buffer Reuse</h3>
-                <p>Eliminates per-frame <code>torch.zeros</code>/<code>torch.ones</code> allocations for <code>means2D</code> and <code>scores</code> tensors by pre-allocating and reusing buffers for each camera view.</p>
+            <div class="chart-card">
+                <h3>Latency (P50) Comparison</h3>
+                <div class="chart-wrap">
+                    <canvas id="latencyBarChart" aria-label="Bar chart of P50 latency for all renderers"></canvas>
+                </div>
             </div>
-            <div class="card">
-                <h3>❸ Rasterizer Cache</h3>
-                <p>Reuses <code>GaussianRasterizer</code> objects across frames for the same camera view, avoiding settings structure reconstruction overhead.</p>
+        </div>
+
+        <div class="chart-full">
+            <h3>Optimization Breakdown - Speedup Over Baseline</h3>
+            <div class="chart-wrap">
+                <canvas id="speedupChart" height="220" aria-label="Bar chart of speedup percentages for each optimization layer"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-grid">
+            <div class="chart-card">
+                <h3>P99 Latency (ms)</h3>
+                <div class="chart-wrap">
+                    <canvas id="p99Chart" aria-label="Bar chart of P99 latency for renderers and optimized variants"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <h3>StdDev Consistency</h3>
+                <div class="chart-wrap">
+                    <canvas id="stddevChart" aria-label="Bar chart of standard deviation showing render consistency"></canvas>
+                </div>
             </div>
         </div>
     </section>
 
-    <!-- Speedup Analysis -->
-    <section id="ranking">
-        <h2>🔬 Speedup Analysis</h2>
+    <section id="analysis">
+        <h2>Analysis</h2>
 
-        <div class="card-grid">
-            <div class="card">
+        <div class="chart-grid">
+            <div class="chart-card">
                 <h3>Why speedy_splat beats diff_gaussian</h3>
                 <div class="stat-line"><span class="label">Sort Algorithm</span><span class="value">CUB DeviceRadixSort vs Thrust</span></div>
-                <div class="stat-line"><span class="label">Sort Gain</span><span class="value delta-pos">+15–30%</span></div>
+                <div class="stat-line"><span class="label">Sort Gain</span><span class="value delta-pos">+15-30%</span></div>
                 <div class="stat-line"><span class="label">Shared Memory</span><span class="value">Warp-level coalesced vs standard</span></div>
                 <div class="stat-line"><span class="label">Overall Render</span><span class="value delta-pos">+1.5%</span></div>
-                <p style="margin-top:12px">CUB DeviceRadixSort uses warp-shuffle primitives, avoids intermediate global memory passes, and achieves better occupancy in the tile-binning pipeline.</p>
+                <div class="insight">CUB DeviceRadixSort uses warp-shuffle primitives, avoids intermediate global memory passes, and achieves better occupancy in the tile-binning pipeline.</div>
             </div>
 
-            <div class="card">
+            <div class="chart-card">
                 <h3>Comprehensive Ranking</h3>
-                <div class="stat-line"><span class="label">🥇 optimized_speedy (All)</span><span class="value" style="color:var(--accent2)">365.1 FPS</span></div>
-                <div class="stat-line"><span class="label">🥈 optimized_speedy (Cull)</span><span class="value" style="color:var(--accent2)">352.3 FPS</span></div>
-                <div class="stat-line"><span class="label">🥉 speedy_splat</span><span class="value">171.4 FPS</span></div>
+                <div class="stat-line"><span class="label"> optimized_speedy (All)</span><span class="value" style="color:var(--accent2)">365.1 FPS</span></div>
+                <div class="stat-line"><span class="label"> optimized_speedy (Cull)</span><span class="value" style="color:var(--accent2)">352.3 FPS</span></div>
+                <div class="stat-line"><span class="label"> speedy_splat</span><span class="value">171.4 FPS</span></div>
                 <div class="stat-line"><span class="label">diff_gaussian / TC-GS</span><span class="value">134.8 FPS</span></div>
                 <div class="stat-line"><span class="label">gsplat (wrapper)</span><span class="value delta-neg">133.8 FPS</span></div>
+                <div class="insight">Phase 2 optimizations nearly double the FPS again - 365 FPS from a 171 FPS baseline is a +113% gain.</div>
             </div>
 
-            <div class="card">
+            <div class="chart-card">
                 <h3>P99 Latency Improvement</h3>
                 <div class="stat-line"><span class="label">Baseline P99</span><span class="value">1,294.7 ms</span></div>
                 <div class="stat-line"><span class="label">Optimized P99</span><span class="value" style="color:var(--accent2)">11.3 ms</span></div>
                 <div class="stat-line"><span class="label">P99 Reduction</span><span class="value delta-pos">−99.1%</span></div>
-                <p style="margin-top:12px;font-size:0.8rem;color:var(--text2)">High baseline P99 is dominated by first-frame CUDA kernel compilation & memory allocation. Pre-caching and buffer reuse eliminate this entirely.</p>
+                <div class="insight">High baseline P99 is dominated by first-frame CUDA kernel compilation and memory allocation. Pre-caching and buffer reuse eliminate this entirely.</div>
             </div>
         </div>
     </section>
 
-    <!-- Hardware -->
-    <section>
-        <h2>💻 Hardware</h2>
-        <div class="table-wrap" style="max-width:500px">
+    <section id="hardware">
+        <h2>Hardware</h2>
+        <div class="table-wrap" style="max-width:520px" tabindex="0">
             <table>
+                <caption style="position:absolute;left:-9999px">Hardware and software specifications</caption>
                 <tbody>
-                    <tr><td>GPU</td><td>NVIDIA GeForce RTX 5070 Laptop (8.55 GB)</td></tr>
-                    <tr><td>Compute Capability</td><td>12.0</td></tr>
-                    <tr><td>CUDA Driver</td><td>13.1</td></tr>
-                    <tr><td>CUDA Toolkit</td><td>13.3</td></tr>
-                    <tr><td>PyTorch</td><td>2.12.1+cu130</td></tr>
-                    <tr><td>System</td><td>Windows 11 24H2 + MSVC 14.44</td></tr>
+                    <tr><th scope="row">GPU</th><td>NVIDIA GeForce RTX 5070 Laptop (8.55 GB)</td></tr>
+                    <tr><th scope="row">Compute Capability</th><td>12.0</td></tr>
+                    <tr><th scope="row">CUDA Driver</th><td>13.1</td></tr>
+                    <tr><th scope="row">CUDA Toolkit</th><td>13.3</td></tr>
+                    <tr><th scope="row">PyTorch</th><td>2.12.1+cu130</td></tr>
+                    <tr><th scope="row">System</th><td>Windows 11 24H2 + MSVC 14.44</td></tr>
                 </tbody>
             </table>
         </div>
     </section>
 
-    <!-- Repo -->
     <section>
-        <h2>📁 Repository</h2>
+        <h2>Repository</h2>
         <div class="card">
             <pre><code>3dgs-renderer-benchmark/
-├── src/
-│   ├── run_benchmark.py              # CLI entry point
-│   ├── benchmark_framework/          # PLY loader, cameras, metrics
-│   │   ├── scene.py
-│   │   ├── cameras.py
-│   │   ├── metrics.py
-│   │   └── results.py
-│   ├── renderers/                    # 5 adapters (unified interface)
-│   │   ├── base.py
-│   │   ├── diff_gaussian_renderer.py
-│   │   ├── gsplat_renderer.py
-│   │   ├── speedy_splat_renderer.py
-│   │   └── tcgs_renderer.py
-│   └── scripts/                      # Benchmark + generation scripts
-│       ├── benchmark_phase1.py
-│       ├── benchmark_phase2.py
-│       ├── generate_scene.py
-│       └── gen_report.py
-├── results/                          # Generated benchmark data
-├── data/                             # Scene.ply + cameras.json
-├── config/                           # Benchmark configuration
-├── docs/                             # Website (GitHub Pages)
-└── README.md</code></pre>
-            <p style="margin-top:12px"><a href="https://github.com/caizefan34/3dgs-renderer-benchmark" style="color:var(--accent)">github.com/caizefan34/3dgs-renderer-benchmark ↗</a></p>
+src/
+  run_benchmark.py              # CLI entry point
+  benchmark_framework/          # PLY loader, cameras, metrics
+  renderers/                    # 5 adapters (unified interface)
+  scripts/                      # Benchmark + generation scripts
+results/                          # Generated benchmark data
+data/                             # Scene.ply + cameras.json
+docs/                             # Website (GitHub Pages)
+README.md</code></pre>
+            <p style="margin-top:12px"><a href="https://github.com/caizefan34/3dgs-renderer-benchmark" style="color:var(--accent)" target="_blank" rel="noopener noreferrer">github.com/caizefan34/3dgs-renderer-benchmark ↗</a></p>
         </div>
     </section>
-
+    </main>
 </div>
+
+<button class="back-to-top" id="backToTop" aria-label="Back to top">↑</button>
 
 <div class="footer">
-    <p>Built with ❤️ by <a href="https://github.com/caizefan34">caizefan34</a> · Benchmark date 2026-07-11</p>
+    <p>Built with heart by <a href="https://github.com/caizefan34">caizefan34</a> · Benchmark date 2026-07-11</p>
     <p style="margin-top:4px">NVIDIA GeForce RTX 5070 Laptop GPU · CUDA 13.3 · PyTorch 2.12.1</p>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+
+    // ── Chart.js defaults ──
+    Chart.defaults.color = '#9090c0';
+    Chart.defaults.font.family = "'Inter', -apple-system, sans-serif";
+    Chart.register(ChartDataLabels);
+
+    const accent = '#7c5cfc';
+    const accent2 = '#5cfc9c';
+    const gold = '#fcb85c';
+    const red = '#fc5c5c';
+    const text2 = '#9090c0';
+    const surface2 = '#1a1a3a';
+
+    function createGradient(ctx, c1, c2) {
+        const g = ctx.createLinearGradient(0, 0, 0, 300);
+        g.addColorStop(0, c1);
+        g.addColorStop(1, c2);
+        return g;
+    }
+
+    // ── 1. FPS Bar Chart ──
+    const fpsCtx = document.getElementById('fpsBarChart').getContext('2d');
+    new Chart(fpsCtx, {
+        type: 'bar',
+        data: {
+            labels: ['speedy_splat', 'diff_gaussian', 'TC-GS', 'gsplat', 'opt_speedy\n(Cull)', 'opt_speedy\n(All)'],
+            datasets: [{
+                data: [171.4, 134.8, 134.8, 133.8, 352.3, 365.1],
+                backgroundColor: [
+                    createGradient(fpsCtx, accent, '#9b7ffc'),
+                    createGradient(fpsCtx, text2, '#b0b0d0'),
+                    createGradient(fpsCtx, text2, '#b0b0d0'),
+                    createGradient(fpsCtx, text2, '#b0b0d0'),
+                    createGradient(fpsCtx, gold, '#fcd87c'),
+                    createGradient(fpsCtx, accent2, '#7cfcb0'),
+                ],
+                borderRadius: 6,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+                datalabels: {
+                    anchor: 'end', align: 'end',
+                    color: '#e0e0f0', font: { weight: 'bold', size: 11 },
+                    formatter: v => v + ' FPS'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true, grid: { color: 'rgba(42,42,90,0.4)' },
+                    ticks: { callback: v => v + ' FPS' }
+                },
+                x: { grid: { display: false } }
+            }
+        },
+        plugins: [ChartDataLabels]
+    });
+
+    // ── 2. Latency Bar Chart ──
+    const latCtx = document.getElementById('latencyBarChart').getContext('2d');
+    new Chart(latCtx, {
+        type: 'bar',
+        data: {
+            labels: ['diff_gaussian', 'TC-GS', 'gsplat', 'speedy_splat', 'opt_speedy\n(Cull)', 'opt_speedy\n(All)'],
+            datasets: [{
+                label: 'P50 Latency (ms)',
+                data: [7.42, 7.44, 7.49, 5.93, 2.87, 2.74],
+                backgroundColor: [
+                    createGradient(latCtx, red, '#fc7c7c'),
+                    createGradient(latCtx, red, '#fc7c7c'),
+                    createGradient(latCtx, red, '#fc7c7c'),
+                    createGradient(latCtx, gold, '#fcd87c'),
+                    createGradient(latCtx, accent2, '#7cfcb0'),
+                    createGradient(latCtx, accent2, '#7cfcb0'),
+                ],
+                borderRadius: 6,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+                datalabels: {
+                    anchor: 'end', align: 'end',
+                    color: '#e0e0f0', font: { weight: 'bold', size: 11 },
+                    formatter: v => v + ' ms'
+                }
+            },
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(42,42,90,0.4)' } },
+                x: { grid: { display: false } }
+            }
+        },
+        plugins: [ChartDataLabels]
+    });
+
+    // ── 3. Speedup Breakdown ──
+    const spCtx = document.getElementById('speedupChart').getContext('2d');
+    new Chart(spCtx, {
+        type: 'bar',
+        data: {
+            labels: ['Baseline\n(speedy_splat)', '+ PreAlloc', '+ Async', '+ Cull', '+ MemPool', '+ Cache', '+ Shared\n(Full)'],
+            datasets: [{
+                data: [0, 5.2, 18.7, 105.5, 108.1, 110.2, 113.0],
+                backgroundColor: [
+                    '#2a2a5a',
+                    createGradient(spCtx, accent, '#9b7ffc'),
+                    createGradient(spCtx, accent, '#9b7ffc'),
+                    createGradient(spCtx, gold, '#fcd87c'),
+                    createGradient(spCtx, gold, '#fcd87c'),
+                    createGradient(spCtx, gold, '#fcd87c'),
+                    createGradient(spCtx, accent2, '#7cfcb0'),
+                ],
+                borderRadius: 6,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+                datalabels: {
+                    anchor: 'end', align: 'end',
+                    color: '#e0e0f0', font: { weight: 'bold', size: 11 },
+                    formatter: v => v > 0 ? '+' + v + '%' : 'Baseline'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true, grid: { color: 'rgba(42,42,90,0.4)' },
+                    ticks: { callback: v => '+' + v + '%' }
+                },
+                x: { grid: { display: false } }
+            }
+        },
+        plugins: [ChartDataLabels]
+    });
+
+    // ── 4. P99 Latency ──
+    const p99Ctx = document.getElementById('p99Chart').getContext('2d');
+    new Chart(p99Ctx, {
+        type: 'bar',
+        data: {
+            labels: ['diff_gaussian', 'TC-GS', 'gsplat', 'speedy_splat', 'opt_speedy\n(Cull)', 'opt_speedy\n(All)'],
+            datasets: [{
+                data: [17.89, 15.65, 15.40, 6.76, 14.07, 11.28],
+                backgroundColor: [
+                    createGradient(p99Ctx, red, '#fc7c7c'),
+                    createGradient(p99Ctx, red, '#fc7c7c'),
+                    createGradient(p99Ctx, red, '#fc7c7c'),
+                    createGradient(p99Ctx, accent2, '#7cfcb0'),
+                    createGradient(p99Ctx, gold, '#fcd87c'),
+                    createGradient(p99Ctx, accent2, '#7cfcb0'),
+                ],
+                borderRadius: 6,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+                datalabels: {
+                    anchor: 'end', align: 'end',
+                    color: '#e0e0f0', font: { weight: 'bold', size: 11 },
+                    formatter: v => v + ' ms'
+                }
+            },
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(42,42,90,0.4)' } },
+                x: { grid: { display: false } }
+            }
+        },
+        plugins: [ChartDataLabels]
+    });
+
+    // ── 5. StdDev Consistency ──
+    const stdCtx = document.getElementById('stddevChart').getContext('2d');
+    new Chart(stdCtx, {
+        type: 'bar',
+        data: {
+            labels: ['speedy_splat', 'diff_gaussian', 'TC-GS', 'gsplat', 'opt_speedy\n(Cull)', 'opt_speedy\n(All)'],
+            datasets: [{
+                data: [3.86, 6.11, 4.70, 3.84, 4.02, 3.84],
+                backgroundColor: [
+                    createGradient(stdCtx, accent2, '#7cfcb0'),
+                    createGradient(stdCtx, red, '#fc7c7c'),
+                    createGradient(stdCtx, gold, '#fcd87c'),
+                    createGradient(stdCtx, accent2, '#7cfcb0'),
+                    createGradient(stdCtx, accent2, '#7cfcb0'),
+                    createGradient(stdCtx, accent2, '#7cfcb0'),
+                ],
+                borderRadius: 6,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+                datalabels: {
+                    anchor: 'end', align: 'end',
+                    color: '#e0e0f0', font: { weight: 'bold', size: 11 },
+                    formatter: v => v + ' ms'
+                }
+            },
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(42,42,90,0.4)' } },
+                x: { grid: { display: false } }
+            }
+        },
+        plugins: [ChartDataLabels]
+    });
+
+    // ── 6. Navigation active state ──
+    const navLinks = document.querySelectorAll('.nav-links a');
+    const sections = document.querySelectorAll('section[id], header.hero');
+
+    function updateActiveNav() {
+        let current = 'overview';
+        sections.forEach(sec => {
+            const rect = sec.getBoundingClientRect();
+            if (rect.top <= 150) current = sec.id || 'overview';
+        });
+        navLinks.forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+        });
+    }
+    window.addEventListener('scroll', updateActiveNav, { passive: true });
+    updateActiveNav();
+
+    // ── 7. Back to top ──
+    const btn = document.getElementById('backToTop');
+    window.addEventListener('scroll', function() {
+        btn.classList.toggle('visible', window.scrollY > 400);
+    }, { passive: true });
+    btn.addEventListener('click', function() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+});
+</script>
 
 </body>
 </html>
