@@ -1,4 +1,4 @@
-﻿"""Generate a fixed set of camera poses and save as cameras.json."""
+"""Generate a fixed set of camera poses and save as cameras.json."""
 import json, math
 import torch
 import numpy as np

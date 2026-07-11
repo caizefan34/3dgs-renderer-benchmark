@@ -1,4 +1,4 @@
-﻿"""
+"""
 Scene generator: creates a synthetic 3D Gaussian point cloud for benchmarking.
 Produces a .ply file with configurable Gaussian count.
 """

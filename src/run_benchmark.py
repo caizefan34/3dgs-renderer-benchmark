@@ -1,4 +1,4 @@
-ï»¿#!/usr/bin/env python
+#!/usr/bin/env python
 """
 3DGS Renderer Benchmark Runner
 """
@@ -11,7 +11,7 @@ import torch
 import numpy as np
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-PROJECT_HOME = os.path.dirname(PROJECT_ROOT)
+PROJECT_HOME = os.path.dirname(os.path.dirname(PROJECT_ROOT))
 sys.path.insert(0, PROJECT_ROOT)
 
 from benchmark_framework import (
@@ -61,7 +61,7 @@ def main():
         return
     
     print("=" * 70)
-    print("  3DGS Renderer Benchmark â€” Phase 1")
+    print("  3DGS Renderer Benchmark ¡ª Phase 1")
     print("=" * 70)
     print(f"  GPU: {torch.cuda.get_device_name(0)}")
     print(f"  CUDA: {torch.version.cuda}  |  PyTorch: {torch.__version__}")
@@ -162,7 +162,7 @@ def main():
     print("=" * 70)
     rankings = results_mgr.get_ranking()
     for i, (name, fps, lat) in enumerate(rankings, 1):
-        tag = " â˜… FASTEST" if i == 1 else ""
+        tag = " ¡ï FASTEST" if i == 1 else ""
         print(f"  #{i}: {name:20s}  {fps:8.1f} FPS  {lat:8.2f} ms{tag}")
     
     results_mgr.export_json(os.path.join(output_dir, "benchmark_results.json"))
