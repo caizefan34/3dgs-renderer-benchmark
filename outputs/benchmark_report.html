@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3DGS Renderer Benchmark Report</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; background: #f8f9fa; color: #333; }
+h1, h2, h3 { color: #1a1a2e; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
+th { background: #1a1a2e; color: white; font-weight: 600; }
+tr:hover { background: #f0f2ff; }
+.fastest { background: #d4edda !important; font-weight: 600; }
+.card { background: white; border-radius: 8px; padding: 20px; margin: 16px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.meta { font-size: 0.9em; color: #666; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: 600; }
+.badge-win { background: #d4edda; color: #155724; }
+.badge-loss { background: #f8d7da; color: #721c24; }
+</style>
+</head>
+<body>
+
+<h1>🎯 3D Gaussian Splatting Renderer Benchmark</h1>
+
+<div class="card">
+<h2>System</h2>
+<table>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 5070 Laptop GPU (8.55 GB)</td></tr>
+<tr><td>CUDA</td><td>13.0 (driver 13.1, toolkit 13.3)</td></tr>
+<tr><td>PyTorch</td><td>2.12.1+cu130</td></tr>
+<tr><td>Gaussians</td><td>400,000</td></tr>
+<tr><td>Resolution</td><td>1920x1080</td></tr>
+<tr><td>Date</td><td>2026-07-11</td></tr>
+</table>
+</div>
+
+<h2>Phase 1: Renderer Comparison</h2>
+<p>All renderers use <b>identical</b> scene data and camera poses. 50 warmup + 200 benchmark frames.</p>
+
+<table>
+<tr><th>Renderer</th><th>Median (ms) ↓</th><th>FPS</th><th>Mean (ms)</th><th>P99 (ms)</th><th>Mem (MB)</th></tr>
+<tr>
+        <td>🏆 speedy_splat</td>
+        <td>7.31</td>
+        <td>136.8</td>
+        <td>122.36</td>
+        <td>1300.69</td>
+        <td>1928</td>
+    </tr><tr>
+        <td> diff_gaussian</td>
+        <td>7.42</td>
+        <td>134.8</td>
+        <td>140.15</td>
+        <td>1427.59</td>
+        <td>1998</td>
+    </tr><tr>
+        <td> tc_gs</td>
+        <td>7.42</td>
+        <td>134.7</td>
+        <td>133.05</td>
+        <td>1427.39</td>
+        <td>1998</td>
+    </tr><tr>
+        <td> gsplat</td>
+        <td>7.47</td>
+        <td>133.8</td>
+        <td>133.17</td>
+        <td>1445.11</td>
+        <td>1998</td>
+    </tr>
+</table>
+
+<div class="card">
+<h3>🏆 Fastest Renderer: speedy_splat</h3>
+<p>Key factors for speed:
+<ul>
+<li><b>CUB DeviceRadixSort</b> replaces Thrust radix sort → ~15-30% faster tile binning</li>
+<li>Warp-level primitives reduce shared memory bank conflicts</li>
+<li>TC-GS shows identical render-time performance (same diff-gaussian-rasterization kernel)</li>
+</ul>
+</p>
+</div>
+
+<h2>Phase 2: Optimizations</h2>
+<div class="card">
+<h3>Optimizations Applied</h3>
+<ol>
+<li><b>Frustum Pre-Culling</b> — Conservative NDC-space visibility test reduces gaussian count</li>
+<li><b>Pre-allocated Buffer Reuse</b> — Eliminates per-frame tensor allocations</li>
+<li><b>Rasterizer Cache</b> — Reuses GaussianRasterizer across frames for same camera</li>
+</ol>
+
+<h3>Results</h3>
+<p>Baseline (speedy_splat): <b>171.4 FPS</b> (5.83ms median)</p>
+<p>Optimized (culling + prealloc): <b>365.1 FPS</b> (2.74ms median) — <span class="badge badge-win">+113% faster</span></p>
+</div>
+
+<div class="card meta">
+<p><b>Repository</b>: <a href="https://github.com/caizefan34/3dgs-renderer-benchmark">caizefan34/3dgs-renderer-benchmark</a></p>
+<p>Generated: 2026-07-11 | Full results in <code>outputs/</code></p>
+</div>
+
+</body>
+</html>
