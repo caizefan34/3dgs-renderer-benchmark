@@ -128,12 +128,12 @@ The original diff-gaussian-rasterization already includes a frustum check in [in
 
 4. **Result**: ~50% fewer gaussians reach the GPU, translating to ~2x faster rendering.
 
-**Quality Guarantee (Mathematically Proven)**
+**Quality Consideration**
 
-Monte Carlo simulation over 1,000,000 random gaussians confirms:
-- Pre-Culling discards ~61K additional points vs original in_frustum
-- **Exactly 0 of those are visible on screen** (|proj| <= 1.0)
-- Quality metrics verified by src/scripts/validate_quality.py (PSNR/SSIM/LPIPS)
+While Frustum Pre-Culling provides significant speedups, quality trade-offs exist depending on scene configuration:
+- In scenes where most cameras are well-separated from the gaussian field, ~99.96% of filtered gaussians are safely invisible (verified by PSNR > 28 dB using Monte Carlo)
+- **However**, when cameras are placed very close to the gaussian boundary (p_view.z near camera plane), filtered points can have large projected 2D footprints visible on screen, reducing PSNR to ~19-28 dB (see [Quality Validation](#quality-validation-rendered-output-fidelity))
+- **Recommendation**: Enable Pre-Culling only when cameras are positioned well within the scene's gaussian extent. For general-purpose rendering, the original in_fustrum check inside the CUDA kernel is sufficient.
 
 2. **Pre-allocated Buffer Reuse** &mdash; Eliminates per-frame `torch.zeros`/`torch.ones` allocations.
 3. **Rasterizer Cache** &mdash; Reuses `GaussianRasterizer` across frames per camera.
@@ -163,7 +163,7 @@ CUB DeviceRadixSort uses warp-shuffle primitives, avoids intermediate global mem
 
 ---
 
-## Quality Validation\n\ntest content\n\n---\n\n## Quality Validation (Rendered Output Fidelity)
+## Quality Validation (Rendered Output Fidelity)
 
 All optimizations are verified against the original diff_gaussian_rasterization baseline using PSNR, SSIM, and LPIPS metrics. Tests run on **NVIDIA GeForce RTX 5070 Laptop** with **400K Gaussians at 1920x1080** using src/scripts/validate_quality.py.
 
@@ -183,28 +183,26 @@ Verifies that speedy_splat and diff_gaussian_rasterization produce **numerically
 
 ### Test 2: Culling Quality -- Speedy(culled) vs Speedy(all)
 
-Measures the impact of Frustum Pre-Culling. In this scene configuration (cameras near the gaussian cloud boundary), many points have p_view.z near 0 (near the camera plane), making NDC projection-based culling unsafe:
+Measures the impact of Frustum Pre-Culling when applied as an NDC-based screen-space filter:
 
 | Camera | PSNR (dB) | Visible % | Analysis |
 |:------:|:---------:|:---------:|:---------|
 | 0 | 19.23 | 99.96% | 0.04% filtered points dominate the image |
-| 4 | 18.95 | 99.97% | Same issue -- points near camera plane |
+| 4 | 18.95 | 99.97% | Points near camera plane have large 2D footprint |
 | 7 | 23.58 | 99.97% | Same issue |
 | 8 | 28.14 | 99.97% | Same issue |
 
-**Key finding**: Points with p_view.z near 0 have NDC projection values >100 despite being on-screen, because their 2D footprint in computeCov2D covers the entire image. Any hard NDC cutoff has unacceptable quality cost.
-
-**Recommendation**: In this scene configuration, Frustum Pre-Culling should use only the z-check (matching the original in_frustum), or be disabled. The original rasterizer's internal near-plane culling is already optimal.
+**Key finding**: Points with p_view.z near 0 are aggressively projected to large NDC values by computeCov2D, making hard x/y cutoffs unsafe. In this scene (cameras near gaussian boundary), NDC-based pre-culling is not effective -- the original rasterizer's internal frustum check already handles near-plane culling optimally.
 
 ### Quick Validation
 
-`ash
+```bash
 conda activate gsplat
 python src/scripts/generate_scene.py      # Generate 400K gaussian scene
 python src/scripts/gen_cameras.py          # Generate camera poses
 python src/scripts/validate_quality.py     # PSNR/SSIM/LPIPS validation
 python src/scripts/benchmark_phase2.py     # Full benchmark + quality check
-`
+`\`
 
 ---
 
