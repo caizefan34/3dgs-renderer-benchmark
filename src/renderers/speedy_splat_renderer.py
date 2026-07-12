@@ -1,4 +1,4 @@
-﻿"""
+"""
 speedy-splat renderer adapter.
 Uses CUB DeviceRadixSort optimized rasterization backend.
 """

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Renderer adapter base class and interface.
 """
 from abc import ABC, abstractmethod

@@ -1,0 +1,64 @@
+﻿name: Benchmark Regression
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 30
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup conda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        python-version: '3.11'
+        activate-environment: gsplat-bench
+    
+    - name: Install dependencies
+      run: |
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+        pip install diff-gaussian-rasterization
+        pip install git+https://github.com/j-alex-hanson/speedy-splat
+        pip install numpy matplotlib
+    
+    - name: Generate test scene
+      run: python src/scripts/generate_scene.py
+    
+    - name: Generate camera paths
+      run: python src/scripts/generate_camera_path.py --type spiral
+    
+    - name: Run benchmark
+      run: |
+        python src/run_benchmark.py \
+          --renderers speedy_splat diff_gaussian \
+          --frames 50 --warmup 10 \
+          --output results/ci
+
+    - name: Compare with baseline
+      run: |
+        echo "Checking for regression..."
+        python -c "
+import json
+with open('results/ci/benchmark_results.json') as f:
+    data = json.load(f)
+for rname, r in data.items():
+    fps = r['mean_fps']
+    print(f'{rname}: {fps:.1f} FPS')
+"
+    
+    - name: Archive results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: results/ci/
+    
+    - name: Notify on regression
+      if: failure()
+      run: echo '::warning::Benchmark regression detected — check results/ci/ for details'

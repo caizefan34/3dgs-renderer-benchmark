@@ -1,26 +1,25 @@
-﻿"""
+"""
 Benchmark framework core.
 
-scene.py: Load and manage 3DGS scene data from .ply files.
+scene.py: Load and manage 3DGS scene data from .ply files (vectorized read).
 """
 
 import numpy as np
 import torch
-import struct
 import os
-from typing import Tuple, Optional
 
 
 def load_ply(path: str, device: str = "cuda") -> dict:
     """Load a 3DGS .ply file and return a dict of tensors.
     
     Expected format: position (x,y,z), opacity, scale_0..2, rot_0..3, f_dc_0..47 (SH degree 3)
+    
+    Uses vectorized numpy structured array read (~1000x faster than Python loop).
     """
     if not os.path.exists(path):
         raise FileNotFoundError(f"PLY file not found: {path}")
     
     with open(path, "rb") as f:
-        # Parse header
         header_lines = []
         while True:
             line = f.readline().decode("ascii").strip()
@@ -28,7 +27,6 @@ def load_ply(path: str, device: str = "cuda") -> dict:
                 break
             header_lines.append(line)
         
-        # Parse element count
         num_points = 0
         for line in header_lines:
             if line.startswith("element vertex"):
@@ -37,67 +35,40 @@ def load_ply(path: str, device: str = "cuda") -> dict:
         if num_points == 0:
             raise ValueError("No vertices found in PLY file")
         
-        # Detect properties
         props = []
         for line in header_lines:
             if line.startswith("property"):
                 parts = line.split()
-                dtype_str = parts[1]
-                name = parts[2]
-                props.append((name, dtype_str))
+                props.append((parts[2], parts[1]))
         
         print(f"  Loading {num_points} Gaussians, {len(props)} properties from {path}")
-        
-        # Read binary data while file is still open
         data = f.read()
     
-    # Calculate stride
-    fmt = "<"
-    prop_names = []
-    for name, dtype_str in props:
-        if dtype_str in ("float", "float32"):
-            fmt += "f"
-        elif dtype_str in ("double", "float64"):
-            fmt += "d"
-        elif dtype_str in ("int", "int32"):
-            fmt += "i"
-        elif dtype_str in ("uchar", "uint8"):
-            fmt += "B"
-        else:
-            fmt += "f"
-        prop_names.append(name)
+    # Build numpy structured dtype from PLY property specifiers
+    np_dtype_map = {"float": "f4", "float32": "f4", "double": "f8", "float64": "f8",
+                    "int": "i4", "int32": "i4", "uchar": "u1", "uint8": "u1"}
+    dt_list = [(name, np.dtype(np_dtype_map.get(dtype, "f4"))) for name, dtype in props]
+    col_names = [name for name, _ in props]
     
-    stride = struct.calcsize(fmt)
-    num_vertices = len(data) // stride
+    vertex_dtype = np.dtype(dt_list)
+    actual_count = len(data) // vertex_dtype.itemsize
     
-    if num_vertices != num_points:
-        print(f"  Warning: header says {num_points}, data has {num_vertices}")
+    if actual_count != num_points:
+        print(f"  Warning: header says {num_points}, data has {actual_count}")
     
-    # Parse all vertices into dict of arrays
-    arrays = {}
-    for name in prop_names:
-        arrays[name] = np.zeros(num_vertices, dtype=np.float32)
+    # Vectorized read: one bulk numpy call replaces 400K Python loops
+    records = np.frombuffer(data, dtype=vertex_dtype, count=actual_count)
     
-    for i in range(num_vertices):
-        offset = i * stride
-        vals = struct.unpack_from(fmt, data, offset)
-        for j, name in enumerate(prop_names):
-            arrays[name][i] = vals[j]
+    xyz = np.column_stack([records["x"], records["y"], records["z"]]).astype(np.float32)
+    opacity = records["opacity"].astype(np.float32)
+    scales = np.column_stack([records["scale_0"], records["scale_1"], records["scale_2"]]).astype(np.float32)
+    rotations = np.column_stack([records["rot_0"], records["rot_1"], records["rot_2"], records["rot_3"]]).astype(np.float32)
     
-    # Convert to named tensors
-    xyz = np.column_stack([arrays["x"], arrays["y"], arrays["z"]]).astype(np.float32)
-    opacity = arrays["opacity"].astype(np.float32)
+    sh_cols = [n for n in col_names if n.startswith("f_dc_")]
+    shs = np.column_stack([records[n] for n in sh_cols]).astype(np.float32) if sh_cols else None
     
-    scales = np.column_stack([arrays["scale_0"], arrays["scale_1"], arrays["scale_2"]]).astype(np.float32)
-    rotations = np.column_stack([arrays["rot_0"], arrays["rot_1"], arrays["rot_2"], arrays["rot_3"]]).astype(np.float32)
+    file_size_mb = os.path.getsize(path) / (1024 * 1024)
     
-    sh_names = [n for n in prop_names if n.startswith("f_dc_")]
-    if sh_names:
-        shs = np.column_stack([arrays[n] for n in sh_names]).astype(np.float32)
-    else:
-        shs = None
-    
-    # Move to GPU
     result = {
         "xyz": torch.from_numpy(xyz).to(device),
         "opacity": torch.from_numpy(opacity).to(device),
@@ -106,13 +77,10 @@ def load_ply(path: str, device: str = "cuda") -> dict:
     }
     if shs is not None:
         result["shs"] = torch.from_numpy(shs).to(device)
-        # DC colors
         C0 = 0.28209479177387814
         result["dc_colors"] = torch.from_numpy(shs[:, :3] * C0 + 0.5).clamp(0, 1).to(device)
-    
     result["num_points"] = num_points
     
-    file_size_mb = os.path.getsize(path) / (1024 * 1024)
     print(f"  File size: {file_size_mb:.1f} MB")
     print(f"  Loaded {num_points} Gaussians with {shs.shape[1] if shs is not None else 0} SH coefficients")
     

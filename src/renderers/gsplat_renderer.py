@@ -1,4 +1,4 @@
-﻿"""
+"""
 gsplat renderer adapter - uses diff-gaussian-rasterization (ashawkey fork).
 Since gsplat's native CUDA kernels are not compiled, this adapter delegates to
 the diff-gaussian-rasterization package directly, matching gsplat's parameter

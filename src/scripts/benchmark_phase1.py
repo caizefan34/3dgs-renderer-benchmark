@@ -1,6 +1,6 @@
 """
-Phase 1 Benchmark: all renderers (including TC-GS) on identical scene and cameras.
-Tests: speedy_splat, diff_gaussian, tc_gs, gsplat
+Phase 1 Benchmark: all renderers on identical scene and cameras.
+Key optimization: reuse rasterizer per camera (no per-frame constructor overhead).
 """
 import sys, torch, time, gc, json, os
 import numpy as np
@@ -15,16 +15,20 @@ OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.a
 scene = load_ply(SCENE, device="cuda")
 cameras = load_cameras_from_json(CAMS, device="cuda")
 N_CAMS = len(cameras)
-print(f"Loaded {N_CAMS} cameras, {scene['num_points']} gaussians")
+N_G = scene["num_points"]
+print(f"Loaded {N_CAMS} cameras, {N_G} gaussians")
 
 means3d = scene["xyz"].contiguous()
 opacities = torch.sigmoid(scene["opacity"]).contiguous()
 shs = scene["shs"].contiguous()
 scales = scene["scales"].contiguous()
 rotations = torch.nn.functional.normalize(scene["rotations"], dim=-1).contiguous()
+means2d_base = torch.zeros_like(means3d[:, :2])
 
-def create_renderer(rname, cam):
-    if rname == "speedy_splat":
+
+def make_renderer(rname, cam):
+    """Create rasterizer. Returns (rasterizer, needs_scores)."""
+    if rname in ("speedy_splat",):
         from speedy_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
         s = GaussianRasterizationSettings(
             image_height=1080, image_width=1920,
@@ -49,7 +53,8 @@ def create_renderer(rname, cam):
         )
         return GaussianRasterizer(s), False
 
-def render_frame(rname, rast, needs_scores):
+
+def render_frame(rast, needs_scores):
     m2 = torch.zeros_like(means3d[:, :2])
     if needs_scores:
         scores = torch.ones(means3d.shape[0], device="cuda")
@@ -62,6 +67,7 @@ def render_frame(rname, rast, needs_scores):
             scales=scales, rotations=rotations, cov3D_precomp=None)
     return out
 
+
 all_results = {}
 
 for rname in ["speedy_splat", "diff_gaussian", "tc_gs", "gsplat"]:
@@ -73,14 +79,14 @@ for rname in ["speedy_splat", "diff_gaussian", "tc_gs", "gsplat"]:
     torch.cuda.empty_cache()
     gc.collect()
     
-    # Constructor timing
-    print("  [Phase 1] Measuring rasterizer construction time ({N_CAMS} cameras)...", end=" ", flush=True)
+    # Phase 1: Constructor timing
+    print(f"  [Phase 1] Measuring rasterizer construction time ({N_CAMS} cameras)...", end=" ", flush=True)
     construct_times = []
     for ci in range(min(N_CAMS, 50)):
         cam = cameras[ci]
         torch.cuda.synchronize()
         t0 = time.perf_counter()
-        rast, needs_scores = create_renderer(rname, cam)
+        rast, needs_scores = make_renderer(rname, cam)
         torch.cuda.synchronize()
         construct_times.append((time.perf_counter() - t0) * 1000)
         del rast
@@ -88,42 +94,56 @@ for rname in ["speedy_splat", "diff_gaussian", "tc_gs", "gsplat"]:
     ct = np.array(construct_times)
     print(f"mean={ct.mean():.2f}ms, median={np.median(ct):.2f}ms")
     
-    # Render timing
-    print("  [Phase 2] Measuring pure render time (200 frames)...", end=" ", flush=True)
+    # Phase 2: Reuse rasterizer per camera (not per frame)
+    # Build rasterizer cache: one per camera view
+    print(f"  [Phase 2] Building rasterizer cache for {N_CAMS} cameras...", end=" ", flush=True)
+    rast_cache = {}
+    rast_needs_scores = {}
+    for ci in range(N_CAMS):
+        r, ns = make_renderer(rname, cameras[ci])
+        rast_cache[ci] = r
+        rast_needs_scores[ci] = ns
+    print("done")
+    
+    # Warmup
+    print("  [Phase 3] Warmup (50 frames)...", end=" ", flush=True)
+    for _ in range(50):
+        ci = 0
+        with torch.no_grad():
+            render_frame(rast_cache[ci], rast_needs_scores[ci])
+    print("done")
+    
+    # Benchmark: cycle through cameras, reuse cached rasterizer per camera
+    print("  [Phase 4] Measuring render time (200 frames, cached rasterizer)...", end=" ", flush=True)
     render_times = []
     peak_mem = 0
     
-    # Warmup
-    cam0 = cameras[0]
-    rast, needs_scores = create_renderer(rname, cam0)
-    for _ in range(50):
-        torch.cuda.synchronize()
-        with torch.no_grad():
-            render_frame(rname, rast, needs_scores)
-        torch.cuda.synchronize()
-    del rast
-    gc.collect()
-    torch.cuda.empty_cache()
-    
-    # Benchmark frames
     for fi in range(200):
-        cam = cameras[fi % N_CAMS]
-        rast, needs_scores = create_renderer(rname, cam)
+        ci = fi % N_CAMS
+        rast = rast_cache[ci]
+        ns = rast_needs_scores[ci]
+        
         torch.cuda.synchronize()
         t0 = time.perf_counter()
         with torch.no_grad():
-            render_frame(rname, rast, needs_scores)
+            render_frame(rast, ns)
         torch.cuda.synchronize()
         elapsed = (time.perf_counter() - t0) * 1000
         render_times.append(elapsed)
+        
         mem = torch.cuda.max_memory_allocated() / (1024 * 1024)
         if mem > peak_mem:
             peak_mem = mem
-        del rast
-        gc.collect()
+        
         if (fi + 1) % 50 == 0:
             print(f"{fi+1}..", end="", flush=True)
     print(" done")
+    
+    # Cleanup cache for this renderer
+    del rast_cache
+    del rast_needs_scores
+    gc.collect()
+    torch.cuda.empty_cache()
     
     t = np.array(render_times)
     t_sorted = np.sort(t)
@@ -134,7 +154,7 @@ for rname in ["speedy_splat", "diff_gaussian", "tc_gs", "gsplat"]:
         "renderer": rname,
         "num_frames": 200,
         "warmup": 50,
-        "num_gaussians": scene["num_points"],
+        "num_gaussians": N_G,
         "peak_memory_mb": round(float(peak_mem), 1),
         "construct_mean_ms": round(float(ct.mean()), 3),
         "construct_median_ms": round(float(np.median(ct)), 3),
@@ -189,7 +209,7 @@ output = {
         "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU (8.55 GB)",
         "cuda": "13.0 (driver 13.1, toolkit 13.3)",
         "pytorch": "2.12.1+cu130",
-        "num_gaussians": scene["num_points"],
+        "num_gaussians": N_G,
         "resolution": "1920x1080",
         "scene": "Synthetic 400K GS, SH degree 3",
         "cameras": f"{N_CAMS} fixed orbit views",
@@ -203,3 +223,4 @@ output = {
 with open(os.path.join(OUT_DIR, "benchmark_results_phase1.json"), "w") as f:
     json.dump(output, f, indent=2, ensure_ascii=False)
 print(f"\nResults saved to {os.path.join(OUT_DIR, 'benchmark_results_phase1.json')}")
+

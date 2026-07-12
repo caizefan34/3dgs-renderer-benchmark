@@ -1,4 +1,4 @@
-﻿"""
+"""
 Renderer adapter registry.
 """
 from .base import RendererAdapter

@@ -1,4 +1,4 @@
-﻿"""
+"""
 diff-gaussian-rasterization (ashawkey fork) renderer adapter.
 """
 import torch

@@ -1,4 +1,4 @@
-﻿"""
+"""
 fast-gaussian-rasterization renderer adapter.
 Uses CUDA-GL interop (geometry shaders). Only works with EGL/display on Linux.
 """

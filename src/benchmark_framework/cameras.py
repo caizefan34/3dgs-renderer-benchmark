@@ -1,4 +1,4 @@
-﻿"""
+"""
 Camera generation for benchmarking.
 """
 import json
@@ -25,53 +25,48 @@ class Camera:
     tanfovy: float
 
 
+
 def load_cameras_from_json(path: str, device: str = "cuda") -> List[Camera]:
-    """Load fixed camera poses from cameras.json.
+    """Load fixed camera poses from cameras.json (optimized tensor creation).
     
     This ensures reproducible benchmarks across runs and renderers.
     """
     with open(path) as f:
         data = json.load(f)
     
+    near, far = 0.01, 100.0
     cameras = []
     for cd in data["cameras"]:
         W, H = cd["image_width"], cd["image_height"]
         tan_fov_x = cd["tanfovx"]
         tan_fov_y = cd["tanfovy"]
-        fov_x = cd["fov_x_rad"]
-        fov_y = cd["fov_y_rad"]
         
         viewmatrix = torch.tensor(cd["viewmatrix"], dtype=torch.float32, device=device)
         cam_pos = torch.tensor(cd["camera_center"], dtype=torch.float32, device=device)
         
-        # Projection matrix
-        near, far = 0.01, 100.0
-        projmatrix = torch.zeros(4, 4, dtype=torch.float32, device=device)
-        projmatrix[0, 0] = 1.0 / tan_fov_x
-        projmatrix[1, 1] = 1.0 / tan_fov_y
-        projmatrix[2, 2] = far / (far - near)
-        projmatrix[2, 3] = -far * near / (far - near)
-        projmatrix[3, 2] = 1.0
+        # Build projection matrix inline (avoid torch.zeros + 4 assignments)
+        p00, p11 = 1.0 / tan_fov_x, 1.0 / tan_fov_y
+        p22, p23 = far / (far - near), -far * near / (far - near)
+        projmatrix = torch.tensor([
+            [p00, 0, 0, 0],
+            [0, p11, 0, 0],
+            [0, 0, p22, p23],
+            [0, 0, 1, 0],
+        ], dtype=torch.float32, device=device)
         
         full_proj = (viewmatrix @ projmatrix).T
         
-        cam = Camera(
-            image_width=W,
-            image_height=H,
-            fov_x=fov_x,
-            fov_y=fov_y,
-            viewmatrix=viewmatrix,
-            projmatrix=projmatrix,
+        cameras.append(Camera(
+            image_width=W, image_height=H,
+            fov_x=cd["fov_x_rad"], fov_y=cd["fov_y_rad"],
+            viewmatrix=viewmatrix, projmatrix=projmatrix,
             camera_center=cam_pos,
             world_view_transform=viewmatrix.T.contiguous(),
             full_proj_transform=full_proj.contiguous(),
-            tanfovx=tan_fov_x,
-            tanfovy=tan_fov_y,
-        )
-        cameras.append(cam)
+            tanfovx=tan_fov_x, tanfovy=tan_fov_y,
+        ))
     
     return cameras
-
 
 def generate_cameras(
     num_cameras: int,
@@ -81,63 +76,73 @@ def generate_cameras(
     scene_radius: float = 5.0,
     device: str = "cuda"
 ) -> List[Camera]:
-    """Generate camera poses orbiting around the origin (for backward compat)."""
+    """Generate camera poses orbiting around the origin (CPU math, GPU tensors once)."""
     fov = math.radians(fov_deg)
     tan_fov = math.tan(fov * 0.5)
     aspect = image_width / image_height
     fov_y = 2 * math.atan(tan_fov / aspect)
     tan_fov_y = math.tan(fov_y * 0.5)
     tan_fov_x = tan_fov
-    
+    near, far = 0.01, 100.0
+    proj_00 = 1.0 / tan_fov_x
+    proj_11 = 1.0 / tan_fov_y
+    proj_22 = far / (far - near)
+    proj_23 = -far * near / (far - near)
+
     cameras = []
     for i in range(num_cameras):
         theta = 2 * math.pi * i / num_cameras
         phi = math.radians(15.0 * math.sin(theta * 2))
         radius = scene_radius * 0.8 + 0.4 * math.sin(theta * 3) * 0.5
-        
-        cam_pos = torch.tensor([
-            radius * math.cos(theta) * math.cos(phi),
-            radius * math.sin(theta) * math.cos(phi),
-            radius * math.sin(phi) + 0.5
+
+        cx = radius * math.cos(theta) * math.cos(phi)
+        cy = radius * math.sin(theta) * math.cos(phi)
+        cz = radius * math.sin(phi) + 0.5
+
+        dist = math.sqrt(cx*cx + cy*cy + cz*cz)
+        zx, zy, zz = cx/dist, cy/dist, cz/dist
+
+        upx, upy, upz = 0.0, 0.0, 1.0
+        xx = upy * zz - upz * zy
+        xy = upz * zx - upx * zz
+        xz = upx * zy - upy * zx
+        xnorm = math.sqrt(xx*xx + xy*xy + xz*xz)
+        xx /= xnorm; xy /= xnorm; xz /= xnorm
+
+        yx = zy * xz - zz * xy
+        yy = zz * xx - zx * xz
+        yz = zx * xy - zy * xx
+
+        tx = -(xx * cx + xy * cy + xz * cz)
+        ty = -(yx * cx + yy * cy + yz * cz)
+        tz = -(zx * cx + zy * cy + zz * cz)
+
+        viewmatrix = torch.tensor([
+            [xx, xy, xz, tx],
+            [yx, yy, yz, ty],
+            [zx, zy, zz, tz],
+            [0, 0, 0, 1],
         ], dtype=torch.float32, device=device)
-        
-        look_at = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32, device=device)
-        up = torch.tensor([0.0, 0.0, 1.0], dtype=torch.float32, device=device)
-        
-        z_axis = (cam_pos - look_at) / torch.norm(cam_pos - look_at)
-        x_axis = torch.linalg.cross(up, z_axis)
-        x_axis = x_axis / torch.norm(x_axis)
-        y_axis = torch.linalg.cross(z_axis, x_axis)
-        
-        viewmatrix = torch.eye(4, dtype=torch.float32, device=device)
-        viewmatrix[0, :3] = x_axis
-        viewmatrix[1, :3] = y_axis
-        viewmatrix[2, :3] = z_axis
-        viewmatrix[:3, 3] = -viewmatrix[:3, :3] @ cam_pos
-        
-        near, far = 0.01, 100.0
+
+        cam_pos = torch.tensor([cx, cy, cz], dtype=torch.float32, device=device)
+
         projmatrix = torch.zeros(4, 4, dtype=torch.float32, device=device)
-        projmatrix[0, 0] = 1.0 / tan_fov_x
-        projmatrix[1, 1] = 1.0 / tan_fov_y
-        projmatrix[2, 2] = far / (far - near)
-        projmatrix[2, 3] = -far * near / (far - near)
+        projmatrix[0, 0] = proj_00
+        projmatrix[1, 1] = proj_11
+        projmatrix[2, 2] = proj_22
+        projmatrix[2, 3] = proj_23
         projmatrix[3, 2] = 1.0
-        
+
         full_proj = (viewmatrix @ projmatrix).T
-        
-        cam = Camera(
-            image_width=image_width,
-            image_height=image_height,
-            fov_x=fov,
-            fov_y=fov_y,
-            viewmatrix=viewmatrix,
-            projmatrix=projmatrix,
+
+        cameras.append(Camera(
+            image_width=image_width, image_height=image_height,
+            fov_x=fov, fov_y=fov_y,
+            viewmatrix=viewmatrix, projmatrix=projmatrix,
             camera_center=cam_pos,
             world_view_transform=viewmatrix.T.contiguous(),
             full_proj_transform=full_proj.contiguous(),
-            tanfovx=tan_fov_x,
-            tanfovy=tan_fov_y,
-        )
-        cameras.append(cam)
-    
+            tanfovx=tan_fov_x, tanfovy=tan_fov_y,
+        ))
+
     return cameras
