@@ -161,7 +161,7 @@ python src/scripts/validate_quality.py --frames 10
 | SSIM | 1.0 | >= 0.99 | PASS |
 | LPIPS | 0.0 | <= 0.02 | PASS |
 
-The Pre-Culling uses a conservative 3x NDC margin (`[-3.0, 3.0]` vs screen `[-1.0, 1.0]`): **no visible gaussian is discarded**. A Monte Carlo simulation over 1,000,000 random gaussians confirms zero on-screen points are lost.
+The Pre-Culling uses a conservative 3x NDC margin (`[-3.0, 3.0]` vs screen `[-1.0, 1.0]`): **no visible gaussian is discarded**. 
 
 ```bash
 # Run quality validation on GPU
@@ -170,7 +170,6 @@ python src/scripts/validate_quality.py --frames 10
 
 ---
 
-## License
 ## License
 
 MIT License. Benchmark data and scripts are provided for research and educational purposes.
