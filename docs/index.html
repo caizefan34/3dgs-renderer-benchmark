@@ -579,23 +579,7 @@
             Run <code>src/scripts/validate_quality.py</code> to reproduce.
         </p>
 
-        <div class=card-grid>
-            <div class=card>
-                <h3>Test 1: Rasterizer Consistency</h3>
-                <p><code>speedy_splat</code> vs <code>diff_gaussian</code> (all points)</p>
-                <div class=table-wrap style=margin-top:12px>
-                <table>
-                    <tr><th>Camera</th><th>PSNR</th><th>SSIM</th><th>LPIPS</th><th>MaxDiff</th><th>Result</th></tr>
-                    <tr><td>0</td><td class=num>inf</td><td class=num>1.0</td><td class=num>0.0</td><td class=num>0.0</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
-                    <tr><td>1</td><td class=num>inf</td><td class=num>1.0</td><td class=num>0.0</td><td class=num>0.0</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
-                    <tr><td>3</td><td class=num>inf</td><td class=num>1.0</td><td class=num>0.0</td><td class=num>0.0</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
-                    <tr><td>4</td><td class=num>inf</td><td class=num>1.0</td><td class=num>0.0</td><td class=num>0.0</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
-                </table>
-                </div>
-                <p style=margin-top:8px;color:var(--accent2)>
-                    4/4 frames are bit-identical (PSNR = inf dB, MaxDiff = 0.0). Frame 2 excluded (RENDER_FAILED due to CUDA storage overflow).
-                </p>
-            </div>
+        <div class=card-grid><div class=card><h3>Rasterizer Consistency</h3><p><code>speedy_splat</code> vs <code>diff_gaussian</code> (all points)</p><p style=margin-top:8px;color:var(--accent2)>Bit-identical when both run. GPU non-determinism: same-lib calls differ up to 3.1e-2 (dense overlap).</p><p style=margin-top:4px;color:var(--gold)>speedy_gaussian_rasterization has storage overflow bug with scores param on 400K GS.</p></div><div class=card><h3>Pre-Culling Statistics</h3><p>NDC Pre-Culling vs in_frustum (z>0.2)</p><div class=table-wrap style=margin-top:12px><table><tr><th>Frame</th><th>Total</th><th>in_frustum</th><th>Post-Cull</th><th>Delta</th></tr><tr><td>0</td><td class=num>400K</td><td class=num>694</td><td class=num>826</td><td style=color:var(--accent2)>+132</td></tr><tr><td>1</td><td class=num>400K</td><td class=num>598</td><td class=num>699</td><td style=color:var(--accent2)>+101</td></tr><tr><td>4</td><td class=num>400K</td><td class=num>504</td><td class=num>599</td><td style=color:var(--accent2)>+95</td></tr><tr><td>8</td><td class=num>400K</td><td class=num>679</td><td class=num>823</td><td style=color:var(--accent2)>+144</td></tr></table></div><p style=margin-top:8px;color:var(--accent2)>Pre-Culling (z>0.1) more permissive than in_frustum (z>0.2). No visible content discarded.</p></div></div>
 
             <div class=card>
                 <h3>Test 2: Pre-Culling Statistics</h3>
