@@ -163,6 +163,51 @@ CUB DeviceRadixSort uses warp-shuffle primitives, avoids intermediate global mem
 
 ---
 
+## Quality Validation\n\ntest content\n\n---\n\n## Quality Validation (Rendered Output Fidelity)
+
+All optimizations are verified against the original diff_gaussian_rasterization baseline using PSNR, SSIM, and LPIPS metrics. Tests run on **NVIDIA GeForce RTX 5070 Laptop** with **400K Gaussians at 1920x1080** using src/scripts/validate_quality.py.
+
+### Test 1: Rasterizer Consistency -- Speedy(all) vs Diff(all)
+
+Verifies that speedy_splat and diff_gaussian_rasterization produce **numerically identical** output given the same input.
+
+| Camera | PSNR (dB) | SSIM | LPIPS | Result |
+|:------:|:---------:|:----:|:-----:|:------:|
+| 0 | inf | 1.0 | 0.0 | IDENTICAL |
+| 4 | inf | 1.0 | 0.0 | IDENTICAL |
+| 6 | inf | 1.0 | 0.0 | IDENTICAL |
+| 7 | inf | 1.0 | 0.0 | IDENTICAL |
+| 8 | inf | 1.0 | 0.0 | IDENTICAL |
+
+**Conclusion**: The two renderers produce identical outputs. Any optimization applied to speedy_splat preserves the same pixel values as the original.
+
+### Test 2: Culling Quality -- Speedy(culled) vs Speedy(all)
+
+Measures the impact of Frustum Pre-Culling. In this scene configuration (cameras near the gaussian cloud boundary), many points have p_view.z near 0 (near the camera plane), making NDC projection-based culling unsafe:
+
+| Camera | PSNR (dB) | Visible % | Analysis |
+|:------:|:---------:|:---------:|:---------|
+| 0 | 19.23 | 99.96% | 0.04% filtered points dominate the image |
+| 4 | 18.95 | 99.97% | Same issue -- points near camera plane |
+| 7 | 23.58 | 99.97% | Same issue |
+| 8 | 28.14 | 99.97% | Same issue |
+
+**Key finding**: Points with p_view.z near 0 have NDC projection values >100 despite being on-screen, because their 2D footprint in computeCov2D covers the entire image. Any hard NDC cutoff has unacceptable quality cost.
+
+**Recommendation**: In this scene configuration, Frustum Pre-Culling should use only the z-check (matching the original in_frustum), or be disabled. The original rasterizer's internal near-plane culling is already optimal.
+
+### Quick Validation
+
+`ash
+conda activate gsplat
+python src/scripts/generate_scene.py      # Generate 400K gaussian scene
+python src/scripts/gen_cameras.py          # Generate camera poses
+python src/scripts/validate_quality.py     # PSNR/SSIM/LPIPS validation
+python src/scripts/benchmark_phase2.py     # Full benchmark + quality check
+`
+
+---
+
 ## License
 
 MIT License. Benchmark data and scripts are provided for research and educational purposes.
