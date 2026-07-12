@@ -14,8 +14,9 @@ Requires:
 import sys, os, json, torch
 import numpy as np
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(PROJECT_ROOT, "src", "benchmark_framework"))
+PROJECT_ROOT = r"C:\Users\36570\Documents\Codex\2026-07-12\caizefan34-3dgs-renderer-benchmark-https-github-2\work\repo"
+sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
+sys.path.insert(0, r'C:\Users\36570\Documents\Codex\2026-07-12\caizefan34-3dgs-renderer-benchmark-https-github-2\work\repo\src\benchmark_framework')
 from benchmark_framework import load_ply, load_cameras_from_json
 
 SCENE = os.path.join(PROJECT_ROOT, "data", "scene.ply")
@@ -77,14 +78,16 @@ class Validator:
         print(f"  {self.N_G} gaussians, {len(self.cameras)} cameras")
 
     def _cull_mask(self, cam):
+        # p_view.z = viewmatrix[2,0]*x + viewmatrix[2,1]*y + viewmatrix[2,2]*z + viewmatrix[2,3]
         view = cam.viewmatrix
-        cp = cam.camera_center
-        cx, cy, cz = view[0, :3], view[1, :3], view[2, :3]
-        d = self.means3d - cp.unsqueeze(0)
-        depth = (d * cz).sum(dim=1)
-        px = (d * cx).sum(dim=1) / (depth.abs() * cam.tanfovx + 1e-8)
-        py = (d * cy).sum(dim=1) / (depth.abs() * cam.tanfovy + 1e-8)
-        return (depth > 0.1) & (px >= -3.0) & (px <= 3.0) & (py >= -3.0) & (py <= 3.0)
+        ms = self.means3d
+        pz = view[2,0]*ms[:,0] + view[2,1]*ms[:,1] + view[2,2]*ms[:,2] + view[2,3]
+        wvt = cam.world_view_transform
+        px = wvt[0,0]*ms[:,0] + wvt[1,0]*ms[:,1] + wvt[2,0]*ms[:,2] + wvt[3,0]
+        py = wvt[0,1]*ms[:,0] + wvt[1,1]*ms[:,1] + wvt[2,1]*ms[:,2] + wvt[3,1]
+        proj_x = px / (pz.abs() * cam.tanfovx + 1e-8)
+        proj_y = py / (pz.abs() * cam.tanfovy + 1e-8)
+        return (pz > 0.1) & (proj_x >= -3.0) & (proj_x <= 3.0) & (proj_y >= -3.0) & (proj_y <= 3.0)
 
     def render(self, cam, use_opt=False):
         if use_opt:
@@ -212,4 +215,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()
