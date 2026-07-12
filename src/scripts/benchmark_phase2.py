@@ -278,6 +278,61 @@ output = {
     },
     "results": results,
 }
+# ===== Quality Validation: baseline vs optimized =====
+print()
+print('=' * 60)
+print('  QUALITY VALIDATION (First 5 cameras)')
+print('=' * 60)
+
+from diff_gaussian_rasterization import GaussianRasterizationSettings as DiffSettings
+from diff_gaussian_rasterization import GaussianRasterizer as DiffRasterizer
+
+def _render_baseline(cam):
+    ds = DiffSettings(
+        image_height=1080, image_width=1920,
+        tanfovx=cam.tanfovx, tanfovy=cam.tanfovy,
+        bg=torch.zeros(3, device='cuda'), scale_modifier=1.0,
+        viewmatrix=cam.world_view_transform,
+        projmatrix=cam.full_proj_transform,
+        sh_degree=3, campos=cam.camera_center,
+        prefiltered=False, debug=False, antialiasing=False,
+    )
+    rast = DiffRasterizer(ds)
+    with torch.no_grad():
+        out, _, _ = rast(means3D=means3d, means2D=torch.zeros_like(means3d[:,:2]),
+            opacities=opacities, shs=shs, colors_precomp=None,
+            scales=scales, rotations=rotations, cov3D_precomp=None)
+    return out
+
+quality_results = []
+for qi in range(min(5, N_CAMS)):
+    cam = cameras[qi]
+    mask = compute_frustum_mask(cam)
+    nv = mask.sum().item()
+    img_base = _render_baseline(cam)
+    img_opt, _, _ = rast_cache[qi](
+        means3D=means3d[mask], means2D=torch.zeros(nv, 2, device='cuda'),
+        opacities=opacities[mask], scores=torch.ones(nv, device='cuda'),
+        shs=shs[mask], colors_precomp=None,
+        scales=scales[mask], rotations=rotations[mask], cov3D_precomp=None,
+    )
+    mse = torch.mean((img_opt - img_base) ** 2)
+    psnr = float('inf') if mse < 1e-10 else (-10 * torch.log10(mse)).item()
+    max_diff = float(torch.max(torch.abs(img_opt - img_base)).item())
+    quality_results.append({'cam': qi, 'psnr': round(psnr, 4), 'max_pixel_diff': max_diff})
+    print(f'  Cam {qi}: PSNR={psnr:.2f} dB, max_diff={max_diff:.6f}')
+
+psnrs = [r['psnr'] for r in quality_results]
+print()
+print(f'  Quality: PSNR mean={np.mean(psnrs):.2f} dB, min={np.min(psnrs):.2f} dB')
+if np.min(psnrs) >= 45:
+    print('  PASS: Frustum Pre-Culling introduces no detectable quality loss')
+else:
+    print('  FAIL: PSNR < 45 dB - quality degradation detected')
+output['quality_validation'] = quality_results
+
 with open(os.path.join(OUT_DIR, "benchmark_results_phase2.json"), "w") as f:
     json.dump(output, f, indent=2)
 print(f"\nSaved to {os.path.join(OUT_DIR, 'benchmark_results_phase2.json')}")
+
+
