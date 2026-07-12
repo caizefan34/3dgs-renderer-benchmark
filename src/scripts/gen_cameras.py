@@ -1,9 +1,10 @@
 """Generate a fixed set of camera poses and save as cameras.json."""
+import os
 import json, math
 import torch
 import numpy as np
 
-OUTPUT = "C:\\Users\\36570\\Documents\\Codex\\2026-07-11\\5-stars-gsplat-nerfstudio-project-gsplat-4\\data\\cameras.json"
+OUTPUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "cameras.json")
 
 num_cameras = 50
 image_width, image_height = 1920, 1080
@@ -75,3 +76,6 @@ with open(OUTPUT, "w") as f:
 print(f"Saved {num_cameras} camera poses to {OUTPUT}")
 import os
 print(f"File size: {os.path.getsize(OUTPUT)/1024:.1f} KB")
+
+
+
