@@ -202,7 +202,7 @@ python src/scripts/generate_scene.py      # Generate 400K gaussian scene
 python src/scripts/gen_cameras.py          # Generate camera poses
 python src/scripts/validate_quality.py     # PSNR/SSIM/LPIPS validation
 python src/scripts/benchmark_phase2.py     # Full benchmark + quality check
-`\`
+```
 
 ---
 
