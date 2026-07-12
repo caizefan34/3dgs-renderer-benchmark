@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -569,6 +569,53 @@
     </section>
 
 </div>
+
+
+    <!-- Quality Validation -->
+    <section>
+        <h2> Quality Validation</h2>
+        <p style=margin-bottom:16px;color:var(--text2)>
+            All optimizations verified against original <code>diff_gaussian_rasterization</code> baseline using PSNR, SSIM, and LPIPS metrics on <strong>RTX 5070 Laptop</strong>.
+            Run <code>src/scripts/validate_quality.py</code> to reproduce.
+        </p>
+
+        <div class=card-grid>
+            <div class=card>
+                <h3>Test 1: Rasterizer Consistency</h3>
+                <p><code>speedy_splat</code> vs <code>diff_gaussian</code> (all points)</p>
+                <div class=table-wrap style=margin-top:12px>
+                <table>
+                    <tr><th>Camera</th><th>PSNR</th><th>SSIM</th><th>LPIPS</th><th>Result</th></tr>
+                    <tr><td>0</td><td class=num>inf</td><td class=num>1.0</td><td class=num>0.0</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
+                    <tr><td>4</td><td class=num>inf</td><td class=num>1.0</td><td class=num>0.0</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
+                    <tr><td>6</td><td class=num>inf</td><td class=num>1.0</td><td class=num>0.0</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
+                    <tr><td>7</td><td class=num>inf</td><td class=num>1.0</td><td class=num>0.0</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
+                    <tr><td>8</td><td class=num>inf</td><td class=num>1.0</td><td class=num>0.0</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
+                </table>
+                </div>
+                <p style=margin-top:8px;color:var(--accent2)>
+                    PASS: Outputs are numerically identical (PSNR = inf dB).
+                </p>
+            </div>
+
+            <div class=card>
+                <h3>Test 2: Culling Quality</h3>
+                <p><code>speedy_splat</code> (culled) vs <code>speedy_splat</code> (all)</p>
+                <div class=table-wrap style=margin-top:12px>
+                <table>
+                    <tr><th>Camera</th><th>PSNR</th><th>Visible</th><th>Analysis</th></tr>
+                    <tr><td>0</td><td class=num>19.23</td><td class=num>99.96%</td><td>0.04% filtered dominate</td></tr>
+                    <tr><td>4</td><td class=num>18.95</td><td class=num>99.97%</td><td>pz ~ 0 issue</td></tr>
+                    <tr><td>7</td><td class=num>23.58</td><td class=num>99.97%</td><td>pz ~ 0 issue</td></tr>
+                    <tr><td>8</td><td class=num>28.14</td><td class=num>99.97%</td><td>pz ~ 0 issue</td></tr>
+                </table>
+                </div>
+                <p style=margin-top:8px;color:var(--gold)>
+                    Points near camera plane (p_view.z ~ 0) make NDC-based culling unsafe. Recommend using only z-check or disabling pre-culling for this scene config.
+                </p>
+            </div>
+        </div>
+    </section>
 
 <div class="footer">
     <p>Built with ❤️ by <a href="https://github.com/caizefan34">caizefan34</a> · Benchmark date 2026-07-11</p>
