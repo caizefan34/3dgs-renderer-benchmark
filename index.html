@@ -571,15 +571,16 @@
 </div>
 
 
-    ﻿<!-- Quality Validation -->
-    <section>
+    <!-- Quality Validation -->
+        <section>
         <h2> <span style="font-size:1.5rem;">&#9989;</span> Quality Validation</h2>
         <p style="margin-bottom:16px;color:var(--text2)">
-            All optimizations verified against original <code>diff_gaussian_rasterization</code> baseline on <strong>RTX 5070 Laptop</strong>, 400K GS, 1920x1080.
+            All optimizations verified against original <code>diff_gaussian_rasterization</code> baseline on <strong>RTX 5070 Laptop</strong>, 400K GS, 1920x1080. Same-lib repeatability across 2 consecutive calls.
         </p>
+
         <div class=table-wrap style="margin-top:12px">
         <table>
-            <tr><th>Frame</th><th>MaxDiff</th><th>PSNR</th><th>SSIM</th><th>LPIPS</th><th>Result</th></tr>
+            <tr><th>Frame</th><th style=text-align:right>MaxDiff</th><th style=text-align:right>PSNR</th><th style=text-align:right>SSIM</th><th style=text-align:right>LPIPS</th><th>Result</th></tr>
             <tr><td>0</td><td class=num>0.00e+00</td><td class=num>inf</td><td class=num>1.000000</td><td class=num>0.000000</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
             <tr><td>4</td><td class=num>0.00e+00</td><td class=num>inf</td><td class=num>1.000000</td><td class=num>0.000000</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
             <tr><td>6</td><td class=num>3.82e-02</td><td class=num>28.67</td><td class=num>0.997362</td><td class=num>0.008086</td><td style=color:var(--gold)>NEAR_IDEN</td></tr>
@@ -587,15 +588,123 @@
             <tr><td>8</td><td class=num>4.84e-02</td><td class=num>26.35</td><td class=num>0.995526</td><td class=num>0.006768</td><td style=color:var(--gold)>NEAR_IDEN</td></tr>
         </table>
         </div>
-        <p style="margin-top:8px;color:var(--accent2)">3/5 frames bit-identical. Differences up to 4.8e-2 from CUDA atomic race (SSIM>0.995, LPIPS<0.01).</p>
+        <p style="margin-top:8px;color:var(--accent2)">3/5 frames bit-identical. Differences up to 4.8e-2 from CUDA atomic race (SSIM>0.995, LPIPS<0.01, visually imperceptible).</p>
+
         <div class=table-wrap style="margin-top:16px">
         <table>
-            <tr><th>Filter</th><th>Threshold</th><th>Kept (frame 0)</th><th>vs in_frustum</th></tr>
-            <tr><td>Original in_frustum</td><td>p_view.z > 0.2</td><td class=num>694 / 400K (0.17%)</td><td>baseline</td></tr>
-            <tr><td>Pre-Culling</td><td>z>0.1, |proj|<3.0</td><td class=num>826 / 400K (0.21%)</td><td style=color:var(--accent2)>+132 kept</td></tr>
+            <tr><th>Filter</th><th style=text-align:center>Threshold</th><th style=text-align:right>Kept (frame 0)</th><th>vs in_frustum</th></tr>
+            <tr><td>Original in_frustum</td><td>p_view.z &gt; 0.2</td><td class=num>694 / 400K (0.17%)</td><td>baseline</td></tr>
+            <tr><td>Pre-Culling</td><td>z&gt;0.1, &vert;proj&vert;&lt;3.0</td><td class=num>826 / 400K (0.21%)</td><td style=color:var(--accent2)>+132 kept</td></tr>
         </table>
         </div>
-        <p style="margin-top:8px;color:var(--text2)">Pre-Culling uses more permissive z-threshold. No visible gaussian discarded.</p>
+        <p style="margin-top:8px;color:var(--text2)">Pre-Culling uses more permissive z-threshold (0.1 vs 0.2). No visible gaussian discarded.</p>
         <p style="margin-top:8px;color:var(--gold)">Note: speedy_gaussian_rasterization has CUDA storage overflow bug with scores param on 400K GS.</p>
     </section>
+
+<div class="footer">
+    <p>Built with ❤️ by <a href="https://github.com/caizefan34">caizefan34</a> · Benchmark date 2026-07-11</p>
+    <p style="margin-top:4px">NVIDIA GeForce RTX 5070 Laptop GPU · CUDA 13.3 · PyTorch 2.12.1</p>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    Chart.defaults.color = '#9090c0';
+    Chart.defaults.font.family = "'Inter', -apple-system, sans-serif";
+    Chart.register(ChartDataLabels);
+
+    const accent = '#7c5cfc', accent2 = '#5cfc9c', gold = '#fcb85c', red = '#fc5c5c';
+
+    function grad(ctx, c1, c2) {
+        const g = ctx.createLinearGradient(0, 0, 0, 280);
+        g.addColorStop(0, c1); g.addColorStop(1, c2);
+        return g;
+    }
+
+    function barChart(id, labels, data, colors, suffix, labelFmt) {
+        const ctx = document.getElementById(id).getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: { labels, datasets: [{ data, backgroundColor: colors, borderRadius: 6, borderSkipped: false }] },
+            options: {
+                responsive: true, maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    datalabels: {
+                        anchor: 'end', align: 'end', color: '#e0e0f0',
+                        font: { weight: 'bold', size: 10 },
+                        formatter: v => labelFmt ? labelFmt(v) : v + suffix
+                    }
+                },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(42,42,90,0.4)' }, ticks: { callback: v => v + suffix } },
+                    x: { grid: { display: false } }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
+
+    // FPS Chart
+    (function() {
+        const c = document.getElementById('fpsBarChart').getContext('2d');
+        barChart('fpsBarChart',
+            ['speedy_splat', 'diff_gaussian', 'TC-GS', 'gsplat', 'opt_speedy(Cull)', 'opt_speedy(All)'],
+            [171.4, 134.8, 134.8, 133.8, 352.3, 365.1],
+            [grad(c, accent, '#9b7ffc'), grad(c, '#9090c0', '#b0b0d0'), grad(c, '#9090c0', '#b0b0d0'),
+             grad(c, '#9090c0', '#b0b0d0'), grad(c, gold, '#fcd87c'), grad(c, accent2, '#7cfcb0')],
+            ' FPS');
+    })();
+
+    // P50 Latency
+    (function() {
+        const c = document.getElementById('latencyBarChart').getContext('2d');
+        barChart('latencyBarChart',
+            ['diff_gaussian', 'TC-GS', 'gsplat', 'speedy_splat', 'opt_speedy(Cull)', 'opt_speedy(All)'],
+            [7.42, 7.44, 7.49, 5.93, 2.87, 2.74],
+            [grad(c, red, '#fc7c7c'), grad(c, red, '#fc7c7c'), grad(c, red, '#fc7c7c'),
+             grad(c, gold, '#fcd87c'), grad(c, accent2, '#7cfcb0'), grad(c, accent2, '#7cfcb0')],
+            ' ms');
+    })();
+
+    // Speedup
+    (function() {
+        const c = document.getElementById('speedupChart').getContext('2d');
+        barChart('speedupChart',
+            ['Baseline', '+PreAlloc', '+Async', '+Cull', '+MemPool', '+Cache', '+Shared(Full)'],
+            [0, 5.2, 18.7, 105.5, 108.1, 110.2, 113.0],
+            ['#2a2a5a', grad(c, accent, '#9b7ffc'), grad(c, accent, '#9b7ffc'),
+             grad(c, gold, '#fcd87c'), grad(c, gold, '#fcd87c'), grad(c, gold, '#fcd87c'),
+             grad(c, accent2, '#7cfcb0')],
+            '%', function(v) { return v > 0 ? '+' + v + '%' : 'Baseline'; });
+    })();
+
+    // P99
+    (function() {
+        const c = document.getElementById('p99Chart').getContext('2d');
+        barChart('p99Chart',
+            ['diff_gaussian', 'TC-GS', 'gsplat', 'speedy_splat', 'opt_speedy(Cull)', 'opt_speedy(All)'],
+            [17.89, 15.65, 15.40, 6.76, 14.07, 11.28],
+            [grad(c, red, '#fc7c7c'), grad(c, red, '#fc7c7c'), grad(c, red, '#fc7c7c'),
+             grad(c, accent2, '#7cfcb0'), grad(c, gold, '#fcd87c'), grad(c, accent2, '#7cfcb0')],
+            ' ms');
+    })();
+
+    // StdDev
+    (function() {
+        const c = document.getElementById('stddevChart').getContext('2d');
+        barChart('stddevChart',
+            ['speedy_splat', 'diff_gaussian', 'TC-GS', 'gsplat', 'opt_speedy(Cull)', 'opt_speedy(All)'],
+            [3.86, 6.11, 4.70, 3.84, 4.02, 3.84],
+            [grad(c, accent2, '#7cfcb0'), grad(c, red, '#fc7c7c'), grad(c, gold, '#fcd87c'),
+             grad(c, accent2, '#7cfcb0'), grad(c, accent2, '#7cfcb0'), grad(c, accent2, '#7cfcb0')],
+            ' ms');
+    })();
+
+});
+</script>
+</body>
+</html>
+
+
+
 
