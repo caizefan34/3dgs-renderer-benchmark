@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        continue-on-error: true
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -32,3 +33,16 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: Create gh-pages branch fallback
+        if: steps.deployment.outcome == 'failure'
+        run: |
+          echo "GitHub Actions deployment failed - trying gh-pages branch fallback..."
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git fetch origin gh-pages 2>/dev/null && git checkout gh-pages || git checkout --orphan gh-pages
+          rm -rf *
+          cp -r ../docs/* .
+          git add -A
+          git commit -m "Deploy Pages: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" || true
+          git push origin gh-pages --force
