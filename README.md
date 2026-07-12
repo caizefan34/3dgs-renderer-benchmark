@@ -149,20 +149,6 @@ The Frustum Pre-Culling (z>0.1, |proj|<3.0) is conservative:
 - NDC projection cutoff at |proj|<3.0 is 3x screen width, effectively unbounded for this scene
 - **No visible gaussian is discarded beyond the original in_frustum check**
 
-`ash
-# Run quality validation on GPU
-python src/scripts/validate_quality.py --frames 10
-`
-
----
-
----|:---------------------:|:---------:|:------:|
-| PSNR | inf dB | >= 45 dB | PASS |
-| SSIM | 1.0 | >= 0.99 | PASS |
-| LPIPS | 0.0 | <= 0.02 | PASS |
-
-The Pre-Culling uses a conservative 3x NDC margin (`[-3.0, 3.0]` vs screen `[-1.0, 1.0]`): **no visible gaussian is discarded**. 
-
 ```bash
 # Run quality validation on GPU
 python src/scripts/validate_quality.py --frames 10
