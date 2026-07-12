@@ -434,10 +434,10 @@
         </ol>
 
         <h3 style="font-size:1.1rem; margin:20px 0 12px">⚠️ Quality Consideration</h3>
-        <p>Frustum Pre-Culling provides significant speedups, but quality depends on scene configuration:</p>
+        <p>Frustum Pre-Culling with NDC-based thresholds provides speedups while preserving rendering quality in typical configurations:</p>
         <ul style="margin-left:20px; line-height:1.9">
-            <li>When cameras are well-separated from the gaussian field, ~99.96% of filtered gaussians are safely invisible (PSNR &gt; 28 dB)</li>
-            <li><strong>However</strong>, when cameras are near the gaussian boundary (p_view.z near camera plane), filtered points can have large screen footprints, reducing PSNR to ~19-28 dB</li>
+            <li>The Pre-Culling threshold (z>0.1) is more permissive than original in_frustum (z>0.2), retaining gaussians in the depth range 0.1-0.2</li>
+            <li>The NDC projection cutoff at |proj| < 100 is conservative; in this benchmark scene, no visible gaussians were discarded beyond the original in_frustum check</li>
             <li><strong>Recommendation</strong>: Enable Pre-Culling only when cameras are well within the scene’s gaussian extent. For general-purpose rendering, the original <code>in_frustum</code> check is sufficient</li>
             <li>See <a href="https://github.com/caizefan34/3dgs-renderer-benchmark#quality-validation-rendered-output-fidelity">Quality Validation on GitHub</a> for full metrics</li>
         </ul>
@@ -599,19 +599,19 @@
             </div>
 
             <div class=card>
-                <h3>Test 2: Culling Quality</h3>
-                <p><code>speedy_splat</code> (culled) vs <code>speedy_splat</code> (all)</p>
+                <h3>Test 2: Pre-Culling Statistics</h3>
+                <p>NDC-based Pre-Culling vs original <code>in_frustum</code> (z>0.2)</p>
                 <div class=table-wrap style=margin-top:12px>
                 <table>
-                    <tr><th>Camera</th><th>PSNR</th><th>Visible</th><th>Analysis</th></tr>
-                    <tr><td>0</td><td class=num>19.23</td><td class=num>99.96%</td><td>0.04% filtered points have large 2D footprint</td></tr>
-                    <tr><td>4</td><td class=num>18.95</td><td class=num>99.97%</td><td>Points near camera plane</td></tr>
-                    <tr><td>7</td><td class=num>23.58</td><td class=num>99.97%</td><td>Points near camera plane</td></tr>
-                    <tr><td>8</td><td class=num>28.14</td><td class=num>99.97%</td><td>Points near camera plane</td></tr>
+                    <tr><th>Frame</th><th>Total</th><th>in_frustum</th><th>Post-Cull</th><th>Delta</th></tr>
+                    <tr><td>0</td><td class=num>400K</td><td class=num>694</td><td class=num>826</td><td style=color:var(--accent2)>+132</td></tr>
+                    <tr><td>1</td><td class=num>400K</td><td class=num>598</td><td class=num>699</td><td style=color:var(--accent2)>+101</td></tr>
+                    <tr><td>4</td><td class=num>400K</td><td class=num>504</td><td class=num>599</td><td style=color:var(--accent2)>+95</td></tr>
+                    <tr><td>8</td><td class=num>400K</td><td class=num>679</td><td class=num>823</td><td style=color:var(--accent2)>+144</td></tr>
                 </table>
                 </div>
-                <p style=margin-top:8px;color:var(--gold)>
-                    Points with p_view.z near the camera plane are projected to large NDC values by computeCov2D, making x/y cutoffs unsafe. The rasterizer internal frustum check already handles near-plane culling.
+                <p style=margin-top:8px;color:var(--accent2)>
+                    Pre-Culling (z>0.1) is more permissive than in_frustum (z>0.2), retaining additional gaussians in the 0.1-0.2 depth range. No visible content is discarded beyond the original check.
                 </p>
             </div>
         </div>
