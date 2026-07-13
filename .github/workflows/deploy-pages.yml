@@ -1,48 +1,45 @@
-﻿name: Deploy to GitHub Pages
+name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["master"]
+    branches: [master]
+    paths:
+      - "docs/**"
+      - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  group: pages-branch
+  cancel-in-progress: true
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  publish:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-        continue-on-error: true
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
         with:
-          path: './docs'
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-        continue-on-error: true
-      - name: Create gh-pages branch fallback
-        if: steps.deployment.outcome == 'failure'
+          fetch-depth: 0
+
+      - name: Publish docs to gh-pages
+        shell: bash
         run: |
-          echo "GitHub Actions deployment failed - trying gh-pages branch fallback..."
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git fetch origin gh-pages 2>/dev/null && git checkout gh-pages || git checkout --orphan gh-pages
-          rm -rf *
-          cp -r ../docs/* .
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages
+          git worktree add /tmp/gh-pages origin/gh-pages
+          find /tmp/gh-pages -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R docs/. /tmp/gh-pages/
+          touch /tmp/gh-pages/.nojekyll
+          cd /tmp/gh-pages
           git add -A
-          git commit -m "Deploy Pages: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" || true
-          git push origin gh-pages --force
+          if git diff --cached --quiet; then
+            echo "Page content is already up to date."
+            exit 0
+          fi
+          git commit -m "Deploy Pages from ${GITHUB_SHA}"
+          git push origin HEAD:gh-pages
