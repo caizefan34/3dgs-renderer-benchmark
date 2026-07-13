@@ -1,6 +1,9 @@
 """
-Results manager: collect, aggregate, and export benchmark results.
-Supports JSON, CSV, Markdown, and HTML report generation.
+Results manager for benchmark data collection, aggregation, and export.
+
+Provides functionality to collect RendererMetrics from multiple renderers,
+rank them by performance, and export results in multiple formats (JSON, CSV,
+Markdown, and interactive HTML with Plotly visualizations).
 """
 import json
 import os
@@ -10,16 +13,34 @@ from .metrics import RendererMetrics
 
 
 class ResultsManager:
+    """Manages benchmark results from multiple renderers.
+
+    Collects RendererMetrics objects, computes rankings, and exports
+    results in various formats for analysis and reporting.
+    """
     def __init__(self):
         self.results: Dict[str, RendererMetrics] = {}
 
     def add_result(self, renderer_name: str, metrics: RendererMetrics):
+        """Register a renderer's benchmark results.
+
+        Args:
+            renderer_name: Identifier for the renderer.
+            metrics: Computed RendererMetrics instance.
+        """
         self.results[renderer_name] = metrics
 
     def get_summary(self) -> dict:
+        """Return a dictionary of all results serialized for JSON export."""
         return {name: m.to_dict() for name, m in self.results.items()}
 
     def get_ranking(self, key="mean_fps") -> List[tuple]:
+        """Return renderers ranked by the specified metric (default: mean FPS).
+
+        Returns:
+            List of (renderer_name, mean_fps, mean_latency_ms) tuples,
+            sorted in descending order by the ranking key.
+        """
         rankings = [(name, m.mean_fps, m.mean_latency_ms)
                      for name, m in self.results.items()
                      if m.mean_fps > 0]
@@ -29,14 +50,22 @@ class ResultsManager:
     # --- Export ---
 
     def export_json(self, path: str):
-        """Export full results as JSON."""
+        """Export full benchmark results as JSON.
+
+        Args:
+            path: Output file path for the JSON file.
+        """
         data = self.get_summary()
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         print(f"  Exported: {path}")
 
     def export_csv(self, path: str):
-        """Export metrics summary as CSV."""
+        """Export metrics summary as CSV.
+
+        Args:
+            path: Output file path for the CSV file.
+        """
         rows = []
         for name, m in self.results.items():
             d = m.to_dict()
@@ -68,7 +97,11 @@ class ResultsManager:
         print(f"  Exported: {path}")
 
     def export_markdown(self, path: str):
-        """Generate benchmark report in Markdown."""
+        """Generate a benchmark report in Markdown format.
+
+        Args:
+            path: Output file path for the Markdown report.
+        """
         rankings = self.get_ranking()
         fastest = rankings[0][0] if rankings else ""
 
@@ -77,12 +110,12 @@ class ResultsManager:
             "",
             "## Summary",
             "",
-            "| Rank | Renderer | Mean FPS | Median (ms) | P1 (ms)↓ | P99 (ms) | Jitter% | VRAM(MB) |",
+            "| Rank | Renderer | Mean FPS | Median (ms) | P1 (ms) | P99 (ms) | Jitter% | VRAM(MB) |",
             "|------|----------|:--------:|:-----------:|:--------:|:--------:|:-------:|:--------:|",
         ]
         for i, (name, fps, lat) in enumerate(rankings, 1):
             m = self.results[name]
-            tag = " ★" if name == fastest else ""
+            tag = " (fastest)" if name == fastest else ""
             lines.append(
                 f"| {i}{tag} | {name} | {m.mean_fps:.1f} | {m.median_latency_ms:.2f} | "
                 f"{m.p1_latency_ms:.2f} | {m.p99_latency_ms:.2f} | {m.jitter_ms:.1f} | "
@@ -112,11 +145,19 @@ class ResultsManager:
         print(f"  Exported: {path}")
 
     def export_html(self, path: str, title="3DGS Renderer Benchmark"):
-        """Generate an interactive HTML report with Plotly charts."""
+        """Generate an interactive HTML report with Plotly visualizations.
+
+        Produces a self-contained HTML page with a summary table, frame-time
+        timeline chart, and metadata display.
+
+        Args:
+            path: Output file path for the HTML report.
+            title: Page title for the report.
+        """
         rankings = self.get_ranking()
         fastest = rankings[0][0] if rankings else ""
 
-        # Build table
+        # Build table rows
         trows = ""
         for i, (name, fps, lat) in enumerate(rankings, 1):
             m = self.results[name]

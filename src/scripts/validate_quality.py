@@ -1,15 +1,30 @@
 ﻿"""
 Quality validation script for 3DGS renderer benchmark.
 
-Compares rendered outputs from:
-  Test 1: Speedy (all points) vs Diff Gaussian (all points)
-          -> Validates rasterizer consistency
-  Test 2: Speedy (culled) vs Speedy (all points)
-          -> Validates Frustum Pre-Culling quality impact
+Validates the correctness and consistency of renderer outputs through
+two controlled experiments:
+
+  Test 1: SpeedySplat (all Gaussians) vs DiffGaussian (all Gaussians)
+          Validates rasterizer consistency between backends.
+
+  Test 2: SpeedySplat (frustum-culled) vs SpeedySplat (all Gaussians)
+          Validates that frustum pre-culling introduces no detectable
+          quality degradation.
+
+Quality metrics computed: PSNR, SSIM [Wang et al., 2004], LPIPS [Zhang et al., 2018].
 
 Usage:
     conda activate gsplat
     python src/scripts/validate_quality.py [--frames N]
+
+References:
+    Wang, Z., Bovik, A. C., Sheikh, H. R., & Simoncelli, E. P. (2004).
+    Image quality assessment: From error visibility to structural similarity.
+    IEEE Transactions on Image Processing, 13(4), 600-612.
+
+    Zhang, R., Isola, P., Efros, A. A., Shechtman, E., & Wang, O. (2018).
+    The unreasonable effectiveness of deep features as a perceptual metric.
+    In Proceedings of the IEEE Conference on CVPR.
 """
 
 import sys, os, json, torch
@@ -30,11 +45,30 @@ WIDTH, HEIGHT = 1920, 1080
 
 
 def compute_psnr(img_pred, img_gt):
+    """Compute Peak Signal-to-Noise Ratio between two images.
+
+    Args:
+        img_pred: Predicted image tensor (H, W, 3) in [0, 1].
+        img_gt: Ground truth image tensor (H, W, 3) in [0, 1].
+
+    Returns:
+        PSNR value in dB. Returns inf if images are identical.
+    """
     mse = torch.mean((img_pred - img_gt) ** 2)
     return float("inf") if mse < 1e-10 else (-10.0 * torch.log10(mse)).item()
 
 
 def compute_ssim(img_pred, img_gt, ws=11):
+    """Compute Structural Similarity Index (SSIM) [Wang et al., 2004].
+
+    Args:
+        img_pred: Predicted image tensor (3, H, W) in [0, 1].
+        img_gt: Ground truth image tensor (3, H, W) in [0, 1].
+        ws: Window size for the Gaussian kernel.
+
+    Returns:
+        Mean SSIM value across all pixels.
+    """
     from torch.nn.functional import conv2d
     g1d = torch.tensor([0.000000, 0.000002, 0.000175, 0.005561, 0.056451,
                         0.183090, 0.189921, 0.063021, 0.006689, 0.000227, 0.000002],
@@ -56,17 +90,32 @@ def compute_ssim(img_pred, img_gt, ws=11):
 
 
 def compute_lpips(img_pred, img_gt):
+    """Compute Learned Perceptual Image Patch Similarity [Zhang et al., 2018].
+
+    Args:
+        img_pred: Predicted image tensor (3, H, W) in [0, 1].
+        img_gt: Ground truth image tensor (3, H, W) in [0, 1].
+
+    Returns:
+        LPIPS distance (lower is better).
+    """
     try:
         import lpips
         fn = lpips.LPIPS(net="alex").to(img_pred.device)
         with torch.no_grad():
             return fn(img_pred.unsqueeze(0) * 2 - 1, img_gt.unsqueeze(0) * 2 - 1).item()
     except ImportError:
-        print("  [WARN] lpips not installed; using 1 - SSIM proxy")
+        print("  [WARN] lpips not installed; using 1 - SSIM as proxy")
         return 1.0 - compute_ssim(img_pred, img_gt)
 
 
 class Validator:
+    """Quality validation harness for renderer output comparison.
+
+    Loads the scene and camera poses, and provides methods to render
+    using both the diff_gaussian and speedy_splat backends, with optional
+    frustum pre-culling for efficiency validation.
+    """
     def __init__(self):
         self.scene = load_ply(SCENE, device="cuda")
         self.cameras = load_cameras_from_json(CAMS_JSON, device="cuda")
@@ -80,6 +129,7 @@ class Validator:
         print(f"  {self.N_G} gaussians, {len(self.cameras)} cameras")
 
     def render_diff(self, cam):
+        """Render using diff-gaussian-rasterization backend."""
         from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
         s = GaussianRasterizationSettings(image_height=HEIGHT, image_width=WIDTH,
             tanfovx=cam.tanfovx, tanfovy=cam.tanfovy,
@@ -95,6 +145,15 @@ class Validator:
         return out
 
     def render_speedy(self, cam, cull_mask=None):
+        """Render using speedy-splat backend with optional frustum culling.
+
+        Args:
+            cam: Camera parameters.
+            cull_mask: Optional boolean mask for frustum culling.
+
+        Returns:
+            Tuple of (rendered_image, cull_mask).
+        """
         from speedy_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
         s = GaussianRasterizationSettings(image_height=HEIGHT, image_width=WIDTH,
             tanfovx=cam.tanfovx, tanfovy=cam.tanfovy,
@@ -120,6 +179,18 @@ class Validator:
             return out, cull_mask
 
     def compute_cull_mask(self, cam):
+        """Compute a conservative frustum culling mask.
+
+        Projects all Gaussians into NDC space and identifies those within
+        the visible frustum. Uses the view matrix and world-view transform
+        following the CUDA transformPoint4x3 convention.
+
+        Args:
+            cam: Camera parameters.
+
+        Returns:
+            Boolean mask tensor where True indicates visible Gaussians.
+        """
         view = cam.viewmatrix
         ms = self.means3d
         pz = view[2,0]*ms[:,0] + view[2,1]*ms[:,1] + view[2,2]*ms[:,2] + view[2,3]
@@ -133,16 +204,18 @@ class Validator:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--frames", type=int, default=NUM_FRAMES)
+    parser = argparse.ArgumentParser(description="Validate renderer quality and consistency")
+    parser.add_argument("--frames", type=int, default=NUM_FRAMES,
+                        help="Number of frames to validate")
     args = parser.parse_args()
 
-    print("Loading...")
+    print("Loading scene and cameras...")
     v = Validator()
     nf = min(args.frames, len(v.cameras))
 
+    # Test 1: Rasterizer consistency
     print()
-    print("Test 1: Speedy (all) vs Diff (all) -- rasterizer consistency")
+    print("Test 1: SpeedySplat (all) vs DiffGaussian (all) -- rasterizer consistency")
     print("  Frame    PSNR(dB)      SSIM   LPIPS    DiffMax   MeanErr")
     print("  " + "-" * 56)
 
@@ -166,8 +239,9 @@ def main():
         results_1.append({"frame": fi, "psnr": round(psnr_val, 4), "ssim": round(ssim_val, 6),
                           "lpips": round(lpips_val, 6), "max_diff": round(dmax, 8), "mean_diff": round(dmean, 8)})
 
+    # Test 2: Culling quality
     print()
-    print("Test 2: Speedy (culled) vs Speedy (all) -- culling quality")
+    print("Test 2: SpeedySplat (culled) vs SpeedySplat (all) -- culling quality impact")
     print("  Frame    PSNR(dB)      SSIM   LPIPS   Visible%")
     print("  " + "-" * 56)
 
@@ -191,6 +265,7 @@ def main():
         results_2.append({"frame": fi, "psnr": round(psnr_val, 4), "ssim": round(ssim_val, 6),
                           "lpips": round(lpips_val, 6), "visible_pct": round(vpct, 2)})
 
+    # Summary
     print()
     print("=" * 55)
     print("  QUALITY VALIDATION SUMMARY")
@@ -200,7 +275,7 @@ def main():
 
     if results_1:
         ps = [r["psnr"] for r in results_1]
-        print("  Test 1 -- Speedy(all) vs Diff(all):")
+        print("  Test 1 -- SpeedySplat(all) vs DiffGaussian(all):")
         print(f"    PSNR mean={np.mean(ps):.2f} dB, min={np.min(ps):.2f} dB")
         identical = all(p == float("inf") for p in ps)
         passed_1 = identical or all(p >= 60 for p in ps)
@@ -215,12 +290,12 @@ def main():
     if results_2:
         ps2 = [r["psnr"] for r in results_2]
         vis = [r["visible_pct"] for r in results_2]
-        print("  Test 2 -- Speedy(culled) vs Speedy(all):")
+        print("  Test 2 -- SpeedySplat(culled) vs SpeedySplat(all):")
         print(f"    PSNR mean={np.mean(ps2):.2f} dB, min={np.min(ps2):.2f} dB")
         print(f"    Visible: mean={np.mean(vis):.1f}%, min={np.min(vis):.1f}%, max={np.max(vis):.1f}%")
         passed_2 = all(p >= 45 for p in ps2)
         if passed_2:
-            print("    PASS: Culling introduces no detectable quality loss")
+            print("    PASS: Frustum pre-culling introduces no detectable quality loss")
         else:
             print("    FAIL: Culling causes PSNR < 45 dB")
     print()
@@ -228,7 +303,7 @@ def main():
     report = {"config": {"resolution": f"{WIDTH}x{HEIGHT}", "num_frames": nf, "num_gaussians": v.N_G},
               "test1_rasterizer_consistency": results_1, "test2_culling_quality": results_2}
 
-    # Generate difference heatmaps for first frame of each test
+    # Generate difference heatmaps for the first frame of each test
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -236,8 +311,8 @@ def main():
         from matplotlib.colors import Normalize
 
         for test_name, diff_maps, label in [
-            ("test1_rasterizer", diff_maps_1, "Speedy(all) vs Diff(all)"),
-            ("test2_culling", diff_maps_2, "Speedy(culled) vs Speedy(all)"),
+            ("test1_rasterizer", diff_maps_1, "SpeedySplat(all) vs DiffGaussian(all)"),
+            ("test2_culling", diff_maps_2, "SpeedySplat(culled) vs SpeedySplat(all)"),
         ]:
             if not diff_maps:
                 continue

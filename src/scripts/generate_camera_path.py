@@ -1,12 +1,19 @@
 """
-Generate standard camera path presets for 3DGS renderer benchmarking.
-Saves to data/camera_presets/ directory.
+Standard camera path preset generator for 3DGS renderer benchmarking.
+
+Generates canonical camera trajectories (spiral, circular, flythrough,
+random walk) and saves them as JSON files for reproducible evaluation.
 
 Usage:
-    python gen_camera_path.py --type spiral --num-cameras 60 --radius 10.0
-    python gen_camera_path.py --type circle --num-cameras 50 --radius 8.0
-    python gen_camera_path.py --type flythrough --num-cameras 30
-    python gen_camera_path.py --type random_walk --num-cameras 30 --seed 42
+    python generate_camera_path.py --type spiral --num-cameras 60 --radius 10.0
+    python generate_camera_path.py --type circle --num-cameras 50 --radius 8.0
+    python generate_camera_path.py --type flythrough --num-cameras 30
+    python generate_camera_path.py --type random_walk --num-cameras 30 --seed 42
+
+References:
+    Kerbl, B., Kopanas, G., Leimkühler, T., & Drettakis, G. (2023).
+    3D Gaussian Splatting for Real-Time Radiance Field Rendering.
+    ACM Transactions on Graphics, 42(4).
 """
 import os, sys, json, math, argparse
 import numpy as np
@@ -20,7 +27,19 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def build_camera_dict(theta, phi, radius, cx=0.0, cy=0.0, cz=0.0,
                       W=1920, H=1080, fov_deg=60.0):
-    """Build a camera dict matching cameras.json schema using numpy CPU math."""
+    """Build a camera dictionary matching the cameras.json schema.
+
+    Args:
+        theta: Azimuthal angle in radians.
+        phi: Elevation angle in radians.
+        radius: Distance from the origin.
+        cx, cy, cz: Look-at target in world coordinates.
+        W, H: Image dimensions in pixels.
+        fov_deg: Horizontal field of view in degrees.
+
+    Returns:
+        Dictionary with camera parameters compatible with the benchmarking pipeline.
+    """
     fov = math.radians(fov_deg)
     aspect = W / H
     fov_y = 2 * math.atan(math.tan(fov * 0.5) / aspect)
@@ -64,6 +83,17 @@ def build_camera_dict(theta, phi, radius, cx=0.0, cy=0.0, cz=0.0,
 
 
 def generate_spiral(num_cameras=60, radius=10.0, turns=5, W=1920, H=1080):
+    """Generate a spiral camera trajectory with radius oscillation.
+
+    Args:
+        num_cameras: Number of camera poses.
+        radius: Base orbit radius.
+        turns: Number of full spiral turns.
+        W, H: Image dimensions.
+
+    Returns:
+        List of camera dictionaries.
+    """
     cams = []
     for i in range(num_cameras):
         theta = 2 * math.pi * turns * i / num_cameras
@@ -76,6 +106,16 @@ def generate_spiral(num_cameras=60, radius=10.0, turns=5, W=1920, H=1080):
 
 
 def generate_circle(num_cameras=50, radius=8.0, W=1920, H=1080):
+    """Generate a circular camera trajectory at fixed elevation.
+
+    Args:
+        num_cameras: Number of camera poses.
+        radius: Orbit radius.
+        W, H: Image dimensions.
+
+    Returns:
+        List of camera dictionaries.
+    """
     cams = []
     for i in range(num_cameras):
         theta = 2 * math.pi * i / num_cameras
@@ -86,6 +126,15 @@ def generate_circle(num_cameras=50, radius=8.0, W=1920, H=1080):
 
 
 def generate_flythrough(num_cameras=30, W=1920, H=1080):
+    """Generate a linear flythrough camera trajectory.
+
+    Args:
+        num_cameras: Number of camera poses.
+        W, H: Image dimensions.
+
+    Returns:
+        List of camera dictionaries.
+    """
     cams = []
     for i in range(num_cameras):
         t = i / max(num_cameras - 1, 1)
@@ -99,6 +148,17 @@ def generate_flythrough(num_cameras=30, W=1920, H=1080):
 
 
 def generate_random_walk(num_cameras=30, radius=7.0, seed=42, W=1920, H=1080):
+    """Generate a camera trajectory with random perturbations.
+
+    Args:
+        num_cameras: Number of camera poses.
+        radius: Base orbit radius.
+        seed: Random seed for reproducibility.
+        W, H: Image dimensions.
+
+    Returns:
+        List of camera dictionaries.
+    """
     rng = np.random.RandomState(seed)
     cams = []
     for i in range(num_cameras):

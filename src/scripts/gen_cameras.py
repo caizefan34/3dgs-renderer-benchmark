@@ -1,4 +1,23 @@
-"""Generate a fixed set of camera poses and save as cameras.json."""
+"""
+Standard camera pose generator for 3DGS renderer benchmarking.
+
+Generates a fixed set of 50 camera poses orbiting the scene origin with
+sinusoidal elevation and radius variations, and saves them as a JSON file
+compatible with the benchmark pipeline. This provides a reproducible
+camera trajectory for fair comparison across renderers.
+
+The camera parameters follow the 3DGS convention [Kerbl et al., 2023],
+encoding view matrices, projection matrices, and field-of-view parameters
+in a standardized JSON schema.
+
+Usage:
+    python src/scripts/gen_cameras.py
+
+References:
+    Kerbl, B., Kopanas, G., Leimkühler, T., & Drettakis, G. (2023).
+    3D Gaussian Splatting for Real-Time Radiance Field Rendering.
+    ACM Transactions on Graphics, 42(4).
+"""
 import os
 import json, math
 import torch

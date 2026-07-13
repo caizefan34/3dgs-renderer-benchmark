@@ -1,4 +1,22 @@
-"""Generate updated benchmark report with 3 renderer comparison."""
+"""
+Comprehensive 3DGS Renderer Benchmark Report Generator.
+
+Produces an interactive HTML report with Plotly visualizations comparing
+three CUDA rasterization backends (speedy-splat, diff-gaussian-rasterization,
+TC-GS) on standard metrics: median/mean FPS, latency percentiles, and
+performance analysis. The report is styled for dark-mode readability and
+includes a detailed breakdown of the CUB DeviceRadixSort optimization.
+
+Usage:
+    python src/scripts/generate_report.py
+
+References:
+    Kerbl, B., Kopanas, G., LeimkÃ¼hler, T., & Drettakis, G. (2023).
+    3D Gaussian Splatting for Real-Time Radiance Field Rendering.
+    ACM Transactions on Graphics, 42(4).
+
+    NVIDIA Corporation. (2024). CUB: CUDA UnBound. https://github.com/NVIDIA/cub
+"""
 import json, os
 import numpy as np
 
@@ -15,7 +33,7 @@ for i, rname in enumerate(renderer_order):
     r = data[rname]
     med_fps = 1000.0 / r["median"]
     mean_fps = 1000.0 / r["mean"]
-    tag = "¡ï FASTEST" if i == 0 else f"+{((r['median']/data[renderer_order[0]]['median'])-1)*100:.0f}% slower" if i > 0 else ""
+    tag = "ï¿½ï¿½ FASTEST" if i == 0 else f"+{((r['median']/data[renderer_order[0]]['median'])-1)*100:.0f}% slower" if i > 0 else ""
     table_rows.append(f"  <tr><td><strong>{rname}</strong></td><td>{r['median']:.2f}</td><td>{med_fps:.1f}</td><td>{r['mean']:.2f}</td><td>{mean_fps:.1f}</td><td>{r['p10']:.2f}</td><td>{r['p90']:.2f}</td><td>{tag}</td></tr>")
 
 table_html = "\n".join(table_rows)
@@ -24,7 +42,7 @@ html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>3DGS Renderer Benchmark Report ¡¤ Phase 1 (Updated)</title>
+<title>3DGS Renderer Benchmark Report ï¿½ï¿½ Phase 1 (Updated)</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -54,8 +72,8 @@ li {{ margin: 6px 0; color: #cbd5e1; font-size: 14px; line-height: 1.5; }}
 <body>
 <div class="container">
 
-<h1>3D Gaussian Splatting ¡¤ Renderer Benchmark</h1>
-<h2>Phase 1 ¡ª 3 Renderers Compared ¡¤ NVIDIA RTX 5070 Laptop</h2>
+<h1>3D Gaussian Splatting ï¿½ï¿½ Renderer Benchmark</h1>
+<h2>Phase 1 ï¿½ï¿½ 3 Renderers Compared ï¿½ï¿½ NVIDIA RTX 5070 Laptop</h2>
 
 <div class="grid3">
   <div class="card" style="text-align:center">
@@ -74,9 +92,9 @@ li {{ margin: 6px 0; color: #cbd5e1; font-size: 14px; line-height: 1.5; }}
 <table>
   <tr><td>GPU</td><td>NVIDIA GeForce RTX 5070 Laptop GPU (8.55 GB, Compute 12.0)</td></tr>
   <tr><td>CUDA</td><td>Driver 13.1 / PyTorch CUDA 13.0 / Toolkit 13.3</td></tr>
-  <tr><td>Scene</td><td>data/scene.ply ¡ª 400,000 Gaussians, SH degree 3, 90 MB</td></tr>
-  <tr><td>Resolution</td><td>1920 ¡Á 1080</td></tr>
-  <tr><td>Camera Poses</td><td>data/cameras.json ¡ª 50 fixed orbit views (reproducible)</td></tr>
+  <tr><td>Scene</td><td>data/scene.ply ï¿½ï¿½ 400,000 Gaussians, SH degree 3, 90 MB</td></tr>
+  <tr><td>Resolution</td><td>1920 ï¿½ï¿½ 1080</td></tr>
+  <tr><td>Camera Poses</td><td>data/cameras.json ï¿½ï¿½ 50 fixed orbit views (reproducible)</td></tr>
   <tr><td>Protocol</td><td>30 frames per renderer, warmup 5, P10-P90 trimmed</td></tr>
 </table>
 </div>
@@ -97,8 +115,8 @@ li {{ margin: 6px 0; color: #cbd5e1; font-size: 14px; line-height: 1.5; }}
 <h3>All 5 Candidate Renderers</h3>
 <table>
   <tr><th>Renderer</th><th>Stars</th><th>Status</th><th>Note</th></tr>
-  <tr><td>diff-gaussian-rasterization (ashawkey fork)</td><td>487</td><td>? Active</td><td>Original Inria CUDA kernel, Thrust sort ¡ª baseline at 261 FPS</td></tr>
-  <tr><td>speedy-splat (from source build)</td><td>347</td><td>? Active</td><td>CUB DeviceRadixSort ¡ª fastest at 281 FPS (+7.6%)</td></tr>
+  <tr><td>diff-gaussian-rasterization (ashawkey fork)</td><td>487</td><td>? Active</td><td>Original Inria CUDA kernel, Thrust sort ï¿½ï¿½ baseline at 261 FPS</td></tr>
+  <tr><td>speedy-splat (from source build)</td><td>347</td><td>? Active</td><td>CUB DeviceRadixSort ï¿½ï¿½ fastest at 281 FPS (+7.6%)</td></tr>
   <tr><td>TC-GS (from source build)</td><td>75</td><td>? Active</td><td>CUB sort, same kernel as speedy-splat</td></tr>
   <tr><td>gsplat (nerfstudio-project)</td><td>5,363</td><td>?? Wrapper</td><td>Native CUDA kernels incompatible with CUDA 13.0+MSVC 14.44</td></tr>
   <tr><td>fast-gaussian-rasterization</td><td>1,186</td><td>?</td><td>Requires EGL/GL display (Linux/WSL2 only)</td></tr>
@@ -108,7 +126,7 @@ li {{ margin: 6px 0; color: #cbd5e1; font-size: 14px; line-height: 1.5; }}
 <div class="card">
 <h3>Analysis: What Makes speedy-splat Faster?</h3>
 <ul>
-  <li><strong>CUB DeviceRadixSort</strong> replaces Thrust's radix sort. CUB is NVIDIA's official CUDA-optimized library with warp-level primitives ¡ª it avoids Thrust's C++ template expansion overhead and uses more efficient shared memory patterns.</li>
+  <li><strong>CUB DeviceRadixSort</strong> replaces Thrust's radix sort. CUB is NVIDIA's official CUDA-optimized library with warp-level primitives ï¿½ï¿½ it avoids Thrust's C++ template expansion overhead and uses more efficient shared memory patterns.</li>
   <li>The ~7.6% improvement comes entirely from the sort step, which is the bottleneck in the tile-based binning pipeline. The actual blending (forward pass) is unchanged.</li>
   <li>TC-GS and speedy-splat use identical CUDA rasterization code. TC-GS's Tensor Core optimizations are in the training pipeline (neural Gaussian encoding/decoding), not in rendering.</li>
   <li>2024+ versions of gsplat use CUB natively, closing this gap upstream.</li>

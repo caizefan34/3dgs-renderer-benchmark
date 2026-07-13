@@ -1,6 +1,19 @@
 """
 Comprehensive metrics collection for 3DGS renderer benchmarking.
-Captures runtime (FPS, percentiles, jitter), memory (VRAM peak/avg), loading time.
+
+Captures runtime performance (FPS, percentile-based latency distribution,
+frame-time jitter), memory consumption (peak and average VRAM), and
+scene loading overhead. Implements the standardized measurement protocol
+described in the benchmark documentation.
+
+References:
+    Wang, Z., Bovik, A. C., Sheikh, H. R., & Simoncelli, E. P. (2004).
+    Image quality assessment: From error visibility to structural similarity.
+    IEEE Transactions on Image Processing, 13(4), 600-612.
+
+    Zhang, R., Isola, P., Efros, A. A., Shechtman, E., & Wang, O. (2018).
+    The unreasonable effectiveness of deep features as a perceptual metric.
+    In Proceedings of the IEEE Conference on CVPR.
 """
 import torch
 import numpy as np
@@ -10,7 +23,15 @@ from typing import List, Optional
 
 @dataclass
 class FrameMetrics:
-    """Per-frame timing data."""
+    """Per-frame timing and metadata.
+
+    Attributes:
+        frame_index: Zero-based index of the measured frame.
+        render_time_ms: Wall-clock render time in milliseconds.
+        num_points: Number of Gaussians rendered.
+        image_width: Output image width in pixels.
+        image_height: Output image height in pixels.
+    """
     frame_index: int
     render_time_ms: float
     num_points: int
@@ -20,7 +41,14 @@ class FrameMetrics:
 
 @dataclass
 class RendererMetrics:
-    """Comprehensive renderer benchmark results."""
+    """Comprehensive benchmark results for a single renderer.
+
+    Collects runtime statistics (mean, median, percentiles), memory usage,
+    scene loading overhead, and image quality metrics (PSNR, SSIM, LPIPS).
+
+    The `compute()` method must be called after populating `frame_times_ms`
+    to derive all statistical measures from the raw frame time data.
+    """
     renderer_name: str
     mean_fps: float = 0.0
     mean_latency_ms: float = 0.0
@@ -62,7 +90,12 @@ class RendererMetrics:
     frame_times_ms: List[float] = field(default_factory=list)
 
     def compute(self):
-        """Compute derived statistics from raw frame times."""
+        """Compute derived statistics from raw frame time measurements.
+
+        Calculates mean, median, standard deviation, jitter (coefficient of
+        variation), and percentile-based latency distribution (P1 through P99).
+        FPS values are computed as 1000 / latency for each percentile.
+        """
         if not self.frame_times_ms:
             return
         t = np.array(self.frame_times_ms)
@@ -91,6 +124,7 @@ class RendererMetrics:
         self.p99_fps = round(1000.0 / self.p1_latency_ms, 1) if self.p1_latency_ms > 0 else 0.0
 
     def to_dict(self) -> dict:
+        """Serialize metrics to a dictionary for JSON export."""
         d = {
             "renderer": self.renderer_name,
             "mean_fps": self.mean_fps,
@@ -118,16 +152,29 @@ class RendererMetrics:
 
 
 class Timer:
-    """CUDA timer for GPU-accelerated timing measurements."""
+    """CUDA event-based timer for precise GPU-accelerated measurements.
+
+    Uses CUDA events (torch.cuda.Event) for accurate GPU-side timing
+    that accounts for kernel launch overhead and asynchronous execution.
+    """
     def __init__(self, device="cuda"):
         self.device = device
         self.start_event = torch.cuda.Event(enable_timing=True)
         self.end_event = torch.cuda.Event(enable_timing=True)
 
     def start(self):
+        """Record a start event on the default CUDA stream."""
         self.start_event.record()
 
     def stop(self, sync=True) -> float:
+        """Record an end event and return elapsed time in milliseconds.
+
+        Args:
+            sync: If True, synchronize the CPU with the GPU before querying.
+
+        Returns:
+            Elapsed time in milliseconds.
+        """
         self.end_event.record()
         if sync:
             torch.cuda.synchronize()

@@ -1,7 +1,41 @@
 """
-Phase 1 Benchmark: all renderers on identical scene and cameras.
-Key optimization: reuse rasterizer per camera (no per-frame constructor overhead).
+Phase 1: Cross-Renderer Comparison Benchmark for 3D Gaussian Splatting.
+
+This module implements a multi-phase measurement protocol for comparing four
+CUDA rasterization backends under strictly controlled conditions:
+
+  Phase 1: Rasterizer construction time — measures the overhead of creating
+      GaussianRasterizationSettings and GaussianRasterizer objects per camera view.
+  Phase 2: Rasterizer cache construction — builds per-camera-view rasterizer
+      objects to eliminate per-frame construction overhead.
+  Phase 3: GPU warmup — executes 50 frames to stabilize GPU clock frequency
+      and CUDA kernel launch overhead.
+  Phase 4: Render-time measurement — measures pure rendering latency across
+      200 frames cycling through all camera views, with CUDA synchronization
+      before and after each frame.
+
+All renderers use identical scene data (400K Gaussians, SH degree 3), camera
+poses (50 fixed orbit views), and resolution (1920x1080). Results are reported
+with mean, median, stable (trimmed), and percentile-based latency statistics.
+
+Included renderers:
+  - speedy_splat: CUB DeviceRadixSort backend (j-alex-hanson fork)
+  - diff_gaussian: Thrust radix sort backend (ashawkey fork, baseline)
+  - tc_gs: CUB sort, identical CUDA kernel to speedy-splat
+  - gsplat: nerfstudio-project wrapper with diff-gaussian backend
+
+Usage:
+    python src/scripts/benchmark_phase1.py
+
+References:
+    Kerbl, B., Kopanas, G., Leimkühler, T., & Drettakis, G. (2023).
+    3D Gaussian Splatting for Real-Time Radiance Field Rendering.
+    ACM Transactions on Graphics, 42(4).
+
+    NVIDIA Corporation. (2024). CUB: CUDA UnBound — A Flexible Library of
+    Parallel Primitives. https://github.com/NVIDIA/cub
 """
+
 import sys, torch, time, gc, json, os
 import numpy as np
 
@@ -27,7 +61,20 @@ means2d_base = torch.zeros_like(means3d[:, :2])
 
 
 def make_renderer(rname, cam):
-    """Create rasterizer. Returns (rasterizer, needs_scores)."""
+    """Create a rasterizer for the specified renderer and camera.
+
+    Instantiates the appropriate GaussianRasterizationSettings and
+    GaussianRasterizer based on the renderer identifier. The speedy_splat
+    renderer uses the CUB DeviceRadixSort backend (requiring a `scores`
+    parameter), while all others use the Thrust-based diff-gaussian backend.
+
+    Args:
+        rname: Renderer identifier ('speedy_splat', 'diff_gaussian', 'tc_gs', 'gsplat').
+        cam: Camera object with view/projection parameters.
+
+    Returns:
+        Tuple of (GaussianRasterizer, needs_scores_bool).
+    """
     if rname in ("speedy_splat",):
         from speedy_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
         s = GaussianRasterizationSettings(

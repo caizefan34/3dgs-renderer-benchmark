@@ -1,5 +1,12 @@
 """
-Proper benchmark: reuse rasterizer, measure only render time.
+Full benchmark pipeline: rasterizer reuse and pure render-time measurement.
+
+Implements a two-phase benchmark:
+  Phase 1: Measures rasterizer construction time across camera views.
+  Phase 2: Measures pure render time with rasterizer reuse per camera.
+
+This provides a more detailed breakdown than the unified CLI benchmark,
+separating construction overhead from rendering performance.
 """
 import sys, torch, time, gc, json, os
 import numpy as np
@@ -15,7 +22,7 @@ scene = load_ply(SCENE, device="cuda")
 cameras = load_cameras_from_json(CAMS, device="cuda")
 N_CAMS = len(cameras)
 
-# Pre-compute data tensors (shared across all renderers and frames)
+# Pre-compute shared data tensors for all renderers and frames
 means3d = scene["xyz"].contiguous()
 opacities = torch.sigmoid(scene["opacity"]).contiguous()
 shs = scene["shs"].contiguous()
@@ -24,7 +31,15 @@ rotations = torch.nn.functional.normalize(scene["rotations"], dim=-1).contiguous
 means2d_base = torch.zeros_like(means3d[:, :2])
 
 def create_renderer(rname, cam):
-    """Create rasterizer. Returns (rasterizer, needs_scores_bool)."""
+    """Create a rasterizer for the given renderer and camera.
+
+    Args:
+        rname: Renderer identifier string.
+        cam: Camera object with view/projection parameters.
+
+    Returns:
+        Tuple of (GaussianRasterizer, needs_scores_bool).
+    """
     if rname == "speedy_splat":
         from speedy_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
         s = GaussianRasterizationSettings(
@@ -51,7 +66,16 @@ def create_renderer(rname, cam):
         return GaussianRasterizer(s), False
 
 def render_frame(rname, rast, needs_scores):
-    """Render one frame. Returns rendered image."""
+    """Render a single frame with the given rasterizer.
+
+    Args:
+        rname: Renderer identifier string.
+        rast: GaussianRasterizer instance.
+        needs_scores: Whether the renderer requires a scores tensor.
+
+    Returns:
+        Rendered image tensor.
+    """
     m2 = torch.zeros_like(means3d[:, :2])
     if needs_scores:
         scores = torch.ones(means3d.shape[0], device="cuda")
@@ -70,11 +94,11 @@ for rname in ["speedy_splat", "diff_gaussian", "fast_gauss", "gsplat"]:
     print(f"\n{'='*60}")
     print(f"  BENCHMARK: {rname}")
     print(f"{'='*60}")
-    
+
     torch.cuda.empty_cache()
     gc.collect()
-    
-    # Phase 1: Constructor timing (create once per camera)
+
+    # Phase 1: Measure rasterizer construction time
     print(f"  [Phase 1] Measuring rasterizer construction time ({N_CAMS} cameras)...", end=" ", flush=True)
     construct_times = []
     for ci in range(min(N_CAMS, 50)):
@@ -86,16 +110,15 @@ for rname in ["speedy_splat", "diff_gaussian", "fast_gauss", "gsplat"]:
         construct_times.append((time.perf_counter() - t0) * 1000)
         del rast
         gc.collect()
-    
+
     ct = np.array(construct_times)
     print(f"mean={ct.mean():.2f}ms, median={np.median(ct):.2f}ms")
-    
-    # Phase 2: Render-only timing (reuse same rasterizer across camera views)
-    # Strategy: create ONE rasterizer per camera and render that camera multiple times
+
+    # Phase 2: Measure pure render time with rasterizer reuse
     print(f"  [Phase 2] Measuring pure render time (reusing rasterizer across 50 frames)...", end=" ", flush=True)
     render_times = []
-    
-    # Warmup: create rasterizer for first camera, render a few times
+
+    # Warmup: create and warm up rasterizer for first camera
     cam0 = cameras[0]
     rast, needs_scores = create_renderer(rname, cam0)
     for _ in range(5):
@@ -106,34 +129,34 @@ for rname in ["speedy_splat", "diff_gaussian", "fast_gauss", "gsplat"]:
     del rast
     gc.collect()
     torch.cuda.empty_cache()
-    
-    # Benchmark: cycle through 50 camera views, create rasterizer ONCE per frame
+
+    # Benchmark: cycle through 50 camera views with per-frame rasterizer creation
     for fi in range(50):
         cam = cameras[fi % N_CAMS]
         rast, needs_scores = create_renderer(rname, cam)
-        
-        # Measure render time (exclude constructor)
+
+        # Measure render time only (exclude constructor)
         torch.cuda.synchronize()
         t0 = time.perf_counter()
         with torch.no_grad():
             render_frame(rname, rast, needs_scores)
         torch.cuda.synchronize()
         elapsed = (time.perf_counter() - t0) * 1000
-        
+
         render_times.append(elapsed)
         del rast
         gc.collect()
-        
+
         if (fi + 1) % 10 == 0:
             recent = np.array(render_times[-10:])
             print(f"{fi+1}..", end="", flush=True)
     print(" done")
-    
+
     t = np.array(render_times)
     t_sorted = np.sort(t)
     trim = max(1, len(t) // 10)
     t_stable = t_sorted[trim:-trim] if len(t) > 2 * trim else t[5:]
-    
+
     log = {
         "renderer": rname,
         "num_frames": 50,
@@ -158,7 +181,7 @@ for rname in ["speedy_splat", "diff_gaussian", "fast_gauss", "gsplat"]:
         "stable_median_fps": round(1000.0 / float(np.median(t_stable)), 1),
     }
     all_results[rname] = log
-    
+
     print(f"\n  RESULTS for {rname}:")
     print(f"    Median:      {log['median_ms']:7.2f} ms = {log['median_fps']:7.1f} FPS")
     print(f"    Mean:        {log['mean_ms']:7.2f} ms = {log['mean_fps']:7.1f} FPS")
@@ -168,12 +191,11 @@ for rname in ["speedy_splat", "diff_gaussian", "fast_gauss", "gsplat"]:
     print(f"    Min: {log['min_ms']:.2f}  Max: {log['max_ms']:.2f}  Std: {log['std_ms']:.2f}")
     print(f"    Constructor: mean={log['construct_mean_ms']:.2f}ms, median={log['construct_median_ms']:.2f}ms")
 
-# ========== FINAL RANKING ==========
+# Final ranking by stable median render-only latency
 print(f"\n{'='*70}")
 print(f"  FINAL RANKING (sorted by median render-only latency)")
 print(f"{'='*70}")
 
-# Use stable_median as the primary metric (excludes constructor overhead & extreme allocation spikes)
 ranked = sorted(all_results.values(), key=lambda l: l["stable_median_ms"])
 baseline_name = [r["renderer"] for r in ranked if r["renderer"] != ranked[0]["renderer"]][0]
 baseline_med = [r["stable_median_ms"] for r in ranked if r["renderer"] == baseline_name][0]
@@ -183,11 +205,11 @@ for i, log in enumerate(ranked):
     med = log["stable_median_ms"]
     fps = log["stable_median_fps"]
     if i == 0:
-        tag = f"  <<< FASTEST >>> (CUB DeviceRadixSort)"
+        tag = "  <<< FASTEST >>> (CUB DeviceRadixSort)"
     else:
         speedup = ((baseline_med / med) - 1) * 100
         if i == 1:
-            tag = f"  (BASELINE: Thrust sort)"
+            tag = "  (BASELINE: Thrust sort)"
         else:
             tag = f"  ({'+' if speedup > 0 else ''}{speedup:.1f}% vs baseline)"
     print(f"  #{i+1}: {rname:20s}  stable_median={med:6.2f}ms = {fps:6.1f}FPS{tag}")
@@ -197,29 +219,9 @@ baseline = [r for r in ranked if r["renderer"] != fastest["renderer"]][0]
 speedup_pct = round(((baseline["stable_median_ms"] / fastest["stable_median_ms"]) - 1) * 100, 1)
 
 print(f"\n  => {fastest['renderer']} is fastest: {speedup_pct:.1f}% faster than {baseline['renderer']}")
-print(f"  => Core reason: CUB DeviceRadixSort replaces Thrust radix sort")
+print(f"  => Core reason: CUB DeviceRadixSort replaces Thrust radix sort in tile binning pipeline")
 
-# ========== FAIR COMPARISON: Raw vs Engine Opt ==========
-print(f"\n{"="*70}")
-print(f"  FAIR COMPARISON: Raw FPS vs Engine Opt FPS")
-print(f"{"="*70}")
-print(f"  {"Renderer":25s}  {"Raw FPS":>10s}  {"Opt FPS":>10s}  {"Speedup":>9s}")
-print(f"  {"-"*25}  {"-"*10}  {"-"*10}  {"-"*9}")
-for log in ranked:
-    rname = log["renderer"]
-    fps = log["stable_median_fps"]
-    if "opt" in rname or "culling" in rname or "nomalloc" in rname or "async" in rname:
-        raw_fps = baseline["stable_median_fps"]
-        opt_fps = fps
-    else:
-        raw_fps = fps
-        opt_fps = fps
-    speedup_val = ((opt_fps / raw_fps) - 1) * 100
-    speedup_str = f"+{speedup_val:.1f}%" if opt_fps > raw_fps else "-"
-    print(f"  {rname:25s}  {raw_fps:>10.1f}  {opt_fps:>10.1f}  {speedup_str:>9s}")
-
-
-# ========== SAVE ==========
+# Save results
 output = {
     "metadata": {
         "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU (8.55 GB)",

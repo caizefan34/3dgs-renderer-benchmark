@@ -1,13 +1,21 @@
 #!/usr/bin/env python
 """
-3DGS Renderer Benchmark — Unified CLI.
-Standardized benchmark protocol: load scene, run all renderers on identical camera paths,
-collect comprehensive metrics (FPS, VRAM, load time), export JSON/CSV/Markdown/HTML report.
+3DGS Renderer Benchmark — Unified Command-Line Interface.
+
+Implements the standardized benchmark protocol: load scene data, evaluate
+all specified renderers on identical camera paths, collect comprehensive
+metrics (FPS, latency distribution, VRAM consumption, scene loading time),
+and export results in multiple formats (JSON, CSV, Markdown, HTML).
 
 Usage:
     python run_benchmark.py --scene data/scene.ply --cameras data/cameras.json
     python run_benchmark.py --renderers speedy_splat diff_gaussian --frames 100
     python run_benchmark.py --list-renderers
+
+References:
+    Kerbl, B., Kopanas, G., Leimkühler, T., & Drettakis, G. (2023).
+    3D Gaussian Splatting for Real-Time Radiance Field Rendering.
+    ACM Transactions on Graphics, 42(4).
 """
 import sys, os, time, json, argparse, gc
 import torch
@@ -29,19 +37,28 @@ def parse_args():
     p.add_argument("--cameras", type=str, default=None, help="Path to cameras.json")
     p.add_argument("--renderers", type=str, nargs="+", default=None, help="Renderers to benchmark")
     p.add_argument("--frames", type=int, default=None, help="Number of benchmark frames")
-    p.add_argument("--warmup", type=int, default=None, help="Warmup frames")
-    p.add_argument("--repeats", type=int, default=None, help="Number of benchmark repeats")
+    p.add_argument("--warmup", type=int, default=None, help="Number of warmup frames")
+    p.add_argument("--repeats", type=int, default=None, help="Number of measurement repeats")
     p.add_argument("--clock-lock", action="store_true", default=None, help="Enable GPU clock lock")
-    p.add_argument("--width", type=int, default=None, help="Image width")
-    p.add_argument("--height", type=int, default=None, help="Image height")
-    p.add_argument("--output", type=str, default=None, help="Output directory")
+    p.add_argument("--width", type=int, default=None, help="Image width in pixels")
+    p.add_argument("--height", type=int, default=None, help="Image height in pixels")
+    p.add_argument("--output", type=str, default=None, help="Output directory for results")
     p.add_argument("--camera-path", type=str, default=None, choices=["spiral", "circle", "flythrough", "random_walk"],
                    help="Standard camera path preset (from data/camera_presets/)")
-    p.add_argument("--list-renderers", action="store_true", help="List registered renderers")
+    p.add_argument("--list-renderers", action="store_true", help="List registered renderers and exit")
     return p.parse_args()
 
 
 def main():
+    """Execute the standardized 3DGS renderer benchmark.
+
+    Pipeline:
+        1. Load scene from PLY file
+        2. Load or generate camera poses
+        3. Check renderer availability
+        4. Run benchmark for each renderer with warmup and measurement phases
+        5. Export results in JSON, CSV, Markdown, and HTML formats
+    """
     args = parse_args()
     cfg = BenchmarkConfig.create_default()
 
@@ -66,7 +83,7 @@ def main():
         print("Available:", list_available())
         return
 
-    # Try camera path preset
+    # Resolve camera path preset
     if args.camera_path:
         preset = os.path.join(data_dir, "camera_presets", f"{args.camera_path}.json")
         if os.path.exists(preset):
@@ -85,8 +102,8 @@ def main():
     print(f"  Repeats: {cfg.repeats}  |  Clock Lock: {cfg.clock_lock}")
     print("=" * 70)
 
-    # 1. Load scene
-    print("\n[1/5] Loading scene...")
+    # Phase 1: Load scene
+    print("\n[1/5] Loading scene data...")
     assert os.path.exists(scene_path), f"Scene not found: {scene_path}"
     t0 = time.perf_counter()
     scene_data = load_ply(scene_path, device="cuda")
@@ -94,8 +111,8 @@ def main():
     N = scene_data["num_points"]
     file_size_mb = os.path.getsize(scene_path) / (1024 * 1024)
 
-    # 2. Load cameras
-    print("\n[2/5] Loading cameras...")
+    # Phase 2: Load cameras
+    print("\n[2/5] Loading camera poses...")
     if os.path.exists(cameras_path):
         t0 = time.perf_counter()
         cameras = load_cameras_from_json(cameras_path, device="cuda")
@@ -107,8 +124,8 @@ def main():
         cam_load_ms = (time.perf_counter() - t0) * 1000
         print(f"  Generated {len(cameras)} cameras ({cam_load_ms:.0f}ms)")
 
-    # 3. Check renderers
-    print("\n[3/5] Checking renderers...")
+    # Phase 3: Check renderer availability
+    print("\n[3/5] Checking renderer availability...")
     available = list_available()
     print(f"  Available: {available}")
     renderers = [r for r in cfg.renderers if r in available]
@@ -116,7 +133,7 @@ def main():
         print("  No renderers available!")
         sys.exit(1)
 
-    # 4. Run benchmarks
+    # Phase 4: Run benchmarks
     print("\n[4/5] Running benchmarks...")
     results_mgr = ResultsManager()
     gpu_name = torch.cuda.get_device_name(0)
@@ -135,22 +152,22 @@ def main():
         for repeat_idx in range(cfg.repeats):
             if cfg.repeats > 1:
                 print(f"  Repeat {repeat_idx + 1}/{cfg.repeats}...")
-            
+
             frame_times = []
             peak_mem = 0
             mem_samples = []
 
-            # Warmup
-            print(f"  Warmup ({cfg.warmup_frames})...", end=" ", flush=True)
+            # Warmup phase (excluded from measurement)
+            print(f"  Warmup ({cfg.warmup_frames} frames)...", end=" ", flush=True)
             for f in range(cfg.warmup_frames):
                 with torch.no_grad():
                     renderer.render(prep_data, cameras[f % len(cameras)])
             torch.cuda.synchronize()
             print("done")
 
-            # Benchmark
+            # Measurement phase
             torch.cuda.reset_peak_memory_stats()
-            print(f"  Benchmark ({cfg.benchmark_frames})...", end=" ", flush=True)
+            print(f"  Benchmark ({cfg.benchmark_frames} frames)...", end=" ", flush=True)
             for f in range(cfg.benchmark_frames):
                 torch.cuda.synchronize()
                 t0 = time.perf_counter()
@@ -168,7 +185,7 @@ def main():
                 if (f + 1) % 50 == 0:
                     print(f"{f+1}..", end="", flush=True)
             print(" done")
-            
+
             all_frame_times.extend(frame_times)
             all_mem_samples.extend(mem_samples)
             if peak_mem > all_peak_mem:
@@ -201,7 +218,7 @@ def main():
 
         results_mgr.add_result(rname, metrics)
 
-    # 5. Export results
+    # Phase 5: Export results
     print("\n[5/5] Exporting results...")
     rankings = results_mgr.get_ranking()
     fastest = rankings[0][0] if rankings else ""
@@ -217,7 +234,7 @@ def main():
     print("  RESULTS SUMMARY")
     print("=" * 70)
     for i, (name, fps, lat) in enumerate(rankings, 1):
-        tag = "  \u2605 FASTEST" if i == 1 else ""
+        tag = "  (FASTEST)" if i == 1 else ""
         m = results_mgr.results[name]
         t_arr = np.array(m.frame_times_ms)
         sem = np.std(t_arr) / np.sqrt(len(t_arr))
