@@ -12,6 +12,11 @@ jobs:
     runs-on: [self-hosted, gpu]
     timeout-minutes: 30
     
+    strategy:
+      matrix:
+        scene-tier: [small, medium, large]
+      fail-fast: false
+    
     steps:
     - uses: actions/checkout@v4
     
@@ -29,7 +34,7 @@ jobs:
         pip install numpy matplotlib
     
     - name: Generate test scene
-      run: python src/scripts/generate_scene.py
+      run: python src/scripts/generate_scene.py --gaussians ${{ matrix.scene-tier == 'small' && 50000 || matrix.scene-tier == 'medium' && 200000 || 500000 }}
     
     - name: Generate camera paths
       run: python src/scripts/generate_camera_path.py --type spiral
@@ -37,28 +42,64 @@ jobs:
     - name: Run benchmark
       run: |
         python src/run_benchmark.py \
-          --renderers speedy_splat diff_gaussian \
-          --frames 50 --warmup 10 \
-          --output results/ci
+          --renderers speedy_splat diff_gaussian fast_gauss gsplat \
+          --frames 100 --warmup 20 --repeats 3 \
+          --output results/ci/${{ matrix.scene-tier }}
 
-    - name: Compare with baseline
+    - name: Baseline comparison
       run: |
-        echo "Checking for regression..."
+        echo "Checking for FPS regression in ${{ matrix.scene-tier }} scene..."
         python -c "
-import json
-with open('results/ci/benchmark_results.json') as f:
+import json, sys, os
+
+results_dir = 'results/ci/${{ matrix.scene-tier }}'
+result_file = os.path.join(results_dir, 'benchmark_results.json')
+baseline_file = 'results/ci/baselines/${{ matrix.scene-tier }}_baseline.json'
+
+if not os.path.exists(result_file):
+    print(f'ERROR: No results found at {result_file}')
+    sys.exit(1)
+
+with open(result_file) as f:
     data = json.load(f)
+
+print(f'Results for ${{ matrix.scene-tier }} scene:')
+regression_detected = False
 for rname, r in data.items():
     fps = r['mean_fps']
-    print(f'{rname}: {fps:.1f} FPS')
+    print(f'  {rname}: {fps:.1f} FPS')
+
+# Load baseline if exists
+if os.path.exists(baseline_file):
+    with open(baseline_file) as f:
+        baseline = json.load(f)
+    for rname, r in data.items():
+        if rname in baseline:
+            old_fps = baseline[rname]['mean_fps']
+            fps = r['mean_fps']
+            delta = ((fps - old_fps) / old_fps) * 100
+            status = 'OK' if delta > -5 else 'REGRESSION'
+            print(f'  {rname}: {old_fps:.1f} -> {fps:.1f} FPS ({delta:+.1f}%) [{status}]')
+            if delta <= -5:
+                regression_detected = True
+    if regression_detected:
+        print('REGRESSION: FPS dropped >5% in one or more renderers')
+        sys.exit(1)
+    else:
+        print('PASS: No significant regression detected')
+else:
+    print('No baseline found; saving current results as baseline')
+    os.makedirs('results/ci/baselines', exist_ok=True)
+    with open(baseline_file, 'w') as f:
+        json.dump(data, f, indent=2)
 "
     
     - name: Archive results
       uses: actions/upload-artifact@v4
       with:
-        name: benchmark-results
-        path: results/ci/
+        name: benchmark-results-${{ matrix.scene-tier }}
+        path: results/ci/${{ matrix.scene-tier }}/
     
     - name: Notify on regression
       if: failure()
-      run: echo '::warning::Benchmark regression detected — check results/ci/ for details'
+      run: echo '::warning::Benchmark regression detected in ${{ matrix.scene-tier }} scene — check results/ci/${{ matrix.scene-tier }}/ for details'

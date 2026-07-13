@@ -81,7 +81,13 @@ def _write_gsplat_ply(path, xyz, opacities, scales, rotations, shs):
 
 if __name__ == "__main__":
     import sys
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 400000
-    path = os.path.join(OUTPUT_DIR, "scene.ply")
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate synthetic 3DGS scene")
+    parser.add_argument("--gaussians", type=int, default=None, help="Number of gaussians")
+    parser.add_argument("--output", type=str, default=None, help="Output path")
+    args, extra = parser.parse_known_args()
+    # Support positional argument for backward compatibility
+    n = args.gaussians if args.gaussians is not None else (int(extra[0]) if extra else 400000)
+    path = args.output if args.output else os.path.join(OUTPUT_DIR, "scene.ply")
     create_scene_ply(path, n)
-    print("Done!")
+    print(f"Generated {n} gaussians -> {path}")

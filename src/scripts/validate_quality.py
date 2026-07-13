@@ -1,4 +1,4 @@
-"""
+﻿"""
 Quality validation script for 3DGS renderer benchmark.
 
 Compares rendered outputs from:
@@ -15,7 +15,9 @@ Usage:
 import sys, os, json, torch
 import numpy as np
 
-PROJECT_ROOT = r"C:\Users\36570\Documents\Codex\2026-07-12\caizefan34-3dgs-renderer-benchmark-https-github-2\work\repo"
+# Determine project root dynamically
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.join(SCRIPT_DIR, "..", "..")
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 from benchmark_framework import load_ply, load_cameras_from_json
 
@@ -23,7 +25,7 @@ SCENE = os.path.join(PROJECT_ROOT, "data", "scene.ply")
 CAMS_JSON = os.path.join(PROJECT_ROOT, "data", "cameras.json")
 OUT_DIR = os.path.join(PROJECT_ROOT, "results", "quality_validation")
 os.makedirs(OUT_DIR, exist_ok=True)
-NUM_FRAMES = 10
+NUM_FRAMES = 100
 WIDTH, HEIGHT = 1920, 1080
 
 
@@ -141,36 +143,43 @@ def main():
 
     print()
     print("Test 1: Speedy (all) vs Diff (all) -- rasterizer consistency")
-    print("  Frame    PSNR(dB)      SSIM   LPIPS    DiffMax")
-    print("  " + "-" * 48)
+    print("  Frame    PSNR(dB)      SSIM   LPIPS    DiffMax   MeanErr")
+    print("  " + "-" * 56)
 
     results_1 = []
+    diff_maps_1 = []
     for fi in range(nf):
         cam = v.cameras[fi]
         img_ref = v.render_diff(cam)
         img_test, _ = v.render_speedy(cam, cull_mask=None)
+        if fi == 0:
+            diff_maps_1.append((img_test.detach().cpu(), img_ref.detach().cpu()))
         if torch.isnan(img_test).any() or torch.isnan(img_ref).any():
-            print(f"  {fi:>4}     NaN       NaN     NaN       NaN")
+            print(f"  {fi:>4}     NaN       NaN     NaN       NaN       NaN")
             continue
         psnr_val = compute_psnr(img_test, img_ref)
         ssim_val = compute_ssim(img_test, img_ref)
         lpips_val = compute_lpips(img_test, img_ref)
         dmax = float(torch.max(torch.abs(img_test - img_ref)).item())
-        print(f"  {fi:>4}  {psnr_val:>9.2f}  {ssim_val:>7.5f}  {lpips_val:>6.4f}  {dmax:.6f}")
+        dmean = float(torch.mean(torch.abs(img_test - img_ref)).item())
+        print(f"  {fi:>4}  {psnr_val:>9.2f}  {ssim_val:>7.5f}  {lpips_val:>6.4f}  {dmax:.6f}  {dmean:.6f}")
         results_1.append({"frame": fi, "psnr": round(psnr_val, 4), "ssim": round(ssim_val, 6),
-                          "lpips": round(lpips_val, 6), "max_diff": round(dmax, 8)})
+                          "lpips": round(lpips_val, 6), "max_diff": round(dmax, 8), "mean_diff": round(dmean, 8)})
 
     print()
     print("Test 2: Speedy (culled) vs Speedy (all) -- culling quality")
     print("  Frame    PSNR(dB)      SSIM   LPIPS   Visible%")
-    print("  " + "-" * 48)
+    print("  " + "-" * 56)
 
     results_2 = []
+    diff_maps_2 = []
     for fi in range(nf):
         cam = v.cameras[fi]
         img_ref, _ = v.render_speedy(cam, cull_mask=None)
         mask = v.compute_cull_mask(cam)
         img_test, _ = v.render_speedy(cam, cull_mask=mask)
+        if fi == 0:
+            diff_maps_2.append((img_test.detach().cpu(), img_ref.detach().cpu()))
         if torch.isnan(img_test).any() or torch.isnan(img_ref).any():
             print(f"  {fi:>4}     NaN       NaN     NaN      NaN")
             continue
@@ -218,6 +227,53 @@ def main():
 
     report = {"config": {"resolution": f"{WIDTH}x{HEIGHT}", "num_frames": nf, "num_gaussians": v.N_G},
               "test1_rasterizer_consistency": results_1, "test2_culling_quality": results_2}
+
+    # Generate difference heatmaps for first frame of each test
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import Normalize
+
+        for test_name, diff_maps, label in [
+            ("test1_rasterizer", diff_maps_1, "Speedy(all) vs Diff(all)"),
+            ("test2_culling", diff_maps_2, "Speedy(culled) vs Speedy(all)"),
+        ]:
+            if not diff_maps:
+                continue
+            img_test, img_ref = diff_maps[0]
+            diff = (img_test - img_ref).abs()
+            diff_gray = diff.mean(dim=0).numpy()
+
+            fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+            axes[0, 0].imshow(img_test.permute(1, 2, 0).clamp(0, 1).numpy())
+            axes[0, 0].set_title(f"{label} - Test Image")
+            axes[0, 0].axis("off")
+            axes[0, 1].imshow(img_ref.permute(1, 2, 0).clamp(0, 1).numpy())
+            axes[0, 1].set_title(f"{label} - Reference Image")
+            axes[0, 1].axis("off")
+            im = axes[0, 2].imshow(diff_gray, cmap="hot", norm=Normalize(vmin=0, vmax=min(diff_gray.max(), 0.1)))
+            axes[0, 2].set_title("Difference Heatmap (hot)")
+            axes[0, 2].axis("off")
+            plt.colorbar(im, ax=axes[0, 2], fraction=0.046, pad=0.04)
+
+            for ch_idx, ch_name in enumerate(["R", "G", "B"]):
+                ch_diff = diff[ch_idx].numpy()
+                ax = axes[1, ch_idx]
+                im = ax.imshow(ch_diff, cmap="hot", norm=Normalize(vmin=0, vmax=min(ch_diff.max(), 0.1)))
+                ax.set_title(f"Channel {ch_name} Diff")
+                ax.axis("off")
+                plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+            plt.tight_layout()
+            heatmap_path = os.path.join(OUT_DIR, f"heatmap_{test_name}.png")
+            plt.savefig(heatmap_path, dpi=150, bbox_inches="tight")
+            plt.close(fig)
+            print(f"  Heatmap saved: {heatmap_path}")
+    except ImportError:
+        print("  [WARN] matplotlib not installed; skipping heatmap generation")
+        pass
+
     rp = os.path.join(OUT_DIR, "quality_validation.json")
     with open(rp, "w") as f:
         json.dump(report, f, indent=2)

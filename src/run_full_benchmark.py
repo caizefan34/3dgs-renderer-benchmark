@@ -66,7 +66,7 @@ def render_frame(rname, rast, needs_scores):
 
 all_results = {}
 
-for rname in ["speedy_splat", "diff_gaussian", "gsplat"]:
+for rname in ["speedy_splat", "diff_gaussian", "fast_gauss", "gsplat"]:
     print(f"\n{'='*60}")
     print(f"  BENCHMARK: {rname}")
     print(f"{'='*60}")
@@ -198,6 +198,26 @@ speedup_pct = round(((baseline["stable_median_ms"] / fastest["stable_median_ms"]
 
 print(f"\n  => {fastest['renderer']} is fastest: {speedup_pct:.1f}% faster than {baseline['renderer']}")
 print(f"  => Core reason: CUB DeviceRadixSort replaces Thrust radix sort")
+
+# ========== FAIR COMPARISON: Raw vs Engine Opt ==========
+print(f"\n{"="*70}")
+print(f"  FAIR COMPARISON: Raw FPS vs Engine Opt FPS")
+print(f"{"="*70}")
+print(f"  {"Renderer":25s}  {"Raw FPS":>10s}  {"Opt FPS":>10s}  {"Speedup":>9s}")
+print(f"  {"-"*25}  {"-"*10}  {"-"*10}  {"-"*9}")
+for log in ranked:
+    rname = log["renderer"]
+    fps = log["stable_median_fps"]
+    if "opt" in rname or "culling" in rname or "nomalloc" in rname or "async" in rname:
+        raw_fps = baseline["stable_median_fps"]
+        opt_fps = fps
+    else:
+        raw_fps = fps
+        opt_fps = fps
+    speedup_val = ((opt_fps / raw_fps) - 1) * 100
+    speedup_str = f"+{speedup_val:.1f}%" if opt_fps > raw_fps else "-"
+    print(f"  {rname:25s}  {raw_fps:>10.1f}  {opt_fps:>10.1f}  {speedup_str:>9s}")
+
 
 # ========== SAVE ==========
 output = {

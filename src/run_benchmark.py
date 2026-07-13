@@ -30,6 +30,8 @@ def parse_args():
     p.add_argument("--renderers", type=str, nargs="+", default=None, help="Renderers to benchmark")
     p.add_argument("--frames", type=int, default=None, help="Number of benchmark frames")
     p.add_argument("--warmup", type=int, default=None, help="Warmup frames")
+    p.add_argument("--repeats", type=int, default=None, help="Number of benchmark repeats")
+    p.add_argument("--clock-lock", action="store_true", default=None, help="Enable GPU clock lock")
     p.add_argument("--width", type=int, default=None, help="Image width")
     p.add_argument("--height", type=int, default=None, help="Image height")
     p.add_argument("--output", type=str, default=None, help="Output directory")
@@ -46,6 +48,8 @@ def main():
     if args.renderers: cfg.renderers = args.renderers
     if args.frames: cfg.benchmark_frames = args.frames
     if args.warmup: cfg.warmup_frames = args.warmup
+    if args.repeats: cfg.repeats = args.repeats
+    if args.clock_lock is not None: cfg.clock_lock = args.clock_lock
     if args.width: cfg.image_width = args.width
     if args.height: cfg.image_height = args.height
     if args.output: cfg.output_dir = args.output
@@ -78,6 +82,7 @@ def main():
     print(f"  Cameras: {cameras_path}")
     print(f"  Resolution: {cfg.image_width}x{cfg.image_height}")
     print(f"  Frames: {cfg.benchmark_frames} (+ {cfg.warmup_frames} warmup)")
+    print(f"  Repeats: {cfg.repeats}  |  Clock Lock: {cfg.clock_lock}")
     print("=" * 70)
 
     # 1. Load scene
@@ -123,62 +128,76 @@ def main():
             continue
 
         prep_data = renderer.prepare_scene(scene_data)
-        frame_times = []
-        peak_mem = 0
-        mem_samples = []
+        all_frame_times = []
+        all_peak_mem = 0
+        all_mem_samples = []
 
-        # Warmup
-        print(f"  Warmup ({cfg.warmup_frames})...", end=" ", flush=True)
-        for f in range(cfg.warmup_frames):
-            with torch.no_grad():
-                renderer.render(prep_data, cameras[f % len(cameras)])
-        torch.cuda.synchronize()
-        print("done")
+        for repeat_idx in range(cfg.repeats):
+            if cfg.repeats > 1:
+                print(f"  Repeat {repeat_idx + 1}/{cfg.repeats}...")
+            
+            frame_times = []
+            peak_mem = 0
+            mem_samples = []
 
-        # Benchmark
-        torch.cuda.reset_peak_memory_stats()
-        print(f"  Benchmark ({cfg.benchmark_frames})...", end=" ", flush=True)
-        for f in range(cfg.benchmark_frames):
+            # Warmup
+            print(f"  Warmup ({cfg.warmup_frames})...", end=" ", flush=True)
+            for f in range(cfg.warmup_frames):
+                with torch.no_grad():
+                    renderer.render(prep_data, cameras[f % len(cameras)])
             torch.cuda.synchronize()
-            t0 = time.perf_counter()
-            with torch.no_grad():
-                renderer.render(prep_data, cameras[f % len(cameras)])
-            torch.cuda.synchronize()
-            ms = (time.perf_counter() - t0) * 1000
-            frame_times.append(ms)
+            print("done")
 
-            mem = torch.cuda.max_memory_allocated() / (1024 * 1024)
-            mem_samples.append(mem)
-            if mem > peak_mem:
-                peak_mem = mem
+            # Benchmark
+            torch.cuda.reset_peak_memory_stats()
+            print(f"  Benchmark ({cfg.benchmark_frames})...", end=" ", flush=True)
+            for f in range(cfg.benchmark_frames):
+                torch.cuda.synchronize()
+                t0 = time.perf_counter()
+                with torch.no_grad():
+                    renderer.render(prep_data, cameras[f % len(cameras)])
+                torch.cuda.synchronize()
+                ms = (time.perf_counter() - t0) * 1000
+                frame_times.append(ms)
 
-            if (f + 1) % 50 == 0:
-                print(f"{f+1}..", end="", flush=True)
-        print(" done")
+                mem = torch.cuda.max_memory_allocated() / (1024 * 1024)
+                mem_samples.append(mem)
+                if mem > peak_mem:
+                    peak_mem = mem
 
-        t_arr = np.array(frame_times)
+                if (f + 1) % 50 == 0:
+                    print(f"{f+1}..", end="", flush=True)
+            print(" done")
+            
+            all_frame_times.extend(frame_times)
+            all_mem_samples.extend(mem_samples)
+            if peak_mem > all_peak_mem:
+                all_peak_mem = peak_mem
+
+        t_arr = np.array(all_frame_times)
         metrics = RendererMetrics(
             renderer_name=rname,
-            num_frames=cfg.benchmark_frames,
+            num_frames=cfg.benchmark_frames * cfg.repeats,
             warmup_frames=cfg.warmup_frames,
             image_width=cfg.image_width,
             image_height=cfg.image_height,
             num_gaussians=N,
             gpu_name=gpu_name,
-            peak_vram_mb=peak_mem,
-            avg_vram_mb=float(np.mean(mem_samples)),
+            peak_vram_mb=all_peak_mem,
+            avg_vram_mb=float(np.mean(all_mem_samples)),
             scene_load_time_ms=scene_load_ms,
             scene_parse_time_ms=0.0,
             file_size_mb=file_size_mb,
-            frame_times_ms=[round(x, 2) for x in frame_times],
+            frame_times_ms=[round(x, 2) for x in all_frame_times],
         )
         metrics.compute()
 
-        print(f"  Mean: {metrics.mean_latency_ms:.1f}ms ({metrics.mean_fps:.1f}FPS)  "
+        mean_std = np.std(t_arr) / np.sqrt(len(t_arr))
+        print(f"  Mean: {metrics.mean_latency_ms:.1f} +/- {mean_std:.1f}ms ({metrics.mean_fps:.1f}FPS)  "
               f"Median: {metrics.median_latency_ms:.1f}ms")
         print(f"  P1/P5/P50/P95/P99: {metrics.p1_latency_ms:.1f}/{metrics.p5_latency_ms:.1f}/"
               f"{metrics.median_latency_ms:.1f}/{metrics.p95_latency_ms:.1f}/{metrics.p99_latency_ms:.1f}ms")
-        print(f"  VRAM: peak={peak_mem:.0f}MB  avg={metrics.avg_vram_mb:.0f}MB")
+        print(f"  VRAM: peak={all_peak_mem:.0f}MB  avg={metrics.avg_vram_mb:.0f}MB")
 
         results_mgr.add_result(rname, metrics)
 
@@ -200,7 +219,9 @@ def main():
     for i, (name, fps, lat) in enumerate(rankings, 1):
         tag = "  \u2605 FASTEST" if i == 1 else ""
         m = results_mgr.results[name]
-        print(f"  #{i}: {name:20s}  {fps:8.1f} FPS  {lat:8.2f} ms  "
+        t_arr = np.array(m.frame_times_ms)
+        sem = np.std(t_arr) / np.sqrt(len(t_arr))
+        print(f"  #{i}: {name:20s}  {fps:8.1f} FPS  {lat:8.2f} +/- {sem:.2f} ms  "
               f"P99={m.p99_latency_ms:6.2f}ms  VRAM={m.peak_vram_mb:.0f}MB{tag}")
 
     print(f"\nResults saved to {output_dir}/")

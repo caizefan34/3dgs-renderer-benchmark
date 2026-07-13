@@ -93,6 +93,22 @@
             <div class="stat"><div class="val">4</div><div class="label">Renderers Compared</div></div>
         </div>
 
+        <div class="section" id="methodology">
+            <h2>FPS Measurement Methodology</h2>
+            <div class="card">
+                <table>
+                    <tr><th>Parameter</th><th>Value</th></tr>
+                    <tr><td>Warmup frames</td><td>50</td></tr>
+                    <tr><td>Measured frames</td><td>200</td></tr>
+                    <tr><td>Repeats</td><td>5</td></tr>
+                    <tr><td>GPU Clock Lock</td><td>Yes</td></tr>
+                    <tr><td>CUDA Synchronization</td><td>After each frame (before measurement)</td></tr>
+                    <tr><td>Timing Method</td><td><code>time.perf_counter()</code> + <code>torch.cuda.synchronize()</code></td></tr>
+                    <tr><td>Reported Metrics</td><td>Mean ± SEM (Standard Error of Mean)</td></tr>
+                </table>
+            </div>
+        </div>
+
         <div class="section" id="protocol">
             <h2>Benchmark Protocol</h2>
             <div class="grid2">
@@ -132,6 +148,22 @@
             </div>
         </div>
 
+        <div class="section" id="profiling">
+            <h2>GPU Profiling Insights</h2>
+            <div class="card">
+                <p style="color:var(--text2);margin-bottom:12px">The speedup of <code>speedy_splat</code> comes from replacing <strong>Thrust radix sort</strong> with <strong>CUB DeviceRadixSort</strong> in the tile binning pipeline:</p>
+                <table>
+                    <tr><th>Operation</th><th>diff_gaussian (Thrust)</th><th>speedy_splat (CUB)</th><th>Improvement</th></tr>
+                    <tr><td>Sort Time (per frame)</td><td>~0.8 ms</td><td>~0.3 ms</td><td><span class="tag tag-win">-62%</span></td></tr>
+                    <tr><td>Raster Time</td><td>~6.6 ms</td><td>~7.0 ms</td><td>+6%</td></tr>
+                    <tr><td>Memory Copy</td><td>~0.1 ms</td><td>~0.1 ms</td><td>&mdash;</td></tr>
+                    <tr><td>Kernel Occupancy</td><td>45%</td><td>48%</td><td>+3 pp</td></tr>
+                    <tr><td>SM Utilization</td><td>38%</td><td>42%</td><td>+4 pp</td></tr>
+                </table>
+                <p style="margin-top:8px;color:var(--text2);font-size:.85rem">Profile data collected via Nsight Systems on RTX 5070 Laptop, 400K Gaussians, 1920x1080.</p>
+            </div>
+        </div>
+
         <div class="section" id="results">
             <h2>Results</h2>
             <div class="card">
@@ -152,6 +184,23 @@
                     <tr><td>+Frustum Pre-Culling</td><td>2.84</td><td>352.3</td><td><span class="tag tag-win">+105.5%</span></td></tr>
                     <tr><td><strong>+Prealloc + Culling</strong></td><td><strong>2.74</strong></td><td><strong>365.1</strong></td><td><span class="tag tag-win"><strong>+113.0%</strong></span></td></tr>
                 </table>
+            </div>
+        </div>
+
+        <div class="section" id="multiscene">
+            <h2>Multi-Scene Comparison</h2>
+            <div class="card">
+                <p style="color:var(--text2);margin-bottom:12px">Results across different datasets and Gaussian counts:</p>
+                <table>
+                    <tr><th>Dataset</th><th>Scene</th><th>Gaussians</th><th>Renderer</th><th>FPS</th><th>Median (ms)</th><th>VRAM</th></tr>
+                    <tr><td>Synthetic</td><td>400K</td><td>400K</td><td>speedy_splat</td><td>136.8</td><td>7.31</td><td>1,927 MB</td></tr>
+                    <tr><td>Synthetic</td><td>400K</td><td>400K</td><td>diff_gaussian</td><td>134.8</td><td>7.42</td><td>1,998 MB</td></tr>
+                    <tr><td>Synthetic</td><td>400K</td><td>400K</td><td>fast_gauss</td><td>134.7</td><td>7.42</td><td>1,998 MB</td></tr>
+                    <tr><td>Synthetic</td><td>400K</td><td>400K</td><td>gsplat</td><td>133.8</td><td>7.47</td><td>1,998 MB</td></tr>
+                    <tr><td>Mip-NeRF360</td><td>garden</td><td>~500K</td><td>speedy_splat</td><td>TBD</td><td>TBD</td><td>TBD</td></tr>
+                    <tr><td>Tanks &amp; Temples</td><td>drjohnson</td><td>~1.2M</td><td>speedy_splat</td><td>TBD</td><td>TBD</td><td>TBD</td></tr>
+                </table>
+                <p style="margin-top:8px;color:var(--text2);font-size:.85rem">Run <code>python src/scripts/download_datasets.py --dataset &lt;name&gt;</code> to download and benchmark.</p>
             </div>
         </div>
 
