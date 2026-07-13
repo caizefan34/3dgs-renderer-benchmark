@@ -1,245 +1,177 @@
-"""
-Full benchmark pipeline: rasterizer reuse and pure render-time measurement.
+#!/usr/bin/env python
+"""Comprehensive multi-scale benchmark for 3DGS Renderer Benchmark.
+Runs each scene+renderer combo in an isolated subprocess."""
+import sys, os, time, json, argparse, subprocess
 
-Implements a two-phase benchmark:
-  Phase 1: Measures rasterizer construction time across camera views.
-  Phase 2: Measures pure render time with rasterizer reuse per camera.
+PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 
-This provides a more detailed breakdown than the unified CLI benchmark,
-separating construction overhead from rendering performance.
-"""
-import sys, torch, time, gc, json, os
-import numpy as np
+SCENE_CFG = [
+    ("50K", "scene_50k.ply", 50000),
+    ("200K", "scene_200k.ply", 200000),
+    ("400K", "scene.ply", 400000),
+]
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "benchmark_framework"))
+def find_scene(scene_fname):
+    for d in [os.path.join(os.path.dirname(PROJECT_ROOT), "data"), os.path.join(PROJECT_ROOT, "data")]:
+        p = os.path.join(d, scene_fname)
+        if os.path.exists(p):
+            return p
+    return None
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=str, default=None)
+    parser.add_argument("--renderers", type=str, nargs="+", default=["diff_gaussian"])
+    parser.add_argument("--frames", type=int, default=200)
+    parser.add_argument("--warmup", type=int, default=50)
+    parser.add_argument("--repeats", type=int, default=3)
+    args = parser.parse_args()
+
+    repo_root = os.path.dirname(PROJECT_ROOT)
+    output_dir = args.output or os.path.join(repo_root, "results")
+    os.makedirs(output_dir, exist_ok=True)
+
+    print("=" * 70)
+    print("  3DGS Renderer Comprehensive Benchmark")
+    print("=" * 70)
+    print(f"  Isolated subprocess benchmark")
+    print(f"  Renderers: {args.renderers}")
+    print(f"  Frames: {args.frames} (+ {args.warmup}) x {args.repeats}")
+    print("=" * 70)
+
+    available_scenes = [(n, find_scene(f), g) for n, f, g in SCENE_CFG]
+    available_scenes = [(n, p, g) for n, p, g in available_scenes if p]
+
+    if not available_scenes:
+        print("No scene files found!")
+        return
+
+    all_results = {}
+    for renderer_name in args.renderers:
+        for scene_name, scene_path, num_gaussians in available_scenes:
+            output_json = os.path.join(output_dir, "_tmp_{}_{}.json".format(renderer_name, scene_name))
+
+            with open(os.path.join(output_dir, "_script.py"), "w") as f:
+                f.write("""import sys, json, os
+sys.path.insert(0, r"{}")
 from benchmark_framework import load_ply, load_cameras_from_json
+from renderers import get_renderer
+import torch, time, numpy as np
 
-SCENE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "scene.ply")
-CAMS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "cameras.json")
-OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
+scene = load_ply(r"{}", device="cuda")
+cameras = load_cameras_from_json(r"{}", device="cuda")
+if not cameras:
+    cameras = load_cameras_from_json(r"{}", device="cuda")
 
-scene = load_ply(SCENE, device="cuda")
-cameras = load_cameras_from_json(CAMS, device="cuda")
-N_CAMS = len(cameras)
+renderer = get_renderer("{}")
+if not renderer:
+    json.dump({{"error": "not available"}}, open(r"{}", "w"))
+    sys.exit(1)
 
-# Pre-compute shared data tensors for all renderers and frames
-means3d = scene["xyz"].contiguous()
-opacities = torch.sigmoid(scene["opacity"]).contiguous()
-shs = scene["shs"].contiguous()
-scales = scene["scales"].contiguous()
-rotations = torch.nn.functional.normalize(scene["rotations"], dim=-1).contiguous()
-means2d_base = torch.zeros_like(means3d[:, :2])
+prep = renderer.prepare_scene(scene)
+all_times = []
+peak_mem = 0
+mem_samples = []
+W, H = {}, {}
 
-def create_renderer(rname, cam):
-    """Create a rasterizer for the given renderer and camera.
-
-    Args:
-        rname: Renderer identifier string.
-        cam: Camera object with view/projection parameters.
-
-    Returns:
-        Tuple of (GaussianRasterizer, needs_scores_bool).
-    """
-    if rname == "speedy_splat":
-        from speedy_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
-        s = GaussianRasterizationSettings(
-            image_height=1080, image_width=1920,
-            tanfovx=cam.tanfovx, tanfovy=cam.tanfovy,
-            bg=torch.zeros(3, device="cuda"), scale_modifier=1.0,
-            viewmatrix=cam.world_view_transform,
-            projmatrix=cam.full_proj_transform,
-            sh_degree=3, campos=cam.camera_center,
-            prefiltered=False, debug=False,
-        )
-        return GaussianRasterizer(s), True
-    else:
-        from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
-        s = GaussianRasterizationSettings(
-            image_height=1080, image_width=1920,
-            tanfovx=cam.tanfovx, tanfovy=cam.tanfovy,
-            bg=torch.zeros(3, device="cuda"), scale_modifier=1.0,
-            viewmatrix=cam.world_view_transform,
-            projmatrix=cam.full_proj_transform,
-            sh_degree=3, campos=cam.camera_center,
-            prefiltered=False, debug=False, antialiasing=False,
-        )
-        return GaussianRasterizer(s), False
-
-def render_frame(rname, rast, needs_scores):
-    """Render a single frame with the given rasterizer.
-
-    Args:
-        rname: Renderer identifier string.
-        rast: GaussianRasterizer instance.
-        needs_scores: Whether the renderer requires a scores tensor.
-
-    Returns:
-        Rendered image tensor.
-    """
-    m2 = torch.zeros_like(means3d[:, :2])
-    if needs_scores:
-        scores = torch.ones(means3d.shape[0], device="cuda")
-        out, _, _ = rast(means3D=means3d, means2D=m2, opacities=opacities,
-            scores=scores, shs=shs, colors_precomp=None,
-            scales=scales, rotations=rotations, cov3D_precomp=None)
-    else:
-        out, _, _ = rast(means3D=means3d, means2D=m2, opacities=opacities,
-            shs=shs, colors_precomp=None,
-            scales=scales, rotations=rotations, cov3D_precomp=None)
-    return out
-
-all_results = {}
-
-for rname in ["speedy_splat", "diff_gaussian", "fast_gauss", "gsplat"]:
-    print(f"\n{'='*60}")
-    print(f"  BENCHMARK: {rname}")
-    print(f"{'='*60}")
-
-    torch.cuda.empty_cache()
-    gc.collect()
-
-    # Phase 1: Measure rasterizer construction time
-    print(f"  [Phase 1] Measuring rasterizer construction time ({N_CAMS} cameras)...", end=" ", flush=True)
-    construct_times = []
-    for ci in range(min(N_CAMS, 50)):
-        cam = cameras[ci]
-        torch.cuda.synchronize()
-        t0 = time.perf_counter()
-        rast, needs_scores = create_renderer(rname, cam)
-        torch.cuda.synchronize()
-        construct_times.append((time.perf_counter() - t0) * 1000)
-        del rast
-        gc.collect()
-
-    ct = np.array(construct_times)
-    print(f"mean={ct.mean():.2f}ms, median={np.median(ct):.2f}ms")
-
-    # Phase 2: Measure pure render time with rasterizer reuse
-    print(f"  [Phase 2] Measuring pure render time (reusing rasterizer across 50 frames)...", end=" ", flush=True)
-    render_times = []
-
-    # Warmup: create and warm up rasterizer for first camera
-    cam0 = cameras[0]
-    rast, needs_scores = create_renderer(rname, cam0)
-    for _ in range(5):
-        torch.cuda.synchronize()
+for rep in range({}):
+    for f in range({}):
         with torch.no_grad():
-            render_frame(rname, rast, needs_scores)
-        torch.cuda.synchronize()
-    del rast
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    # Benchmark: cycle through 50 camera views with per-frame rasterizer creation
-    for fi in range(50):
-        cam = cameras[fi % N_CAMS]
-        rast, needs_scores = create_renderer(rname, cam)
-
-        # Measure render time only (exclude constructor)
+            renderer.render(prep, cameras[f % len(cameras)])
+    torch.cuda.synchronize()
+    torch.cuda.reset_peak_memory_stats()
+    for f in range({}):
         torch.cuda.synchronize()
         t0 = time.perf_counter()
         with torch.no_grad():
-            render_frame(rname, rast, needs_scores)
+            renderer.render(prep, cameras[f % len(cameras)])
         torch.cuda.synchronize()
-        elapsed = (time.perf_counter() - t0) * 1000
+        ms = (time.perf_counter() - t0) * 1000
+        all_times.append(ms)
+        mem = torch.cuda.max_memory_allocated() / (1024 * 1024)
+        mem_samples.append(mem)
+        if mem > peak_mem:
+            peak_mem = mem
 
-        render_times.append(elapsed)
-        del rast
-        gc.collect()
+t = np.array(all_times)
+result = {{
+    "renderer_name": "{}",
+    "num_gaussians": scene["num_points"],
+    "num_frames": len(all_times),
+    "mean_fps": round(float(1000.0 / t.mean()), 1),
+    "mean_latency_ms": round(float(t.mean()), 3),
+    "median_latency_ms": round(float(np.median(t)), 3),
+    "p99_latency_ms": round(float(np.percentile(t, 99)), 3),
+    "min_latency_ms": round(float(t.min()), 3),
+    "max_latency_ms": round(float(t.max()), 3),
+    "std_latency_ms": round(float(t.std()), 3),
+    "peak_vram_mb": round(float(peak_mem), 1),
+    "avg_vram_mb": round(float(np.mean(mem_samples)), 1),
+    "gpu_name": torch.cuda.get_device_name(0),
+    "image_width": W,
+    "image_height": H,
+}}
+json.dump(result, open(r"{}", "w"), indent=2)
+""".format(
+    PROJECT_ROOT,
+    scene_path,
+    os.path.join(os.path.dirname(PROJECT_ROOT), "data", "camera_presets", "spiral.json"),
+    os.path.join(os.path.dirname(PROJECT_ROOT), "data", "cameras.json"),
+    renderer_name,
+    output_json,
+    1920, 1080,
+    args.repeats, args.warmup, args.frames,
+    renderer_name,
+    output_json,
+))
 
-        if (fi + 1) % 10 == 0:
-            recent = np.array(render_times[-10:])
-            print(f"{fi+1}..", end="", flush=True)
-    print(" done")
+            print(f"\n  {renderer_name} @ {scene_name} Gaussians ...", end=" ", flush=True)
+            t0 = time.time()
+            result = subprocess.run([sys.executable, os.path.join(output_dir, "_script.py")], capture_output=True, text=True, timeout=600)
+            elapsed = time.time() - t0
 
-    t = np.array(render_times)
-    t_sorted = np.sort(t)
-    trim = max(1, len(t) // 10)
-    t_stable = t_sorted[trim:-trim] if len(t) > 2 * trim else t[5:]
+            if os.path.exists(output_json):
+                try:
+                    with open(output_json) as f:
+                        data = json.load(f)
+                    if "error" in data:
+                        print(f"FAILED: {data['error']}")
+                    else:
+                        all_results["{}_{}".format(renderer_name, scene_name)] = data
+                        print(f"{data['mean_fps']:.0f} FPS, {data['mean_latency_ms']:.2f}ms, {data['peak_vram_mb']:.0f}MB ({elapsed:.0f}s)")
+                except Exception as e:
+                    print(f"ERROR: {e}")
+            else:
+                print(f"FAILED (rc={result.returncode})")
+                for line in result.stderr.strip().split("\n")[-3:]:
+                    print(f"  {line}")
 
-    log = {
-        "renderer": rname,
-        "num_frames": 50,
-        "num_gaussians": scene["num_points"],
-        "construct_mean_ms": round(float(ct.mean()), 3),
-        "construct_median_ms": round(float(np.median(ct)), 3),
-        "all_times_ms": [round(float(x), 3) for x in render_times],
-        "mean_ms": round(float(t.mean()), 3),
-        "median_ms": round(float(np.median(t)), 3),
-        "min_ms": round(float(t.min()), 3),
-        "max_ms": round(float(t.max()), 3),
-        "std_ms": round(float(t.std()), 3),
-        "p10_ms": round(float(np.percentile(t, 10)), 3),
-        "p25_ms": round(float(np.percentile(t, 25)), 3),
-        "p75_ms": round(float(np.percentile(t, 75)), 3),
-        "p90_ms": round(float(np.percentile(t, 90)), 3),
-        "stable_mean_ms": round(float(t_stable.mean()), 3),
-        "stable_median_ms": round(float(np.median(t_stable)), 3),
-        "mean_fps": round(1000.0 / float(t.mean()), 1),
-        "median_fps": round(1000.0 / float(np.median(t)), 1),
-        "stable_mean_fps": round(1000.0 / float(t_stable.mean()), 1),
-        "stable_median_fps": round(1000.0 / float(np.median(t_stable)), 1),
-    }
-    all_results[rname] = log
+            for f in [output_json, os.path.join(output_dir, "_script.py")]:
+                if os.path.exists(f):
+                    os.remove(f)
 
-    print(f"\n  RESULTS for {rname}:")
-    print(f"    Median:      {log['median_ms']:7.2f} ms = {log['median_fps']:7.1f} FPS")
-    print(f"    Mean:        {log['mean_ms']:7.2f} ms = {log['mean_fps']:7.1f} FPS")
-    print(f"    Stable Mean: {log['stable_mean_ms']:7.2f} ms = {log['stable_mean_fps']:7.1f} FPS")
-    print(f"    Stable Med:  {log['stable_median_ms']:7.2f} ms = {log['stable_median_fps']:7.1f} FPS")
-    print(f"    P10: {log['p10_ms']:.2f}  P25: {log['p25_ms']:.2f}  P75: {log['p75_ms']:.2f}  P90: {log['p90_ms']:.2f}")
-    print(f"    Min: {log['min_ms']:.2f}  Max: {log['max_ms']:.2f}  Std: {log['std_ms']:.2f}")
-    print(f"    Constructor: mean={log['construct_mean_ms']:.2f}ms, median={log['construct_median_ms']:.2f}ms")
+    # Summary
+    print(f"\n\n{'='*70}")
+    print("  RESULTS SUMMARY")
+    print(f"{'='*70}")
+    print(f"  {'Renderer':<20} {'GS Count':<10} {'FPS':>8} {'Latency':>10} {'P99':>8} {'VRAM':>8}")
+    print(f"  {'-'*20} {'-'*10} {'-'*8} {'-'*10} {'-'*8} {'-'*8}")
+    for key in sorted(all_results.keys()):
+        d = all_results[key]
+        rname, sc = key.split("_", 1)
+        print(f"  {rname:<20} {sc:<10} {d['mean_fps']:>8.1f} {d['mean_latency_ms']:>8.2f}ms {d['p99_latency_ms']:>6.2f}ms {d['peak_vram_mb']:>6.0f}MB")
 
-# Final ranking by stable median render-only latency
-print(f"\n{'='*70}")
-print(f"  FINAL RANKING (sorted by median render-only latency)")
-print(f"{'='*70}")
+    with open(os.path.join(output_dir, "full_benchmark_results.json"), "w") as f:
+        json.dump({
+            "metadata": {
+                "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU",
+                "resolution": "1920x1080",
+                "frames": args.frames, "warmup": args.warmup, "repeats": args.repeats,
+                "date": "2026-07-13",
+            },
+            "results": all_results,
+        }, f, indent=2, ensure_ascii=False)
+    print(f"\nSaved to {output_dir}/full_benchmark_results.json")
 
-ranked = sorted(all_results.values(), key=lambda l: l["stable_median_ms"])
-baseline_name = [r["renderer"] for r in ranked if r["renderer"] != ranked[0]["renderer"]][0]
-baseline_med = [r["stable_median_ms"] for r in ranked if r["renderer"] == baseline_name][0]
-
-for i, log in enumerate(ranked):
-    rname = log["renderer"]
-    med = log["stable_median_ms"]
-    fps = log["stable_median_fps"]
-    if i == 0:
-        tag = "  <<< FASTEST >>> (CUB DeviceRadixSort)"
-    else:
-        speedup = ((baseline_med / med) - 1) * 100
-        if i == 1:
-            tag = "  (BASELINE: Thrust sort)"
-        else:
-            tag = f"  ({'+' if speedup > 0 else ''}{speedup:.1f}% vs baseline)"
-    print(f"  #{i+1}: {rname:20s}  stable_median={med:6.2f}ms = {fps:6.1f}FPS{tag}")
-
-fastest = ranked[0]
-baseline = [r for r in ranked if r["renderer"] != fastest["renderer"]][0]
-speedup_pct = round(((baseline["stable_median_ms"] / fastest["stable_median_ms"]) - 1) * 100, 1)
-
-print(f"\n  => {fastest['renderer']} is fastest: {speedup_pct:.1f}% faster than {baseline['renderer']}")
-print(f"  => Core reason: CUB DeviceRadixSort replaces Thrust radix sort in tile binning pipeline")
-
-# Save results
-output = {
-    "metadata": {
-        "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU (8.55 GB)",
-        "cuda": "13.0 (driver 13.1, toolkit 13.3)",
-        "pytorch": "2.12.1+cu130",
-        "num_gaussians": scene["num_points"],
-        "resolution": "1920x1080",
-        "scene": "Synthetic 400K GS, SH degree 3",
-        "cameras": f"{N_CAMS} fixed orbit views",
-        "date": "2026-07-11",
-        "fastest_renderer": fastest["renderer"],
-        "baseline_renderer": baseline["renderer"],
-        "speedup_pct": speedup_pct,
-        "speedup_reason": "CUB DeviceRadixSort replaces Thrust radix sort in the tile binning pipeline",
-    },
-    "results": all_results,
-}
-
-with open(os.path.join(OUT_DIR, "benchmark_results.json"), "w") as f:
-    json.dump(output, f, indent=2, ensure_ascii=False)
-print(f"\nResults saved to {OUT_DIR}\\benchmark_results.json")
+if __name__ == "__main__":
+    main()
