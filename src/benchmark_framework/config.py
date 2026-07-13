@@ -28,7 +28,7 @@ class BenchmarkConfig:
     benchmark_frames: int = 200
     warmup_frames: int = 50
     repeats: int = 5
-    clock_lock: bool = True
+    clock_lock: bool = False
     image_width: int = 1920
     image_height: int = 1080
     output_dir: str = "results"
@@ -46,6 +46,6 @@ class BenchmarkConfig:
             "measured": self.benchmark_frames,
             "repeats": self.repeats,
             "clock_lock": self.clock_lock,
-            "cuda_sync": "after each frame (before measurement)",
-            "timing_method": "time.perf_counter() + torch.cuda.synchronize()",
+            "cuda_sync": "after each measured frame (outside event interval)",
+            "timing_method": "torch.cuda.Event elapsed time; per-frame synchronization",
         }

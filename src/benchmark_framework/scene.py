@@ -16,6 +16,48 @@ import torch
 import os
 
 
+def _numeric_suffix(name: str) -> int:
+    return int(name.rsplit("_", 1)[-1])
+
+
+def _extract_sh_coefficients(records, col_names) -> np.ndarray:
+    """Return SH coefficients in the common ``[N, K, 3]`` layout.
+
+    Standard 3DGS PLY files store three DC values as ``f_dc_*`` and the
+    remaining channel-major coefficients as ``f_rest_*``. Older synthetic
+    files from this project stored all values sequentially as ``f_dc_*``;
+    that legacy layout remains readable for reproducibility.
+    """
+    dc_cols = sorted(
+        (name for name in col_names if name.startswith("f_dc_")),
+        key=_numeric_suffix,
+    )
+    rest_cols = sorted(
+        (name for name in col_names if name.startswith("f_rest_")),
+        key=_numeric_suffix,
+    )
+    if not dc_cols:
+        return None
+
+    if rest_cols:
+        if len(dc_cols) != 3 or len(rest_cols) % 3 != 0:
+            raise ValueError("Invalid standard 3DGS spherical-harmonics layout")
+        dc = np.column_stack([records[name] for name in dc_cols]).astype(np.float32)
+        rest = np.column_stack([records[name] for name in rest_cols]).astype(np.float32)
+        rest = rest.reshape(len(rest), 3, -1).transpose(0, 2, 1)
+        shs = np.concatenate([dc[:, None, :], rest], axis=1)
+    else:
+        flat = np.column_stack([records[name] for name in dc_cols]).astype(np.float32)
+        if flat.shape[1] % 3 != 0:
+            raise ValueError("Invalid legacy spherical-harmonics layout")
+        shs = flat.reshape(len(flat), -1, 3)
+
+    degree = round(np.sqrt(shs.shape[1]) - 1)
+    if (degree + 1) ** 2 != shs.shape[1]:
+        raise ValueError(f"SH coefficient count {shs.shape[1]} is not a square degree")
+    return shs
+
+
 def load_ply(path: str, device: str = "cuda") -> dict:
     """Load a 3DGS scene from a PLY file and return a dictionary of GPU tensors.
 
@@ -85,8 +127,7 @@ def load_ply(path: str, device: str = "cuda") -> dict:
     scales = np.column_stack([records["scale_0"], records["scale_1"], records["scale_2"]]).astype(np.float32)
     rotations = np.column_stack([records["rot_0"], records["rot_1"], records["rot_2"], records["rot_3"]]).astype(np.float32)
 
-    sh_cols = [n for n in col_names if n.startswith("f_dc_")]
-    shs = np.column_stack([records[n] for n in sh_cols]).astype(np.float32) if sh_cols else None
+    shs = _extract_sh_coefficients(records, col_names)
 
     file_size_mb = os.path.getsize(path) / (1024 * 1024)
 
@@ -99,11 +140,12 @@ def load_ply(path: str, device: str = "cuda") -> dict:
     if shs is not None:
         result["shs"] = torch.from_numpy(shs).to(device)
         C0 = 0.28209479177387814
-        result["dc_colors"] = torch.from_numpy(shs[:, :3] * C0 + 0.5).clamp(0, 1).to(device)
+        result["dc_colors"] = torch.from_numpy(shs[:, 0, :] * C0 + 0.5).clamp(0, 1).to(device)
+        result["sh_degree"] = int(round(np.sqrt(shs.shape[1]) - 1))
     result["num_points"] = num_points
 
     print(f"  File size: {file_size_mb:.1f} MB")
-    print(f"  Loaded {num_points} Gaussians with {shs.shape[1] if shs is not None else 0} SH coefficients")
+    print(f"  Loaded {num_points} Gaussians with {shs.shape[1] if shs is not None else 0} SH coefficients/channel")
 
     return result
 

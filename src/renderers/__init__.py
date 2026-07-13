@@ -56,12 +56,31 @@ def list_available(device="cuda"):
             available.append(name)
     return available
 
-from .gsplat_renderer import GsplatRenderer
+from .gsplat_renderer import (
+    GsplatRenderer,
+    GsplatDenseRenderer,
+    GsplatHiGSRenderer,
+    GsplatHiGSTile16Renderer,
+    GsplatHiGSSH32Renderer,
+    GsplatHiGSSH16Renderer,
+    GsplatHiGSTile16SH32Renderer,
+    GsplatHiGSTile16SH16Renderer,
+    GsplatHiGSAutoRenderer,
+)
 from .diff_gaussian_renderer import DiffGaussianRenderer
 from .fast_gauss_renderer import FastGaussRenderer
-from .speedy_splat_renderer import SpeedySplatRenderer
+from .speedy_splat_renderer import SpeedySplatRenderer, SpeedySplatRawRenderer
 
 register_renderer("gsplat", GsplatRenderer)
+register_renderer("gsplat_dense", GsplatDenseRenderer)
+register_renderer("gsplat_higs", GsplatHiGSRenderer)
+register_renderer("gsplat_higs_tile16", GsplatHiGSTile16Renderer)
+register_renderer("gsplat_higs_sh32", GsplatHiGSSH32Renderer)
+register_renderer("gsplat_higs_sh16", GsplatHiGSSH16Renderer)
+register_renderer("gsplat_higs_tile16_sh32", GsplatHiGSTile16SH32Renderer)
+register_renderer("gsplat_higs_tile16_sh16", GsplatHiGSTile16SH16Renderer)
+register_renderer("gsplat_higs_auto", GsplatHiGSAutoRenderer)
 register_renderer("diff_gaussian", DiffGaussianRenderer)
 register_renderer("fast_gauss", FastGaussRenderer)
 register_renderer("speedy_splat", SpeedySplatRenderer)
+register_renderer("speedy_splat_raw", SpeedySplatRawRenderer)

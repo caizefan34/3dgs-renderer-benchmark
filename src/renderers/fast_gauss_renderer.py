@@ -26,6 +26,10 @@ class FastGaussRenderer(RendererAdapter):
     """
 
     name = "fast_gauss"
+    package_name = "fast-gauss"
+    module_name = "fast_gauss"
+    implementation = "dendenxu/fast-gaussian-rasterization"
+    source_url = "https://github.com/dendenxu/fast-gaussian-rasterization"
 
     def __init__(self, device: str = "cuda"):
         super().__init__(device)

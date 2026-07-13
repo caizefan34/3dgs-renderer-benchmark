@@ -97,8 +97,10 @@ def _write_gsplat_ply(path, xyz, opacities, scales, rotations, shs):
         "property float scale_0", "property float scale_1", "property float scale_2",
         "property float rot_0", "property float rot_1", "property float rot_2", "property float rot_3",
     ]
-    for i in range(SH_DATA_SIZE):
+    for i in range(3):
         header_lines.append(f"property float f_dc_{i}")
+    for i in range(SH_DATA_SIZE - 3):
+        header_lines.append(f"property float f_rest_{i}")
     header_lines.append("end_header\n")
     header = "\n".join(header_lines)
 

@@ -47,6 +47,26 @@ class Camera:
     full_proj_transform: torch.Tensor
     tanfovx: float
     tanfovy: float
+    K: torch.Tensor
+
+
+def validate_cameras_facing_point(
+    cameras: List[Camera], point: torch.Tensor
+) -> List[float]:
+    """Return camera-space depths and reject paths facing away from a scene point."""
+    depths = []
+    for camera in cameras:
+        homogeneous = torch.cat(
+            [point.to(camera.viewmatrix), point.new_ones(1).to(camera.viewmatrix)]
+        )
+        depths.append(float((camera.viewmatrix @ homogeneous)[2].item()))
+    invalid = [depth for depth in depths if depth <= 0.0]
+    if invalid:
+        raise ValueError(
+            f"{len(invalid)}/{len(depths)} cameras place the scene center behind "
+            "the camera (z <= 0); regenerate the path with +Z facing forward"
+        )
+    return depths
 
 
 def load_cameras_from_json(path: str, device: str = "cuda") -> List[Camera]:
@@ -85,7 +105,12 @@ def load_cameras_from_json(path: str, device: str = "cuda") -> List[Camera]:
             [0, 0, 1, 0],
         ], dtype=torch.float32, device=device)
 
-        full_proj = (viewmatrix @ projmatrix).T
+        full_proj = (projmatrix @ viewmatrix).T
+        K = torch.tensor([
+            [W / (2.0 * tan_fov_x), 0, W / 2.0],
+            [0, H / (2.0 * tan_fov_y), H / 2.0],
+            [0, 0, 1],
+        ], dtype=torch.float32, device=device)
 
         cameras.append(Camera(
             image_width=W, image_height=H,
@@ -95,6 +120,7 @@ def load_cameras_from_json(path: str, device: str = "cuda") -> List[Camera]:
             world_view_transform=viewmatrix.T.contiguous(),
             full_proj_transform=full_proj.contiguous(),
             tanfovx=tan_fov_x, tanfovy=tan_fov_y,
+            K=K,
         ))
 
     return cameras
@@ -149,12 +175,12 @@ def generate_cameras(
         cz = radius * math.sin(phi) + 0.5
 
         dist = math.sqrt(cx*cx + cy*cy + cz*cz)
-        zx, zy, zz = cx/dist, cy/dist, cz/dist
+        zx, zy, zz = -cx/dist, -cy/dist, -cz/dist
 
         upx, upy, upz = 0.0, 0.0, 1.0
-        xx = upy * zz - upz * zy
-        xy = upz * zx - upx * zz
-        xz = upx * zy - upy * zx
+        xx = zy * upz - zz * upy
+        xy = zz * upx - zx * upz
+        xz = zx * upy - zy * upx
         xnorm = math.sqrt(xx*xx + xy*xy + xz*xz)
         xx /= xnorm; xy /= xnorm; xz /= xnorm
 
@@ -182,7 +208,12 @@ def generate_cameras(
         projmatrix[2, 3] = proj_23
         projmatrix[3, 2] = 1.0
 
-        full_proj = (viewmatrix @ projmatrix).T
+        full_proj = (projmatrix @ viewmatrix).T
+        K = torch.tensor([
+            [image_width / (2.0 * tan_fov_x), 0, image_width / 2.0],
+            [0, image_height / (2.0 * tan_fov_y), image_height / 2.0],
+            [0, 0, 1],
+        ], dtype=torch.float32, device=device)
 
         cameras.append(Camera(
             image_width=image_width, image_height=image_height,
@@ -192,6 +223,7 @@ def generate_cameras(
             world_view_transform=viewmatrix.T.contiguous(),
             full_proj_transform=full_proj.contiguous(),
             tanfovx=tan_fov_x, tanfovy=tan_fov_y,
+            K=K,
         ))
 
     return cameras

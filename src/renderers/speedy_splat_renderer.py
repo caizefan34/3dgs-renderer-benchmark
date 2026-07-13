@@ -28,10 +28,16 @@ class SpeedySplatRenderer(RendererAdapter):
     """
 
     name = "speedy_splat"
+    package_name = "speedy-gaussian-rasterization"
+    module_name = "speedy_gaussian_rasterization"
+    implementation = "j-alex-hanson/speedy-splat"
+    source_url = "https://github.com/j-alex-hanson/speedy-splat"
 
     def __init__(self, device: str = "cuda"):
         super().__init__(device)
         self._available = None
+        self._rasterizers = {}
+        self._bg = None
 
     def is_available(self) -> bool:
         """Check if speedy_gaussian_rasterization is importable."""
@@ -44,8 +50,20 @@ class SpeedySplatRenderer(RendererAdapter):
         return self._available
 
     def prepare_scene(self, scene_data: dict) -> dict:
-        """Pass through scene data without modification."""
-        return scene_data
+        """Activate static parameters and allocate fixed buffers once."""
+        means3d = scene_data["xyz"].contiguous()
+        return {
+            **scene_data,
+            "xyz": means3d,
+            "opacities_activated": torch.sigmoid(scene_data["opacity"]).contiguous(),
+            "scales_activated": torch.exp(scene_data["scales"]).contiguous(),
+            "rotations_normalized": torch.nn.functional.normalize(
+                scene_data["rotations"], dim=-1
+            ).contiguous(),
+            "shs": scene_data["shs"].contiguous(),
+            "means2d": torch.zeros_like(means3d[:, :2]),
+            "scores": torch.ones(means3d.shape[0], device=self.device),
+        }
 
     def render(self, scene_data: dict, camera: Camera) -> torch.Tensor:
         """Render one frame using the speedy-splat rasterization backend.
@@ -60,7 +78,8 @@ class SpeedySplatRenderer(RendererAdapter):
         """
         from speedy_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 
-        bg = torch.zeros(3, dtype=torch.float32, device=self.device)
+        if self._bg is None:
+            self._bg = torch.zeros(3, dtype=torch.float32, device=self.device)
 
         # NOTE: speedy-splat does not expose the antialiasing parameter
         raster_settings = GaussianRasterizationSettings(
@@ -68,7 +87,7 @@ class SpeedySplatRenderer(RendererAdapter):
             image_width=camera.image_width,
             tanfovx=camera.tanfovx,
             tanfovy=camera.tanfovy,
-            bg=bg,
+            bg=self._bg,
             scale_modifier=1.0,
             viewmatrix=camera.world_view_transform,
             projmatrix=camera.full_proj_transform,
@@ -77,17 +96,20 @@ class SpeedySplatRenderer(RendererAdapter):
             prefiltered=False,
             debug=False,
         )
-        rasterizer = GaussianRasterizer(raster_settings=raster_settings)
+        rasterizer = self._rasterizers.get(id(camera))
+        if rasterizer is None:
+            rasterizer = GaussianRasterizer(raster_settings=raster_settings)
+            self._rasterizers[id(camera)] = rasterizer
 
         means3d = scene_data["xyz"].contiguous()
-        opacities = torch.sigmoid(scene_data["opacity"]).contiguous()
+        opacities = scene_data["opacities_activated"]
         shs = scene_data["shs"].contiguous()
-        scales = scene_data["scales"].contiguous()
-        rotations = torch.nn.functional.normalize(scene_data["rotations"], dim=-1).contiguous()
-        means2d = torch.zeros_like(means3d[:, :2])
+        scales = scene_data["scales_activated"]
+        rotations = scene_data["rotations_normalized"]
+        means2d = scene_data["means2d"]
 
         # scores: importance sampling weights (all ones retains all Gaussians)
-        scores = torch.ones(means3d.shape[0], device=self.device)
+        scores = scene_data["scores"]
 
         rendered_image, radii, _ = rasterizer(
             means3D=means3d,
@@ -102,3 +124,31 @@ class SpeedySplatRenderer(RendererAdapter):
         )
 
         return rendered_image.permute(1, 2, 0).clamp(0, 1)
+
+
+class SpeedySplatRawRenderer(SpeedySplatRenderer):
+    """Ablation baseline with the original per-frame wrapper allocations."""
+
+    name = "speedy_splat_raw"
+    implementation = "j-alex-hanson/speedy-splat (uncached wrapper ablation)"
+
+    def prepare_scene(self, scene_data: dict) -> dict:
+        return scene_data
+
+    def render(self, scene_data: dict, camera: Camera) -> torch.Tensor:
+        means3d = scene_data["xyz"].contiguous()
+        transient = {
+            **scene_data,
+            "xyz": means3d,
+            "opacities_activated": torch.sigmoid(scene_data["opacity"]).contiguous(),
+            "scales_activated": torch.exp(scene_data["scales"]).contiguous(),
+            "rotations_normalized": torch.nn.functional.normalize(
+                scene_data["rotations"], dim=-1
+            ).contiguous(),
+            "shs": scene_data["shs"].contiguous(),
+            "means2d": torch.zeros_like(means3d[:, :2]),
+            "scores": torch.ones(means3d.shape[0], device=self.device),
+        }
+        self._rasterizers.clear()
+        self._bg = None
+        return super().render(transient, camera)

@@ -75,6 +75,13 @@ class RendererMetrics:
     image_height: int = 1080
     num_gaussians: int = 0
     gpu_name: str = ""
+    renderer_implementation: str = ""
+    renderer_version: str = "unknown"
+    renderer_source_url: str = ""
+    timing_method: str = "CUDA events"
+    mean_wall_latency_ms: float = 0.0
+    median_wall_latency_ms: float = 0.0
+    wall_fps: float = 0.0
 
     peak_vram_mb: float = 0.0
     avg_vram_mb: float = 0.0
@@ -88,6 +95,7 @@ class RendererMetrics:
     lpips: float = 0.0
 
     frame_times_ms: List[float] = field(default_factory=list)
+    wall_frame_times_ms: List[float] = field(default_factory=list)
 
     def compute(self):
         """Compute derived statistics from raw frame time measurements.
@@ -122,11 +130,26 @@ class RendererMetrics:
         self.p5_fps = round(1000.0 / self.p95_latency_ms, 1) if self.p95_latency_ms > 0 else 0.0
         self.p95_fps = round(1000.0 / self.p5_latency_ms, 1) if self.p5_latency_ms > 0 else 0.0
         self.p99_fps = round(1000.0 / self.p1_latency_ms, 1) if self.p1_latency_ms > 0 else 0.0
+        if self.wall_frame_times_ms:
+            wall = np.array(self.wall_frame_times_ms)
+            self.mean_wall_latency_ms = float(wall.mean())
+            self.median_wall_latency_ms = float(np.median(wall))
+            self.wall_fps = (
+                round(1000.0 / self.mean_wall_latency_ms, 1)
+                if self.mean_wall_latency_ms > 0 else 0.0
+            )
 
     def to_dict(self) -> dict:
         """Serialize metrics to a dictionary for JSON export."""
         d = {
             "renderer": self.renderer_name,
+            "renderer_implementation": self.renderer_implementation,
+            "renderer_version": self.renderer_version,
+            "renderer_source_url": self.renderer_source_url,
+            "timing_method": self.timing_method,
+            "mean_wall_latency_ms": self.mean_wall_latency_ms,
+            "median_wall_latency_ms": self.median_wall_latency_ms,
+            "wall_fps": self.wall_fps,
             "mean_fps": self.mean_fps,
             "mean_latency_ms": self.mean_latency_ms,
             "median_latency_ms": self.median_latency_ms,
@@ -147,6 +170,7 @@ class RendererMetrics:
             "file_size_mb": round(self.file_size_mb, 2),
             "psnr": round(self.psnr, 4), "ssim": round(self.ssim, 6), "lpips": round(self.lpips, 6),
             "frame_times_ms": [round(x, 2) for x in self.frame_times_ms],
+            "wall_frame_times_ms": [round(x, 2) for x in self.wall_frame_times_ms],
         })
         return d
 

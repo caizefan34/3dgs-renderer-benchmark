@@ -1,0 +1,48 @@
+diff --git a/gsplat/cuda/build.py b/gsplat/cuda/build.py
+index 1a3cbbf..01be1c5 100644
+--- a/gsplat/cuda/build.py
++++ b/gsplat/cuda/build.py
+@@ -104,6 +104,8 @@ def get_build_parameters():
+         os.path.join(PATH, "include/"),
+         os.path.join(current_dir, "csrc", "third_party", "glm"),
+     ]
++    if CUDA_HOME and os.path.isdir(os.path.join(CUDA_HOME, "include", "cccl")):
++        extra_include_paths.append(os.path.join(CUDA_HOME, "include", "cccl"))
+     # Fix for CUDA 12+ in conda environment
+     if CUDA_HOME and os.path.isdir(os.path.join(CUDA_HOME, "targets")):
+         for arch in os.listdir(os.path.join(CUDA_HOME, "targets")):
+diff --git a/gsplat/cuda/include/Cameras.cuh b/gsplat/cuda/include/Cameras.cuh
+index abce151..17b3140 100644
+--- a/gsplat/cuda/include/Cameras.cuh
++++ b/gsplat/cuda/include/Cameras.cuh
+@@ -781,3 +781,3 @@ struct OrthographicCameraModel
+         const auto point = glm::fvec2{ray.x, ray.y} / ray.z;
+-        if(!std::isfinite(point.x) || !std::isfinite(point.y))
++        if(!isfinite(point.x) || !isfinite(point.y))
+         {
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
+index 13097f3..40b163d 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
+@@ -21,3 +21,4 @@
+ #include <cstdint>
+-
++using uint = std::uint32_t;
++
+ // Type-punning helper: reinterpret the bits of v as type T and assign to u.
+diff --git a/gsplat/scene/kernels/cuda/build.py b/gsplat/scene/kernels/cuda/build.py
+index d76e669..f59e4c9 100644
+--- a/gsplat/scene/kernels/cuda/build.py
++++ b/gsplat/scene/kernels/cuda/build.py
+@@ -67,6 +67,11 @@ def get_build_parameters() -> SimpleNamespace:
+         extra_ldflags += [
+             os.path.join(jit.TORCH_LIB_PATH, f"{lib}.lib") for lib in torch_cuda_libs
+         ]
++        if jit.CUDA_HOME:
++            extra_ldflags += [
++                f"/LIBPATH:{os.path.join(jit.CUDA_HOME, 'lib', 'x64')}",
++                "cudart.lib",
++            ]
+     else:
+         extra_ldflags += [
+             os.path.join(jit.TORCH_LIB_PATH, f"lib{lib}.so") for lib in torch_cuda_libs

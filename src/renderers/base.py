@@ -13,6 +13,8 @@ References:
 from abc import ABC, abstractmethod
 from typing import Optional
 import torch
+from importlib import metadata
+import importlib
 
 
 class RendererAdapter(ABC):
@@ -29,6 +31,10 @@ class RendererAdapter(ABC):
     """
 
     name: str = "base"
+    package_name: Optional[str] = None
+    module_name: Optional[str] = None
+    implementation: str = ""
+    source_url: str = ""
 
     def __init__(self, device: str = "cuda"):
         self.device = device
@@ -72,3 +78,23 @@ class RendererAdapter(ABC):
 
     def name(self) -> str:
         return self.name
+
+    def metadata(self) -> dict:
+        version = "unknown"
+        if self.module_name:
+            try:
+                module = importlib.import_module(self.module_name)
+                version = getattr(module, "__version__", version)
+            except (ImportError, OSError):
+                pass
+        if self.package_name:
+            if version == "unknown":
+                try:
+                    version = metadata.version(self.package_name)
+                except metadata.PackageNotFoundError:
+                    pass
+        return {
+            "implementation": self.implementation or self.name,
+            "version": version,
+            "source_url": self.source_url,
+        }

@@ -71,7 +71,13 @@ class ResultsManager:
             d = m.to_dict()
             row = {
                 "renderer": name,
+                "implementation": d["renderer_implementation"],
+                "version": d["renderer_version"],
+                "timing_method": d["timing_method"],
                 "mean_fps": d["mean_fps"],
+                "wall_fps": d["wall_fps"],
+                "mean_wall_latency_ms": d["mean_wall_latency_ms"],
+                "median_wall_latency_ms": d["median_wall_latency_ms"],
                 "median_latency_ms": d["median_latency_ms"],
                 "p1_latency_ms": d["p1_latency_ms"],
                 "p5_latency_ms": d["p5_latency_ms"],

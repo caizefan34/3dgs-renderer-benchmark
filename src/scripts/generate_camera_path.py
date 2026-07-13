@@ -21,7 +21,8 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from benchmark_framework.cameras import Camera
 
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "camera_presets")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+OUTPUT_DIR = os.path.join(REPO_ROOT, "data", "camera_presets")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
@@ -54,8 +55,8 @@ def build_camera_dict(theta, phi, radius, cx=0.0, cy=0.0, cz=0.0,
     look_at = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     up = np.array([0.0, 0.0, 1.0], dtype=np.float32)
 
-    z_axis = (cam_pos - look_at) / np.linalg.norm(cam_pos - look_at)
-    x_axis = np.cross(up, z_axis)
+    z_axis = (look_at - cam_pos) / np.linalg.norm(look_at - cam_pos)
+    x_axis = np.cross(z_axis, up)
     x_axis = x_axis / np.linalg.norm(x_axis)
     y_axis = np.cross(z_axis, x_axis)
 

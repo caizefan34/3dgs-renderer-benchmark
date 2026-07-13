@@ -26,7 +26,7 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from benchmark_framework import (
     load_ply, load_cameras_from_json, generate_cameras,
-    RendererMetrics, ResultsManager, BenchmarkConfig
+    validate_cameras_facing_point, RendererMetrics, ResultsManager, BenchmarkConfig
 )
 from renderers import get_renderer, list_renderers, list_available
 
@@ -46,6 +46,8 @@ def parse_args():
     p.add_argument("--camera-path", type=str, default=None, choices=["spiral", "circle", "flythrough", "random_walk"],
                    help="Standard camera path preset (from data/camera_presets/)")
     p.add_argument("--list-renderers", action="store_true", help="List registered renderers and exit")
+    p.add_argument("--allow-backfacing-cameras", action="store_true",
+                   help="Allow camera paths whose scene center has z <= 0")
     return p.parse_args()
 
 
@@ -73,8 +75,17 @@ def main():
 
     repo_root = os.path.dirname(PROJECT_ROOT)
     data_dir = os.path.join(repo_root, "data")
-    scene_path = args.scene or os.path.join(data_dir, "scene.ply")
-    cameras_path = args.cameras or os.path.join(data_dir, "cameras.json")
+    default_data_dirs = [data_dir, os.path.join(PROJECT_ROOT, "data")]
+    scene_path = args.scene or next(
+        (os.path.join(d, "scene.ply") for d in default_data_dirs
+         if os.path.exists(os.path.join(d, "scene.ply"))),
+        os.path.join(data_dir, "scene.ply"),
+    )
+    cameras_path = args.cameras or next(
+        (os.path.join(d, "cameras.json") for d in default_data_dirs
+         if os.path.exists(os.path.join(d, "cameras.json"))),
+        os.path.join(data_dir, "cameras.json"),
+    )
     output_dir = args.output or os.path.join(repo_root, "results")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -124,6 +135,10 @@ def main():
         cam_load_ms = (time.perf_counter() - t0) * 1000
         print(f"  Generated {len(cameras)} cameras ({cam_load_ms:.0f}ms)")
 
+    scene_center = (scene_data["xyz"].amin(dim=0) + scene_data["xyz"].amax(dim=0)) * 0.5
+    if not args.allow_backfacing_cameras:
+        validate_cameras_facing_point(cameras, scene_center)
+
     # Phase 3: Check renderer availability
     print("\n[3/5] Checking renderer availability...")
     available = list_available()
@@ -146,6 +161,7 @@ def main():
 
         prep_data = renderer.prepare_scene(scene_data)
         all_frame_times = []
+        all_wall_times = []
         all_peak_mem = 0
         all_mem_samples = []
 
@@ -154,6 +170,7 @@ def main():
                 print(f"  Repeat {repeat_idx + 1}/{cfg.repeats}...")
 
             frame_times = []
+            wall_times = []
             peak_mem = 0
             mem_samples = []
 
@@ -169,29 +186,38 @@ def main():
             torch.cuda.reset_peak_memory_stats()
             print(f"  Benchmark ({cfg.benchmark_frames} frames)...", end=" ", flush=True)
             for f in range(cfg.benchmark_frames):
-                torch.cuda.synchronize()
-                t0 = time.perf_counter()
+                start_event = torch.cuda.Event(enable_timing=True)
+                end_event = torch.cuda.Event(enable_timing=True)
+                wall_start = time.perf_counter()
+                start_event.record()
                 with torch.no_grad():
                     renderer.render(prep_data, cameras[f % len(cameras)])
-                torch.cuda.synchronize()
-                ms = (time.perf_counter() - t0) * 1000
-                frame_times.append(ms)
+                end_event.record()
+                end_event.synchronize()
+                frame_times.append(start_event.elapsed_time(end_event))
+                wall_times.append((time.perf_counter() - wall_start) * 1000.0)
 
-                mem = torch.cuda.max_memory_allocated() / (1024 * 1024)
+                mem = torch.cuda.memory_allocated() / (1024 * 1024)
                 mem_samples.append(mem)
                 if mem > peak_mem:
                     peak_mem = mem
 
                 if (f + 1) % 50 == 0:
                     print(f"{f+1}..", end="", flush=True)
+            peak_mem = max(
+                peak_mem,
+                torch.cuda.max_memory_allocated() / (1024 * 1024),
+            )
             print(" done")
 
             all_frame_times.extend(frame_times)
+            all_wall_times.extend(wall_times)
             all_mem_samples.extend(mem_samples)
             if peak_mem > all_peak_mem:
                 all_peak_mem = peak_mem
 
         t_arr = np.array(all_frame_times)
+        renderer_meta = renderer.metadata()
         metrics = RendererMetrics(
             renderer_name=rname,
             num_frames=cfg.benchmark_frames * cfg.repeats,
@@ -200,18 +226,25 @@ def main():
             image_height=cfg.image_height,
             num_gaussians=N,
             gpu_name=gpu_name,
+            renderer_implementation=renderer_meta["implementation"],
+            renderer_version=renderer_meta["version"],
+            renderer_source_url=renderer_meta["source_url"],
+            timing_method="torch.cuda.Event elapsed time; per-frame synchronization",
             peak_vram_mb=all_peak_mem,
             avg_vram_mb=float(np.mean(all_mem_samples)),
             scene_load_time_ms=scene_load_ms,
             scene_parse_time_ms=0.0,
             file_size_mb=file_size_mb,
             frame_times_ms=[round(x, 2) for x in all_frame_times],
+            wall_frame_times_ms=[round(x, 2) for x in all_wall_times],
         )
         metrics.compute()
 
         mean_std = np.std(t_arr) / np.sqrt(len(t_arr))
         print(f"  Mean: {metrics.mean_latency_ms:.1f} +/- {mean_std:.1f}ms ({metrics.mean_fps:.1f}FPS)  "
               f"Median: {metrics.median_latency_ms:.1f}ms")
+        print(f"  End-to-end: mean={metrics.mean_wall_latency_ms:.1f}ms "
+              f"median={metrics.median_wall_latency_ms:.1f}ms ({metrics.wall_fps:.1f}FPS)")
         print(f"  P1/P5/P50/P95/P99: {metrics.p1_latency_ms:.1f}/{metrics.p5_latency_ms:.1f}/"
               f"{metrics.median_latency_ms:.1f}/{metrics.p95_latency_ms:.1f}/{metrics.p99_latency_ms:.1f}ms")
         print(f"  VRAM: peak={all_peak_mem:.0f}MB  avg={metrics.avg_vram_mb:.0f}MB")

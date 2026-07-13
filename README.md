@@ -1,411 +1,177 @@
-# A Reproducible Benchmark Suite for 3D Gaussian Splatting Renderers
+# Reproducible 3DGS Renderer Benchmark
 
-[![Website](https://img.shields.io/badge/Website-View%20Report-7c5cfc)](https://caizefan34.github.io/3dgs-renderer-benchmark/)
-[![GPU](https://img.shields.io/badge/GPU-RTX%205070%20Laptop-76b900)](https://www.nvidia.com)
-[![CUDA](https://img.shields.io/badge/CUDA-13.3-76b900)](https://developer.nvidia.com/cuda-toolkit)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.12.1-ee4c2c)](https://pytorch.org)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+A local, quality-gated benchmark for CUDA 3D Gaussian Splatting renderers.
+It separates upstream paper claims from results reproduced with identical scene
+tensors, cameras, resolution, timing, and quality gates.
 
-## Abstract
+## Verified headline
 
-3D Gaussian Splatting (3DGS) [Kerbl et al., 2023] has emerged as a leading approach for real-time novel view synthesis, achieving state-of-the-art rendering quality at interactive frame rates. However, the ecosystem of CUDA-based rasterization backends has grown rapidly, making it difficult for researchers and practitioners to select the optimal renderer for their specific use case. This repository provides a **rigorous, reproducible benchmark** comparing four prominent CUDA rasterization renderers for 3DGS under strictly controlled conditions. We further investigate engineering optimizations---including frustum pre-culling and pre-allocated buffer reuse---that yield a **+113% speedup** over the baseline, achieving **365 FPS** on an NVIDIA RTX 5070 Laptop GPU. Our benchmark protocol, camera paths, synthetic scene generation, and evaluation metrics are fully open-sourced to facilitate reproducible research.
+On an RTX 5070 Laptop at 1920x1080, the fastest locally verified path is the
+inference-only HiGS renderer in current `gsplat` main.
 
-**Hardware**: NVIDIA GeForce RTX 5070 Laptop GPU (8.55 GB VRAM, Compute Capability 12.0)
-**Scene**: 400,000 Gaussians, Spherical Harmonics degree 3
-**Resolution**: 1920 x 1080
+| Scene | Renderer | GPU mean | GPU median | P99 | End-to-end mean | Peak VRAM |
+|---|---|---:|---:|---:|---:|---:|
+| 50K | HiGS tile16 | 1.99 ms | 1.9 ms | 2.45 ms | 2.03 ms | 147 MB |
+| 50K | Speedy-Splat | 12.56 ms | 12.5 ms | 13.82 ms | 12.61 ms | 584 MB |
+| 50K | gsplat dense | 12.25 ms | 12.2 ms | 13.76 ms | 12.33 ms | 368 MB |
+| 200K | HiGS tile16 | 6.34 ms | 6.3 ms | 7.23 ms | 6.39 ms | 391 MB |
+| 200K | Speedy-Splat | 145.75 ms | 38.8 ms | 1934.10 ms | not recorded | 2183 MB |
+| 200K | gsplat dense | 383.10 ms | 50.0 ms | 876.45 ms | not recorded | 1450 MB |
+| 400K | HiGS tile8 | 15.96 ms | 15.8 ms | 23.22 ms | 16.03 ms | 1057 MB |
+| 400K | Speedy-Splat | 1705.36 ms | 1608.9 ms | 4776.47 ms | 1705.4 ms | 4276 MB |
 
----
+The included generated scenes intentionally create heavy overlap. The large
+Speedy/standard-gsplat tails are tied to specific camera views with very long
+tile lists, rather than random timer noise.
 
-## Table of Contents
+## Quality gate
 
-- [Background and Motivation](#background-and-motivation)
-- [Quick Start](#quick-start)
-- [Benchmark Protocol](#benchmark-protocol)
-- [Renderer Descriptions](#renderer-descriptions)
-- [Experimental Results](#experimental-results)
-- [Optimization Analysis](#optimization-analysis)
-- [Quality Validation](#quality-validation)
-- [Repository Structure](#repository-structure)
-- [Continuous Integration](#continuous-integration)
-- [Citation](#citation)
-- [License](#license)
+| Comparison | Scene | Minimum PSNR | Minimum SSIM | Result |
+|---|---:|---:|---:|---|
+| Speedy-Splat vs gsplat dense | 50K | 111.96 dB | 1.0000 | pass |
+| HiGS vs gsplat dense | 50K | 59.37 dB | 0.9997 | pass |
+| HiGS vs gsplat dense | 200K | 58.80 dB | 0.9997 | pass |
+| HiGS vs gsplat dense | 400K | 59.45 dB | 0.9997 | pass |
+| HiGS SH32 vs uncompressed HiGS | 50K | 64.85 dB | 0.9999 | pass |
+| HiGS SH16 vs uncompressed HiGS | 50K | 49.79 dB | 0.9997 | pass |
 
----
+Run a quality comparison:
 
-## Background and Motivation
-
-3D Gaussian Splatting represents scenes as a collection of anisotropic 3D Gaussians, each parameterized by a 3D position, covariance matrix (decomposed into scaling and rotation), opacity, and view-dependent color encoded via spherical harmonics [Kerbl et al., 2023]. Efficient rendering requires a tile-based rasterization pipeline that sorts Gaussians by depth within each image tile, then alpha-blends them in front-to-back order.
-
-The original implementation by Kerbl et al. uses Thrust radix sort for the tile binning step. Subsequent open-source implementations and forks have introduced alternative sorting backends (e.g., CUB DeviceRadixSort), CUDA-GL interop for geometry shader-based rendering, and Python-level wrapper optimizations. However, **no standardized benchmark exists** to compare these renderers under identical conditions.
-
-This work addresses this gap by providing:
-
-1. A **unified benchmark framework** with a standardized protocol (warmup frames, measurement repeats, CUDA synchronization, GPU clock lock).
-2. **Standardized camera paths** (spiral, circular, flythrough, random walk) for reproducible evaluation.
-3. **Comprehensive metrics** including mean/median/tail-latency (P1/P5/P95/P99), frame-time jitter, VRAM consumption, and rendering quality (PSNR, SSIM, LPIPS).
-4. **Engineering optimization analysis** demonstrating the performance impact of frustum pre-culling, buffer pre-allocation, and rasterizer caching.
-
----
-
-## Quick Start
-
-```bash
-# Requires: CUDA Toolkit 13.x, PyTorch 2.x, conda environment
-git clone https://github.com/caizefan34/3dgs-renderer-benchmark
-cd 3dgs-renderer-benchmark
-
-# Install renderers
-pip install diff-gaussian-rasterization
-pip install git+https://github.com/j-alex-hanson/speedy-splat
-
-# Generate a synthetic test scene (400K Gaussians, SH degree 3)
-python src/scripts/generate_scene.py
-
-# Run the unified benchmark (auto-generates JSON, CSV, Markdown, and HTML reports)
-python src/run_benchmark.py
-
-# Specify renderers and camera paths
-python src/run_benchmark.py --renderers speedy_splat diff_gaussian \
-    --camera-path spiral --frames 200 --output results/
+```powershell
+python src/scripts/validate_quality.py `
+  --reference gsplat_dense `
+  --test gsplat_higs `
+  --scene src/data/scene_50k.ply `
+  --cameras data/camera_presets/circle.json `
+  --frames 10
 ```
 
----
+## Implemented adapters
 
-## Benchmark Protocol
+- `speedy_splat`: Speedy-Splat with static activation and fixed buffers.
+- `speedy_splat_raw`: uncached wrapper ablation.
+- `gsplat`: real `gsplat.rasterization(..., packed=True)`.
+- `gsplat_dense`: real `gsplat.rasterization(..., packed=False)`.
+- `gsplat_higs`: HiGS inference, tile 8, uncompressed SH.
+- `gsplat_higs_tile16`: HiGS inference, tile 16.
+- `gsplat_higs_sh32` / `gsplat_higs_sh16`: SH packing ablations.
+- `gsplat_higs_auto`: locally calibrated scale-aware configuration.
+- `fast_gauss`: registered but unavailable locally because EGL loading is
+  blocked by the current Windows environment/application policy.
 
-All renderers are compared under **identical conditions** to ensure reproducibility.
+TC-GS is tracked as a paper result, not a measured renderer: no official source
+was located, so the repository no longer aliases it to diff-gaussian.
 
-### Measurement Methodology
+See [the renderer survey](docs/renderer_survey.md) for upstream commits, paper
+claims, and reproducibility status.
 
-FPS results are collected following a **strictly controlled protocol**:
+## Correctness fixes
 
-| Parameter | Value |
-|-----------|-------|
-| Warmup frames | 50 |
-| Measured frames | 200 |
-| Measurement repeats | 5 |
-| GPU Clock Lock | Enabled |
-| CUDA Synchronization | Before and after each measured frame |
-| Timing Method | `time.perf_counter()` + `torch.cuda.synchronize()` |
-| Reported Metrics | Mean $\pm$ SEM (Standard Error of the Mean) |
-| Aggregation | Mean, median, P1, P5, P10, P25, P75, P90, P95, P99 percentiles |
+The previous repository results are not comparable with the verified table.
+Before measurement, this work corrected:
 
-Results are reported as **mean $\pm$ SEM** across all measurement repeats. Median and tail-latency percentiles (P1, P5, P95, P99) are also provided for latency distribution analysis.
+- fake gsplat and TC-GS comparisons that actually called diff-gaussian;
+- log-scales passed without `exp` activation;
+- camera paths facing away from the scene;
+- reversed full projection matrix multiplication;
+- non-standard SH PLY property naming, while preserving legacy loading;
+- a documented but unimplemented GPU clock-lock claim;
+- mixed CPU/GPU timing without separate end-to-end metrics;
+- missing renderer runtime version and source metadata.
 
-### Standard Camera Paths
+## Methodology
 
-Four canonical camera trajectories are provided for consistent evaluation:
+- Corrected fixed camera paths use +Z facing the scene.
+- Camera validation rejects paths placing the scene center behind the camera.
+- Static scene packing and activation occur before timing.
+- Every measured frame uses CUDA start/end events and synchronizes after the
+  end event. Synchronization is outside the GPU event interval and avoids deep
+  WDDM queues.
+- GPU and end-to-end latency are exported separately with percentiles and VRAM.
+- A renderer is verified only after finite-output, camera-change, and quality
+  checks pass.
+
+Example:
+
+```powershell
+python src/run_benchmark.py `
+  --scene src/data/scene_200k.ply `
+  --camera-path circle `
+  --renderers gsplat_higs gsplat_higs_tile16 speedy_splat gsplat_dense `
+  --frames 100 --warmup 30 --repeats 3 `
+  --output results/verified/example
+```
+
+## Optimization findings
+
+HiGS separates coarse macro-tile partitioning from fine rasterization and uses
+a persistent packed inference scene. It attacks the measured bottleneck: long,
+imbalanced tile-Gaussian lists and redundant work in dense views.
+
+Tile size is workload-dependent:
+
+- 50K: tile16 is about 15% faster than tile8.
+- 200K: tile16 is about 19% faster than tile8.
+- 400K: tile8 is about 21% faster than tile16.
+
+Larger tiles reduce partition/scheduling overhead at low density. Finer tiles
+reduce overdraw and load imbalance at high density. `gsplat_higs_auto` uses the
+local rule `<300K -> tile16`, otherwise tile8 + SH32. This is a local heuristic,
+not a universal threshold.
+
+SH packing trades decode work for bandwidth:
+
+- SH32 preserves high quality (minimum 64.85 dB against uncompressed HiGS).
+- SH16 has a larger error (minimum 49.79 dB).
+- At 50K, SH decode overhead hurts performance.
+- At 400K, SH32 leaves mean latency roughly unchanged but improved P99 in one
+  controlled run from 24.31 ms to 17.31 ms.
+
+The previous claim that Python buffer reuse alone adds 7.5% was not reproduced.
+Wrapper ordering varied by several percent, so it is not presented as a stable
+speedup.
+
+## Windows + CUDA 13 build
+
+Validated gsplat commit:
+`77ab983ffe43420b2131669cb35776b883ca4c3c`.
+
+Apply the recorded Windows/CUDA13 fixes:
+
+```powershell
+git -C path/to/gsplat apply `
+  path/to/3dgs-renderer-benchmark/third_party_patches/gsplat-windows-cuda13.patch
+```
+
+For an RGB-only benchmark, these upstream-supported build variables avoid
+unrelated template instantiations:
 
 ```text
-data/camera_presets/
-â”œâ”€â”€ spiral.json        â€?60 cameras, spiral orbit with radius oscillation
-â”œâ”€â”€ circle.json        â€?50 cameras, circular orbit at fixed radius
-â”œâ”€â”€ flythrough.json    â€?30 cameras, linear front-to-back flight
-â””â”€â”€ random_walk.json   â€?30 cameras, orbit with random perturbations
+NUM_CHANNELS=3
+BUILD_3DGS=1
+BUILD_2DGS=0
+BUILD_3DGUT=0
+BUILD_ADAM=0
+BUILD_RELOC=0
+BUILD_LOSSES=0
 ```
 
-All renderers use the **same camera path** for fair comparison. Select with `--camera-path`:
+## Limitations
 
-```bash
-python src/run_benchmark.py --camera-path spiral
+- Current verified numbers use generated scenes, not trained Mip-NeRF360 or
+  Tanks & Temples PLYs. Real-scene validation remains the next dataset step.
+- GPU clocks are not locked on this WDDM laptop.
+- HiGS is inference-only and uses packed/fp16 internals.
+- FlashGS, Local-GS, GEMM-GS, and fast-gaussian remain candidates until they
+  pass the same local quality/timing protocol.
+- Cross-paper speedup claims are not leaderboard results.
+
+## Tests
+
+```powershell
+python -m unittest discover -s tests -v
+python -m compileall -q src tests
 ```
 
-### Standard Datasets
-
-| Scene | Source | Gaussians | Type | Command |
-|-------|--------|:---------:|:----:|:-------:|
-| garden | Mip-NeRF360 [Barron et al., 2022] | ~500K | outdoor | `python src/scripts/download_datasets.py --dataset garden` |
-| bicycle | Mip-NeRF360 [Barron et al., 2022] | ~1M | outdoor | `python src/scripts/download_datasets.py --dataset bicycle` |
-| drjohnson | Tanks & Temples [Knapitsch et al., 2017] | ~1.2M | indoor | `python src/scripts/download_datasets.py --dataset drjohnson` |
-| playground | MatrixCity [Li et al., 2023] | ~200K | large-scale | `python src/scripts/download_datasets.py --dataset playground` |
-| train | Tanks & Temples [Knapitsch et al., 2017] | ~1.5M | outdoor | `python src/scripts/download_datasets.py --dataset train` |
-| chair | Blender (Synthetic) | ~50K | synthetic | `python src/scripts/download_datasets.py --dataset chair` |
-
-Download all: `python src/scripts/download_datasets.py --dataset all`
-
-### Evaluation Metrics
-
-| Category | Metrics |
-|----------|---------|
-| **Runtime** | Mean FPS, Median FPS, P1/P5/P10/P25/P75/P90/P95/P99 latency |
-| **Stability** | Frame time jitter (CV%), min/max/standard deviation of latency |
-| **Memory** | Peak VRAM, average VRAM consumption |
-| **Loading** | Scene load time, parse time, file size |
-| **Quality** | PSNR, SSIM [Wang et al., 2004], LPIPS [Zhang et al., 2018] |
-
-### Report Generation
-
-After execution, results are automatically exported to:
-
-```text
-results/
-â”œâ”€â”€ benchmark_results.json    â€?Full raw data (all percentiles, frame times)
-â”œâ”€â”€ benchmark_results.csv     â€?Summary metrics table
-â”œâ”€â”€ benchmark_report.md       â€?Markdown report with per-renderer details
-â””â”€â”€ benchmark_report.html     â€?Interactive Plotly dashboard with frame-time charts
-```
-
----
-
-## Renderer Descriptions
-
-| Renderer | Backend | Key Technology | Reference |
-|:--------:|:-------:|:-------------:|:---------:|
-| **diff_gaussian** | ashawkey fork | Thrust radix sort | [diff-gaussian-rasterization](https://github.com/ashawkey/diff-gaussian-rasterization) |
-| **speedy_splat** | j-alex-hanson fork | CUB DeviceRadixSort | [speedy-splat](https://github.com/j-alex-hanson/speedy-splat) |
-| **fast_gauss** | dendenxu fork | CUDA-GL interop (geometry shaders) | [fast-gaussian-rasterization](https://github.com/dendenxu/fast-gaussian-rasterization) |
-| **gsplat** | nerfstudio-project | Python wrapper with diff-gaussian backend | [gsplat](https://github.com/nerfstudio-project/gsplat) |
-
----
-
-## Experimental Results
-
-### Phase 1: Renderer Comparison
-
-The following table reports results from the Phase 1 benchmark comparing all four renderers under identical conditions. The scene contains 400,000 Gaussians with SH degree 3, rendered at 1920x1080 resolution.
-
-| Rank | Renderer | Median (ms) | FPS | P99 (ms) | VRAM (MB) | Key Technology |
-|:----:|:--------:|:-----------:|:----:|:--------:|:---------:|:--------------:|
-| 1 | **speedy_splat** | **7.31** | **136.8** | 1,300.7 | 1,927 | CUB DeviceRadixSort |
-| 2 | diff_gaussian | 7.42 | 134.8 | 1,427.6 | 1,998 | Thrust radix sort |
-| 2 | fast_gauss | 7.42 | 134.7 | 1,427.4 | 1,998 | CUDA-GL interop |
-| 3 | gsplat (wrapper) | 7.47 | 133.8 | 1,445.1 | 1,998 | Python overhead |
-
-**Key Finding**: The `speedy_splat` renderer, which replaces Thrust radix sort with CUB DeviceRadixSort in the tile binning pipeline, achieves the highest throughput (136.8 FPS), outperforming the baseline `diff_gaussian` by approximately 1.5%.
-
-### Phase 2: Engineering Optimizations
-
-Building on the Phase 1 winner (`speedy_splat`), we applied three incremental optimizations:
-
-| Configuration | Median (ms) | FPS | Speedup |
-|--------------|:-----------:|:---:|:-------:|
-| Baseline (speedy_splat) | 5.83 | 171.4 | â€?|
-| + Frustum Pre-Culling | 2.84 | 352.3 | +105.5% |
-| + Pre-allocated Buffer Reuse | 2.74 | 365.1 | **+113.0%** |
-
-#### Optimization Details
-
-1. **Frustum Pre-Culling**: A conservative NDC-space projection test identifies and removes Gaussians outside the camera frustum before kernel launch. This reduces the kernel workload by approximately 50% (percentage varies by viewpoint).
-
-2. **Pre-allocated Buffer Reuse**: Eliminates per-frame `torch.zeros` and `torch.ones` allocations by reusing pre-allocated GPU buffers across frames, reducing memory allocation overhead.
-
-3. **Rasterizer Cache**: The `GaussianRasterizer` object is cached per camera view and reused across frames, avoiding repeated construction overhead.
-
-### GPU Profiling Analysis
-
-Performance profiling was conducted using NVIDIA Nsight Systems on an RTX 5070 Laptop GPU. The key insight is that the tile binning sort step dominates the rendering pipeline:
-
-| Operation | diff_gaussian (Thrust) | speedy_splat (CUB) | Improvement |
-|-----------|:---------------------:|:------------------:|:-----------:|
-| Sort Time (per frame) | ~0.8 ms | ~0.3 ms | -62% |
-| Rasterization Time | ~6.6 ms | ~7.0 ms | +6% |
-| Memory Copy | ~0.1 ms | ~0.1 ms | â€?|
-| Kernel Occupancy | 45% | 48% | +3 pp |
-| SM Utilization | 38% | 42% | +4 pp |
-
-> **Note**: Profile data collected on RTX 5070 Laptop GPU, 400K Gaussians, 1920x1080. Results may vary across GPU architectures.
-
-### Multi-Scene Performance
-
-The following table presents results across multiple real-world datasets. Results are reported as mean FPS ($\pm$ SEM).
-
-| Dataset | Scene | Gaussians | speedy_splat | diff_gaussian | fast_gauss | gsplat |
-|---------|-------|:---------:|:-----------:|:-------------:|:----------:|:------:|
-| Synthetic | 400K | 400K | 136.8 $\pm$ 0.3 | 134.8 $\pm$ 0.4 | 134.7 $\pm$ 0.3 | 133.8 $\pm$ 0.5 |
-| Mip-NeRF360 | garden | 500K | â€?| â€?| â€?| â€?|
-| Mip-NeRF360 | bicycle | 1M | â€?| â€?| â€?| â€?|
-| Tanks & Temples | drjohnson | 1.2M | â€?| â€?| â€?| â€?|
-| Tanks & Temples | train | 1.5M | â€?| â€?| â€?| â€?|
-
-> **Note**: Real-world dataset results marked with "â€? are pending GPU time. Run `python src/scripts/download_datasets.py --dataset <name>` to download and `python src/run_benchmark.py` to benchmark.
-
-### Multi-Scale Performance (Gaussian Count Scaling)
-
-| Gaussians | speedy_splat | diff_gaussian | fast_gauss | gsplat |
-|:---------:|:-----------:|:-------------:|:----------:|:------:|
-| 50K | â€?| â€?| â€?| â€?|
-| 200K | â€?| â€?| â€?| â€?|
-| 500K | â€?| â€?| â€?| â€?|
-| 1M | â€?| â€?| â€?| â€?|
-| 2M | â€?| â€?| â€?| â€?|
-
-> Multi-scale results are generated by `python src/scripts/generate_scene.py --gaussians <N>`.
-
----
-
-## Optimization Analysis
-
-### Why CUB DeviceRadixSort Outperforms Thrust
-
-The performance advantage of `speedy_splat` derives from its use of CUB DeviceRadixSort, NVIDIA's officially maintained CUDA C++ core library, in place of Thrust's radix sort implementation. Key differences include:
-
-- **Warp-level primitives**: CUB leverages warp-level operations that reduce shared memory bank conflicts and improve instruction-level parallelism.
-- **Reduced template expansion overhead**: Thrust's C++ template metaprogramming generates additional intermediate code that can increase register pressure.
-- **Optimized shared memory patterns**: CUB's radix sort implementation uses more efficient shared memory access patterns, reducing global memory traffic.
-
-The sort step is the primary bottleneck in the tile-based binning pipeline because it must order millions of Gaussians by depth for each image tile before alpha blending. The ~62% reduction in sort time directly translates to the observed 1.5% end-to-end speedup.
-
-### Optimization Impact Breakdown
-
-The Phase 2 optimizations demonstrate that the largest performance gains come from **reducing the number of Gaussians processed** (frustum pre-culling) rather than from micro-optimizations of the rendering kernel itself. This suggests that future work on adaptive Gaussian pruning or level-of-detail schemes could yield even greater improvements.
-
----
-
-## Quality Validation
-
-All optimizations are verified against the original `diff_gaussian_rasterization` baseline to ensure no quality degradation. Quality metrics are computed on NVIDIA GeForce RTX 5070 Laptop GPU with 400K Gaussians at 1920x1080.
-
-```bash
-python src/scripts/validate_quality.py --frames 10
-```
-
-The validation script performs two tests:
-1. **Rasterizer Consistency**: Compares `speedy_splat` output against `diff_gaussian` output (expected: pixel-identical).
-2. **Culling Quality**: Compares optimized (culled) output against full output (expected: PSNR $\ge$ 45 dB).
-
-### Known Limitations
-
-The `speedy_gaussian_rasterization` package (PyPI) contains a CUDA kernel bug where the `scores` parameter may trigger a buffer size overflow on scenes with $\ge$ 400K Gaussians. This issue has been reported upstream.
-
----
-
-## Repository Structure
-
-```text
-3dgs-renderer-benchmark/
-â”œâ”€â”€ src/
-â”?  â”œâ”€â”€ run_benchmark.py              # Unified benchmark CLI
-â”?  â”œâ”€â”€ run_full_benchmark.py         # Full benchmark pipeline
-â”?  â”œâ”€â”€ benchmark_framework/          # Core library
-â”?  â”?  â”œâ”€â”€ scene.py                  # PLY loading (vectorized) + covariance
-â”?  â”?  â”œâ”€â”€ cameras.py                # Camera generation + loading
-â”?  â”?  â”œâ”€â”€ metrics.py                # Comprehensive metrics (P1/P5/P99, VRAM, jitter)
-â”?  â”?  â”œâ”€â”€ results.py                # Export: JSON, CSV, Markdown, HTML+Plotly
-â”?  â”?  â””â”€â”€ config.py                 # Benchmark configuration
-â”?  â”œâ”€â”€ renderers/                    # Renderer adapters (4 renderers)
-â”?  â”?  â”œâ”€â”€ base.py                   # Abstract base class
-â”?  â”?  â”œâ”€â”€ diff_gaussian_renderer.py # ashawkey fork adapter
-â”?  â”?  â”œâ”€â”€ speedy_splat_renderer.py  # CUB DeviceRadixSort adapter
-â”?  â”?  â”œâ”€â”€ fast_gauss_renderer.py    # CUDA-GL interop adapter
-â”?  â”?  â””â”€â”€ gsplat_renderer.py        # nerfstudio wrapper adapter
-â”?  â””â”€â”€ scripts/                      # Benchmark scripts and utilities
-â”?      â”œâ”€â”€ generate_scene.py         # Synthetic scene generation
-â”?      â”œâ”€â”€ generate_camera_path.py   # Camera path presets
-â”?      â”œâ”€â”€ download_datasets.py      # Dataset download tool
-â”?      â”œâ”€â”€ validate_quality.py       # Quality validation
-â”?      â”œâ”€â”€ benchmark_phase1.py       # Phase 1: renderer comparison
-â”?      â”œâ”€â”€ benchmark_phase2.py       # Phase 2: optimization analysis
-â”?      â””â”€â”€ generate_report.py        # Report generation
-â”œâ”€â”€ data/
-â”?  â”œâ”€â”€ camera_presets/               # Standard camera paths
-â”?  â””â”€â”€ scenes/
-â”?      â””â”€â”€ scenes.json               # Standard dataset manifest
-â”œâ”€â”€ docs/index.html                   # GitHub Pages report
-â”œâ”€â”€ .github/workflows/
-â”?  â”œâ”€â”€ deploy-pages.yml              # GitHub Pages deployment
-â”?  â””â”€â”€ benchmark-regression.yml      # CI regression testing
-â”œâ”€â”€ CITATION.cff                      # Citation metadata
-â”œâ”€â”€ LICENSE
-â””â”€â”€ README.md
-```
-
----
-
-## Continuous Integration
-
-Every push to `main` automatically runs benchmarks across **three scene tiers** and archives results:
-
-| Tier | Gaussians | Frames | Renderers | Regression Threshold |
-|:----:|:---------:|:------:|:---------:|:-------------------:|
-| Small | 50K | 100 | all 4 | >5% FPS drop |
-| Medium | 200K | 100 | all 4 | >5% FPS drop |
-| Large | 500K | 100 | all 4 | >5% FPS drop |
-
-Results are uploaded as CI artifacts. A **regression alert** is triggered if any renderer's FPS drops more than 5% relative to the stored baseline.
-
-```yaml
-# .github/workflows/benchmark-regression.yml
-strategy:
-  matrix:
-    scene-tier: [small, medium, large]
-```
-
-To set a new baseline, delete the cached baseline files in `results/ci/baselines/` and re-run the workflow.
-
----
-
-## Leaderboard
-
-*Submit your renderer results via Pull Request to add your entry. Include GPU model, driver version, and benchmark command used.*
-
-| Renderer | FPS | Latency (ms) | VRAM (MB) | PSNR | Scene | GPU |
-|----------|:---:|:------------:|:---------:|:----:|:-----:|:---:|
-| **speedy_splat (optimized)** | **365.1** | **2.74** | 1,927 | $\infty$ | 400K synth | RTX 5070 Laptop |
-| **speedy_splat** | 136.8 | 7.31 | 1,927 | $\infty$ | 400K synth | RTX 5070 Laptop |
-| diff_gaussian | 134.8 | 7.42 | 1,998 | â€?| 400K synth | RTX 5070 Laptop |
-| fast_gauss | 134.7 | 7.42 | 1,998 | â€?| 400K synth | RTX 5070 Laptop |
-| gsplat (wrapper) | 133.8 | 7.47 | 1,998 | â€?| 400K synth | RTX 5070 Laptop |
-
----
-
-## Citation
-
-If you use this benchmark in your research, please cite both this repository and the original 3D Gaussian Splatting paper:
-
-```bibtex
-@misc{3dgs-renderer-benchmark,
-  author       = {Zefan Cai},
-  title        = {{3DGS Renderer Benchmark}: A Reproducible Benchmark Suite 
-                   for 3D Gaussian Splatting Renderers},
-  year         = {2026},
-  howpublished = {\url{https://github.com/caizefan34/3dgs-renderer-benchmark}},
-}
-
-@article{kerbl20233d,
-  title    = {{3D Gaussian Splatting for Real-Time Radiance Field Rendering}},
-  author   = {Kerbl, Bernhard and Kopanas, Georgios and Leimk{\"u}hler, Thomas and Drettakis, George},
-  journal  = {ACM Transactions on Graphics},
-  volume   = {42},
-  number   = {4},
-  year     = {2023},
-}
-
-@inproceedings{wang2004image,
-  title     = {{Image Quality Assessment: From Error Visibility to Structural Similarity}},
-  author    = {Wang, Zhou and Bovik, Alan C. and Sheikh, Hamid R. and Simoncelli, Eero P.},
-  booktitle = {IEEE Transactions on Image Processing},
-  volume    = {13},
-  number    = {4},
-  pages     = {600--612},
-  year      = {2004},
-}
-
-@inproceedings{zhang2018unreasonable,
-  title     = {{The Unreasonable Effectiveness of Deep Features as a Perceptual Metric}},
-  author    = {Zhang, Richard and Isola, Phillip and Efros, Alexei A. and Shechtman, Eli and Wang, Oliver},
-  booktitle = {Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
-  year      = {2018},
-}
-
-@inproceedings{barron2022mipnerf360,
-  title     = {{Mip-NeRF 360: Unbounded Anti-Aliased Neural Radiance Fields}},
-  author    = {Barron, Jonathan T. and Mildenhall, Ben and Verbin, Dor and Srinivasan, Pratul P. and Hedman, Peter},
-  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-  year      = {2022},
-}
-
-@article{knapitsch2017tanks,
-  title   = {{Tanks and Temples: Benchmarking Large-Scale Scene Reconstruction}},
-  author  = {Knapitsch, Arno and Park, Jaesik and Zhou, Qian-Yi and Koltun, Vladlen},
-  journal = {ACM Transactions on Graphics},
-  volume  = {36},
-  number  = {4},
-  year    = {2017},
-}
-```
-
----
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details. Benchmark data and scripts are provided for research and educational purposes.
+See [CITATION.cff](CITATION.cff). The benchmark code is MIT licensed; upstream
+renderers retain their own licenses.

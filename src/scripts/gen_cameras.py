@@ -51,8 +51,8 @@ for i in range(num_cameras):
     look_at = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     up = np.array([0.0, 0.0, 1.0], dtype=np.float32)
     
-    z_axis = (cam_pos - look_at) / np.linalg.norm(cam_pos - look_at)
-    x_axis = np.cross(up, z_axis)
+    z_axis = (look_at - cam_pos) / np.linalg.norm(look_at - cam_pos)
+    x_axis = np.cross(z_axis, up)
     x_axis = x_axis / np.linalg.norm(x_axis)
     y_axis = np.cross(z_axis, x_axis)
     
