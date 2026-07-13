@@ -27,12 +27,21 @@ pip install git+https://github.com/j-alex-hanson/speedy-splat
 # Generate test scene
 python src/scripts/generate_scene.py
 
-# Run unified benchmark (auto-generates JSON / CSV / Markdown / HTML report)
-python src/run_benchmark.py
+# Run unified benchmark (default: warmup=100, measured=500, repeats=5)
+python src/run_benchmark.py --seed 42
 
 # Or use specific renderers and camera paths
 python src/run_benchmark.py --renderers speedy_splat diff_gaussian \
-    --camera-path spiral --frames 200 --output results/
+    --camera-path spiral --frames 500 --warmup 100 --repeats 5 \
+    --seed 42 --output results/
+
+# Optional runtime knobs (default-safe: disabled)
+python src/run_benchmark.py --mixed-precision --amp-dtype float16
+python src/run_benchmark.py --compile --compile-mode reduce-overhead
+
+# Parameter sweep (writes results/raw/*.json and results/summary.csv)
+python scripts/run_sweep.py --renderers speedy_splat diff_gaussian \
+    --gs-counts 100000,400000 --resolutions 1280x720,1920x1080 --seed 42
 ```
 
 ---
@@ -60,12 +69,13 @@ All FPS results are collected under a **strictly controlled protocol** to ensure
 
 | Parameter | Value |
 |-----------|-------|
-| Warmup frames | 50 |
-| Measured frames | 200 |
+| Warmup frames | 100 |
+| Measured frames | 500 |
 | Repeats | 5 |
 | GPU Clock Lock | Yes |
-| CUDA Synchronization | After each frame (before measurement) |
-| Timing Method | `time.perf_counter()` + `torch.cuda.synchronize()` |
+| CUDA Synchronization | Measurement boundary only (`cuda.Event`) |
+| Timing Method | `torch.cuda.Event.elapsed_time()` |
+| Seed | CLI `--seed` (Python / NumPy / Torch / CUDA) |
 | Reported Metrics | Mean ± SEM (Standard Error of Mean) |
 
 Results are reported as **mean ± standard error of the mean (SEM)** across all repeats. The median and P1/P5/P95/P99 percentiles are also provided for tail-latency analysis.
@@ -131,11 +141,17 @@ After running, results are auto-exported to:
 
 ```text
 results/
-鈹溾攢鈹€ benchmark_results.json   鈥?Full raw data (all percentiles, frame times)
-鈹溾攢鈹€ benchmark_results.csv    鈥?Summary metrics table
+鈹溾攢鈹€ raw/*.json               鈥?Per-repeat raw artifacts (one file per renderer run)
+鈹溾攢鈹€ summary.csv              鈥?Aggregate comparison table (mean/median/std FPS + p95 latency)
+鈹溾攢鈹€ benchmark_results.json   鈥?Full benchmark summary with frame-time series
+鈹溾攢鈹€ benchmark_results.csv    鈥?Legacy summary metrics table
 鈹溾攢鈹€ benchmark_report.md      鈥?Markdown report with per-renderer details
 鈹斺攢鈹€ benchmark_report.html    鈥?Interactive Plotly dashboard with frame-time chart
 ```
+
+`summary.csv` fields: `renderer`, `warmup_iters`, `measured_iters`, `repeats`, `seed`, `mean_fps`, `median_fps`, `std_fps`, `p95_latency_ms`, `std_mean_fps_across_runs`, `peak_vram_mb`.
+
+Fair comparison guidance: keep renderer set, scene, camera path, resolution, warmup/measured/repeats, and seed identical across runs; compare speed (FPS/latency) together with quality metrics (PSNR/SSIM/LPIPS) when changing runtime knobs (mixed precision / compile).
 
 ---
 
@@ -268,4 +284,3 @@ To set a new baseline, delete the cached baseline files in `results/ci/baselines
 ## License
 
 MIT License. Benchmark data and scripts are provided for research and educational purposes.
-

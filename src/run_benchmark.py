@@ -9,7 +9,7 @@ Usage:
     python run_benchmark.py --renderers speedy_splat diff_gaussian --frames 100
     python run_benchmark.py --list-renderers
 """
-import sys, os, time, json, argparse, gc
+import sys, os, time, argparse
 import torch
 import numpy as np
 
@@ -18,7 +18,8 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from benchmark_framework import (
     load_ply, load_cameras_from_json, generate_cameras,
-    RendererMetrics, ResultsManager, BenchmarkConfig
+    RendererMetrics, ResultsManager, BenchmarkConfig,
+    run_renderer_benchmark, export_aggregate_csv, set_global_seed
 )
 from renderers import get_renderer, list_renderers, list_available
 
@@ -37,8 +38,64 @@ def parse_args():
     p.add_argument("--output", type=str, default=None, help="Output directory")
     p.add_argument("--camera-path", type=str, default=None, choices=["spiral", "circle", "flythrough", "random_walk"],
                    help="Standard camera path preset (from data/camera_presets/)")
+    p.add_argument("--seed", type=int, default=None, help="Global random seed (Python/NumPy/Torch)")
+    p.add_argument("--legacy-runner", action="store_true", help="Use legacy perf_counter benchmark loop")
+    p.add_argument("--mixed-precision", action="store_true", help="Enable CUDA autocast in benchmark loop")
+    p.add_argument("--amp-dtype", type=str, default="float16", choices=["float16", "bfloat16"],
+                   help="Autocast dtype when --mixed-precision is enabled")
+    p.add_argument("--compile", action="store_true", help="Try torch.compile on render callable")
+    p.add_argument("--compile-mode", type=str, default="default",
+                   choices=["default", "reduce-overhead", "max-autotune"],
+                   help="torch.compile mode")
     p.add_argument("--list-renderers", action="store_true", help="List registered renderers")
     return p.parse_args()
+
+
+def _run_renderer_legacy(renderer, prep_data, cameras, cfg):
+    all_frame_times = []
+    all_peak_mem = 0.0
+    all_mem_samples = []
+
+    for repeat_idx in range(cfg.repeats):
+        if cfg.repeats > 1:
+            print(f"  Repeat {repeat_idx + 1}/{cfg.repeats}...")
+
+        frame_times = []
+        peak_mem = 0.0
+        mem_samples = []
+
+        print(f"  Warmup ({cfg.warmup_frames})...", end=" ", flush=True)
+        for f in range(cfg.warmup_frames):
+            with torch.no_grad():
+                renderer.render(prep_data, cameras[f % len(cameras)])
+        torch.cuda.synchronize()
+        print("done")
+
+        torch.cuda.reset_peak_memory_stats()
+        print(f"  Benchmark ({cfg.benchmark_frames})...", end=" ", flush=True)
+        for f in range(cfg.benchmark_frames):
+            torch.cuda.synchronize()
+            t0 = time.perf_counter()
+            with torch.no_grad():
+                renderer.render(prep_data, cameras[f % len(cameras)])
+            torch.cuda.synchronize()
+            ms = (time.perf_counter() - t0) * 1000
+            frame_times.append(ms)
+
+            mem = torch.cuda.max_memory_allocated() / (1024 * 1024)
+            mem_samples.append(mem)
+            if mem > peak_mem:
+                peak_mem = mem
+
+            if (f + 1) % 50 == 0:
+                print(f"{f+1}..", end="", flush=True)
+        print(" done")
+
+        all_frame_times.extend(frame_times)
+        all_mem_samples.extend(mem_samples)
+        all_peak_mem = max(all_peak_mem, peak_mem)
+
+    return all_frame_times, all_peak_mem, float(np.mean(all_mem_samples)) if all_mem_samples else 0.0
 
 
 def main():
@@ -49,6 +106,7 @@ def main():
     if args.frames: cfg.benchmark_frames = args.frames
     if args.warmup: cfg.warmup_frames = args.warmup
     if args.repeats: cfg.repeats = args.repeats
+    if args.seed is not None: cfg.seed = args.seed
     if args.clock_lock is not None: cfg.clock_lock = args.clock_lock
     if args.width: cfg.image_width = args.width
     if args.height: cfg.image_height = args.height
@@ -83,7 +141,9 @@ def main():
     print(f"  Resolution: {cfg.image_width}x{cfg.image_height}")
     print(f"  Frames: {cfg.benchmark_frames} (+ {cfg.warmup_frames} warmup)")
     print(f"  Repeats: {cfg.repeats}  |  Clock Lock: {cfg.clock_lock}")
+    print(f"  Seed: {cfg.seed}  |  Runner: {'legacy' if args.legacy_runner else 'unified'}")
     print("=" * 70)
+    set_global_seed(cfg.seed)
 
     # 1. Load scene
     print("\n[1/5] Loading scene...")
@@ -120,6 +180,8 @@ def main():
     print("\n[4/5] Running benchmarks...")
     results_mgr = ResultsManager()
     gpu_name = torch.cuda.get_device_name(0)
+    raw_output_dir = os.path.join(output_dir, "raw")
+    summary_rows = []
 
     for rname in renderers:
         print(f"\n  --- {rname} ---")
@@ -128,51 +190,44 @@ def main():
             continue
 
         prep_data = renderer.prepare_scene(scene_data)
-        all_frame_times = []
-        all_peak_mem = 0
-        all_mem_samples = []
+        if args.legacy_runner:
+            all_frame_times, all_peak_mem, avg_vram_mb = _run_renderer_legacy(
+                renderer, prep_data, cameras, cfg
+            )
+        else:
+            unified_result = run_renderer_benchmark(
+                renderer_name=rname,
+                renderer=renderer,
+                prep_data=prep_data,
+                cameras=cameras,
+                warmup_iters=cfg.warmup_frames,
+                measured_iters=cfg.benchmark_frames,
+                repeats=cfg.repeats,
+                raw_output_dir=raw_output_dir,
+                seed=cfg.seed,
+                use_mixed_precision=args.mixed_precision,
+                amp_dtype=args.amp_dtype,
+                use_compile=args.compile,
+                compile_mode=args.compile_mode,
+            )
+            all_frame_times = unified_result["all_frame_times_ms"]
+            aggregate_stats = unified_result["aggregate"]
+            all_peak_mem = aggregate_stats["peak_vram_mb"]
+            avg_vram_mb = aggregate_stats["avg_vram_mb"]
 
-        for repeat_idx in range(cfg.repeats):
-            if cfg.repeats > 1:
-                print(f"  Repeat {repeat_idx + 1}/{cfg.repeats}...")
-            
-            frame_times = []
-            peak_mem = 0
-            mem_samples = []
-
-            # Warmup
-            print(f"  Warmup ({cfg.warmup_frames})...", end=" ", flush=True)
-            for f in range(cfg.warmup_frames):
-                with torch.no_grad():
-                    renderer.render(prep_data, cameras[f % len(cameras)])
-            torch.cuda.synchronize()
-            print("done")
-
-            # Benchmark
-            torch.cuda.reset_peak_memory_stats()
-            print(f"  Benchmark ({cfg.benchmark_frames})...", end=" ", flush=True)
-            for f in range(cfg.benchmark_frames):
-                torch.cuda.synchronize()
-                t0 = time.perf_counter()
-                with torch.no_grad():
-                    renderer.render(prep_data, cameras[f % len(cameras)])
-                torch.cuda.synchronize()
-                ms = (time.perf_counter() - t0) * 1000
-                frame_times.append(ms)
-
-                mem = torch.cuda.max_memory_allocated() / (1024 * 1024)
-                mem_samples.append(mem)
-                if mem > peak_mem:
-                    peak_mem = mem
-
-                if (f + 1) % 50 == 0:
-                    print(f"{f+1}..", end="", flush=True)
-            print(" done")
-            
-            all_frame_times.extend(frame_times)
-            all_mem_samples.extend(mem_samples)
-            if peak_mem > all_peak_mem:
-                all_peak_mem = peak_mem
+            summary_rows.append({
+                "renderer": rname,
+                "warmup_iters": cfg.warmup_frames,
+                "measured_iters": cfg.benchmark_frames,
+                "repeats": cfg.repeats,
+                "seed": cfg.seed,
+                "mean_fps": round(aggregate_stats["mean_fps"], 4),
+                "median_fps": round(aggregate_stats["median_fps"], 4),
+                "std_fps": round(aggregate_stats["std_fps"], 4),
+                "p95_latency_ms": round(aggregate_stats["p95_latency_ms"], 4),
+                "std_mean_fps_across_runs": round(aggregate_stats["std_mean_fps_across_runs"], 4),
+                "peak_vram_mb": round(aggregate_stats["peak_vram_mb"], 2),
+            })
 
         t_arr = np.array(all_frame_times)
         metrics = RendererMetrics(
@@ -184,7 +239,7 @@ def main():
             num_gaussians=N,
             gpu_name=gpu_name,
             peak_vram_mb=all_peak_mem,
-            avg_vram_mb=float(np.mean(all_mem_samples)),
+            avg_vram_mb=avg_vram_mb,
             scene_load_time_ms=scene_load_ms,
             scene_parse_time_ms=0.0,
             file_size_mb=file_size_mb,
@@ -211,6 +266,8 @@ def main():
     results_mgr.export_markdown(os.path.join(output_dir, "benchmark_report.md"))
     results_mgr.export_html(os.path.join(output_dir, "benchmark_report.html"),
                             title="3DGS Renderer Benchmark")
+    if summary_rows:
+        export_aggregate_csv(summary_rows, os.path.join(output_dir, "summary.csv"))
 
     # Summary
     print("\n" + "=" * 70)
