@@ -1,4 +1,4 @@
-# 3D Gaussian Splatting Renderer Benchmark
+﻿# 3D Gaussian Splatting Renderer Benchmark
 
 [![Website](https://img.shields.io/badge/Website-View%20Report-7c5cfc)](https://caizefan34.github.io/3dgs-renderer-benchmark/)
 [![GPU](https://img.shields.io/badge/GPU-RTX%205070%20Laptop-76b900)](https://www.nvidia.com)
@@ -7,9 +7,9 @@
 
 > **A Reproducible Benchmark Suite for 3D Gaussian Splatting Renderers**
 
-Rigorous comparison of **5 CUDA rasterization renderers** for 3D Gaussian Splatting, plus **Phase 2 engineering optimizations** that push the winner to **365 FPS** — a **+113%** speedup over baseline.
+Rigorous comparison of **4 CUDA rasterization renderers** for 3D Gaussian Splatting, plus **Phase 2 engineering optimizations** that push the winner to **365 FPS** 鈥?a **+113%** speedup over baseline.
 
-**GPU**: NVIDIA GeForce RTX 5070 Laptop · **Scene**: 400K Gaussians, SH deg 3 · **Resolution**: 1920×1080
+**GPU**: NVIDIA GeForce RTX 5070 Laptop 路 **Scene**: 400K Gaussians, SH deg 3 路 **Resolution**: 1920脳1080
 
 ---
 
@@ -58,10 +58,10 @@ Download all: `python src/scripts/download_datasets.py --dataset all`
 
 ```text
 data/camera_presets/
-├── spiral.json       — 60 cameras, spiral orbit with radius oscillation
-├── circle.json       — 50 cameras, circular orbit at fixed radius
-├── flythrough.json   — 30 cameras, linear front-to-back flight
-└── random_walk.json  — 30 cameras, orbit with random perturbations
+鈹溾攢鈹€ spiral.json       鈥?60 cameras, spiral orbit with radius oscillation
+鈹溾攢鈹€ circle.json       鈥?50 cameras, circular orbit at fixed radius
+鈹溾攢鈹€ flythrough.json   鈥?30 cameras, linear front-to-back flight
+鈹斺攢鈹€ random_walk.json  鈥?30 cameras, orbit with random perturbations
 ```
 
 All renderers use the **same camera path** for fair FPS comparison. Select with `--camera-path`:
@@ -86,10 +86,10 @@ After running, results are auto-exported to:
 
 ```text
 results/
-├── benchmark_results.json   — Full raw data (all percentiles, frame times)
-├── benchmark_results.csv    — Summary metrics table
-├── benchmark_report.md      — Markdown report with per-renderer details
-└── benchmark_report.html    — Interactive Plotly dashboard with frame-time chart
+鈹溾攢鈹€ benchmark_results.json   鈥?Full raw data (all percentiles, frame times)
+鈹溾攢鈹€ benchmark_results.csv    鈥?Summary metrics table
+鈹溾攢鈹€ benchmark_report.md      鈥?Markdown report with per-renderer details
+鈹斺攢鈹€ benchmark_report.html    鈥?Interactive Plotly dashboard with frame-time chart
 ```
 
 ---
@@ -98,7 +98,7 @@ results/
 
 | Phase | Config | Median FPS | vs Baseline |
 |-------|--------|:---------:|:------------:|
-| Phase 1 | **speedy_splat** | **136.8** | — |
+| Phase 1 | **speedy_splat** | **136.8** | 鈥?|
 | Phase 1 | diff_gaussian / fast_gauss | 134.7 | -1.5% |
 | Phase 1 | gsplat (wrapper) | 133.8 | -2.2% |
 | **Phase 2** | **optimized_speedy** | **365.1** | **+113.0%** |
@@ -118,15 +118,15 @@ results/
 
 | Optimization | Median (ms) | FPS | vs Baseline |
 |-------------|:-----------:|:---:|:-------------:|
-| Baseline (speedy_splat) | 5.83 | 171.4 | — |
+| Baseline (speedy_splat) | 5.83 | 171.4 | 鈥?|
 | **+Frustum Pre-Culling** | **2.84** | **352.3** | **+105.5%** |
 | **+Culling + Prealloc Buffers** | **2.74** | **365.1** | **+113.0%** |
 
 ### Techniques Applied
 
-1. **Frustum Pre-Culling** — Conservative NDC projection test removes behind-camera gaussians before kernel launch. Reduces kernel workload ~50%.
-2. **Pre-allocated Buffer Reuse** — Eliminates per-frame `torch.zeros`/`torch.ones` allocations.
-3. **Rasterizer Cache** — Reuses `GaussianRasterizer` across frames per camera.
+1. **Frustum Pre-Culling** 鈥?Conservative NDC projection test removes behind-camera gaussians before kernel launch. Reduces kernel workload ~50%.
+2. **Pre-allocated Buffer Reuse** 鈥?Eliminates per-frame `torch.zeros`/`torch.ones` allocations.
+3. **Rasterizer Cache** 鈥?Reuses `GaussianRasterizer` across frames per camera.
 
 ### Quality Validation
 
@@ -146,25 +146,25 @@ speedy_gaussian_rasterization (PyPI) has a CUDA kernel bug where the `scores` pa
 
 ```text
 3dgs-renderer-benchmark/
-├── src/
-│   ├── run_benchmark.py              # Unified benchmark CLI
-│   ├── benchmark_framework/          # Core library
-│   │   ├── scene.py                  # PLY loading (vectorized) + covariance
-│   │   ├── cameras.py                # Camera generation + loading
-│   │   ├── metrics.py                # Comprehensive metrics (P1/P5/P99, VRAM, jitter)
-│   │   ├── results.py                # Export: JSON, CSV, Markdown, HTML+Plotly
-│   │   └── config.py                 # Benchmark configuration
-│   ├── renderers/                    # Renderer adapters (4)
-│   └── scripts/                      # Benchmark scripts + tools
-├── data/
-│   ├── camera_presets/               # Standard camera paths
-│   └── scenes/
-│       └── scenes.json               # Standard dataset manifest
-├── docs/index.html                   # GitHub Pages report
-├── .github/workflows/
-│   ├── deploy-pages.yml              # GitHub Pages deployment
-│   └── benchmark-regression.yml      # CI regression testing
-└── README.md
+鈹溾攢鈹€ src/
+鈹?  鈹溾攢鈹€ run_benchmark.py              # Unified benchmark CLI
+鈹?  鈹溾攢鈹€ benchmark_framework/          # Core library
+鈹?  鈹?  鈹溾攢鈹€ scene.py                  # PLY loading (vectorized) + covariance
+鈹?  鈹?  鈹溾攢鈹€ cameras.py                # Camera generation + loading
+鈹?  鈹?  鈹溾攢鈹€ metrics.py                # Comprehensive metrics (P1/P5/P99, VRAM, jitter)
+鈹?  鈹?  鈹溾攢鈹€ results.py                # Export: JSON, CSV, Markdown, HTML+Plotly
+鈹?  鈹?  鈹斺攢鈹€ config.py                 # Benchmark configuration
+鈹?  鈹溾攢鈹€ renderers/                    # Renderer adapters (4)
+鈹?  鈹斺攢鈹€ scripts/                      # Benchmark scripts + tools
+鈹溾攢鈹€ data/
+鈹?  鈹溾攢鈹€ camera_presets/               # Standard camera paths
+鈹?  鈹斺攢鈹€ scenes/
+鈹?      鈹斺攢鈹€ scenes.json               # Standard dataset manifest
+鈹溾攢鈹€ docs/index.html                   # GitHub Pages report
+鈹溾攢鈹€ .github/workflows/
+鈹?  鈹溾攢鈹€ deploy-pages.yml              # GitHub Pages deployment
+鈹?  鈹斺攢鈹€ benchmark-regression.yml      # CI regression testing
+鈹斺攢鈹€ README.md
 ```
 
 ---
@@ -177,9 +177,9 @@ speedy_gaussian_rasterization (PyPI) has a CUDA kernel bug where the `scores` pa
 |----------|:---:|:------------:|:---------:|:----:|:-----:|:---:|
 | **speedy_splat (opt)** | **365.1** | **2.74** | 1,927 | inf | 400K synth | RTX 5070 Laptop |
 | **speedy_splat** | 136.8 | 7.31 | 1,927 | inf | 400K synth | RTX 5070 Laptop |
-| diff_gaussian | 134.8 | 7.42 | 1,998 | — | 400K synth | RTX 5070 Laptop |
-| fast_gauss | 134.7 | 7.42 | 1,998 | — | 400K synth | RTX 5070 Laptop |
-| gsplat (wrapper) | 133.8 | 7.47 | 1,998 | — | 400K synth | RTX 5070 Laptop |
+| diff_gaussian | 134.8 | 7.42 | 1,998 | 鈥?| 400K synth | RTX 5070 Laptop |
+| fast_gauss | 134.7 | 7.42 | 1,998 | 鈥?| 400K synth | RTX 5070 Laptop |
+| gsplat (wrapper) | 133.8 | 7.47 | 1,998 | 鈥?| 400K synth | RTX 5070 Laptop |
 
 ---
 
@@ -202,3 +202,4 @@ Results are uploaded as CI artifacts. A regression alert is triggered on any fai
 ## License
 
 MIT License. Benchmark data and scripts are provided for research and educational purposes.
+
