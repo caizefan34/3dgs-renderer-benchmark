@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3DGS Renderer Benchmark — caizefan34</title>
-    <meta name="description" content="Comprehensive benchmark comparing 5 CUDA rasterization renderers for 3D Gaussian Splatting, plus Phase 2 engineering optimizations.">
+    <title>3DGS Renderer Benchmark - caizefan34</title>
+    <meta name="description" content="A reproducible benchmark suite for 3D Gaussian Splatting renderers — verified CUDA rasterizer comparisons and optimization analysis.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
@@ -29,8 +29,6 @@
             line-height: 1.6;
             min-height: 100vh;
         }
-
-        /* Nav */
         nav {
             position: sticky; top: 0; z-index: 100;
             background: rgba(10,10,26,0.85);
@@ -42,669 +40,197 @@
         nav .logo { font-weight: 800; font-size: 1.1rem; color: var(--accent); }
         nav a { color: var(--text2); text-decoration: none; font-size: 0.9rem; margin-left: 24px; transition: color .2s; }
         nav a:hover { color: var(--accent); }
-
         .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
-
-        /* Hero */
         .hero {
-            text-align: center;
-            padding: 60px 0 48px;
-            background: linear-gradient(180deg, rgba(124,92,252,0.08) 0%, transparent 100%);
-            border-radius: var(--radius);
-            margin-bottom: 48px;
+            text-align: center; padding: 60px 0 40px;
         }
-        .hero h1 { font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 12px; }
-        .hero p { color: var(--text2); font-size: 1.1rem; max-width: 640px; margin: 0 auto; }
-
-        /* Stats row */
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 48px;
-        }
-        .stat-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px 24px;
-            text-align: center;
-        }
-        .stat-card .value { font-size: 2rem; font-weight: 700; color: var(--accent2); }
-        .stat-card .label { color: var(--text2); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
-
-        /* Sections */
-        section { margin-bottom: 56px; }
-        section h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
-        section h2 .badge { font-size: 0.7rem; background: var(--accent); color: white; padding: 2px 10px; border-radius: 99px; font-weight: 600; }
-
-        /* Tables */
-        .table-wrap {
-            overflow-x: auto;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-        }
+        .hero h1 { font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, #7c5cfc 0%, #5cfc9c 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 16px; }
+        .hero p { font-size: 1.15rem; color: var(--text2); max-width: 640px; margin: 0 auto 8px; }
+        .hero .badge { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 100px; padding: 4px 14px; font-size: .8rem; color: var(--accent2); margin-top: 12px; }
+        .section { margin: 48px 0; }
+        .section h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 20px; color: var(--text); }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 16px; }
+        .card h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 12px; color: var(--accent2); }
         table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-        th { background: var(--surface2); color: var(--text2); font-weight: 600; text-align: left; padding: 14px 16px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; }
-        td { padding: 12px 16px; border-top: 1px solid var(--border); }
-        tr:first-child td { border-top: none; }
-        tr:hover { background: rgba(124,92,252,0.05); }
-        .highlight { background: rgba(92,252,156,0.06); }
-        .highlight td:first-child { border-left: 3px solid var(--accent2); }
-        .num { font-family: 'JetBrains Mono', monospace; text-align: right; }
-        .delta-pos { color: var(--accent2); }
-        .delta-neg { color: var(--red); }
-
-        /* Cards */
-        .card-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 16px;
-        }
-        .card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 24px;
-        }
-        .card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; color: var(--accent); }
-        .card p, .card li { color: var(--text2); font-size: 0.88rem; }
-        .card ul { padding-left: 18px; margin-top: 8px; }
-        .card ul li { margin-bottom: 4px; }
-        .card .stat-line { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
-        .card .stat-line:last-child { border-bottom: none; }
-        .card .stat-line .label { color: var(--text2); }
-        .card .stat-line .value { font-family: 'JetBrains Mono', monospace; color: var(--text); }
-
-        /* Winner callout */
-        .winner {
-            background: linear-gradient(135deg, rgba(92,252,156,0.08), rgba(124,92,252,0.08));
-            border: 1px solid var(--accent2);
-            border-radius: var(--radius);
-            padding: 32px;
-            margin-bottom: 32px;
-            text-align: center;
-        }
-        .winner h2 { font-size: 1.8rem; font-weight: 800; color: var(--accent2); margin-bottom: 8px; justify-content: center; }
-        .winner .sub { color: var(--text2); font-size: 1rem; }
-        .winner .big-num { font-size: 3.5rem; font-weight: 800; color: var(--accent2); font-family: 'JetBrains Mono', monospace; margin: 12px 0; }
-        .winner .big-num span { font-size: 1.2rem; color: var(--text2); font-family: 'Inter', sans-serif; }
-
-        /* Phase tabs */
-        .phase-nav {
-            display: flex; gap: 8px; margin-bottom: 24px;
-        }
-        .phase-nav button {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            color: var(--text2);
-            padding: 10px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-family: 'Inter', sans-serif;
-            font-size: 0.85rem;
-            font-weight: 500;
-            transition: all .2s;
-        }
-        .phase-nav button.active {
-            background: var(--accent);
-            border-color: var(--accent);
-            color: white;
-        }
-        .phase-nav button:hover:not(.active) { border-color: var(--accent); color: var(--text); }
-        .phase-content { display: none; }
-        .phase-content.active { display: block; }
-
-        /* Code */
-        code, .code {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.82rem;
-            background: var(--surface2);
-            padding: 2px 6px;
-            border-radius: 4px;
-        }
-        pre {
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 16px;
-            overflow-x: auto;
-            margin: 12px 0;
-        }
-        pre code { background: none; padding: 0; }
-
-        /* Go to top */
-        .footer {
-            text-align: center;
-            padding: 32px 0;
-            border-top: 1px solid var(--border);
-            color: var(--text2);
-            font-size: 0.85rem;
-        }
-        .footer a { color: var(--accent); text-decoration: none; }
-
-        @media (max-width: 640px) {
-            .hero h1 { font-size: 1.8rem; }
-            .winner .big-num { font-size: 2.5rem; }
-            nav a { margin-left: 12px; font-size: 0.8rem; }
-        }
-            /* Charts */
-        .chart-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-            gap: 16px;
-            margin-bottom: 20px;
-        }
-        .chart-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px;
-        }
-        .chart-card h3 {
-            font-size: 0.95rem; font-weight: 600; margin-bottom: 12px; color: var(--text);
-        }
-        .chart-card .chart-wrap { position: relative; width: 100%; }
-        .chart-card .chart-wrap canvas { width: 100% !important; }
-        .chart-full {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px;
-            margin-bottom: 18px;
-        }
-        .chart-full h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 12px; color: var(--text); }</style>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js" defer></script></head>
+        th { text-align: left; padding: 10px 12px; color: var(--text2); font-weight: 500; border-bottom: 1px solid var(--border); font-size: .8rem; text-transform: uppercase; letter-spacing: .5px; }
+        td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+        tr:first-child td { background: rgba(92,252,156,0.06); }
+        .tag { display: inline-block; padding: 2px 10px; border-radius: 100px; font-size: .75rem; font-weight: 600; }
+        .tag-win { background: rgba(92,252,156,0.15); color: var(--accent2); }
+        .tag-loss { background: rgba(252,92,92,0.15); color: var(--red); }
+        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+        .stat { text-align: center; padding: 20px; background: var(--surface2); border-radius: var(--radius); }
+        .stat .val { font-size: 2rem; font-weight: 800; color: var(--accent); }
+        .stat .label { font-size: .8rem; color: var(--text2); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+        .footer { text-align: center; color: var(--text2); font-size: .85rem; margin-top: 60px; padding: 20px 0; border-top: 1px solid var(--border); }
+        a { color: var(--accent); }
+        ul { padding-left: 20px; }
+        li { margin: 6px 0; color: var(--text2); }
+        code { font-family: 'JetBrains Mono', monospace; font-size: .85rem; background: var(--surface2); padding: 2px 6px; border-radius: 4px; }
+        @media (max-width: 768px) { .grid2, .grid3 { grid-template-columns: 1fr; } .hero h1 { font-size: 2rem; } }
+    </style>
+</head>
 <body>
-
-<nav>
-    <div class="logo">▽ 3DGS-Bench</div>
-    <div>
-        <a href="#phase1">Phase 1</a>
-        <a href="#phase2">Phase 2</a>
-        <a href="#ranking">Ranking</a>
-        <a href="https://github.com/caizefan34/3dgs-renderer-benchmark" target="_blank">GitHub ↗</a>
-    </div>
-</nav>
-
-<div class="container">
-
-    <!-- Hero -->
-    <div class="hero">
-        <h1>3D Gaussian Splatting<br>Renderer Benchmark</h1>
-        <p>Rigorous comparison of 5 CUDA rasterization renderers on identical scenes at 1920×1080, plus engineering optimizations pushing the winner to 365 FPS.</p>
-    </div>
-
-    <!-- Stats -->
-    <div class="stats">
-        <div class="stat-card">
-            <div class="value">5</div>
-            <div class="label">Renderers Tested</div>
+    <nav>
+        <span class="logo">3DGS Renderer Benchmark</span>
+        <div>
+            <a href="https://github.com/caizefan34/3dgs-renderer-benchmark">GitHub</a>
+            <a href="#results">Results</a>
+            <a href="#protocol">Protocol</a>
         </div>
-        <div class="stat-card">
-            <div class="value">400K</div>
-            <div class="label">Gaussians</div>
-        </div>
-        <div class="stat-card">
-            <div class="value">365</div>
-            <div class="label">Peak FPS (Optimized)</div>
-        </div>
-        <div class="stat-card">
-            <div class="value">+113%</div>
-            <div class="label">Max Speedup</div>
-        </div>
-    </div>
-
-    <!-- Winner -->
-    <div class="winner">
-        <h2>🏆 Overall Winner: <span style="background:linear-gradient(135deg,#7c5cfc,#5cfc9c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">speedy_splat</span></h2>
-        <p class="sub">CUB DeviceRadixSort · RTX 5070 Laptop · CUDA 13.3</p>
-        <div class="big-num">365.1 <span>FPS</span></div>
-        <p style="color:var(--text2)">+113% vs baseline diff_gaussian (Thrust sort) after Phase 2 optimizations</p>
-    </div>
-
-    <!-- Phase 1 -->
-    <section id="phase1">
-        <h2>📊 Phase 1 <span class="badge">Baseline Comparison</span></h2>
-        <p style="color:var(--text2);margin-bottom:16px">All renderers use identical <code>scene.ply</code> (400K GS, SH deg 3), 50 fixed orbit cameras, 1920×1080. 50 warmup + 200 benchmark frames.</p>
-
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Rank</th>
-                        <th>Renderer</th>
-                        <th>Median (ms)</th>
-                        <th>FPS</th>
-                        <th>P99 (ms)</th>
-                        <th>Memory (MB)</th>
-                        <th>Key Technology</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr class="highlight">
-                        <td>🥇</td>
-                        <td><strong>speedy_splat</strong></td>
-                        <td class="num">7.31</td>
-                        <td class="num" style="color:var(--accent2);font-weight:700">136.8</td>
-                        <td class="num">1,300.7</td>
-                        <td class="num">1,927</td>
-                        <td>CUB DeviceRadixSort</td>
-                    </tr>
-                    <tr>
-                        <td>🥈</td>
-                        <td>diff_gaussian</td>
-                        <td class="num">7.42</td>
-                        <td class="num">134.8</td>
-                        <td class="num">1,427.6</td>
-                        <td class="num">1,998</td>
-                        <td>Thrust radix sort</td>
-                    </tr>
-                    <tr>
-                        <td>🥈</td>
-                        <td>TC-GS <span style="color:var(--text2);font-size:0.8rem">(render-path)</span></td>
-                        <td class="num">7.42</td>
-                        <td class="num">134.7</td>
-                        <td class="num">1,427.4</td>
-                        <td class="num">1,998</td>
-                        <td>Same kernel as diff_gaussian</td>
-                    </tr>
-                    <tr>
-                        <td>🥉</td>
-                        <td>gsplat <span style="color:var(--text2);font-size:0.8rem">(wrapper)</span></td>
-                        <td class="num">7.47</td>
-                        <td class="num">133.8</td>
-                        <td class="num">1,445.1</td>
-                        <td class="num">1,998</td>
-                        <td>Python wrapper overhead</td>
-                    </tr>
-                </tbody>
-            </table>
+    </nav>
+    <div class="container">
+        <div class="hero">
+            <h1>A Reproducible Benchmark Suite<br>for 3D Gaussian Splatting Renderers</h1>
+            <p>Quality-gated comparison of CUDA rasterizers with identical scene tensors, corrected cameras, synchronized GPU timing, and reproducible reports.</p>
+            <span class="badge">&#9733; RTX 5070 Laptop &middot; 400K Gaussians &middot; 1920&times;1080</span>
         </div>
 
-        <div class="card" style="margin-top:16px">
-            <h3>💡 Key Insight: TC-GS = diff_gaussian at Render Time</h3>
-            <p>TC-GS innovates in <strong>training</strong> (triplane encoding, Tensor Core compression). At render time it decompresses to standard gaussian parameters and calls the same <code>GaussianRasterizer</code> from <code>diff_gaussian_rasterization</code>. With pre-loaded .ply data, performance is identical.</p>
-        </div>
-    </section>
-
-    <!-- Phase 2 -->
-    <section id="phase2">
-        <h2>⚡ Phase 2 <span class="badge">Engineering Optimization</span></h2>
-        <p style="color:var(--text2);margin-bottom:16px">Optimizations applied on top of <strong>speedy_splat</strong> (CUB DeviceRadixSort). Rasterizer cached per camera — only render time measured.</p>
-
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Configuration</th>
-                        <th>Median (ms)</th>
-                        <th>FPS</th>
-                        <th>P99 (ms)</th>
-                        <th>Memory (MB)</th>
-                        <th>Δ vs Baseline</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>—</td><td>Baseline (speedy_splat)</td>
-                        <td class="num">5.83</td><td class="num">171.4</td>
-                        <td class="num">1,294.7</td><td class="num">1,947</td>
-                        <td class="num">—</td>
-                    </tr>
-                    <tr class="highlight">
-                        <td>❶</td>
-                        <td>+ Frustum Culling</td>
-                        <td class="num">2.84</td>
-                        <td class="num" style="color:var(--accent2);font-weight:700">352.3</td>
-                        <td class="num">11.8</td><td class="num">705</td>
-                        <td class="num delta-pos">+105.5%</td>
-                    </tr>
-                    <tr class="highlight">
-                        <td>❷</td>
-                        <td>+ Culling + Prealloc Buffers</td>
-                        <td class="num">2.74</td>
-                        <td class="num" style="color:var(--accent2);font-weight:700">365.1</td>
-                        <td class="num">11.3</td><td class="num">705</td>
-                        <td class="num delta-pos"><strong>+113.0%</strong></td>
-                    </tr>
-                </tbody>
-            </table>
+        <div class="grid3">
+            <div class="stat"><div class="val">502.7</div><div class="label">Verified FPS (50K HiGS)</div></div>
+            <div class="stat"><div class="val">62.7</div><div class="label">Verified FPS (400K HiGS)</div></div>
+            <div class="stat"><div class="val">59.45 dB</div><div class="label">400K Minimum PSNR</div></div>
         </div>
 
-        <div class="card-grid" style="margin-top:16px">
+        <div class="section" id="methodology">
+            <h2>FPS Measurement Methodology</h2>
             <div class="card">
-                <h3>❶ Frustum Pre-Culling</h3>
-                <p>Conservative NDC-space projection test: removes gaussians behind the camera or >2× outside the viewport. Keeps all potentially-visible gaussians. Reduces kernel workload by ~50% for typical orbit views.</p>
-            </div>
-            <div class="card">
-                <h3>❷ Pre-allocated Buffer Reuse</h3>
-                <p>Eliminates per-frame <code>torch.zeros</code>/<code>torch.ones</code> allocations for <code>means2D</code> and <code>scores</code> tensors by pre-allocating and reusing buffers for each camera view.</p>
-            </div>
-            <div class="card">
-                <h3>❸ Rasterizer Cache</h3>
-                <p>Reuses <code>GaussianRasterizer</code> objects across frames for the same camera view, avoiding settings structure reconstruction overhead.</p>
+                <table>
+                    <tr><th>Parameter</th><th>Value</th></tr>
+                    <tr><td>Warmup / measured frames</td><td>Recorded per result; headline runs use synchronized per-frame samples</td></tr>
+                    <tr><td>GPU Clock Lock</td><td>No (Windows WDDM laptop)</td></tr>
+                    <tr><td>CUDA Synchronization</td><td>After every measured frame to prevent deep WDDM queues</td></tr>
+                    <tr><td>Timing Method</td><td>CUDA start/end events; wall latency exported separately</td></tr>
+                    <tr><td>Reported Metrics</td><td>Mean, median, percentiles, FPS, end-to-end latency, and peak VRAM</td></tr>
+                </table>
             </div>
         </div>
-    </section>
 
-    <!-- Technical Deep Dive -->
-    <section id="technical-deep-dive">
-        <h2>🧠 Technical Deep Dive</h2>
-
-        <h3 style="font-size:1.1rem; margin-bottom:12px">🔍 Frustum Pre-Culling vs. Original <code>in_frustum</code></h3>
-        <p>The original <code>diff-gaussian-rasterization</code> has its own frustum check:
-        <a href="https://github.com/graphdeco-inria/diff-gaussian-rasterization/blob/9c5c2028f6fbee2be239bc4c9421ff894fe4fbe0/cuda_rasterizer/auxiliary.h#L101"><code>in_frustum()</code></a>
-        called inside the <code>preprocessCUDA</code> kernel. Our pre-culling is fundamentally different:</p>
-
-        <div class="table-wrap" style="margin:16px 0">
-            <table>
-                <thead>
-                    <tr><th>Aspect</th><th>Original <code>in_frustum</code></th><th>This Pre-Culling</th></tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><strong>Location</strong></td>
-                        <td>Inside CUDA kernel, per-thread</td>
-                        <td>Python batch op before kernel launch</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Z threshold</strong></td>
-                        <td><code>p_view.z &lt;= 0.2</code> (reject)</td>
-                        <td><code>depth &lt;= 0.1</code> (more permissive)</td>
-                    </tr>
-                    <tr>
-                        <td><strong>X/Y bounds</strong></td>
-                        <td>None (commented out in source)</td>
-                        <td><code>[-3.0, 3.0]</code> in NDC (3x screen width)</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <h3 style="font-size:1.1rem; margin:20px 0 12px">⚡ Why +105% Speedup?</h3>
-        <ol style="margin-left:20px; line-height:1.9">
-            <li><strong>Original only eliminates ~5-10%</strong> of gaussians (strictly behind camera). Nearly all 400K gaussians still enter <code>preprocessCUDA</code> and incur its full cost: SH color, 3D-to-2D covariance, tile assignment, depth sorting.</li>
-            <li><strong>This pre-culling adds X/Y screening</strong>: gaussians with NDC projection beyond <code>[-3.0, 3.0]</code> are discarded. Since the screen is only <code>[-1.0, 1.0]</code>, the 3x margin is conservative -- every on-screen gaussian is preserved.</li>
-            <li><strong>Culling happens <em>before</em> the GPU kernel</strong>: masked tensors reduce workload in tile binning, CUB radix sort, and per-pixel rasterization -- not just preprocessCUDA.</li>
-            <li><strong>Result</strong>: ~50% fewer gaussians reach the rasterizer, yielding ~2x faster rendering.</li>
-        </ol>
-
-        <h3 style="font-size:1.1rem; margin:20px 0 12px">⚠️ Quality Consideration</h3>
-        <p>Frustum Pre-Culling with NDC-based thresholds provides speedups while preserving rendering quality in typical configurations:</p>
-        <ul style="margin-left:20px; line-height:1.9">
-            <li>The Pre-Culling threshold (z>0.1) is more permissive than original in_frustum (z>0.2), retaining gaussians in the depth range 0.1-0.2</li>
-            <li>The NDC projection cutoff at |proj| < 100 is conservative; in this benchmark scene, no visible gaussians were discarded beyond the original in_frustum check</li>
-            <li><strong>Recommendation</strong>: Enable Pre-Culling only when cameras are well within the scene’s gaussian extent. For general-purpose rendering, the original <code>in_frustum</code> check is sufficient</li>
-            <li>See <a href="https://github.com/caizefan34/3dgs-renderer-benchmark#quality-validation-rendered-output-fidelity">Quality Validation on GitHub</a> for full metrics</li>
-        </ul>
-    </section>
-
-    <!-- Speedup Analysis -->
-    </section>
-
-    <!-- Speedup Analysis -->
-        <section id="charts">
-        <h2>📊 Charts</h2>
-
-        <div class="chart-grid">
-            <div class="chart-card">
-                <h3>FPS Comparison</h3>
-                <div class="chart-wrap">
-                    <canvas id="fpsBarChart"></canvas>
+        <div class="section" id="protocol">
+            <h2>Benchmark Protocol</h2>
+            <div class="grid2">
+                <div class="card">
+                    <h3>&#128194; Current Validation Scenes</h3>
+                    <ul>
+                        <li><strong>50K synthetic</strong> &mdash; low-density scheduling regime</li>
+                        <li><strong>200K synthetic</strong> &mdash; intermediate workload</li>
+                        <li><strong>400K synthetic</strong> &mdash; heavy-overlap stress test</li>
+                        <li><strong>Real trained scenes</strong> &mdash; pending the same quality/timing gate</li>
+                    </ul>
+                    <p style="margin-top:8px;color:var(--text2);font-size:.85rem">Generated-scene results must not be generalized to all trained scenes.</p>
+                </div>
+                <div class="card">
+                    <h3>&#127916; Standard Camera Paths</h3>
+                    <ul>
+                        <li><strong>spiral</strong> &mdash; 60 cameras, oscillating radius</li>
+                        <li><strong>circle</strong> &mdash; 50 cameras, fixed orbit</li>
+                        <li><strong>flythrough</strong> &mdash; 30 cameras, linear flight</li>
+                        <li><strong>random_walk</strong> &mdash; 30 cameras, jittered orbit</li>
+                    </ul>
+                    <p style="margin-top:8px;color:var(--text2);font-size:.85rem">All renderers use identical camera paths for fair FPS comparison</p>
                 </div>
             </div>
-            <div class="chart-card">
-                <h3>P50 Latency (ms)</h3>
-                <div class="chart-wrap">
-                    <canvas id="latencyBarChart"></canvas>
-                </div>
-            </div>
-        </div>
-
-        <div class="chart-full">
-            <h3>Optimization Speedup Over Baseline</h3>
-            <div class="chart-wrap">
-                <canvas id="speedupChart" height="200"></canvas>
-            </div>
-        </div>
-
-        <div class="chart-grid">
-            <div class="chart-card">
-                <h3>P99 Latency (ms)</h3>
-                <div class="chart-wrap">
-                    <canvas id="p99Chart"></canvas>
-                </div>
-            </div>
-            <div class="chart-card">
-                <h3>StdDev Consistency (ms)</h3>
-                <div class="chart-wrap">
-                    <canvas id="stddevChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </section>
-<section id="ranking">
-        <h2>🔬 Speedup Analysis</h2>
-
-        <div class="card-grid">
             <div class="card">
-                <h3>Why speedy_splat beats diff_gaussian</h3>
-                <div class="stat-line"><span class="label">Sort Algorithm</span><span class="value">CUB DeviceRadixSort vs Thrust</span></div>
-                <div class="stat-line"><span class="label">Sort Gain</span><span class="value delta-pos">+15–30%</span></div>
-                <div class="stat-line"><span class="label">Shared Memory</span><span class="value">Warp-level coalesced vs standard</span></div>
-                <div class="stat-line"><span class="label">Overall Render</span><span class="value delta-pos">+1.5%</span></div>
-                <p style="margin-top:12px">CUB DeviceRadixSort uses warp-shuffle primitives, avoids intermediate global memory passes, and achieves better occupancy in the tile-binning pipeline.</p>
+                <h3>&#128202; Metrics</h3>
+                <table>
+                    <tr><th>Category</th><th>Metrics</th></tr>
+                    <tr><td>Runtime</td><td>Mean / Median / P1 / P5 / P95 / P99 FPS &amp; latency</td></tr>
+                    <tr><td>Stability</td><td>Jitter (CV%), min/max/std latency</td></tr>
+                    <tr><td>Memory</td><td>Peak VRAM, average VRAM</td></tr>
+                    <tr><td>Loading</td><td>Scene load time, parse time, file size</td></tr>
+                    <tr><td>Quality</td><td>PSNR, SSIM, LPIPS (offline validation)</td></tr>
+                </table>
             </div>
+        </div>
 
+        <div class="section" id="profiling">
+            <h2>GPU Profiling Insights</h2>
             <div class="card">
-                <h3>Comprehensive Ranking</h3>
-                <div class="stat-line"><span class="label">🥇 optimized_speedy (All)</span><span class="value" style="color:var(--accent2)">365.1 FPS</span></div>
-                <div class="stat-line"><span class="label">🥈 optimized_speedy (Cull)</span><span class="value" style="color:var(--accent2)">352.3 FPS</span></div>
-                <div class="stat-line"><span class="label">🥉 speedy_splat</span><span class="value">171.4 FPS</span></div>
-                <div class="stat-line"><span class="label">diff_gaussian / TC-GS</span><span class="value">134.8 FPS</span></div>
-                <div class="stat-line"><span class="label">gsplat (wrapper)</span><span class="value delta-neg">133.8 FPS</span></div>
+                <p style="color:var(--text2);margin-bottom:12px">The verified fastest path is gsplat HiGS. It reduces the view-dependent overdraw and tile-list tails observed in Speedy-Splat and dense gsplat:</p>
+                <table>
+                    <tr><th>Optimization</th><th>Mechanism</th><th>Observed trade-off</th></tr>
+                    <tr><td>Hierarchical partitioning</td><td>Coarse macro-tiles plus fine raster tiles</td><td>Shorter, better-balanced work lists</td></tr>
+                    <tr><td>Persistent packed scene</td><td>Activation and workspace setup outside timing</td><td>Inference-only path with fp16 internals</td></tr>
+                    <tr><td>Adaptive tile size</td><td>Tile16 below 300K; tile8 at 400K locally</td><td>Threshold is workload-specific</td></tr>
+                    <tr><td>SH32 packing</td><td>Trades decode work for lower bandwidth</td><td>Useful for high-density tails, slower at 50K</td></tr>
+                </table>
+                <p style="margin-top:8px;color:var(--text2);font-size:.85rem">See <code>docs/optimization_analysis.md</code> for measured ablations and future combinations with TC-GS, Local-GS, and TemporalGS.</p>
             </div>
+        </div>
 
+        <div class="section" id="results">
+            <h2>Results</h2>
             <div class="card">
-                <h3>P99 Latency Improvement</h3>
-                <div class="stat-line"><span class="label">Baseline P99</span><span class="value">1,294.7 ms</span></div>
-                <div class="stat-line"><span class="label">Optimized P99</span><span class="value" style="color:var(--accent2)">11.3 ms</span></div>
-                <div class="stat-line"><span class="label">P99 Reduction</span><span class="value delta-pos">−99.1%</span></div>
-                <p style="margin-top:12px;font-size:0.8rem;color:var(--text2)">High baseline P99 is dominated by first-frame CUDA kernel compilation & memory allocation. Pre-caching and buffer reuse eliminate this entirely.</p>
+                <h3>Verified Renderer Comparison</h3>
+                <table>
+                    <tr><th>Scene</th><th>Renderer</th><th>GPU Mean (ms)</th><th>FPS</th><th>P99 (ms)</th><th>VRAM</th></tr>
+                    <tr><td>50K</td><td><strong>HiGS tile16</strong></td><td><strong>1.99</strong></td><td><strong>502.7</strong></td><td>2.45</td><td>147 MB</td></tr>
+                    <tr><td>50K</td><td>gsplat dense</td><td>12.25</td><td>81.6</td><td>13.76</td><td>368 MB</td></tr>
+                    <tr><td>50K</td><td>Speedy-Splat</td><td>12.56</td><td>79.6</td><td>13.82</td><td>584 MB</td></tr>
+                    <tr><td>200K</td><td><strong>HiGS tile16</strong></td><td><strong>6.34</strong></td><td><strong>157.8</strong></td><td>7.23</td><td>391 MB</td></tr>
+                    <tr><td>400K</td><td><strong>HiGS tile8</strong></td><td><strong>15.96</strong></td><td><strong>62.7</strong></td><td>23.22</td><td>1057 MB</td></tr>
+                </table>
+            </div>
+            <div class="card">
+                <h3>Locally Calibrated HiGS Optimizations</h3>
+                <table>
+                    <tr><th>Workload</th><th>Selected configuration</th><th>Reason</th></tr>
+                    <tr><td>50K</td><td>tile16, uncompressed SH</td><td>Lower partition overhead; SH decode is not amortized</td></tr>
+                    <tr><td>200K</td><td>tile16, uncompressed SH</td><td>Still scheduling-dominated in the measured scene</td></tr>
+                    <tr><td>400K</td><td>tile8 + SH32</td><td>Finer work balance and lower SH bandwidth</td></tr>
+                </table>
             </div>
         </div>
-    </section>
 
-    <!-- Hardware -->
-    <section>
-        <h2>💻 Hardware</h2>
-        <div class="table-wrap" style="max-width:500px">
-            <table>
-                <tbody>
-                    <tr><td>GPU</td><td>NVIDIA GeForce RTX 5070 Laptop (8.55 GB)</td></tr>
-                    <tr><td>Compute Capability</td><td>12.0</td></tr>
-                    <tr><td>CUDA Driver</td><td>13.1</td></tr>
-                    <tr><td>CUDA Toolkit</td><td>13.3</td></tr>
-                    <tr><td>PyTorch</td><td>2.12.1+cu130</td></tr>
-                    <tr><td>System</td><td>Windows 11 24H2 + MSVC 14.44</td></tr>
-                </tbody>
-            </table>
+        <div class="section" id="multiscene">
+            <h2>Multi-Scene Comparison</h2>
+            <div class="card">
+                <p style="color:var(--text2);margin-bottom:12px">Quality-gated generated-scene results at 1920x1080:</p>
+                <table>
+                    <tr><th>Scene</th><th>Renderer</th><th>FPS</th><th>Median (ms)</th><th>Minimum PSNR vs dense</th></tr>
+                    <tr><td>50K synthetic</td><td>HiGS tile16</td><td>502.7</td><td>1.9</td><td>59.37 dB</td></tr>
+                    <tr><td>200K synthetic</td><td>HiGS tile16</td><td>157.8</td><td>6.3</td><td>58.80 dB</td></tr>
+                    <tr><td>400K synthetic</td><td>HiGS tile8</td><td>62.7</td><td>15.8</td><td>59.45 dB</td></tr>
+                    <tr><td>Real trained scenes</td><td>Pending</td><td>TBD</td><td>TBD</td><td>TBD</td></tr>
+                </table>
+                <p style="margin-top:8px;color:var(--text2);font-size:.85rem">TC-GS is paper-only here because no official source was located; it is not represented by another renderer.</p>
+            </div>
         </div>
-    </section>
 
-    <!-- Repo -->
-    <section>
-        <h2>📁 Repository</h2>
-        <div class="card">
-            <pre><code>3dgs-renderer-benchmark/
-├── src/
-│   ├── run_benchmark.py              # CLI entry point
-│   ├── benchmark_framework/          # PLY loader, cameras, metrics
-│   │   ├── scene.py
-│   │   ├── cameras.py
-│   │   ├── metrics.py
-│   │   └── results.py
-│   ├── renderers/                    # 5 adapters (unified interface)
-│   │   ├── base.py
-│   │   ├── diff_gaussian_renderer.py
-│   │   ├── gsplat_renderer.py
-│   │   ├── speedy_splat_renderer.py
-│   │   └── tcgs_renderer.py
-│   └── scripts/                      # Benchmark + generation scripts
-│       ├── benchmark_phase1.py
-│       ├── benchmark_phase2.py
-│       ├── generate_scene.py
-│       └── gen_report.py
-├── results/                          # Generated benchmark data
-├── data/                             # Scene.ply + cameras.json
-├── config/                           # Benchmark configuration
-├── docs/                             # Website (GitHub Pages)
-└── README.md</code></pre>
-            <p style="margin-top:12px"><a href="https://github.com/caizefan34/3dgs-renderer-benchmark" style="color:var(--accent)">github.com/caizefan34/3dgs-renderer-benchmark ↗</a></p>
+        <div class="section">
+            <h2>Leaderboard</h2>
+            <div class="card">
+                <p style="color:var(--text2);margin-bottom:12px">Ranked by mean synchronized GPU FPS within the same scene and protocol.</p>
+                <table>
+                    <tr><th>Renderer</th><th>FPS</th><th>GPU Mean (ms)</th><th>P99 (ms)</th><th>Scene</th><th>GPU</th></tr>
+                    <tr><td><strong>HiGS tile16</strong></td><td><strong>502.7</strong></td><td><strong>1.99</strong></td><td>2.45</td><td>50K synth</td><td>RTX 5070 Laptop</td></tr>
+                    <tr><td><strong>HiGS tile16</strong></td><td><strong>157.8</strong></td><td><strong>6.34</strong></td><td>7.23</td><td>200K synth</td><td>RTX 5070 Laptop</td></tr>
+                    <tr><td><strong>HiGS tile8</strong></td><td><strong>62.7</strong></td><td><strong>15.96</strong></td><td>23.22</td><td>400K synth</td><td>RTX 5070 Laptop</td></tr>
+                </table>
+            </div>
         </div>
-    </section>
 
-</div>
+        <div class="section">
+            <h2>Quick Start</h2>
+            <div class="card">
+                <code style="display:block;white-space:pre-wrap;background:var(--surface2);padding:16px;border-radius:8px;line-height:1.8"># Install
+pip install diff-gaussian-rasterization
+pip install git+https://github.com/j-alex-hanson/speedy-splat
 
+# Generate scene & run benchmark
+python src/scripts/generate_scene.py
+python src/run_benchmark.py --camera-path spiral --frames 200
 
-    <!-- Quality Validation -->
-        <section>
-        <h2> <span style="font-size:1.5rem;">&#9989;</span> Quality Validation</h2>
-        <p style="margin-bottom:16px;color:var(--text2)">
-            All optimizations verified against original <code>diff_gaussian_rasterization</code> baseline on <strong>RTX 5070 Laptop</strong>, 400K GS, 1920x1080. Same-lib repeatability across 2 consecutive calls.
-        </p>
-
-        <div class=table-wrap style="margin-top:12px">
-        <table>
-            <tr><th>Frame</th><th style=text-align:right>MaxDiff</th><th style=text-align:right>PSNR</th><th style=text-align:right>SSIM</th><th style=text-align:right>LPIPS</th><th>Result</th></tr>
-            <tr><td>0</td><td class=num>0.00e+00</td><td class=num>inf</td><td class=num>1.000000</td><td class=num>0.000000</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
-            <tr><td>4</td><td class=num>0.00e+00</td><td class=num>inf</td><td class=num>1.000000</td><td class=num>0.000000</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
-            <tr><td>6</td><td class=num>3.82e-02</td><td class=num>28.67</td><td class=num>0.997362</td><td class=num>0.008086</td><td style=color:var(--gold)>NEAR_IDEN</td></tr>
-            <tr><td>7</td><td class=num>0.00e+00</td><td class=num>inf</td><td class=num>1.000000</td><td class=num>0.000000</td><td style=color:var(--accent2)>IDENTICAL</td></tr>
-            <tr><td>8</td><td class=num>4.84e-02</td><td class=num>26.35</td><td class=num>0.995526</td><td class=num>0.006768</td><td style=color:var(--gold)>NEAR_IDEN</td></tr>
-        </table>
+# Full report: results/benchmark_report.html</code>
+            </div>
         </div>
-        <p style="margin-top:8px;color:var(--accent2)">3/5 frames bit-identical. Differences up to 4.8e-2 from CUDA atomic race (SSIM>0.995, LPIPS<0.01, visually imperceptible).</p>
 
-        <div class=table-wrap style="margin-top:16px">
-        <table>
-            <tr><th>Filter</th><th style=text-align:center>Threshold</th><th style=text-align:right>Kept (frame 0)</th><th>vs in_frustum</th></tr>
-            <tr><td>Original in_frustum</td><td>p_view.z &gt; 0.2</td><td class=num>694 / 400K (0.17%)</td><td>baseline</td></tr>
-            <tr><td>Pre-Culling</td><td>z&gt;0.1, &vert;proj&vert;&lt;3.0</td><td class=num>826 / 400K (0.21%)</td><td style=color:var(--accent2)>+132 kept</td></tr>
-        </table>
+        <div class="footer">
+            <p><a href="https://github.com/caizefan34/3dgs-renderer-benchmark">caizefan34/3dgs-renderer-benchmark</a> &middot; MIT License</p>
+            <p style="margin-top:4px;font-size:.8rem">NVIDIA GeForce RTX 5070 Laptop &middot; CUDA 13.3 &middot; PyTorch 2.12.1</p>
         </div>
-        <p style="margin-top:8px;color:var(--text2)">Pre-Culling uses more permissive z-threshold (0.1 vs 0.2). No visible gaussian discarded.</p>
-        <p style="margin-top:8px;color:var(--gold)">Note: speedy_gaussian_rasterization has CUDA storage overflow bug with scores param on 400K GS.</p>
-    </section>
-
-<div class="footer">
-    <p>Built with ❤️ by <a href="https://github.com/caizefan34">caizefan34</a> · Benchmark date 2026-07-11</p>
-    <p style="margin-top:4px">NVIDIA GeForce RTX 5070 Laptop GPU · CUDA 13.3 · PyTorch 2.12.1</p>
-</div>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    Chart.defaults.color = '#9090c0';
-    Chart.defaults.font.family = "'Inter', -apple-system, sans-serif";
-    Chart.register(ChartDataLabels);
-
-    const accent = '#7c5cfc', accent2 = '#5cfc9c', gold = '#fcb85c', red = '#fc5c5c';
-
-    function grad(ctx, c1, c2) {
-        const g = ctx.createLinearGradient(0, 0, 0, 280);
-        g.addColorStop(0, c1); g.addColorStop(1, c2);
-        return g;
-    }
-
-    function barChart(id, labels, data, colors, suffix, labelFmt) {
-        const ctx = document.getElementById(id).getContext('2d');
-        new Chart(ctx, {
-            type: 'bar',
-            data: { labels, datasets: [{ data, backgroundColor: colors, borderRadius: 6, borderSkipped: false }] },
-            options: {
-                responsive: true, maintainAspectRatio: true,
-                plugins: {
-                    legend: { display: false },
-                    datalabels: {
-                        anchor: 'end', align: 'end', color: '#e0e0f0',
-                        font: { weight: 'bold', size: 10 },
-                        formatter: v => labelFmt ? labelFmt(v) : v + suffix
-                    }
-                },
-                scales: {
-                    y: { beginAtZero: true, grid: { color: 'rgba(42,42,90,0.4)' }, ticks: { callback: v => v + suffix } },
-                    x: { grid: { display: false } }
-                }
-            },
-            plugins: [ChartDataLabels]
-        });
-    }
-
-    // FPS Chart
-    (function() {
-        const c = document.getElementById('fpsBarChart').getContext('2d');
-        barChart('fpsBarChart',
-            ['speedy_splat', 'diff_gaussian', 'TC-GS', 'gsplat', 'opt_speedy(Cull)', 'opt_speedy(All)'],
-            [171.4, 134.8, 134.8, 133.8, 352.3, 365.1],
-            [grad(c, accent, '#9b7ffc'), grad(c, '#9090c0', '#b0b0d0'), grad(c, '#9090c0', '#b0b0d0'),
-             grad(c, '#9090c0', '#b0b0d0'), grad(c, gold, '#fcd87c'), grad(c, accent2, '#7cfcb0')],
-            ' FPS');
-    })();
-
-    // P50 Latency
-    (function() {
-        const c = document.getElementById('latencyBarChart').getContext('2d');
-        barChart('latencyBarChart',
-            ['diff_gaussian', 'TC-GS', 'gsplat', 'speedy_splat', 'opt_speedy(Cull)', 'opt_speedy(All)'],
-            [7.42, 7.44, 7.49, 5.93, 2.87, 2.74],
-            [grad(c, red, '#fc7c7c'), grad(c, red, '#fc7c7c'), grad(c, red, '#fc7c7c'),
-             grad(c, gold, '#fcd87c'), grad(c, accent2, '#7cfcb0'), grad(c, accent2, '#7cfcb0')],
-            ' ms');
-    })();
-
-    // Speedup
-    (function() {
-        const c = document.getElementById('speedupChart').getContext('2d');
-        barChart('speedupChart',
-            ['Baseline', '+PreAlloc', '+Async', '+Cull', '+MemPool', '+Cache', '+Shared(Full)'],
-            [0, 5.2, 18.7, 105.5, 108.1, 110.2, 113.0],
-            ['#2a2a5a', grad(c, accent, '#9b7ffc'), grad(c, accent, '#9b7ffc'),
-             grad(c, gold, '#fcd87c'), grad(c, gold, '#fcd87c'), grad(c, gold, '#fcd87c'),
-             grad(c, accent2, '#7cfcb0')],
-            '%', function(v) { return v > 0 ? '+' + v + '%' : 'Baseline'; });
-    })();
-
-    // P99
-    (function() {
-        const c = document.getElementById('p99Chart').getContext('2d');
-        barChart('p99Chart',
-            ['diff_gaussian', 'TC-GS', 'gsplat', 'speedy_splat', 'opt_speedy(Cull)', 'opt_speedy(All)'],
-            [17.89, 15.65, 15.40, 6.76, 14.07, 11.28],
-            [grad(c, red, '#fc7c7c'), grad(c, red, '#fc7c7c'), grad(c, red, '#fc7c7c'),
-             grad(c, accent2, '#7cfcb0'), grad(c, gold, '#fcd87c'), grad(c, accent2, '#7cfcb0')],
-            ' ms');
-    })();
-
-    // StdDev
-    (function() {
-        const c = document.getElementById('stddevChart').getContext('2d');
-        barChart('stddevChart',
-            ['speedy_splat', 'diff_gaussian', 'TC-GS', 'gsplat', 'opt_speedy(Cull)', 'opt_speedy(All)'],
-            [3.86, 6.11, 4.70, 3.84, 4.02, 3.84],
-            [grad(c, accent2, '#7cfcb0'), grad(c, red, '#fc7c7c'), grad(c, gold, '#fcd87c'),
-             grad(c, accent2, '#7cfcb0'), grad(c, accent2, '#7cfcb0'), grad(c, accent2, '#7cfcb0')],
-            ' ms');
-    })();
-
-});
-</script>
+    </div>
 </body>
 </html>
-
-
-
 
