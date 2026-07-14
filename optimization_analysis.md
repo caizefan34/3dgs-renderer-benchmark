@@ -40,8 +40,10 @@ registry exposes both rather than labeling one universally faster.
 
 TC-GS maps conditional alpha computation to Tensor Core matrix operations and
 reports an additional 2.18x over other accelerated pipelines. This targets the
-blend stage and is conceptually complementary to HiGS. No official source was
-located, so TC-GS remains a paper reference rather than a local result.
+blend stage and is conceptually complementary to HiGS. Official source is now
+available at `DeepLink-org/3DGSTensorCore` commit
+`0bb82f88fde211c34b42e1497f0fc7265461592b`; its public example integrates
+TC-GS with Speedy-Splat. An isolated RTX 5070 build and GT audit remain pending.
 
 ## Why HiGS wins
 
@@ -56,8 +58,11 @@ rasterization:
 
 This combination directly addresses the fixed-camera long tails. At 200K,
 HiGS reduced P99 from 1934 ms (Speedy) and 876 ms (gsplat dense) to 7.23 ms.
-At 400K, it reduced Speedy's 1609 ms median to about 16 ms while maintaining
-roughly 59 dB PSNR against gsplat dense.
+At 400K, it reduced Speedy's 1609 ms median to about 16 ms. The earlier roughly
+59 dB PSNR was only a synthetic renderer-consistency check against gsplat
+dense. A later 38-view held-out GT audit measured -0.626 dB PSNR, -0.00712
+SSIM, and +0.00233 LPIPS versus original 3DGS, so HiGS is not
+quality-equivalent on that checkpoint.
 
 ## Further optimization performed
 
@@ -89,9 +94,8 @@ The auto adapter enables SH32 only at the high-count side of the local rule.
 
 ## Best next combinations
 
-1. Integrate TC-GS/GEMM-GS-style Tensor Core blending into HiGS once a
-   reproducible implementation is available. Hierarchical scheduling reduces
-   work; Tensor Cores accelerate the remaining blend arithmetic.
+1. Integrate the official TC-GS source in an isolated environment and apply the
+   same GT-relative quality protocol before comparing its speed.
 2. Add Local-GS warp-coherent blending to dense HiGS tiles to reduce divergence
    and hoist tile-shared parameters.
 3. Add TemporalGS selective tile updates for coherent camera motion. This
