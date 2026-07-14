@@ -42,28 +42,38 @@ are part of the fixed trajectory.
 - HiGS vs gsplat dense, 400K: minimum 59.45 dB, SSIM 0.9997.
 - Scale-aware HiGS auto vs gsplat dense, 400K: minimum 58.88 dB.
 
-These numbers compare rasterizers to one another. Leaderboard quality must
-instead compare every renderer independently against the corresponding
-held-out original image.
+These numbers compare rasterizers to one another. Reference quality instead
+compares every renderer independently against the corresponding photograph.
 
-## Follow-up held-out GT audit (2026-07-14)
+## Follow-up paired-reference audit (2026-07-14)
 
-The official pretrained Train checkpoint was evaluated on all 38 released
-held-out views at the released 980x545 GT resolution.
+The official pretrained Train model was evaluated against 38 paired official
+photographs at 980x545. The pretrained archive does not establish that those
+photographs were excluded from training, so this is a renderer-fidelity audit,
+not a held-out reconstruction leaderboard.
 
 | Renderer | PSNR vs GT | SSIM vs GT | LPIPS vs GT | Mean delta vs original |
 |---|---:|---:|---:|---|
-| original 3DGS | 24.9319 | 0.864349 | 0.223592 | reference |
-| Speedy-Splat | 24.9311 | 0.864339 | 0.223610 | -0.0007 dB / -0.000010 / +0.000018 |
-| HiGS | 24.3057 | 0.857229 | 0.225921 | -0.6261 dB / -0.007120 / +0.002329 |
-| gsplat dense | N/A | N/A | N/A | local extension rebuild failed |
-| TC-GS | N/A | N/A | N/A | adapter/isolated build pending |
+| original 3DGS | 24.9319 | 0.865773 | 0.223592 | reference |
+| gsplat dense | 24.3061 | 0.858717 | 0.226278 | -0.6257 dB / -0.007056 / +0.002686 |
+| TC-GS | 24.9138 | 0.865044 | 0.222874 | -0.0180 dB / -0.000729 / -0.000718 |
 
-HiGS therefore cannot be described as quality-equivalent on this checkpoint.
-Its worst per-view PSNR delta against original 3DGS was -5.46 dB on
-`00241.png`. Speedy-Splat stayed effectively identical to the original path.
-The machine-readable result is
-`data/results/rtx5070_train_gt_quality_2026-07-14.json`.
+SSIM uses Graphdeco's zero-padded 11x11 Gaussian implementation; LPIPS uses
+PyPI LPIPS VGG with `[-1,1]` inputs. Dense reproduces the earlier HiGS-sized
+drop, so that drop is not specific evidence against HiGS. TC-GS passes the
+configured 0.1 dB / 0.001 / 0.001 equivalence thresholds.
+
+The corresponding native-camera 1959x1090 speed smoke test used 10 measured
+frames after 5 warmups, one repeat, and unlocked clocks:
+
+| Renderer | Mean GPU | P99 | FPS | Peak VRAM |
+|---|---:|---:|---:|---:|
+| gsplat dense | 6.125 ms | 6.916 ms | 163.3 | 653 MB |
+| TC-GS | 4.614 ms | 5.237 ms | 216.7 | 796 MB |
+
+TC-GS was 1.33x faster by mean GPU latency in this short run. See
+`data/results/rtx5070_train_reference_summary_2026-07-14.json` for hashes and
+machine-readable results.
 
 ## Optimization ablation
 
@@ -85,3 +95,5 @@ The machine-readable result is
 - Runtime renderer version/source metadata.
 - Windows CUDA13 gsplat build fixes saved in
   `third_party_patches/gsplat-windows-cuda13.patch`.
+- Windows CUDA13/SM120 TC-GS build fixes saved in
+  `third_party_patches/tcgs-windows-cuda13-sm120.patch`.

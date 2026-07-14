@@ -43,7 +43,10 @@ reports an additional 2.18x over other accelerated pipelines. This targets the
 blend stage and is conceptually complementary to HiGS. Official source is now
 available at `DeepLink-org/3DGSTensorCore` commit
 `0bb82f88fde211c34b42e1497f0fc7265461592b`; its public example integrates
-TC-GS with Speedy-Splat. An isolated RTX 5070 build and GT audit remain pending.
+TC-GS with Speedy-Splat. The isolated RTX 5070/SM120 build is now complete. On
+the official Train model it reached 4.614 ms versus 6.125 ms for gsplat dense
+in a 10-frame native-camera smoke test, while staying within the configured
+paired-reference quality thresholds versus original 3DGS.
 
 ## Why HiGS wins
 
@@ -60,9 +63,9 @@ This combination directly addresses the fixed-camera long tails. At 200K,
 HiGS reduced P99 from 1934 ms (Speedy) and 876 ms (gsplat dense) to 7.23 ms.
 At 400K, it reduced Speedy's 1609 ms median to about 16 ms. The earlier roughly
 59 dB PSNR was only a synthetic renderer-consistency check against gsplat
-dense. A later 38-view held-out GT audit measured -0.626 dB PSNR, -0.00712
-SSIM, and +0.00233 LPIPS versus original 3DGS, so HiGS is not
-quality-equivalent on that checkpoint.
+dense. A later paired-reference audit initially attributed a roughly 0.626 dB
+drop to HiGS, but gsplat dense reproduced the same drop. That difference is a
+gsplat-path issue, not evidence that the HiGS optimization alone caused it.
 
 ## Further optimization performed
 
@@ -94,8 +97,8 @@ The auto adapter enables SH32 only at the high-count side of the local rule.
 
 ## Best next combinations
 
-1. Integrate the official TC-GS source in an isolated environment and apply the
-   same GT-relative quality protocol before comparing its speed.
+1. Isolate why gsplat dense differs from the original rasterizer on a few Train
+   views before claiming either standard gsplat or HiGS quality equivalence.
 2. Add Local-GS warp-coherent blending to dense HiGS tiles to reduce divergence
    and hoist tile-shared parameters.
 3. Add TemporalGS selective tile updates for coherent camera motion. This

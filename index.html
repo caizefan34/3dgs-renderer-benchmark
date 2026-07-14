@@ -83,14 +83,14 @@
     <div class="container">
         <div class="hero">
             <h1>A Reproducible Benchmark Suite<br>for 3D Gaussian Splatting Renderers</h1>
-            <p>Synthetic timing plus a separate held-out ground-truth quality audit of CUDA rasterizers with reproducible inputs and reports.</p>
+            <p>Synthetic timing plus a paired-reference audit on an official scene with reproducible inputs, hashes, and reports.</p>
             <span class="badge">&#9733; RTX 5070 Laptop &middot; 400K Gaussians &middot; 1920&times;1080</span>
         </div>
 
         <div class="grid3">
             <div class="stat"><div class="val">502.7</div><div class="label">Synthetic FPS (50K HiGS)</div></div>
             <div class="stat"><div class="val">62.7</div><div class="label">Synthetic FPS (400K HiGS)</div></div>
-            <div class="stat"><div class="val">-0.626 dB</div><div class="label">HiGS mean PSNR delta vs original</div></div>
+            <div class="stat"><div class="val">1.33&times;</div><div class="label">TC-GS vs dense, official scene smoke test</div></div>
         </div>
 
         <div class="section">
@@ -120,7 +120,7 @@
                         <li><strong>50K synthetic</strong> &mdash; low-density scheduling regime</li>
                         <li><strong>200K synthetic</strong> &mdash; intermediate workload</li>
                         <li><strong>400K synthetic</strong> &mdash; heavy-overlap stress test</li>
-                        <li><strong>Official Train checkpoint</strong> &mdash; 38-view held-out GT quality audit complete</li>
+                        <li><strong>Official Train model</strong> &mdash; 38-view paired-reference audit complete</li>
                     </ul>
                     <p style="margin-top:8px;color:var(--text2);font-size:.85rem">Generated-scene results must not be generalized to all trained scenes.</p>
                 </div>
@@ -143,7 +143,7 @@
                     <tr><td>Stability</td><td>Jitter (CV%), min/max/std latency</td></tr>
                     <tr><td>Memory</td><td>Peak VRAM, average VRAM</td></tr>
                     <tr><td>Loading</td><td>Scene load time, parse time, file size</td></tr>
-                    <tr><td>Quality</td><td>PSNR, SSIM, LPIPS against held-out original images</td></tr>
+                    <tr><td>Quality</td><td>PSNR, Graphdeco-style SSIM, and PyPI LPIPS against paired original images</td></tr>
                 </table>
             </div>
         </div>
@@ -151,7 +151,7 @@
         <div class="section" id="profiling">
             <h2>GPU Profiling Insights</h2>
             <div class="card">
-                <p style="color:var(--text2);margin-bottom:12px">The fastest synthetic timing path is gsplat HiGS. It reduces the view-dependent overdraw and tile-list tails observed in Speedy-Splat and dense gsplat, but the real-scene audit below found measurable quality loss:</p>
+                <p style="color:var(--text2);margin-bottom:12px">The fastest synthetic timing path is gsplat HiGS. It reduces the view-dependent overdraw and tile-list tails observed in Speedy-Splat and dense gsplat. The earlier real-scene drop also appears in dense gsplat, so it is not attributed specifically to HiGS:</p>
                 <table>
                     <tr><th>Optimization</th><th>Mechanism</th><th>Observed trade-off</th></tr>
                     <tr><td>Hierarchical partitioning</td><td>Coarse macro-tiles plus fine raster tiles</td><td>Shorter, better-balanced work lists</td></tr>
@@ -159,7 +159,7 @@
                     <tr><td>Adaptive tile size</td><td>Tile16 below 300K; tile8 at 400K locally</td><td>Threshold is workload-specific</td></tr>
                     <tr><td>SH32 packing</td><td>Trades decode work for lower bandwidth</td><td>Useful for high-density tails, slower at 50K</td></tr>
                 </table>
-                <p style="margin-top:8px;color:var(--text2);font-size:.85rem">See <code>docs/optimization_analysis.md</code> for measured ablations and future combinations with TC-GS, Local-GS, and TemporalGS.</p>
+                <p style="margin-top:8px;color:var(--text2);font-size:.85rem">See <code>docs/optimization_analysis.md</code> for measured ablations and the completed TC-GS integration.</p>
             </div>
         </div>
 
@@ -178,15 +178,13 @@
                 </table>
             </div>
             <div class="card">
-                <h3>Held-out Ground-Truth Quality Audit</h3>
-                <p style="color:var(--text2);margin-bottom:12px">Official pretrained Train checkpoint, 1,071,462 Gaussians, 38 released test views at 980x545. Every metric compares the renderer output with its corresponding original image.</p>
+                <h3>Paired-Reference Quality Audit</h3>
+                <p style="color:var(--text2);margin-bottom:12px">Official pretrained Train model, 1,071,462 Gaussians, 38 paired photographs at 980x545. Model holdout status is unverified; these numbers measure renderer fidelity, not held-out reconstruction quality.</p>
                 <table>
                     <tr><th>Renderer</th><th>PSNR vs GT</th><th>SSIM vs GT</th><th>LPIPS vs GT</th><th>Status</th></tr>
-                    <tr><td>original 3DGS</td><td>24.9319</td><td>0.864349</td><td>0.223592</td><td>reference</td></tr>
-                    <tr><td>Speedy-Splat</td><td>24.9311</td><td>0.864339</td><td>0.223610</td><td>matches original</td></tr>
-                    <tr><td><strong>HiGS</strong></td><td><strong>24.3057</strong></td><td><strong>0.857229</strong></td><td><strong>0.225921</strong></td><td>quality regression; worst view -5.46 dB</td></tr>
-                    <tr><td>gsplat dense</td><td>pending</td><td>pending</td><td>pending</td><td>local extension rebuild failed</td></tr>
-                    <tr><td>TC-GS (Speedy integration)</td><td>pending</td><td>pending</td><td>pending</td><td>adapter/isolated build pending</td></tr>
+                    <tr><td>original 3DGS</td><td>24.9319</td><td>0.865773</td><td>0.223592</td><td>reference</td></tr>
+                    <tr><td>gsplat dense</td><td>24.3061</td><td>0.858717</td><td>0.226278</td><td>-0.6257 dB; not equivalent</td></tr>
+                    <tr><td><strong>TC-GS (Speedy integration)</strong></td><td><strong>24.9138</strong></td><td><strong>0.865044</strong></td><td><strong>0.222874</strong></td><td>equivalent at configured thresholds</td></tr>
                 </table>
             </div>
             <div class="card">
@@ -209,9 +207,10 @@
                     <tr><td>50K synthetic</td><td>HiGS tile16</td><td>502.7</td><td>1.9</td><td>N/A</td><td>N/A</td><td>N/A</td></tr>
                     <tr><td>200K synthetic</td><td>HiGS tile16</td><td>157.8</td><td>6.3</td><td>N/A</td><td>N/A</td><td>N/A</td></tr>
                     <tr><td>400K synthetic</td><td>HiGS tile8</td><td>62.7</td><td>15.8</td><td>N/A</td><td>N/A</td><td>N/A</td></tr>
-                    <tr><td>Train held-out GT</td><td>HiGS</td><td>not timed here</td><td>not timed here</td><td>24.3057</td><td>0.857229</td><td>0.225921</td></tr>
+                    <tr><td>Train paired reference</td><td>gsplat dense</td><td>163.3</td><td>5.955</td><td>24.3061</td><td>0.858717</td><td>0.226278</td></tr>
+                    <tr><td>Train paired reference</td><td>TC-GS</td><td>216.7</td><td>4.565</td><td>24.9138</td><td>0.865044</td><td>0.222874</td></tr>
                 </table>
-                <p style="margin-top:8px;color:var(--text2);font-size:.85rem">Official TC-GS source is available at DeepLink-org/3DGSTensorCore. Its isolated adapter/build is pending and it is not represented by another renderer.</p>
+                <p style="margin-top:8px;color:var(--text2);font-size:.85rem">TC-GS is the official DeepLink-org/3DGSTensorCore Speedy-Splat integration, built in an isolated SM120 environment.</p>
             </div>
         </div>
 
