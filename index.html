@@ -93,6 +93,10 @@
             <div class="stat"><div class="val">59.45 dB</div><div class="label">400K Minimum PSNR</div></div>
         </div>
 
+        <div class="section">
+            <img src="assets/latency-scaling.svg" alt="Log-scale latency comparison across 50K, 200K, and 400K synthetic scenes" style="display:block;width:100%;height:auto;border-radius:var(--radius);border:1px solid var(--border)">
+        </div>
+
         <div class="section" id="methodology">
             <h2>FPS Measurement Methodology</h2>
             <div class="card">
@@ -214,13 +218,14 @@
         <div class="section">
             <h2>Quick Start</h2>
             <div class="card">
-                <code style="display:block;white-space:pre-wrap;background:var(--surface2);padding:16px;border-radius:8px;line-height:1.8"># Install
-pip install diff-gaussian-rasterization
-pip install git+https://github.com/j-alex-hanson/speedy-splat
+                <code style="display:block;white-space:pre-wrap;background:var(--surface2);padding:16px;border-radius:8px;line-height:1.8"># Validate the CPU-safe core
+python -m pip install -r requirements-test.txt
+python -m unittest discover -s tests -v
 
-# Generate scene & run benchmark
-python src/scripts/generate_scene.py
-python src/run_benchmark.py --camera-path spiral --frames 200
+# After installing CUDA-enabled PyTorch, run gsplat
+python -m pip install numpy gsplat
+python src/scripts/generate_scene.py --gaussians 50000 --output data/scene.ply
+python src/run_benchmark.py --scene data/scene.ply --camera-path circle --renderers gsplat --frames 100 --warmup 30 --repeats 3
 
 # Full report: results/benchmark_report.html</code>
             </div>
