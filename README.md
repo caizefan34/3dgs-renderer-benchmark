@@ -20,7 +20,8 @@ Cross-paper FPS numbers are rarely comparable. This project provides:
 - real renderer adapters instead of renamed fallbacks;
 - identical scene tensors and fixed camera trajectories for every renderer;
 - synchronized CUDA-event latency plus separate end-to-end latency;
-- PSNR and SSIM gates before a performance result is called verified;
+- GT-relative PSNR, SSIM, and LPIPS gates before a real-scene performance
+  result is called quality-verified;
 - machine-readable result summaries with runtime and hardware metadata;
 - explicit separation of reproduced measurements from upstream claims.
 
@@ -58,51 +59,89 @@ python src/run_benchmark.py --scene data/scene.ply --camera-path circle --render
 
 ## Verified headline
 
-On an RTX 5070 Laptop at 1920x1080, the fastest locally verified path is the
-inference-only HiGS renderer at gsplat commit
+On an RTX 5070 Laptop at 1920x1080, the fastest locally timed path on the
+synthetic heavy-overlap stress test is the inference-only HiGS renderer at
+gsplat commit
 [`77ab983`](https://github.com/nerfstudio-project/gsplat/commit/77ab983ffe43420b2131669cb35776b883ca4c3c).
+These historical scenes have no source photographs, so their GT-relative
+quality is **not measured**. This timing result alone does not prove that HiGS
+preserves trained-scene quality.
 
-| Scene | Renderer | GPU mean | GPU median | P99 | End-to-end mean | Peak VRAM |
-|---|---|---:|---:|---:|---:|---:|
-| 50K | HiGS tile16 | 1.99 ms | 1.9 ms | 2.45 ms | 2.03 ms | 147 MB |
-| 50K | Speedy-Splat | 12.56 ms | 12.5 ms | 13.82 ms | 12.61 ms | 584 MB |
-| 50K | gsplat dense | 12.25 ms | 12.2 ms | 13.76 ms | 12.33 ms | 368 MB |
-| 200K | HiGS tile16 | 6.34 ms | 6.3 ms | 7.23 ms | 6.39 ms | 391 MB |
-| 200K | Speedy-Splat | 145.75 ms | 38.8 ms | 1934.10 ms | not recorded | 2183 MB |
-| 200K | gsplat dense | 383.10 ms | 50.0 ms | 876.45 ms | not recorded | 1450 MB |
-| 400K | HiGS tile8 | 15.96 ms | 15.8 ms | 23.22 ms | 16.03 ms | 1057 MB |
-| 400K | Speedy-Splat | 1705.36 ms | 1608.9 ms | 4776.47 ms | 1705.4 ms | 4276 MB |
+> [!WARNING]
+> A follow-up 38-view held-out GT audit on the official 3DGS Train checkpoint
+> found a measurable HiGS regression: -0.626 dB PSNR, -0.00712 SSIM, and
+> +0.00233 LPIPS on average versus original 3DGS, with a worst per-view PSNR
+> delta of -5.46 dB. HiGS remains the fastest synthetic path, but is **not
+> quality-equivalent** on the tested real checkpoint.
+
+| Scene | Renderer | GPU mean | GPU median | P99 | Peak VRAM | PSNR vs GT | SSIM vs GT | LPIPS vs GT |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 50K | HiGS tile16 | 1.99 ms | 1.9 ms | 2.45 ms | 147 MB | N/A | N/A | N/A |
+| 50K | Speedy-Splat | 12.56 ms | 12.5 ms | 13.82 ms | 584 MB | N/A | N/A | N/A |
+| 50K | gsplat dense | 12.25 ms | 12.2 ms | 13.76 ms | 368 MB | N/A | N/A | N/A |
+| 200K | HiGS tile16 | 6.34 ms | 6.3 ms | 7.23 ms | 391 MB | N/A | N/A | N/A |
+| 200K | Speedy-Splat | 145.75 ms | 38.8 ms | 1934.10 ms | 2183 MB | N/A | N/A | N/A |
+| 200K | gsplat dense | 383.10 ms | 50.0 ms | 876.45 ms | 1450 MB | N/A | N/A | N/A |
+| 400K | HiGS tile8 | 15.96 ms | 15.8 ms | 23.22 ms | 1057 MB | N/A | N/A | N/A |
+| 400K | Speedy-Splat | 1705.36 ms | 1608.9 ms | 4776.47 ms | 4276 MB | N/A | N/A | N/A |
 
 The included generated scenes intentionally create heavy overlap. The large
 Speedy/standard-gsplat tails are tied to specific camera views with very long
 tile lists, rather than random timer noise.
 
-## Quality gate
+## Ground-truth quality gate
 
-| Comparison | Scene | Minimum PSNR | Minimum SSIM | Result |
-|---|---:|---:|---:|---|
-| Speedy-Splat vs gsplat dense | 50K | 111.96 dB | 1.0000 | pass |
-| HiGS vs gsplat dense | 50K | 59.37 dB | 0.9997 | pass |
-| HiGS vs gsplat dense | 200K | 58.80 dB | 0.9997 | pass |
-| HiGS vs gsplat dense | 400K | 59.45 dB | 0.9997 | pass |
-| HiGS SH32 vs uncompressed HiGS | 50K | 64.85 dB | 0.9999 | pass |
-| HiGS SH16 vs uncompressed HiGS | 50K | 49.79 dB | 0.9997 | pass |
+The leaderboard quality reference is always a held-out original image, never
+another renderer. A valid real-scene row therefore has the form:
 
-Run a quality comparison:
+| Renderer | Reference | PSNR | SSIM | LPIPS | Status |
+|---|---|---:|---:|---:|---|
+| original 3DGS | original test images | 24.9319 | 0.864349 | 0.223592 | measured |
+| HiGS | original test images | 24.3057 | 0.857229 | 0.225921 | measured; quality regression |
+| gsplat dense | original test images | pending | pending | pending | local extension rebuild failed |
+| Speedy-Splat | original test images | 24.9311 | 0.864339 | 0.223610 | measured; matches original |
+| TC-GS | original test images | pending | pending | pending | adapter/build pending |
+
+The measured rows use the official pretrained Train checkpoint (1,071,462
+Gaussians), 38 held-out views, black background, and the released 980x545 GT
+images. They are a quality audit, not a 1920x1080 speed table. See the
+[machine-readable result](data/results/rtx5070_train_gt_quality_2026-07-14.json).
+
+Install the quality dependencies and evaluate the same trained PLY with every
+renderer. The camera file can be the `cameras.json` exported by original 3DGS;
+only camera names present in the held-out GT directory are selected.
 
 ```powershell
+python -m pip install -r requirements-quality.txt
 python src/scripts/validate_quality.py `
-  --reference gsplat_dense `
-  --test gsplat_higs `
-  --scene data/scene.ply `
-  --cameras data/camera_presets/circle.json `
-  --frames 10
+  --renderers original_3dgs gsplat_higs gsplat_dense speedy_splat `
+  --scene path/to/model/point_cloud/iteration_30000/point_cloud.ply `
+  --cameras path/to/model/cameras.json `
+  --ground-truth-dir path/to/held_out_test_images `
+  --split-label test `
+  --baseline-renderer original_3dgs `
+  --max-psnr-drop 0.1 --max-ssim-drop 0.001 --max-lpips-increase 0.001
 ```
+
+The JSON report stores per-view and aggregate metrics, the camera-manifest
+SHA-256, renderer versions, metric definitions, background, and thresholds.
+PSNR is the mean of per-view PSNR values; SSIM uses the original 3DGS 11x11
+valid Gaussian window; LPIPS defaults to the official evaluation's VGG net.
+
+### Renderer consistency diagnostics
+
+Historical renderer-to-renderer checks remain useful for finding rasterizer
+regressions, but are not reconstruction-quality evidence: Speedy-Splat vs
+gsplat dense reached minimum 111.96 dB / 1.0000 SSIM at 50K; HiGS vs gsplat
+dense reached minimum 59.37 / 58.80 / 59.45 dB and 0.9997 SSIM at
+50K / 200K / 400K. They must not be placed in the GT quality columns above.
 
 ## Implemented adapters
 
 - `speedy_splat`: Speedy-Splat with static activation and fixed buffers.
 - `speedy_splat_raw`: uncached wrapper ablation.
+- `original_3dgs`: original graphdeco-inria diff-gaussian rasterizer (also
+  available under the legacy name `diff_gaussian`).
 - `gsplat`: real `gsplat.rasterization(..., packed=True)`.
 - `gsplat_dense`: real `gsplat.rasterization(..., packed=False)`.
 - `gsplat_higs`: HiGS inference, tile 8, uncompressed SH.
@@ -112,8 +151,13 @@ python src/scripts/validate_quality.py `
 - `fast_gauss`: registered but unavailable locally because EGL loading is
   blocked by the current Windows environment/application policy.
 
-TC-GS is tracked as a paper result, not a measured renderer: no official source
-was located, so the repository no longer aliases it to diff-gaussian.
+TC-GS is tracked from the now-located official source at
+[`DeepLink-org/3DGSTensorCore`](https://github.com/DeepLink-org/3DGSTensorCore/commit/0bb82f88fde211c34b42e1497f0fc7265461592b).
+It uses a conflicting package name and must run in an isolated environment;
+the benchmark adapter and RTX 5070 measurement are still pending. The public
+code demonstrates TC-GS applied to Speedy-Splat, so future rows will use the
+label **TC-GS (Speedy-Splat integration)** rather than implying an unrelated
+rasterizer.
 
 See [the renderer survey](docs/renderer_survey.md) for upstream commits, paper
 claims, and reproducibility status.
@@ -141,8 +185,9 @@ Before measurement, this work corrected:
   end event. Synchronization is outside the GPU event interval and avoids deep
   WDDM queues.
 - GPU and end-to-end latency are exported separately with percentiles and VRAM.
-- A renderer is verified only after finite-output, camera-change, and quality
-  checks pass.
+- A real-scene result is quality-verified only after finite-output,
+  camera-change, and GT-relative PSNR/SSIM/LPIPS checks pass. Synthetic timing
+  results are labeled separately.
 
 Example:
 
@@ -211,8 +256,9 @@ BUILD_LOSSES=0
 
 ## Limitations
 
-- Current verified numbers use generated scenes, not trained Mip-NeRF360 or
-  Tanks & Temples PLYs. Real-scene validation remains the next dataset step.
+- Current 1920x1080 speed numbers use generated scenes. The Train checkpoint
+  has a held-out GT quality audit at 980x545, but matched real-scene speed and
+  quality measurements at one resolution remain pending.
 - GPU clocks are not locked on this WDDM laptop.
 - HiGS is inference-only and uses packed/fp16 internals.
 - FlashGS, Local-GS, GEMM-GS, and fast-gaussian remain candidates until they

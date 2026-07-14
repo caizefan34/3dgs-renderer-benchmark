@@ -12,6 +12,10 @@ from typing import Dict, List
 from .metrics import RendererMetrics
 
 
+def _format_quality(value, digits: int) -> str:
+    return "N/A" if value is None else f"{value:.{digits}f}"
+
+
 class ResultsManager:
     """Manages benchmark results from multiple renderers.
 
@@ -88,6 +92,8 @@ class ResultsManager:
                 "avg_vram_mb": d["avg_vram_mb"],
                 "load_time_ms": d["scene_load_time_ms"],
                 "file_size_mb": d["file_size_mb"],
+                "quality_status": d["quality_status"],
+                "quality_reference": d["quality_reference"],
                 "psnr": d["psnr"],
                 "ssim": d["ssim"],
                 "lpips": d["lpips"],
@@ -116,16 +122,17 @@ class ResultsManager:
             "",
             "## Summary",
             "",
-            "| Rank | Renderer | Mean FPS | Median (ms) | P1 (ms) | P99 (ms) | Jitter% | VRAM(MB) |",
-            "|------|----------|:--------:|:-----------:|:--------:|:--------:|:-------:|:--------:|",
+            "| Rank | Renderer | Mean FPS | Median (ms) | P99 (ms) | VRAM(MB) | PSNR vs GT | SSIM vs GT | LPIPS vs GT |",
+            "|------|----------|:--------:|:-----------:|:--------:|:--------:|:----------:|:----------:|:-----------:|",
         ]
         for i, (name, fps, lat) in enumerate(rankings, 1):
             m = self.results[name]
             tag = " (fastest)" if name == fastest else ""
             lines.append(
                 f"| {i}{tag} | {name} | {m.mean_fps:.1f} | {m.median_latency_ms:.2f} | "
-                f"{m.p1_latency_ms:.2f} | {m.p99_latency_ms:.2f} | {m.jitter_pct:.1f} | "
-                f"{m.peak_vram_mb:.0f} |"
+                f"{m.p99_latency_ms:.2f} | {m.peak_vram_mb:.0f} | "
+                f"{_format_quality(m.psnr, 2)} | {_format_quality(m.ssim, 4)} | "
+                f"{_format_quality(m.lpips, 4)} |"
             )
 
         lines += ["", "## Per-Renderer Details", ""]
@@ -140,7 +147,9 @@ class ResultsManager:
                 f"P99={m.p99_latency_ms}ms",
                 f"- **Jitter**: {m.jitter_pct:.1f}%",
                 f"- **VRAM**: peak={m.peak_vram_mb:.0f}MB, avg={m.avg_vram_mb:.0f}MB",
-                f"- **Quality**: PSNR={m.psnr:.2f}, SSIM={m.ssim:.4f}, LPIPS={m.lpips:.4f}",
+                f"- **Quality vs ground truth**: PSNR={_format_quality(m.psnr, 2)}, "
+                f"SSIM={_format_quality(m.ssim, 4)}, LPIPS={_format_quality(m.lpips, 4)} "
+                f"({m.quality_status})",
                 f"- **Scene**: {d['num_gaussians']:,} gaussians, {d['file_size_mb']:.1f}MB",
                 f"- **Load Time**: {d['scene_load_time_ms']:.1f}ms",
                 "",
@@ -171,6 +180,7 @@ class ResultsManager:
             cls = ' class="fastest"' if name == fastest else ""
             tag = "&#9733;" if name == fastest else ""
             trows += f"""<tr{cls}>
+            <td>{i}</td>
             <td>{tag} {name}</td>
             <td>{m.mean_fps:.1f}</td>
             <td>{m.median_latency_ms:.2f}</td>
@@ -178,6 +188,9 @@ class ResultsManager:
             <td>{m.p99_latency_ms:.2f}</td>
             <td>{m.jitter_pct:.1f}%</td>
             <td>{m.peak_vram_mb:.0f}</td>
+            <td>{_format_quality(m.psnr, 2)}</td>
+            <td>{_format_quality(m.ssim, 4)}</td>
+            <td>{_format_quality(m.lpips, 4)}</td>
         </tr>"""
 
         # Build chart data
@@ -211,7 +224,7 @@ tr:hover {{ background: #1e3a5f; }}
 <div class="card">
 <h2>Summary</h2>
 <table>
-<tr><th>Rank</th><th>Renderer</th><th>Mean FPS</th><th>Median (ms)</th><th>P1 (ms)</th><th>P99 (ms)</th><th>Jitter</th><th>VRAM</th></tr>
+<tr><th>Rank</th><th>Renderer</th><th>Mean FPS</th><th>Median (ms)</th><th>P1 (ms)</th><th>P99 (ms)</th><th>Jitter</th><th>VRAM</th><th>PSNR vs GT</th><th>SSIM vs GT</th><th>LPIPS vs GT</th></tr>
 {trows}
 </table>
 </div>

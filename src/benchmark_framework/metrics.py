@@ -90,9 +90,11 @@ class RendererMetrics:
     scene_parse_time_ms: float = 0.0
     file_size_mb: float = 0.0
 
-    psnr: float = 0.0
-    ssim: float = 0.0
-    lpips: float = 0.0
+    quality_status: str = "not_measured"
+    quality_reference: Optional[str] = None
+    psnr: Optional[float] = None
+    ssim: Optional[float] = None
+    lpips: Optional[float] = None
 
     frame_times_ms: List[float] = field(default_factory=list)
     wall_frame_times_ms: List[float] = field(default_factory=list)
@@ -178,7 +180,11 @@ class RendererMetrics:
             "scene_load_time_ms": round(self.scene_load_time_ms, 2),
             "scene_parse_time_ms": round(self.scene_parse_time_ms, 2),
             "file_size_mb": round(self.file_size_mb, 2),
-            "psnr": round(self.psnr, 4), "ssim": round(self.ssim, 6), "lpips": round(self.lpips, 6),
+            "quality_status": self.quality_status,
+            "quality_reference": self.quality_reference,
+            "psnr": round(self.psnr, 4) if self.psnr is not None else None,
+            "ssim": round(self.ssim, 6) if self.ssim is not None else None,
+            "lpips": round(self.lpips, 6) if self.lpips is not None else None,
             "frame_times_ms": [round(x, 2) for x in self.frame_times_ms],
             "wall_frame_times_ms": [round(x, 2) for x in self.wall_frame_times_ms],
         })

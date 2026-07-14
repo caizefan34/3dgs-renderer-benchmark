@@ -12,10 +12,10 @@ import math
 import numpy as np
 import torch
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 
-@dataclass
+@dataclass(eq=False)
 class Camera:
     """Camera parameters for the 3DGS rasterization pipeline.
 
@@ -48,6 +48,49 @@ class Camera:
     tanfovx: float
     tanfovy: float
     K: torch.Tensor
+    image_name: Optional[str] = None
+
+
+def _camera_from_3dgs_json(cd: dict, device: str) -> Camera:
+    """Convert one camera exported by graphdeco-inria/gaussian-splatting."""
+    W, H = int(cd["width"]), int(cd["height"])
+    fx, fy = float(cd["fx"]), float(cd["fy"])
+    camera_to_world = np.eye(4, dtype=np.float32)
+    camera_to_world[:3, :3] = np.asarray(cd["rotation"], dtype=np.float32)
+    camera_to_world[:3, 3] = np.asarray(cd["position"], dtype=np.float32)
+    viewmatrix = torch.tensor(
+        np.linalg.inv(camera_to_world).astype(np.float32),
+        dtype=torch.float32,
+        device=device,
+    )
+    cam_pos = torch.tensor(cd["position"], dtype=torch.float32, device=device)
+    tan_fov_x, tan_fov_y = W / (2.0 * fx), H / (2.0 * fy)
+    near, far = 0.01, 100.0
+    projmatrix = torch.tensor([
+        [1.0 / tan_fov_x, 0, 0, 0],
+        [0, 1.0 / tan_fov_y, 0, 0],
+        [0, 0, far / (far - near), -far * near / (far - near)],
+        [0, 0, 1, 0],
+    ], dtype=torch.float32, device=device)
+    return Camera(
+        image_width=W,
+        image_height=H,
+        fov_x=2.0 * math.atan(tan_fov_x),
+        fov_y=2.0 * math.atan(tan_fov_y),
+        viewmatrix=viewmatrix,
+        projmatrix=projmatrix,
+        camera_center=cam_pos,
+        world_view_transform=viewmatrix.T.contiguous(),
+        full_proj_transform=(projmatrix @ viewmatrix).T.contiguous(),
+        tanfovx=tan_fov_x,
+        tanfovy=tan_fov_y,
+        K=torch.tensor(
+            [[fx, 0, W / 2.0], [0, fy, H / 2.0], [0, 0, 1]],
+            dtype=torch.float32,
+            device=device,
+        ),
+        image_name=cd.get("img_name"),
+    )
 
 
 def validate_cameras_facing_point(
@@ -85,6 +128,9 @@ def load_cameras_from_json(path: str, device: str = "cuda") -> List[Camera]:
     with open(path) as f:
         data = json.load(f)
 
+    if isinstance(data, list):
+        return [_camera_from_3dgs_json(cd, device) for cd in data]
+
     near, far = 0.01, 100.0
     cameras = []
     for cd in data["cameras"]:
@@ -121,6 +167,7 @@ def load_cameras_from_json(path: str, device: str = "cuda") -> List[Camera]:
             full_proj_transform=full_proj.contiguous(),
             tanfovx=tan_fov_x, tanfovy=tan_fov_y,
             K=K,
+            image_name=cd.get("image_name") or cd.get("img_name"),
         ))
 
     return cameras

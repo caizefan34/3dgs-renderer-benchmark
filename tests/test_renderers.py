@@ -16,6 +16,7 @@ class RendererRegistryTest(unittest.TestCase):
         sys.modules.pop("renderers", None)
         module = importlib.import_module("renderers")
         self.assertIn("gsplat", module.list_renderers())
+        self.assertIn("original_3dgs", module.list_renderers())
 
 
 class CameraConventionTest(unittest.TestCase):
@@ -30,6 +31,26 @@ class CameraConventionTest(unittest.TestCase):
                 camera.full_proj_transform,
                 camera.world_view_transform @ camera.projmatrix.T,
             )
+
+    def test_loads_original_3dgs_camera_export(self):
+        import json
+        import tempfile
+        from benchmark_framework import load_cameras_from_json
+
+        payload = [{
+            "id": 0, "img_name": "frame_001", "width": 8, "height": 4,
+            "position": [0.0, 0.0, 2.0],
+            "rotation": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            "fx": 8.0, "fy": 8.0,
+        }]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "cameras.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            camera = load_cameras_from_json(str(path), device="cpu")[0]
+
+        self.assertEqual(camera.image_name, "frame_001")
+        torch.testing.assert_close(camera.camera_center, torch.tensor([0.0, 0.0, 2.0]))
+        torch.testing.assert_close(camera.viewmatrix[:3, 3], torch.tensor([0.0, 0.0, -2.0]))
 
 
 class HiGSAutoConfigTest(unittest.TestCase):
@@ -95,6 +116,47 @@ class GsplatRendererTest(unittest.TestCase):
         self.assertEqual(tuple(calls[0]["colors"].shape), (2, 16, 3))
         torch.testing.assert_close(calls[0]["scales"], torch.ones(2, 3))
         torch.testing.assert_close(calls[0]["opacities"], torch.full((2,), 0.5))
+
+
+class Original3DGSRendererTest(unittest.TestCase):
+    def test_uses_scene_sh_degree(self):
+        settings_seen = []
+
+        class Settings:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                settings_seen.append(kwargs)
+
+        class Rasterizer:
+            def __init__(self, raster_settings):
+                self.settings = raster_settings
+
+            def __call__(self, **kwargs):
+                return (
+                    torch.zeros(3, 4, 8), torch.zeros(1),
+                    torch.zeros(1, 4, 8), torch.zeros(1, 4, 8),
+                )
+
+        fake = types.ModuleType("diff_gaussian_rasterization")
+        fake.GaussianRasterizationSettings = Settings
+        fake.GaussianRasterizer = Rasterizer
+        with mock.patch.dict(sys.modules, {"diff_gaussian_rasterization": fake}):
+            from renderers.diff_gaussian_renderer import DiffGaussianRenderer
+            from benchmark_framework import generate_cameras
+
+            scene = {
+                "xyz": torch.zeros(2, 3), "opacity": torch.zeros(2),
+                "scales": torch.zeros(2, 3),
+                "rotations": torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(2, 1),
+                "shs": torch.zeros(2, 4, 3), "sh_degree": 1,
+            }
+            renderer = DiffGaussianRenderer(device="cpu")
+            renderer.render(
+                renderer.prepare_scene(scene),
+                generate_cameras(1, image_width=8, image_height=4, device="cpu")[0],
+            )
+
+        self.assertEqual(settings_seen[0]["sh_degree"], 1)
 
 
 if __name__ == "__main__":

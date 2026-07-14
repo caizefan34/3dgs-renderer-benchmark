@@ -15,28 +15,55 @@ Date: 2026-07-13
 
 ## Validated results
 
-| Gaussians | Configuration | Mean ms | Median ms | P99 ms | FPS from mean | Peak VRAM |
-|---:|---|---:|---:|---:|---:|---:|
-| 50K | HiGS tile16 | 1.99 | 1.9 | 2.45 | 502.7 | 147 MB |
-| 50K | Speedy-Splat | 12.56 | 12.5 | 13.82 | 79.6 | 584 MB |
-| 50K | gsplat dense | 12.25 | 12.2 | 13.76 | 81.6 | 368 MB |
-| 200K | HiGS tile16 | 6.34 | 6.3 | 7.23 | 157.8 | 391 MB |
-| 200K | Speedy-Splat | 145.75 | 38.8 | 1934.10 | 6.9 | 2183 MB |
-| 200K | gsplat dense | 383.10 | 50.0 | 876.45 | 2.6 | 1450 MB |
-| 400K | HiGS tile8 | 15.96 | 15.8 | 23.22 | 62.7 | 1057 MB |
-| 400K | Speedy-Splat | 1705.36 | 1608.9 | 4776.47 | 0.6 | 4276 MB |
+| Gaussians | Configuration | Mean ms | Median ms | P99 ms | FPS | VRAM | PSNR vs GT | SSIM vs GT | LPIPS vs GT |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 50K | HiGS tile16 | 1.99 | 1.9 | 2.45 | 502.7 | 147 MB | N/A | N/A | N/A |
+| 50K | Speedy-Splat | 12.56 | 12.5 | 13.82 | 79.6 | 584 MB | N/A | N/A | N/A |
+| 50K | gsplat dense | 12.25 | 12.2 | 13.76 | 81.6 | 368 MB | N/A | N/A | N/A |
+| 200K | HiGS tile16 | 6.34 | 6.3 | 7.23 | 157.8 | 391 MB | N/A | N/A | N/A |
+| 200K | Speedy-Splat | 145.75 | 38.8 | 1934.10 | 6.9 | 2183 MB | N/A | N/A | N/A |
+| 200K | gsplat dense | 383.10 | 50.0 | 876.45 | 2.6 | 1450 MB | N/A | N/A | N/A |
+| 400K | HiGS tile8 | 15.96 | 15.8 | 23.22 | 62.7 | 1057 MB | N/A | N/A | N/A |
+| 400K | Speedy-Splat | 1705.36 | 1608.9 | 4776.47 | 0.6 | 4276 MB | N/A | N/A | N/A |
+
+These generated stress scenes have no source photographs. Their GT-relative
+PSNR/SSIM/LPIPS are therefore not measurable, and the timing rows alone do not
+establish that HiGS preserves trained-scene reconstruction quality.
 
 The 200K/400K standard-renderer mean/median gap is caused by repeatable,
 view-dependent overdraw. It is not removed as an outlier because those views
 are part of the fixed trajectory.
 
-## Quality
+## Renderer consistency diagnostics (not GT quality)
 
 - Speedy vs gsplat dense, 50K: minimum 111.96 dB, SSIM 1.0.
 - HiGS vs gsplat dense, 50K: minimum 59.37 dB, SSIM 0.9997.
 - HiGS vs gsplat dense, 200K: minimum 58.80 dB, SSIM 0.9997.
 - HiGS vs gsplat dense, 400K: minimum 59.45 dB, SSIM 0.9997.
 - Scale-aware HiGS auto vs gsplat dense, 400K: minimum 58.88 dB.
+
+These numbers compare rasterizers to one another. Leaderboard quality must
+instead compare every renderer independently against the corresponding
+held-out original image.
+
+## Follow-up held-out GT audit (2026-07-14)
+
+The official pretrained Train checkpoint was evaluated on all 38 released
+held-out views at the released 980x545 GT resolution.
+
+| Renderer | PSNR vs GT | SSIM vs GT | LPIPS vs GT | Mean delta vs original |
+|---|---:|---:|---:|---|
+| original 3DGS | 24.9319 | 0.864349 | 0.223592 | reference |
+| Speedy-Splat | 24.9311 | 0.864339 | 0.223610 | -0.0007 dB / -0.000010 / +0.000018 |
+| HiGS | 24.3057 | 0.857229 | 0.225921 | -0.6261 dB / -0.007120 / +0.002329 |
+| gsplat dense | N/A | N/A | N/A | local extension rebuild failed |
+| TC-GS | N/A | N/A | N/A | adapter/isolated build pending |
+
+HiGS therefore cannot be described as quality-equivalent on this checkpoint.
+Its worst per-view PSNR delta against original 3DGS was -5.46 dB on
+`00241.png`. Speedy-Splat stayed effectively identical to the original path.
+The machine-readable result is
+`data/results/rtx5070_train_gt_quality_2026-07-14.json`.
 
 ## Optimization ablation
 

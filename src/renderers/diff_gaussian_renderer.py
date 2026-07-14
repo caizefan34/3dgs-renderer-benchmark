@@ -9,6 +9,7 @@ Reference:
     https://github.com/graphdeco-inria/diff-gaussian-rasterization
 """
 import torch
+from weakref import WeakKeyDictionary
 from .base import RendererAdapter
 from benchmark_framework import Camera
 
@@ -25,7 +26,7 @@ class DiffGaussianRenderer(RendererAdapter):
     def __init__(self, device: str = "cuda"):
         super().__init__(device)
         self._available = None
-        self._rasterizers = {}
+        self._rasterizers = WeakKeyDictionary()
         self._bg = None
 
     def is_available(self) -> bool:
@@ -69,15 +70,15 @@ class DiffGaussianRenderer(RendererAdapter):
             scale_modifier=1.0,
             viewmatrix=camera.world_view_transform,
             projmatrix=camera.full_proj_transform,
-            sh_degree=3,
+            sh_degree=scene_data.get("sh_degree", 3),
             campos=camera.camera_center,
             prefiltered=False,
             debug=False,
         )
-        rasterizer = self._rasterizers.get(id(camera))
+        rasterizer = self._rasterizers.get(camera)
         if rasterizer is None:
             rasterizer = GaussianRasterizer(raster_settings=raster_settings)
-            self._rasterizers[id(camera)] = rasterizer
+            self._rasterizers[camera] = rasterizer
 
         means3d = scene_data["xyz"].contiguous()
         opacities = scene_data["opacities_activated"]

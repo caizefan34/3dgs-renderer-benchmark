@@ -10,6 +10,19 @@ from benchmark_framework import RendererMetrics, ResultsManager
 
 
 class ResultsExportTest(unittest.TestCase):
+    def test_unmeasured_quality_is_null_and_na(self):
+        metrics = RendererMetrics(renderer_name="test", frame_times_ms=[2.0])
+        metrics.compute()
+        self.assertIsNone(metrics.to_dict()["psnr"])
+        manager = ResultsManager()
+        manager.add_result("test", metrics)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report = Path(temp_dir) / "report.md"
+            manager.export_markdown(str(report))
+            markdown = report.read_text(encoding="utf-8")
+        self.assertIn("PSNR vs GT", markdown)
+        self.assertIn("N/A", markdown)
+
     def test_html_metadata_uses_frame_count(self):
         metrics = RendererMetrics(
             renderer_name="test",
@@ -30,6 +43,7 @@ class ResultsExportTest(unittest.TestCase):
 
         self.assertIn("<b>Frames</b>: 73", html)
         self.assertIn("<b>Resolution</b>: 640x360", html)
+        self.assertIn("<td>1</td>", html)
         self.assertNotIn("<b>Frames</b>: 3.0", html)
 
     def test_empty_html_report_is_supported(self):
