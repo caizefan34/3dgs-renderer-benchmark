@@ -1,13 +1,66 @@
 # Reproducible 3DGS Renderer Benchmark
 
-A local, quality-gated benchmark for CUDA 3D Gaussian Splatting renderers.
-It separates upstream paper claims from results reproduced with identical scene
-tensors, cameras, resolution, timing, and quality gates.
+[![Tests](https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/ci.yml/badge.svg)](https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/ci.yml)
+[![Pages](https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/deploy-pages.yml/badge.svg)](https://caizefan34.github.io/3dgs-renderer-benchmark/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/caizefan34/3dgs-renderer-benchmark?style=social)](https://github.com/caizefan34/3dgs-renderer-benchmark/stargazers)
+
+A quality-gated benchmark for CUDA 3D Gaussian Splatting renderers. It answers
+a deceptively hard question: **which renderer is actually faster when scene
+tensors, cameras, resolution, timing, and image quality are held constant?**
+
+[Explore the results](https://caizefan34.github.io/3dgs-renderer-benchmark/)
+| [Review the protocol](#methodology)
+| [Add a renderer](CONTRIBUTING.md#adding-a-renderer)
+
+## Why this benchmark
+
+Cross-paper FPS numbers are rarely comparable. This project provides:
+
+- real renderer adapters instead of renamed fallbacks;
+- identical scene tensors and fixed camera trajectories for every renderer;
+- synchronized CUDA-event latency plus separate end-to-end latency;
+- PSNR and SSIM gates before a performance result is called verified;
+- machine-readable result summaries with runtime and hardware metadata;
+- explicit separation of reproduced measurements from upstream claims.
+
+## Quick start
+
+The CPU test suite validates camera conventions, metrics, scene parsing, and
+adapter contracts without requiring any optional renderer backend:
+
+```text
+git clone https://github.com/caizefan34/3dgs-renderer-benchmark.git
+cd 3dgs-renderer-benchmark
+python -m venv .venv
+# Linux/macOS: source .venv/bin/activate
+# Windows: .venv\Scripts\activate
+python -m pip install -r requirements-test.txt
+python -m unittest discover -s tests -v
+```
+
+For a GPU run, first install a CUDA-enabled PyTorch build that matches your
+system, then install at least one backend such as `gsplat`:
+
+```text
+python -m pip install numpy gsplat
+python src/scripts/generate_scene.py --gaussians 50000 --output data/scene.ply
+python src/run_benchmark.py --list-renderers
+python src/run_benchmark.py --scene data/scene.ply --camera-path circle --renderers gsplat --frames 100 --warmup 30 --repeats 3 --output results/quickstart
+```
+
+> [!NOTE]
+> CUDA extensions are sensitive to PyTorch, CUDA toolkit, compiler, and driver
+> versions. Record all four when publishing a result. Windows + CUDA 13 users
+> should also read [the recorded build notes](#windows--cuda-13-build).
+
+![Latency scaling for verified renderers on three synthetic scene sizes](docs/assets/latency-scaling.svg)
 
 ## Verified headline
 
 On an RTX 5070 Laptop at 1920x1080, the fastest locally verified path is the
-inference-only HiGS renderer in current `gsplat` main.
+inference-only HiGS renderer at gsplat commit
+[`77ab983`](https://github.com/nerfstudio-project/gsplat/commit/77ab983ffe43420b2131669cb35776b883ca4c3c).
 
 | Scene | Renderer | GPU mean | GPU median | P99 | End-to-end mean | Peak VRAM |
 |---|---|---:|---:|---:|---:|---:|
@@ -41,7 +94,7 @@ Run a quality comparison:
 python src/scripts/validate_quality.py `
   --reference gsplat_dense `
   --test gsplat_higs `
-  --scene src/data/scene_50k.ply `
+  --scene data/scene.ply `
   --cameras data/camera_presets/circle.json `
   --frames 10
 ```
@@ -95,7 +148,7 @@ Example:
 
 ```powershell
 python src/run_benchmark.py `
-  --scene src/data/scene_200k.ply `
+  --scene data/scene.ply `
   --camera-path circle `
   --renderers gsplat_higs gsplat_higs_tile16 speedy_splat gsplat_dense `
   --frames 100 --warmup 30 --repeats 3 `
@@ -166,6 +219,9 @@ BUILD_LOSSES=0
   pass the same local quality/timing protocol.
 - Cross-paper speedup claims are not leaderboard results.
 
+The headline measurements and environment metadata are also available as a
+[machine-readable JSON summary](data/results/rtx5070_laptop_2026-07-13.json).
+
 ## Tests
 
 ```powershell
@@ -173,5 +229,7 @@ python -m unittest discover -s tests -v
 python -m compileall -q src tests
 ```
 
-See [CITATION.cff](CITATION.cff). The benchmark code is MIT licensed; upstream
-renderers retain their own licenses.
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md), especially
+the evidence required for new renderer results. See [CITATION.cff](CITATION.cff)
+for citation metadata. The benchmark code is MIT licensed; upstream renderers
+retain their own licenses.
