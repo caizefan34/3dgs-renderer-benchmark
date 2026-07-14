@@ -1,6 +1,6 @@
 """
-Dataset download tool for 3DGS Renderer Benchmark.
-Downloads standard benchmark scenes from HuggingFace or other sources.
+Dataset manifest tool for 3DGS Renderer Benchmark.
+Lists planned scenes and downloads entries only after they are published.
 
 Usage:
     python src/scripts/download_datasets.py --list
@@ -30,10 +30,10 @@ def list_datasets():
     if not scenes:
         print("No datasets configured. Check data/scenes/scenes.json")
         return
-    print(f"{'Name':20s} {'Source':20s} {'Size':8s} {'Type':15s} {'Gaussians':>10s}")
-    print("-" * 75)
+    print(f"{'Name':20s} {'Status':10s} {'Source':20s} {'Size':8s} {'Type':15s} {'Gaussians':>10s}")
+    print("-" * 90)
     for s in scenes:
-        print(f"{s['name']:20s} {s['source']:20s} {str(s['size_gb'])+'GB':8s} "
+        print(f"{s['name']:20s} {s.get('status', 'planned'):10s} {s['source']:20s} {str(s['size_gb'])+'GB':8s} "
               f"{s['type']:15s} {s.get('num_gaussians', '?'):>10,}")
     print()
 
@@ -82,6 +82,11 @@ def download_dataset(name, output_dir=None):
         list_datasets()
         return False
 
+    if scene.get("status") != "available":
+        print(f"Dataset '{name}' is planned but has not been published yet.")
+        print("Use src/scripts/generate_scene.py for the current synthetic benchmark.")
+        return False
+
     output_dir = output_dir or os.path.join(REPO_ROOT, "data")
     scene_dir = os.path.join(output_dir, name)
     os.makedirs(scene_dir, exist_ok=True)
@@ -123,11 +128,14 @@ def main():
         if args.dataset == "all":
             manifest = load_manifest()
             scenes = manifest.get("scenes", [])
+            success = True
             for s in scenes:
                 print(f"\nDownloading {s['name']}...")
-                download_dataset(s["name"], args.output_dir)
+                success = download_dataset(s["name"], args.output_dir) and success
         else:
-            download_dataset(args.dataset, args.output_dir)
+            success = download_dataset(args.dataset, args.output_dir)
+        if not success:
+            raise SystemExit(1)
     else:
         p.print_help()
         print("\nAvailable datasets:")

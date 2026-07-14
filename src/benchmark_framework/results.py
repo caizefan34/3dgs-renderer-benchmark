@@ -124,7 +124,7 @@ class ResultsManager:
             tag = " (fastest)" if name == fastest else ""
             lines.append(
                 f"| {i}{tag} | {name} | {m.mean_fps:.1f} | {m.median_latency_ms:.2f} | "
-                f"{m.p1_latency_ms:.2f} | {m.p99_latency_ms:.2f} | {m.jitter_ms:.1f} | "
+                f"{m.p1_latency_ms:.2f} | {m.p99_latency_ms:.2f} | {m.jitter_pct:.1f} | "
                 f"{m.peak_vram_mb:.0f} |"
             )
 
@@ -138,7 +138,7 @@ class ResultsManager:
                 f"- **FPS**: mean={m.mean_fps}, P5={m.p5_fps}, P95={m.p95_fps}",
                 f"- **Latency**: mean={m.mean_latency_ms}ms, median={m.median_latency_ms}ms, "
                 f"P99={m.p99_latency_ms}ms",
-                f"- **Jitter**: {m.jitter_ms:.1f}%",
+                f"- **Jitter**: {m.jitter_pct:.1f}%",
                 f"- **VRAM**: peak={m.peak_vram_mb:.0f}MB, avg={m.avg_vram_mb:.0f}MB",
                 f"- **Quality**: PSNR={m.psnr:.2f}, SSIM={m.ssim:.4f}, LPIPS={m.lpips:.4f}",
                 f"- **Scene**: {d['num_gaussians']:,} gaussians, {d['file_size_mb']:.1f}MB",
@@ -162,6 +162,7 @@ class ResultsManager:
         """
         rankings = self.get_ranking()
         fastest = rankings[0][0] if rankings else ""
+        primary = self.results[fastest] if fastest else None
 
         # Build table rows
         trows = ""
@@ -175,7 +176,7 @@ class ResultsManager:
             <td>{m.median_latency_ms:.2f}</td>
             <td>{m.p1_latency_ms:.2f}</td>
             <td>{m.p99_latency_ms:.2f}</td>
-            <td>{m.jitter_ms:.1f}%</td>
+            <td>{m.jitter_pct:.1f}%</td>
             <td>{m.peak_vram_mb:.0f}</td>
         </tr>"""
 
@@ -221,9 +222,9 @@ tr:hover {{ background: #1e3a5f; }}
 </div>
 
 <div class="card meta">
-<p><b>GPU</b>: {self.results[rankings[0][0]].gpu_name if rankings else "N/A"} |
-<b>Resolution</b>: {self.results[rankings[0][0]].image_width}x{self.results[rankings[0][0]].image_height if rankings else "N/A"} |
-<b>Frames</b>: {rankings[0][2] if rankings else "N/A"}</p>
+<p><b>GPU</b>: {primary.gpu_name if primary else "N/A"} |
+<b>Resolution</b>: {f'{primary.image_width}x{primary.image_height}' if primary else "N/A"} |
+<b>Frames</b>: {primary.num_frames if primary else "N/A"}</p>
 </div>
 
 <script>

@@ -139,6 +139,16 @@ class RendererMetrics:
                 if self.mean_wall_latency_ms > 0 else 0.0
             )
 
+    @property
+    def jitter_pct(self) -> float:
+        """Return frame-time jitter as a coefficient of variation percentage.
+
+        ``jitter_ms`` is retained as the backing field for compatibility with
+        existing result objects, even though its value has always been a
+        percentage rather than a duration.
+        """
+        return self.jitter_ms
+
     def to_dict(self) -> dict:
         """Serialize metrics to a dictionary for JSON export."""
         d = {
@@ -156,7 +166,7 @@ class RendererMetrics:
             "min_latency_ms": self.min_latency_ms,
             "max_latency_ms": self.max_latency_ms,
             "std_latency_ms": self.std_latency_ms,
-            "jitter_pct": round(self.jitter_ms, 2),
+            "jitter_pct": round(self.jitter_pct, 2),
         }
         for p in [1, 5, 10, 25, 75, 90, 95, 99]:
             d[f"p{p}_latency_ms"] = getattr(self, f"p{p}_latency_ms")
