@@ -68,11 +68,12 @@ quality is **not measured**. This timing result alone does not prove that HiGS
 preserves trained-scene quality.
 
 > [!WARNING]
-> A follow-up 38-view held-out GT audit on the official 3DGS Train checkpoint
-> found a measurable HiGS regression: -0.626 dB PSNR, -0.00712 SSIM, and
-> +0.00233 LPIPS on average versus original 3DGS, with a worst per-view PSNR
-> delta of -5.46 dB. HiGS remains the fastest synthetic path, but is **not
-> quality-equivalent** on the tested real checkpoint.
+> The official pretrained model archive does not establish that the 38 paired
+> reference photographs were excluded from training. The real-scene results
+> below therefore measure renderer fidelity on fixed tensors and cameras; they
+> are not a held-out reconstruction leaderboard. A previous result attributing
+> a 0.626 dB drop specifically to HiGS was withdrawn after gsplat dense showed
+> the same drop.
 
 | Scene | Renderer | GPU mean | GPU median | P99 | Peak VRAM | PSNR vs GT | SSIM vs GT | LPIPS vs GT |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
@@ -89,44 +90,58 @@ The included generated scenes intentionally create heavy overlap. The large
 Speedy/standard-gsplat tails are tied to specific camera views with very long
 tile lists, rather than random timer noise.
 
-## Ground-truth quality gate
+## Paired-reference quality gate
 
-The leaderboard quality reference is always a held-out original image, never
-another renderer. A valid real-scene row therefore has the form:
+Every renderer is compared directly with the same original photograph, never
+with another renderer. Training-split provenance is reported separately.
 
 | Renderer | Reference | PSNR | SSIM | LPIPS | Status |
 |---|---|---:|---:|---:|---|
-| original 3DGS | original test images | 24.9319 | 0.864349 | 0.223592 | measured |
-| HiGS | original test images | 24.3057 | 0.857229 | 0.225921 | measured; quality regression |
-| gsplat dense | original test images | pending | pending | pending | local extension rebuild failed |
-| Speedy-Splat | original test images | 24.9311 | 0.864339 | 0.223610 | measured; matches original |
-| TC-GS | original test images | pending | pending | pending | adapter/build pending |
+| original 3DGS | paired official Train photos | 24.9319 | 0.865773 | 0.223592 | reference |
+| gsplat dense | paired official Train photos | 24.3061 | 0.858717 | 0.226278 | -0.6257 dB; not equivalent |
+| TC-GS (Speedy-Splat integration) | paired official Train photos | 24.9138 | 0.865044 | 0.222874 | equivalent at configured thresholds |
 
-The measured rows use the official pretrained Train checkpoint (1,071,462
-Gaussians), 38 held-out views, black background, and the released 980x545 GT
-images. They are a quality audit, not a 1920x1080 speed table. See the
-[machine-readable result](data/results/rtx5070_train_gt_quality_2026-07-14.json).
+The rows use the official pretrained Train model (1,071,462 Gaussians), 38
+paired 980x545 photographs, and black background. The model archive's holdout
+status is unverified. Exact source URLs, SHA-256 values, and the fixed image
+list are in
+[`official_3dgs_train_reference.json`](data/scenes/official_3dgs_train_reference.json).
+The consolidated [machine-readable result](data/results/rtx5070_train_reference_summary_2026-07-14.json)
+links the complete per-view reports.
+
+A 10-frame, 5-warmup speed smoke test on the same official scene at the camera
+file's native 1959x1090 resolution produced:
+
+| Renderer | GPU mean | Median | P99 | FPS | Peak VRAM |
+|---|---:|---:|---:|---:|---:|
+| gsplat dense | 6.125 ms | 5.955 ms | 6.916 ms | 163.3 | 653 MB |
+| TC-GS | 4.614 ms | 4.565 ms | 5.237 ms | 216.7 | 796 MB |
+
+TC-GS reduced mean latency by 24.7% (1.33x) in this short, unlocked-clock run.
 
 Install the quality dependencies and evaluate the same trained PLY with every
 renderer. The camera file can be the `cameras.json` exported by original 3DGS;
-only camera names present in the held-out GT directory are selected.
+only camera names present in the reference directory are selected.
 
 ```powershell
 python -m pip install -r requirements-quality.txt
 python src/scripts/validate_quality.py `
-  --renderers original_3dgs gsplat_higs gsplat_dense speedy_splat `
+  --renderers tcgs `
   --scene path/to/model/point_cloud/iteration_30000/point_cloud.ply `
   --cameras path/to/model/cameras.json `
-  --ground-truth-dir path/to/held_out_test_images `
-  --split-label test `
-  --baseline-renderer original_3dgs `
-  --max-psnr-drop 0.1 --max-ssim-drop 0.001 --max-lpips-increase 0.001
+  --ground-truth-dir path/to/reference_images `
+  --expected-image-list data/scenes/official_3dgs_train_reference_images.txt `
+  --split-label "paired official references; holdout status unverified"
 ```
 
-The JSON report stores per-view and aggregate metrics, the camera-manifest
-SHA-256, renderer versions, metric definitions, background, and thresholds.
-PSNR is the mean of per-view PSNR values; SSIM uses the original 3DGS 11x11
-valid Gaussian window; LPIPS defaults to the official evaluation's VGG net.
+Run original 3DGS, gsplat dense, and TC-GS in their respective environments,
+then compare reports that have identical scene, camera, and GT-manifest hashes.
+
+The JSON report stores per-view and aggregate metrics, the camera/scene hashes,
+every evaluated image hash, renderer versions, background, and thresholds.
+PSNR is the mean of per-view PSNR values. SSIM matches Graphdeco's zero-padded
+11x11 Gaussian implementation. LPIPS uses the PyPI VGG implementation with
+inputs mapped to `[-1, 1]`; it is not labeled as Graphdeco's bundled LPIPS.
 
 ### Renderer consistency diagnostics
 
@@ -148,16 +163,16 @@ dense reached minimum 59.37 / 58.80 / 59.45 dB and 0.9997 SSIM at
 - `gsplat_higs_tile16`: HiGS inference, tile 16.
 - `gsplat_higs_sh32` / `gsplat_higs_sh16`: SH packing ablations.
 - `gsplat_higs_auto`: locally calibrated scale-aware configuration.
+- `tcgs`: official 3DGSTensorCore Speedy-Splat integration, installed in an
+  isolated environment because its upstream package name conflicts with 3DGS.
 - `fast_gauss`: registered but unavailable locally because EGL loading is
   blocked by the current Windows environment/application policy.
 
-TC-GS is tracked from the now-located official source at
+TC-GS is pinned to the official source at
 [`DeepLink-org/3DGSTensorCore`](https://github.com/DeepLink-org/3DGSTensorCore/commit/0bb82f88fde211c34b42e1497f0fc7265461592b).
-It uses a conflicting package name and must run in an isolated environment;
-the benchmark adapter and RTX 5070 measurement are still pending. The public
-code demonstrates TC-GS applied to Speedy-Splat, so future rows will use the
-label **TC-GS (Speedy-Splat integration)** rather than implying an unrelated
-rasterizer.
+The local adapter, SM 12.0 Windows build, 38-view audit, and speed smoke test
+are complete. Results use the label **TC-GS (Speedy-Splat integration)** rather
+than implying an unrelated rasterizer.
 
 See [the renderer survey](docs/renderer_survey.md) for upstream commits, paper
 claims, and reproducibility status.
@@ -254,11 +269,24 @@ BUILD_RELOC=0
 BUILD_LOSSES=0
 ```
 
+TC-GS commit `0bb82f88` needs the recorded Windows/CUDA 13/SM 12.0 patch:
+
+```powershell
+git -C path/to/3DGSTensorCore apply `
+  path/to/3dgs-renderer-benchmark/third_party_patches/tcgs-windows-cuda13-sm120.patch
+$env:TORCH_CUDA_ARCH_LIST = "12.0"
+```
+
+Install TC-GS in an isolated environment because upstream uses the conflicting
+`diff_gaussian_rasterization` package name.
+
 ## Limitations
 
-- Current 1920x1080 speed numbers use generated scenes. The Train checkpoint
-  has a held-out GT quality audit at 980x545, but matched real-scene speed and
-  quality measurements at one resolution remain pending.
+- Historical 1920x1080 stress numbers use generated scenes. The official Train
+  paired-reference audit is 980x545, while the real-scene speed smoke test uses
+  the camera file's native 1959x1090 resolution.
+- The official pretrained model archive's training split is unverified, so the
+  paired photographs cannot be claimed as held-out for reconstruction quality.
 - GPU clocks are not locked on this WDDM laptop.
 - HiGS is inference-only and uses packed/fp16 internals.
 - FlashGS, Local-GS, GEMM-GS, and fast-gaussian remain candidates until they

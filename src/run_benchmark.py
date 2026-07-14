@@ -31,6 +31,13 @@ from benchmark_framework import (
 from renderers import get_renderer, list_renderers, list_available
 
 
+def _uniform_camera_resolution(cameras):
+    resolutions = {(camera.image_width, camera.image_height) for camera in cameras}
+    if len(resolutions) != 1:
+        raise ValueError(f"Benchmark requires one camera resolution, got {sorted(resolutions)}")
+    return next(iter(resolutions))
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="3DGS Renderer Benchmark")
     p.add_argument("--scene", type=str, default=None, help="Path to .ply scene file")
@@ -108,7 +115,11 @@ def main():
     print(f"  CUDA: {torch.version.cuda}  |  PyTorch: {torch.__version__}")
     print(f"  Scene: {scene_path}")
     print(f"  Cameras: {cameras_path}")
-    print(f"  Resolution: {cfg.image_width}x{cfg.image_height}")
+    resolution_label = (
+        "from camera file" if os.path.exists(cameras_path)
+        else f"{cfg.image_width}x{cfg.image_height}"
+    )
+    print(f"  Resolution: {resolution_label}")
     print(f"  Frames: {cfg.benchmark_frames} (+ {cfg.warmup_frames} warmup)")
     print(f"  Repeats: {cfg.repeats}  |  Clock Lock: {cfg.clock_lock}")
     print("=" * 70)
@@ -134,6 +145,9 @@ def main():
         cameras = generate_cameras(50, cfg.image_width, cfg.image_height, device="cuda")
         cam_load_ms = (time.perf_counter() - t0) * 1000
         print(f"  Generated {len(cameras)} cameras ({cam_load_ms:.0f}ms)")
+
+    image_width, image_height = _uniform_camera_resolution(cameras)
+    print(f"  Camera resolution: {image_width}x{image_height}")
 
     scene_center = (scene_data["xyz"].amin(dim=0) + scene_data["xyz"].amax(dim=0)) * 0.5
     if not args.allow_backfacing_cameras:
@@ -222,8 +236,8 @@ def main():
             renderer_name=rname,
             num_frames=cfg.benchmark_frames * cfg.repeats,
             warmup_frames=cfg.warmup_frames,
-            image_width=cfg.image_width,
-            image_height=cfg.image_height,
+            image_width=image_width,
+            image_height=image_height,
             num_gaussians=N,
             gpu_name=gpu_name,
             renderer_implementation=renderer_meta["implementation"],

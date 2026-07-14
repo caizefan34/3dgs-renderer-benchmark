@@ -1,0 +1,69 @@
+diff --git a/submodules/tcgs_speedy_rasterizer/cuda_rasterizer/tcgs/tcgs.h b/submodules/tcgs_speedy_rasterizer/cuda_rasterizer/tcgs/tcgs.h
+index b7abcd2..96911a4 100644
+--- a/submodules/tcgs_speedy_rasterizer/cuda_rasterizer/tcgs/tcgs.h
++++ b/submodules/tcgs_speedy_rasterizer/cuda_rasterizer/tcgs/tcgs.h
+@@ -2,6 +2,9 @@
+ #ifndef TCGS_H
+ #define TCGS_H
+ 
++#include <cstdint>
++using uint = unsigned int;
++
+ #ifdef _WIN32
+     #define TCGS_API __declspec(dllexport)
+ #else
+diff --git a/submodules/tcgs_speedy_rasterizer/cuda_rasterizer/tcgs/tcgs_utils.h b/submodules/tcgs_speedy_rasterizer/cuda_rasterizer/tcgs/tcgs_utils.h
+index 287288b..49bb891 100644
+--- a/submodules/tcgs_speedy_rasterizer/cuda_rasterizer/tcgs/tcgs_utils.h
++++ b/submodules/tcgs_speedy_rasterizer/cuda_rasterizer/tcgs/tcgs_utils.h
+@@ -2,7 +2,9 @@
+ #ifndef TCGS_UTILS_H
+ #define TCGS_UTILS_H
+ 
++#include <cstdint>
+ #include<cuda_fp16.h>
++using uint = unsigned int;
+ 
+ #define __HALF_TO_US_TCGS(var) *(reinterpret_cast<unsigned short *>(&(var)))
+ #define __HALF_TO_CUS_TCGS(var) *(reinterpret_cast<const unsigned short *>(&(var)))
+diff --git a/submodules/tcgs_speedy_rasterizer/setup.py b/submodules/tcgs_speedy_rasterizer/setup.py
+index 15eedb0..4de8122 100644
+--- a/submodules/tcgs_speedy_rasterizer/setup.py
++++ b/submodules/tcgs_speedy_rasterizer/setup.py
+@@ -10,12 +10,13 @@
+ #
+ 
+ from setuptools import setup
+-from torch.utils.cpp_extension import CUDAExtension, BuildExtension
++from torch.utils.cpp_extension import CUDAExtension, BuildExtension, CUDA_HOME
+ import os
+ os.path.dirname(os.path.abspath(__file__))
+ 
+ base_dir = os.path.dirname(os.path.abspath(__file__))
+ tcgs_dir = tcgs_dir = os.path.join(base_dir, "cuda_rasterizer/tcgs")
++cccl_dir = os.path.join(CUDA_HOME, "include", "cccl") if CUDA_HOME else None
+ 
+ setup(
+     name="diff_gaussian_rasterization",
+@@ -33,15 +34,19 @@ setup(
+             include_dirs=[
+                 os.path.join(base_dir, "cuda_rasterizer"),
+                 os.path.join(base_dir, "third_party/glm/"),
+-                tcgs_dir
++                tcgs_dir,
++                *([cccl_dir] if cccl_dir and os.path.isdir(cccl_dir) else []),
+             ],
+             extra_compile_args={
+                 "nvcc": [
+                     "--expt-relaxed-constexpr",
+                     "--ptxas-options=-v",
+                     "-DTCGS_ENABLED=1",
++                    "-Xcompiler",
++                    "/Zc:preprocessor",
+                 ],
+-                "cxx": ["-DTCGS_ENABLED=1"]
++                "cxx": (["/DTCGS_ENABLED=1", "/Zc:preprocessor"]
++                        if os.name == "nt" else ["-DTCGS_ENABLED=1"])
+             }
+         )
+     ],

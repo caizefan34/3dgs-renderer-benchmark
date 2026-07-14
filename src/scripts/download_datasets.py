@@ -83,8 +83,12 @@ def download_dataset(name, output_dir=None):
         return False
 
     if scene.get("status") != "available":
-        print(f"Dataset '{name}' is planned but has not been published yet.")
-        print("Use src/scripts/generate_scene.py for the current synthetic benchmark.")
+        status = scene.get("status", "planned")
+        print(f"Dataset '{name}' has status '{status}' and no packaged direct download.")
+        if scene.get("reference_manifest"):
+            print(f"See data/scenes/{scene['reference_manifest']} for official URLs and hashes.")
+        else:
+            print("Use src/scripts/generate_scene.py for the current synthetic benchmark.")
         return False
 
     output_dir = output_dir or os.path.join(REPO_ROOT, "data")

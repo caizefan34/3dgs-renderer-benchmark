@@ -17,6 +17,7 @@ class RendererRegistryTest(unittest.TestCase):
         module = importlib.import_module("renderers")
         self.assertIn("gsplat", module.list_renderers())
         self.assertIn("original_3dgs", module.list_renderers())
+        self.assertIn("tcgs", module.list_renderers())
 
 
 class CameraConventionTest(unittest.TestCase):
@@ -51,6 +52,13 @@ class CameraConventionTest(unittest.TestCase):
         self.assertEqual(camera.image_name, "frame_001")
         torch.testing.assert_close(camera.camera_center, torch.tensor([0.0, 0.0, 2.0]))
         torch.testing.assert_close(camera.viewmatrix[:3, 3], torch.tensor([0.0, 0.0, -2.0]))
+
+    def test_external_camera_resolution_is_reported(self):
+        from run_benchmark import _uniform_camera_resolution
+        from benchmark_framework import generate_cameras
+
+        cameras = generate_cameras(2, image_width=19, image_height=11, device="cpu")
+        self.assertEqual(_uniform_camera_resolution(cameras), (19, 11))
 
 
 class HiGSAutoConfigTest(unittest.TestCase):
@@ -117,6 +125,23 @@ class GsplatRendererTest(unittest.TestCase):
         torch.testing.assert_close(calls[0]["scales"], torch.ones(2, 3))
         torch.testing.assert_close(calls[0]["opacities"], torch.full((2,), 0.5))
 
+    def test_dense_sets_packed_false(self):
+        calls = []
+
+        def rasterization(**kwargs):
+            calls.append(kwargs)
+            return torch.zeros(1, 4, 8, 3), None, {}
+
+        fake_gsplat = types.ModuleType("gsplat")
+        fake_gsplat.rasterization = rasterization
+        with mock.patch.dict(sys.modules, {"gsplat": fake_gsplat}):
+            from renderers.gsplat_renderer import GsplatDenseRenderer
+
+            renderer = GsplatDenseRenderer(device="cpu")
+            renderer.render(renderer.prepare_scene(self._scene()), self._camera())
+
+        self.assertFalse(calls[0]["packed"])
+
 
 class Original3DGSRendererTest(unittest.TestCase):
     def test_uses_scene_sh_degree(self):
@@ -157,6 +182,60 @@ class Original3DGSRendererTest(unittest.TestCase):
             )
 
         self.assertEqual(settings_seen[0]["sh_degree"], 1)
+
+
+class TCGSRendererTest(unittest.TestCase):
+    def test_uses_scores_and_four_value_result(self):
+        settings_seen = []
+        calls = []
+
+        class Settings:
+            def __init__(self, **kwargs):
+                settings_seen.append(kwargs)
+
+        class Rasterizer:
+            def __init__(self, raster_settings):
+                pass
+
+            def __call__(self, **kwargs):
+                calls.append(kwargs)
+                return (
+                    torch.zeros(3, 4, 8),
+                    torch.zeros(2),
+                    torch.zeros(1, 4, 8),
+                    0.001,
+                )
+
+        fake = types.ModuleType("diff_gaussian_rasterization")
+        fake.GaussianRasterizationSettings = Settings
+        fake.GaussianRasterizer = Rasterizer
+        with mock.patch.dict(sys.modules, {"diff_gaussian_rasterization": fake}):
+            from benchmark_framework import generate_cameras
+            from renderers.tcgs_renderer import TCGSRenderer
+
+            scene = {
+                "xyz": torch.zeros(2, 3),
+                "opacity": torch.zeros(2),
+                "scales": torch.zeros(2, 3),
+                "rotations": torch.tensor([[2.0, 0.0, 0.0, 0.0]]).repeat(2, 1),
+                "shs": torch.zeros(2, 4, 3),
+                "sh_degree": 1,
+            }
+            renderer = TCGSRenderer(device="cpu")
+            image = renderer.render(
+                renderer.prepare_scene(scene),
+                generate_cameras(1, image_width=8, image_height=4, device="cpu")[0],
+            )
+
+        self.assertEqual(image.shape, (4, 8, 3))
+        self.assertEqual(settings_seen[0]["sh_degree"], 1)
+        torch.testing.assert_close(calls[0]["scores"], torch.ones(2))
+        torch.testing.assert_close(calls[0]["opacities"], torch.full((2,), 0.5))
+        torch.testing.assert_close(calls[0]["scales"], torch.ones(2, 3))
+        torch.testing.assert_close(
+            calls[0]["rotations"],
+            torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(2, 1),
+        )
 
 
 if __name__ == "__main__":

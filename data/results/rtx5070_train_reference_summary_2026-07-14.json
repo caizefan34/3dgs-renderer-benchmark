@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-14",
+  "status": "locally_measured_paired_reference_audit",
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU",
+    "compute_capability": "12.0",
+    "driver": "592.01",
+    "pytorch": "2.12.1+cu130 (gsplat/TC-GS), 2.13.0+cu130 (original 3DGS)",
+    "cuda_toolkit": "13.3",
+    "gsplat_commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+    "tcgs_commit": "0bb82f88fde211c34b42e1497f0fc7265461592b"
+  },
+  "reference": {
+    "scene": "official 3DGS pretrained Train model, iteration 30000",
+    "scene_sha256": "f03e4979ac27345da1422d960d604b98db9541bdb3586d135d64bb4d9bde8eb3",
+    "camera_manifest_sha256": "f74c0defb7919be2cdd5b8786e733be7dbb2b07b9b89ae53f13258bdd05ea03c",
+    "ground_truth_manifest_sha256": "282c216b5173f85c619d790292045e528ab7381c2b8ceda793cfe41df0246242",
+    "quality_resolution": [980, 545],
+    "quality_views": 38,
+    "holdout_status": "unverified for the pretrained model archive"
+  },
+  "quality_protocol": {
+    "psnr": "mean of per-view PSNR, data range 1.0",
+    "ssim": "Graphdeco 11x11 Gaussian, sigma 1.5, zero padding 5",
+    "lpips": "PyPI lpips 0.1, VGG, input range [-1, 1]"
+  },
+  "quality": [
+    {
+      "renderer": "original_3dgs",
+      "mean_psnr_db": 24.93185246558614,
+      "mean_ssim": 0.865772534357874,
+      "mean_lpips": 0.223592072725296
+    },
+    {
+      "renderer": "gsplat_dense",
+      "mean_psnr_db": 24.30613216780513,
+      "mean_ssim": 0.8587169208024678,
+      "mean_lpips": 0.22627819290286616,
+      "delta_vs_original": {
+        "psnr_db": -0.6257202977810081,
+        "ssim": -0.007055613555406293,
+        "lpips": 0.002686120177570167
+      }
+    },
+    {
+      "renderer": "tcgs",
+      "mean_psnr_db": 24.913814521818832,
+      "mean_ssim": 0.8650438064023068,
+      "mean_lpips": 0.22287423046011673,
+      "delta_vs_original": {
+        "psnr_db": -0.018037943767307496,
+        "ssim": -0.000728727955567221,
+        "lpips": -0.0007178422651792638
+      }
+    }
+  ],
+  "speed_smoke": {
+    "camera_resolution": [1959, 1090],
+    "frames": 10,
+    "warmup_frames": 5,
+    "repeats": 1,
+    "gpu_clocks_locked": false,
+    "results": [
+      {
+        "renderer": "gsplat_dense",
+        "mean_gpu_ms": 6.125,
+        "median_gpu_ms": 5.955,
+        "p99_gpu_ms": 6.9164,
+        "mean_wall_ms": 6.227,
+        "fps": 163.3,
+        "peak_vram_mb": 653.1
+      },
+      {
+        "renderer": "tcgs",
+        "mean_gpu_ms": 4.614,
+        "median_gpu_ms": 4.565,
+        "p99_gpu_ms": 5.2374,
+        "mean_wall_ms": 4.717,
+        "fps": 216.7,
+        "peak_vram_mb": 795.7
+      }
+    ],
+    "tcgs_speedup_vs_gsplat_dense": 1.3274815778066753,
+    "tcgs_latency_reduction_percent": 24.66938775510204
+  },
+  "artifacts": {
+    "original_quality": "rtx5070_train_reference_original_3dgs_2026-07-14.json",
+    "gsplat_dense_quality": "rtx5070_train_reference_gsplat_dense_2026-07-14.json",
+    "tcgs_quality": "rtx5070_train_reference_tcgs_2026-07-14.json"
+  },
+  "notes": [
+    "Quality rows compare every renderer directly with the same official photographs.",
+    "The pretrained model archive does not establish that the 38 reference photographs were excluded from training, so these are renderer-fidelity results, not held-out reconstruction leaderboard results.",
+    "TC-GS is the official Speedy-Splat integration and runs in an isolated environment because it uses the same Python package name as original 3DGS."
+  ]
+}

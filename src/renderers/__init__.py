@@ -70,6 +70,7 @@ from .gsplat_renderer import (
 from .diff_gaussian_renderer import DiffGaussianRenderer
 from .fast_gauss_renderer import FastGaussRenderer
 from .speedy_splat_renderer import SpeedySplatRenderer, SpeedySplatRawRenderer
+from .tcgs_renderer import TCGSRenderer
 
 register_renderer("gsplat", GsplatRenderer)
 register_renderer("gsplat_dense", GsplatDenseRenderer)
@@ -85,3 +86,4 @@ register_renderer("original_3dgs", DiffGaussianRenderer)
 register_renderer("fast_gauss", FastGaussRenderer)
 register_renderer("speedy_splat", SpeedySplatRenderer)
 register_renderer("speedy_splat_raw", SpeedySplatRawRenderer)
+register_renderer("tcgs", TCGSRenderer)

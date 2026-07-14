@@ -1,9 +1,11 @@
 #!/usr/bin/env python
-"""Measure each 3DGS renderer against held-out ground-truth images.
+"""Measure each 3DGS renderer against paired reference photographs.
 
 The camera file may use this project's schema or the ``cameras.json`` list
 exported by graphdeco-inria/gaussian-splatting. Every evaluated camera must
 contain an ``image_name``/``img_name`` that resolves under --ground-truth-dir.
+Whether those photographs are held out from training is dataset provenance
+that this tool records but cannot infer.
 """
 import argparse
 import hashlib
@@ -45,7 +47,7 @@ def compute_psnr(pred: torch.Tensor, reference: torch.Tensor) -> float:
 
 
 def compute_ssim(pred: torch.Tensor, reference: torch.Tensor) -> float:
-    """Original-3DGS-compatible valid-window RGB SSIM for images in [0, 1]."""
+    """Graphdeco-compatible zero-padded RGB SSIM for images in [0, 1]."""
     _validate_images(pred, reference)
     if min(pred.shape[:2]) < 11:
         raise ValueError("SSIM requires images at least 11x11 pixels")
@@ -57,7 +59,7 @@ def compute_ssim(pred: torch.Tensor, reference: torch.Tensor) -> float:
     kernel = (kernel_1d[:, None] * kernel_1d[None, :]).expand(3, 1, 11, 11)
 
     def blur(image):
-        return conv2d(image, kernel, groups=3)
+        return conv2d(image, kernel, padding=5, groups=3)
 
     mu_pred, mu_ref = blur(pred), blur(reference)
     var_pred = blur(pred * pred) - mu_pred * mu_pred
@@ -151,6 +153,25 @@ def _sha256_file(path: str) -> str:
     return digest.hexdigest()
 
 
+def _ground_truth_manifest(paths) -> tuple:
+    entries = [
+        {"image": Path(path).name, "sha256": _sha256_file(path)}
+        for path in paths
+    ]
+    encoded = json.dumps(
+        entries, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return entries, hashlib.sha256(encoded).hexdigest()
+
+
+def _expected_image_names(path: str) -> list:
+    with open(path, encoding="utf-8") as file:
+        names = [line.strip() for line in file if line.strip() and not line.startswith("#")]
+    if len(names) != len(set(names)):
+        raise ValueError("Expected-image list contains duplicate names")
+    return names
+
+
 def _summary(psnrs, ssims, lpips_values, args) -> dict:
     result = {
         "mean_psnr_db": _json_number(float(np.mean(psnrs))),
@@ -177,9 +198,13 @@ def parse_args():
     parser.add_argument("--ground-truth-dir", required=True)
     parser.add_argument("--frames", type=int, default=None)
     parser.add_argument(
+        "--expected-image-list",
+        help="Newline-delimited image names; fail unless the evaluated view list matches exactly",
+    )
+    parser.add_argument(
         "--require-all-ground-truth",
         action="store_true",
-        help="Fail if any camera lacks a matching GT image instead of selecting the held-out subset",
+        help="Fail if any camera lacks a matching reference image",
     )
     parser.add_argument(
         "--background", choices=("black",), default="black",
@@ -187,7 +212,7 @@ def parse_args():
     )
     parser.add_argument(
         "--split-label", default="unspecified",
-        help="Provenance label recorded in the report; the tool cannot infer train/test membership",
+        help="User-supplied provenance label; the tool cannot infer train/test membership",
     )
     parser.add_argument("--lpips-net", choices=("alex", "vgg", "squeeze"), default="vgg")
     parser.add_argument("--min-psnr", type=float, default=0.0)
@@ -220,7 +245,18 @@ def main():
     pairs = pairs[: args.frames] if args.frames is not None else pairs
     if not pairs:
         raise SystemExit("No cameras matched ground-truth images")
-    print(f"Matched {len(pairs)} GT views; skipped {len(missing)} other cameras")
+    if args.expected_image_list:
+        expected = _expected_image_names(args.expected_image_list)
+        actual = [image_path.name for _, image_path in pairs]
+        if actual != expected:
+            raise ValueError(
+                "Evaluated images do not match --expected-image-list: "
+                f"expected {len(expected)}, got {len(actual)}"
+            )
+    print(
+        f"Matched {len(pairs)} GT views; skipped {len(missing)} other cameras",
+        flush=True,
+    )
     evaluation_pairs = []
     for camera, image_path in pairs:
         reference_cpu = load_ground_truth(image_path, "cpu", args.background)
@@ -256,7 +292,8 @@ def main():
                 })
                 print(
                     f"{renderer_name} frame={index:03d} PSNR={psnr:8.3f}dB "
-                    f"SSIM={ssim:.6f} LPIPS={lpips_value:.6f}"
+                    f"SSIM={ssim:.6f} LPIPS={lpips_value:.6f}",
+                    flush=True,
                 )
         renderer_results.append({
             "renderer": renderer_name,
@@ -287,8 +324,11 @@ def main():
 
     with open(args.cameras, "rb") as file:
         camera_sha256 = hashlib.sha256(file.read()).hexdigest()
+    ground_truth_manifest, ground_truth_manifest_sha256 = _ground_truth_manifest(
+        image_path for _, image_path in pairs
+    )
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "reference": {
             "type": "ground_truth",
             "camera_manifest": os.path.abspath(args.cameras),
@@ -297,6 +337,9 @@ def main():
             "background": args.background,
             "split_label": args.split_label,
             "color_space": "decoded sRGB values in [0, 1]",
+            "num_views": len(ground_truth_manifest),
+            "evaluated_images": ground_truth_manifest,
+            "ground_truth_manifest_sha256": ground_truth_manifest_sha256,
         },
         "scene": os.path.abspath(args.scene),
         "scene_sha256": _sha256_file(args.scene),
@@ -305,9 +348,10 @@ def main():
             "psnr_aggregation": "mean of per-view PSNR",
             "ssim_window": 11,
             "ssim_sigma": 1.5,
-            "ssim_padding": "valid",
+            "ssim_padding": "zero (5 pixels), matching graphdeco loss_utils.ssim",
             "lpips_net": args.lpips_net,
             "lpips_input_range": "[-1, 1]",
+            "lpips_implementation": "PyPI lpips",
         },
         "thresholds": {
             "min_mean_psnr_db": args.min_psnr,

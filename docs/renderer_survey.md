@@ -8,11 +8,11 @@ Only rows marked **locally verified** belong in the benchmark leaderboard.
 
 | Renderer | Upstream commit | Main idea | Upstream claim | Local status |
 |---|---|---|---|---|
-| original 3DGS | `54c035f7834b564019656c3e3fcc3646292f727d` (rasterizer `9c5c2028f6fbee2be239bc4c9421ff894fe4fbe0`) | Official reference rasterizer; Thrust-based tile sorting | Original real-time reference implementation | Adapter registered as `original_3dgs`; Train GT quality measured, matched real-scene timing pending |
-| gsplat | `77ab983ffe43420b2131669cb35776b883ca4c3c` | Packed/dense CUDA rasterization, AccuTile, current CUDA 13 support | General-purpose optimized rasterizer | **Locally verified** on `sm_120`; Windows CUDA 13 patch recorded |
-| gsplat HiGS | same gsplat commit | Macro-tile partitioning, fine-tile rasterization, fp16 packed inference scene, persistent workspace | Up to 15.8x over original 3DGS | Fastest local synthetic timing; real Train audit measured -0.626 dB PSNR / -0.00712 SSIM / +0.00233 LPIPS vs original |
+| original 3DGS | `54c035f7834b564019656c3e3fcc3646292f727d` (rasterizer `9c5c2028f6fbee2be239bc4c9421ff894fe4fbe0`) | Official reference rasterizer; Thrust-based tile sorting | Original real-time reference implementation | Paired-reference baseline measured on official Train model/photos |
+| gsplat | `77ab983ffe43420b2131669cb35776b883ca4c3c` | Packed/dense CUDA rasterization, AccuTile, current CUDA 13 support | General-purpose optimized rasterizer | **Locally verified** on `sm_120`; dense quality and native-camera speed measured |
+| gsplat HiGS | same gsplat commit | Macro-tile partitioning, fine-tile rasterization, fp16 packed inference scene, persistent workspace | Up to 15.8x over original 3DGS | Fastest local synthetic timing; earlier paired-reference drop matches the dense gsplat drop and is not HiGS-specific |
 | Speedy-Splat | `34c45c6d9b8bd6110231864f2f358b6d3abbf73d` | Exact Gaussian localization plus primitive pruning | 6.71x with 10.6x fewer primitives | **Locally verified**; current installed CUDA backend works on RTX 5070 Laptop |
-| TC-GS (Speedy-Splat integration) | `0bb82f88fde211c34b42e1497f0fc7265461592b` | FP16 Tensor-Core alpha evaluation with `mma.sync` | Authors report about 2x on A800 with nearly unchanged aggregate quality | Official source located; isolated build/adapter and local GT validation pending |
+| TC-GS (Speedy-Splat integration) | `0bb82f88fde211c34b42e1497f0fc7265461592b` | FP16 Tensor-Core alpha evaluation with `mma.sync` | Authors report about 2x on A800 with nearly unchanged aggregate quality | **Locally verified** on `sm_120`; 24.9138 dB and 1.33x vs dense in the short real-scene run |
 | FlashGS | `cdfc4e4002318423eda356eed02df8e01fa32cb6` | Redundancy elimination, pipelining, scheduling, memory-access optimization | Average 4x on tested GPUs | Source acquired; build/adapter pending |
 | Local-GS / TiCoGS | `0c6d9e4a2cc458de90d3dc40753187d6d03ea514` | Tile-local warp coherence, parameter hoisting, warp culling, branch reduction | 1.4-1.6x on Ada; up to 7.76x on Deep Blending | Source acquired; CUDA extension pending |
 | GEMM-GS | `aca61f897f58964ff7204e1e3c6485995b5f212c` | Reformulates blending for Tensor Cores, double-buffered kernel pipeline | 1.42x over vanilla; 1.47x additional with other accelerators | Source acquired; build/adapter pending |
@@ -51,10 +51,10 @@ NVIDIA A800. They motivate local reproduction but are not RTX 5070 results.
    separately and never mixed into the same ranking.
 4. Identical PLY tensors, cameras, resolution, SH degree, background, warmup,
    frame order, and repeats are required.
-5. A leaderboard result is valid only with finite output, changing images
-   across cameras, recorded source/package version, and PSNR/SSIM/LPIPS against
-   the corresponding held-out original image. Renderer-to-renderer comparisons
-   are diagnostics only.
+5. A result is valid only with finite output, changing images across cameras,
+   recorded source/package version, and PSNR/SSIM/LPIPS against the paired
+   original image. A held-out claim additionally requires verified training
+   split provenance. Renderer-to-renderer comparisons are diagnostics only.
 6. Approximate, pruned, LOD, temporal, fp16, or hardware-rasterized paths must
    declare their quality constraint and cannot be labeled lossless without data.
 
