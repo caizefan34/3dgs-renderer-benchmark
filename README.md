@@ -84,14 +84,6 @@ compatible committed measurement exists.
 > Generate comparable rows with `src/run_benchmark.py` at 1920x1080 and use
 > the same 50K scene and camera manifest as the synthetic cohort.
 
-Synthetic stress timing on an RTX 5070 Laptop at 1920x1080:
-
-| Scene | Renderer | GPU mean | P99 | FPS | Peak VRAM | GT quality |
-| --- | --- | ---: | ---: | ---: | ---: | --- |
-| 50K | HiGS tile16 | 1.99 ms | 2.45 ms | 502.7 | 147 MB | N/A |
-| 200K | HiGS tile16 | 6.34 ms | 7.23 ms | 157.8 | 391 MB | N/A |
-| 400K | HiGS tile8 | 15.96 ms | 23.22 ms | 62.7 | 1057 MB | N/A |
-
 Paired-reference quality audit on the official Train model:
 
 | Renderer | PSNR | SSIM | LPIPS | Status |
