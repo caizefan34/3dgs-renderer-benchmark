@@ -1,258 +1,36 @@
 {
   "schema_version": 1,
-  "benchmark_suite_version": "v1.0",
+  "benchmark_suite_version": "v2.0",
   "generated_by": "src/leaderboard/generator.py",
+  "official_only": true,
+  "quality_constraints": {
+    "metric": "psnr",
+    "thresholds_db": [
+      30,
+      31,
+      32
+    ],
+    "rule": "renderer must meet the threshold in every aggregated cohort"
+  },
+  "efficiency_metric": {
+    "name": "quality_adjusted_fps",
+    "formula": "fps * 10 ** ((psnr - 32) / 10)",
+    "minimum_psnr_db": 30,
+    "aggregation": "geometric mean across complete official cohorts"
+  },
   "leaderboards": {
-    "speed": [
-      {
-        "renderer": "HiGS tile16",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 50000,
-        "fps": 502.7,
-        "latency_ms": 1.99,
-        "p99_latency_ms": 2.45,
-        "peak_vram_mb": 147,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "tcgs",
-        "benchmark_type": "real_scene_speed",
-        "fps": 216.7,
-        "latency_ms": 4.614,
-        "p99_latency_ms": 5.2374,
-        "peak_vram_mb": 795.7,
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "gsplat_dense",
-        "benchmark_type": "real_scene_speed",
-        "fps": 163.3,
-        "latency_ms": 6.125,
-        "p99_latency_ms": 6.9164,
-        "peak_vram_mb": 653.1,
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "HiGS tile16",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 200000,
-        "fps": 157.8,
-        "latency_ms": 6.34,
-        "p99_latency_ms": 7.23,
-        "peak_vram_mb": 391,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "gsplat dense",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 50000,
-        "fps": 81.6,
-        "latency_ms": 12.25,
-        "p99_latency_ms": 13.76,
-        "peak_vram_mb": 368,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "Speedy-Splat",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 50000,
-        "fps": 79.6,
-        "latency_ms": 12.56,
-        "p99_latency_ms": 13.82,
-        "peak_vram_mb": 584,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "HiGS tile8",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 400000,
-        "fps": 62.7,
-        "latency_ms": 15.96,
-        "p99_latency_ms": 23.22,
-        "peak_vram_mb": 1057,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "Speedy-Splat",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 200000,
-        "fps": 6.9,
-        "latency_ms": 145.75,
-        "p99_latency_ms": 1934.1,
-        "peak_vram_mb": 2183,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "gsplat dense",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 200000,
-        "fps": 2.6,
-        "latency_ms": 383.1,
-        "p99_latency_ms": 876.45,
-        "peak_vram_mb": 1450,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "Speedy-Splat",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 400000,
-        "fps": 0.6,
-        "latency_ms": 1705.36,
-        "p99_latency_ms": 4776.47,
-        "peak_vram_mb": 4276,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      }
-    ],
-    "quality": [
-      {
-        "renderer": "original_3dgs",
-        "benchmark_type": "real_scene_quality",
-        "cohort": "official 3DGS pretrained Train model, iteration 30000",
-        "psnr": 24.93185246558614,
-        "ssim": 0.865772534357874,
-        "lpips": 0.223592072725296,
-        "quality_status": "measured",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "tcgs",
-        "benchmark_type": "real_scene_quality",
-        "cohort": "official 3DGS pretrained Train model, iteration 30000",
-        "psnr": 24.913814521818832,
-        "ssim": 0.8650438064023068,
-        "lpips": 0.22287423046011673,
-        "quality_status": "measured",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "gsplat_dense",
-        "benchmark_type": "real_scene_quality",
-        "cohort": "official 3DGS pretrained Train model, iteration 30000",
-        "psnr": 24.30613216780513,
-        "ssim": 0.8587169208024678,
-        "lpips": 0.22627819290286616,
-        "quality_status": "measured",
-        "benchmark_suite_version": "v1.0"
-      }
-    ],
-    "memory": [
-      {
-        "renderer": "HiGS tile16",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 50000,
-        "fps": 502.7,
-        "latency_ms": 1.99,
-        "p99_latency_ms": 2.45,
-        "peak_vram_mb": 147,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "gsplat dense",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 50000,
-        "fps": 81.6,
-        "latency_ms": 12.25,
-        "p99_latency_ms": 13.76,
-        "peak_vram_mb": 368,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "HiGS tile16",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 200000,
-        "fps": 157.8,
-        "latency_ms": 6.34,
-        "p99_latency_ms": 7.23,
-        "peak_vram_mb": 391,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "Speedy-Splat",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 50000,
-        "fps": 79.6,
-        "latency_ms": 12.56,
-        "p99_latency_ms": 13.82,
-        "peak_vram_mb": 584,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "gsplat_dense",
-        "benchmark_type": "real_scene_speed",
-        "fps": 163.3,
-        "latency_ms": 6.125,
-        "p99_latency_ms": 6.9164,
-        "peak_vram_mb": 653.1,
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "tcgs",
-        "benchmark_type": "real_scene_speed",
-        "fps": 216.7,
-        "latency_ms": 4.614,
-        "p99_latency_ms": 5.2374,
-        "peak_vram_mb": 795.7,
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "HiGS tile8",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 400000,
-        "fps": 62.7,
-        "latency_ms": 15.96,
-        "p99_latency_ms": 23.22,
-        "peak_vram_mb": 1057,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "gsplat dense",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 200000,
-        "fps": 2.6,
-        "latency_ms": 383.1,
-        "p99_latency_ms": 876.45,
-        "peak_vram_mb": 1450,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "Speedy-Splat",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 200000,
-        "fps": 6.9,
-        "latency_ms": 145.75,
-        "p99_latency_ms": 1934.1,
-        "peak_vram_mb": 2183,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      },
-      {
-        "renderer": "Speedy-Splat",
-        "benchmark_type": "synthetic_stress",
-        "gaussians": 400000,
-        "fps": 0.6,
-        "latency_ms": 1705.36,
-        "p99_latency_ms": 4776.47,
-        "peak_vram_mb": 4276,
-        "quality_status": "not_measured_no_ground_truth",
-        "benchmark_suite_version": "v1.0"
-      }
-    ],
+    "speed": [],
+    "quality": [],
+    "memory": [],
+    "quality_constrained": {
+      "30": [],
+      "31": [],
+      "32": []
+    },
+    "efficiency": [],
     "pareto": []
   },
+  "cohorts": [],
   "pareto_analysis": {
     "schema_version": 1,
     "analysis": "speed_quality_pareto",
@@ -268,15 +46,9 @@
     },
     "frontier": [],
     "dominated": {},
-    "excluded": {
-      "HiGS tile16": "synthetic_not_quality_eligible",
-      "HiGS tile8": "synthetic_not_quality_eligible",
-      "Speedy-Splat": "synthetic_not_quality_eligible",
-      "gsplat dense": "synthetic_not_quality_eligible",
-      "gsplat_dense": "missing_quality_metrics",
-      "original_3dgs": "missing_speed_metric",
-      "tcgs": "missing_quality_metrics"
-    }
+    "excluded": {}
   },
-  "source_record_count": 13
+  "source_record_count": 13,
+  "official_record_count": 0,
+  "excluded_unofficial_count": 13
 }

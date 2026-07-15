@@ -1,44 +1,26 @@
 # 3DGS Renderer Leaderboard
 
-Generated from committed benchmark JSON artifacts. Synthetic stress speed rows remain separate from GT-quality rankings.
+Official rankings include only hash-validated benchmark-suite records. Overall rows require complete coverage of every submitted cohort.
 
-## Speed Leaderboard
+## Fastest @ PSNR >= 30
 
-| renderer | benchmark_type | gaussians | fps | p99_latency_ms |
-| --- | --- | --- | --- | --- |
-| HiGS tile16 | synthetic_stress | 50000 | 502.7 | 2.45 |
-| tcgs | real_scene_speed | N/A | 216.7 | 5.2374 |
-| gsplat_dense | real_scene_speed | N/A | 163.3 | 6.9164 |
-| HiGS tile16 | synthetic_stress | 200000 | 157.8 | 7.23 |
-| gsplat dense | synthetic_stress | 50000 | 81.6 | 13.76 |
-| Speedy-Splat | synthetic_stress | 50000 | 79.6 | 13.82 |
-| HiGS tile8 | synthetic_stress | 400000 | 62.7 | 23.22 |
-| Speedy-Splat | synthetic_stress | 200000 | 6.9 | 1934.1 |
-| gsplat dense | synthetic_stress | 200000 | 2.6 | 876.45 |
-| Speedy-Splat | synthetic_stress | 400000 | 0.6 | 4776.47 |
+No eligible rows.
 
-## Quality Leaderboard
+## Fastest @ PSNR >= 31
 
-| renderer | benchmark_type | psnr | ssim | lpips |
-| --- | --- | --- | --- | --- |
-| original_3dgs | real_scene_quality | 24.93185246558614 | 0.865772534357874 | 0.223592072725296 |
-| tcgs | real_scene_quality | 24.913814521818832 | 0.8650438064023068 | 0.22287423046011673 |
-| gsplat_dense | real_scene_quality | 24.30613216780513 | 0.8587169208024678 | 0.22627819290286616 |
+No eligible rows.
+
+## Fastest @ PSNR >= 32
+
+No eligible rows.
+
+## Efficiency Score
+
+No eligible rows.
 
 ## Memory Leaderboard
 
-| renderer | benchmark_type | gaussians | peak_vram_mb |
-| --- | --- | --- | --- |
-| HiGS tile16 | synthetic_stress | 50000 | 147 |
-| gsplat dense | synthetic_stress | 50000 | 368 |
-| HiGS tile16 | synthetic_stress | 200000 | 391 |
-| Speedy-Splat | synthetic_stress | 50000 | 584 |
-| gsplat_dense | real_scene_speed | N/A | 653.1 |
-| tcgs | real_scene_speed | N/A | 795.7 |
-| HiGS tile8 | synthetic_stress | 400000 | 1057 |
-| gsplat dense | synthetic_stress | 200000 | 1450 |
-| Speedy-Splat | synthetic_stress | 200000 | 2183 |
-| Speedy-Splat | synthetic_stress | 400000 | 4276 |
+No eligible rows.
 
 ## Pareto Leaderboard
 
