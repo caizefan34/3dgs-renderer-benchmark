@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caizefan34.github.io/3dgs-renderer-benchmark/schemas/benchmark_result.schema.json",
+  "title": "3DGS Benchmark Result",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"type": "integer", "minimum": 1},
+    "benchmark_suite_version": {"type": ["string", "null"]},
+    "status": {"type": ["string", "null"]},
+    "environment": {
+      "type": "object",
+      "properties": {
+        "gpu": {"type": ["string", "null"]},
+        "driver": {"type": ["string", "null"]},
+        "driver_cuda": {"type": ["string", "null"]},
+        "cuda_toolkit": {"type": ["string", "null"]},
+        "pytorch": {"type": ["string", "null"]},
+        "gsplat_commit": {"type": ["string", "null"]},
+        "tcgs_commit": {"type": ["string", "null"]}
+      }
+    },
+    "protocol": {"type": "object"},
+    "reference": {"type": "object"},
+    "results": {
+      "type": ["array", "object"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "renderer": {"type": ["string", "null"]},
+          "renderer_name": {"type": ["string", "null"]},
+          "renderer_version": {"type": ["string", "null"]},
+          "renderer_source_url": {"type": ["string", "null"]},
+          "renderer_commit_hash": {"type": ["string", "null"]},
+          "benchmark_commit_hash": {"type": ["string", "null"]},
+          "benchmark_suite_version": {"type": ["string", "null"]},
+          "hardware_metadata": {"type": ["object", "null"]},
+          "driver_version": {"type": ["string", "null"]},
+          "cuda_version": {"type": ["string", "null"]},
+          "mean_fps": {"type": ["number", "null"]},
+          "fps": {"type": ["number", "null"]},
+          "peak_vram_mb": {"type": ["number", "null"]}
+        }
+      }
+    },
+    "records": {"type": "array", "items": {"type": "object"}},
+    "quality": {"type": "array"},
+    "speed_smoke": {"type": "object"}
+  }
+}

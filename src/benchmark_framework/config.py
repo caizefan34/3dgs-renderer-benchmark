@@ -9,6 +9,8 @@ ensure reproducibility.
 from dataclasses import dataclass, field
 from typing import List
 
+from benchmark_suite import BENCHMARK_SUITE_VERSION
+
 
 @dataclass
 class BenchmarkConfig:
@@ -33,6 +35,7 @@ class BenchmarkConfig:
     image_height: int = 1080
     output_dir: str = "results"
     benchmark_type: str = "synthetic_stress"
+    benchmark_suite_version: str = BENCHMARK_SUITE_VERSION
 
     @classmethod
     def create_default(cls):
@@ -49,4 +52,5 @@ class BenchmarkConfig:
             "clock_lock": self.clock_lock,
             "cuda_sync": "after each measured frame (outside event interval)",
             "timing_method": "torch.cuda.Event elapsed time; per-frame synchronization",
+            "benchmark_suite_version": self.benchmark_suite_version,
         }

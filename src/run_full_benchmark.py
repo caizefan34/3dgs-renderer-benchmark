@@ -2,6 +2,7 @@
 """Comprehensive multi-scale benchmark for 3DGS Renderer Benchmark.
 Runs each scene+renderer combo in an isolated subprocess."""
 import sys, os, time, json, argparse, subprocess
+from benchmark_suite import BENCHMARK_SUITE_VERSION
 
 PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 
@@ -133,6 +134,7 @@ result = {{
     "coefficient_of_variation": round(float(t.std() / t.mean()), 6) if t.mean() > 0 else 0.0,
     "stability_score": round(float(np.median(t) / np.percentile(t, 99)), 6) if np.percentile(t, 99) > 0 else 0.0,
     "benchmark_type": "synthetic_stress",
+    "benchmark_suite_version": "{}",
     "difficulty_score": difficulty.get("difficulty_score"),
     "difficulty_formula": difficulty.get("difficulty_formula"),
     "difficulty_inputs": difficulty.get("difficulty_inputs"),
@@ -154,6 +156,7 @@ json.dump(result, open(r"{}", "w"), indent=2)
     renderer_name,
     output_json,
     difficulty_json,
+    BENCHMARK_SUITE_VERSION,
     1920, 1080,
     args.repeats, args.warmup, args.frames,
     renderer_name,

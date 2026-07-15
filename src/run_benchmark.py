@@ -17,7 +17,7 @@ References:
     3D Gaussian Splatting for Real-Time Radiance Field Rendering.
     ACM Transactions on Graphics, 42(4).
 """
-import sys, os, time, json, argparse, gc
+import sys, os, time, json, argparse, gc, subprocess
 import torch
 import numpy as np
 
@@ -34,6 +34,7 @@ from benchmark.difficulty import (
     DifficultyInputs,
     calculate_difficulty,
 )
+from benchmark_suite import BENCHMARK_SUITE_VERSION
 
 
 def _uniform_camera_resolution(cameras):
@@ -41,6 +42,38 @@ def _uniform_camera_resolution(cameras):
     if len(resolutions) != 1:
         raise ValueError(f"Benchmark requires one camera resolution, got {sorted(resolutions)}")
     return next(iter(resolutions))
+
+
+def _git_commit_hash(repo_root):
+    try:
+        return subprocess.check_output(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return None
+
+
+def _cuda_driver_version():
+    try:
+        raw = torch._C._cuda_getDriverVersion()
+    except Exception:
+        return None
+    return str(raw) if raw else None
+
+
+def _hardware_metadata(device_index=0):
+    if not torch.cuda.is_available():
+        return {"cuda_available": False}
+    props = torch.cuda.get_device_properties(device_index)
+    return {
+        "cuda_available": True,
+        "gpu_name": props.name,
+        "compute_capability": f"{props.major}.{props.minor}",
+        "total_vram_mb": round(props.total_memory / (1024 * 1024), 1),
+        "multi_processor_count": props.multi_processor_count,
+    }
 
 
 def parse_args():
@@ -130,6 +163,9 @@ def main():
     difficulty = _load_difficulty(args.difficulty_metrics)
 
     repo_root = os.path.dirname(PROJECT_ROOT)
+    benchmark_commit_hash = _git_commit_hash(repo_root)
+    hardware_metadata = _hardware_metadata(0)
+    driver_version = _cuda_driver_version()
     data_dir = os.path.join(repo_root, "data")
     default_data_dirs = [data_dir, os.path.join(PROJECT_ROOT, "data")]
     scene_path = args.scene or next(
@@ -292,7 +328,13 @@ def main():
             renderer_implementation=renderer_meta["implementation"],
             renderer_version=renderer_meta["version"],
             renderer_source_url=renderer_meta["source_url"],
+            renderer_commit_hash=renderer_meta.get("commit_hash"),
             timing_method="torch.cuda.Event elapsed time; per-frame synchronization",
+            benchmark_suite_version=BENCHMARK_SUITE_VERSION,
+            benchmark_commit_hash=benchmark_commit_hash,
+            driver_version=driver_version,
+            cuda_version=torch.version.cuda,
+            hardware_metadata=hardware_metadata,
             peak_vram_mb=all_peak_mem,
             avg_vram_mb=float(np.mean(all_mem_samples)),
             scene_load_time_ms=scene_load_ms,

@@ -20,6 +20,8 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from benchmark_suite import BENCHMARK_SUITE_VERSION
+
 
 @dataclass
 class FrameMetrics:
@@ -80,7 +82,13 @@ class RendererMetrics:
     renderer_implementation: str = ""
     renderer_version: str = "unknown"
     renderer_source_url: str = ""
+    renderer_commit_hash: Optional[str] = None
     timing_method: str = "CUDA events"
+    benchmark_suite_version: str = BENCHMARK_SUITE_VERSION
+    benchmark_commit_hash: Optional[str] = None
+    driver_version: Optional[str] = None
+    cuda_version: Optional[str] = None
+    hardware_metadata: Optional[dict] = None
     mean_wall_latency_ms: float = 0.0
     median_wall_latency_ms: float = 0.0
     wall_fps: float = 0.0
@@ -173,7 +181,13 @@ class RendererMetrics:
             "renderer_implementation": self.renderer_implementation,
             "renderer_version": self.renderer_version,
             "renderer_source_url": self.renderer_source_url,
+            "renderer_commit_hash": self.renderer_commit_hash,
             "timing_method": self.timing_method,
+            "benchmark_suite_version": self.benchmark_suite_version,
+            "benchmark_commit_hash": self.benchmark_commit_hash,
+            "driver_version": self.driver_version,
+            "cuda_version": self.cuda_version,
+            "hardware_metadata": self.hardware_metadata,
             "mean_wall_latency_ms": self.mean_wall_latency_ms,
             "median_wall_latency_ms": self.median_wall_latency_ms,
             "wall_fps": self.wall_fps,

@@ -1,0 +1,39 @@
+services:
+  gsplat-benchmark:
+    build:
+      context: .
+      dockerfile: docker/gsplat.Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    volumes:
+      - ./data:/workspace/3dgs-renderer-benchmark/data
+      - ./results:/workspace/3dgs-renderer-benchmark/results
+    command: >
+      python3 src/run_benchmark.py
+      --scene data/scene.ply
+      --camera-path circle
+      --renderers gsplat
+      --output results/docker/gsplat
+
+  higs-benchmark:
+    build:
+      context: .
+      dockerfile: docker/higs.Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    volumes:
+      - ./data:/workspace/3dgs-renderer-benchmark/data
+      - ./results:/workspace/3dgs-renderer-benchmark/results
+    command: >
+      python3 src/run_benchmark.py
+      --scene data/scene.ply
+      --camera-path circle
+      --renderers gsplat_higs
+      --output results/docker/higs
+

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caizefan34.github.io/3dgs-renderer-benchmark/schemas/leaderboard.schema.json",
+  "title": "3DGS Renderer Leaderboard",
+  "type": "object",
+  "required": ["schema_version", "benchmark_suite_version", "leaderboards", "pareto_analysis"],
+  "properties": {
+    "schema_version": {"type": "integer", "minimum": 1},
+    "benchmark_suite_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_record_count": {"type": "integer", "minimum": 0},
+    "leaderboards": {
+      "type": "object",
+      "required": ["speed", "quality", "memory", "pareto"],
+      "properties": {
+        "speed": {"type": "array", "items": {"type": "object"}},
+        "quality": {"type": "array", "items": {"type": "object"}},
+        "memory": {"type": "array", "items": {"type": "object"}},
+        "pareto": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "pareto_analysis": {
+      "type": "object",
+      "required": ["schema_version", "analysis", "frontier", "dominated", "excluded"],
+      "properties": {
+        "schema_version": {"type": "integer", "minimum": 1},
+        "analysis": {"type": "string"},
+        "speed_metric": {"type": "string"},
+        "frontier": {"type": "array"},
+        "dominated": {"type": "object"},
+        "excluded": {"type": "object"}
+      }
+    }
+  }
+}
+

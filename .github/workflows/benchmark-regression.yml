@@ -43,6 +43,12 @@ jobs:
       - name: Run benchmark
         run: python src/run_benchmark.py --scene data/scene-ci.ply --camera-path circle --renderers ${{ inputs.renderers }} --frames ${{ inputs.frames }} --warmup 30 --repeats 3 --output results/ci/manual
 
+      - name: Validate benchmark output schema
+        run: python src/scripts/validate_artifacts.py --schema schemas/benchmark_result.schema.json --json results/ci/manual/benchmark_results.json
+
+      - name: Generate leaderboard artifacts
+        run: python src/scripts/generate_leaderboard.py --inputs results/ci/manual/benchmark_results.json --output-dir results/ci/manual/leaderboard
+
       - name: Archive results
         uses: actions/upload-artifact@v4
         with:

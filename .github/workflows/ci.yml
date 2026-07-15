@@ -29,5 +29,21 @@ jobs:
         run: python -m pip install -r requirements-test.txt
       - name: Compile Python sources
         run: python -m compileall -q src tests
+      - name: Generate leaderboard artifact smoke test
+        run: >
+          python src/scripts/generate_leaderboard.py
+          --inputs data/results/rtx5070_laptop_2026-07-13.json data/results/rtx5070_train_reference_summary_2026-07-14.json
+          --output-dir results/leaderboard
+      - name: Validate JSON artifacts
+        run: |
+          python src/scripts/validate_artifacts.py --schema schemas/benchmark_result.schema.json --json data/results/rtx5070_laptop_2026-07-13.json data/results/rtx5070_train_reference_summary_2026-07-14.json
+          python src/scripts/validate_artifacts.py --schema schemas/leaderboard.schema.json --json results/leaderboard/leaderboard.json
+      - name: Regression check smoke test
+        run: >
+          python src/scripts/check_regressions.py
+          --baseline data/results/rtx5070_laptop_2026-07-13.json
+          --candidate data/results/rtx5070_laptop_2026-07-13.json
+          --output results/regression/regression_report.json
+          --fail-on-regression
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
