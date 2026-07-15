@@ -1,10 +1,10 @@
 # Contributing
 
-Thanks for helping make 3DGS renderer comparisons more reproducible. Small
-fixes, new adapters, additional hardware results, and protocol improvements are
-all welcome.
+Contributions that improve reproducibility, backend coverage, protocol
+clarity, or hardware coverage are welcome. Keep each pull request focused on
+one verifiable outcome and preserve existing benchmark artifacts.
 
-## Development setup
+## Development Setup
 
 ```bash
 python -m venv .venv
@@ -15,54 +15,102 @@ python -m unittest discover -s tests -v
 python -m compileall -q src tests
 ```
 
-Renderer packages are optional because most are CUDA extensions with
-environment-specific build requirements. Install only the backends needed for
-your contribution.
+Renderer packages are optional CUDA extensions. Install only the backend
+needed for the contribution, and import it lazily so CPU-only test collection
+continues to work.
 
-## Good first contributions
+## Contribution Workflow
 
-- reproduce the protocol on another NVIDIA GPU and submit the full environment
-  metadata with the generated JSON report;
-- publish a legally redistributable trained scene with a stable URL and
-  checksum, then move its manifest entry from `planned` to `available`;
-- add a CPU-safe contract test for an existing renderer adapter;
-- improve Linux or Windows build notes with an exact, verified toolchain.
+1. Open an issue for a new renderer or protocol change to avoid duplicated
+   work.
+2. Create a small branch and add a failing test that expresses the desired
+   behavior.
+3. Implement the smallest change that passes the test.
+4. Run the full CPU suite and any relevant opt-in GPU regression.
+5. Update protocol or onboarding documentation when public behavior changes.
+6. Include generated JSON and environment metadata for benchmark submissions.
 
-Comment on or open an issue before taking on a new renderer so work is not
-duplicated.
+Do not reformat or refactor unrelated modules. Do not edit generated
+leaderboard values by hand.
 
-## Adding a renderer
+## Adding a Renderer
 
-1. Implement `RendererAdapter` in `src/renderers/` and register it in
-   `src/renderers/__init__.py`.
-2. Keep scene activation and static packing in `prepare_scene`; do not hide
-   per-frame work outside the timed render call.
-3. Add a CPU-safe adapter contract test using a mocked backend.
-4. Compare output against a designated reference renderer with PSNR and SSIM.
-5. Record the upstream repository, exact commit, runtime version, and patches.
-6. Report GPU-event and end-to-end latency separately.
+New adapters implement the strict `RendererAdapter` ABC in
+`src/adapters/base.py`. Follow the complete
+[How to add a new renderer](docs/adding-a-renderer.md) guide for a copy-paste
+template, registration steps, output requirements, and regression checklist.
 
-A renderer must pass finite-output, camera-change, and quality checks before
-its speed result is described as verified.
+A renderer is eligible for a quality-gated result only when it:
 
-## Submitting benchmark results
+- returns finite float32 RGB, depth, and alpha tensors at the requested
+  resolution;
+- renders at least two distinct camera poses correctly;
+- passes the declared PSNR, SSIM, and LPIPS thresholds;
+- reports raw ordered latency samples and peak allocated GPU memory;
+- differs by less than 0.01 dB across repeated deterministic renders;
+- records upstream source, commit, build environment, and local patches.
+
+Keep static packing in checkpoint loading and all camera-dependent work in the
+timed render call. Report CUDA-event and end-to-end latency separately.
+
+## Tests
+
+The default suite must remain CPU-safe:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Run the cross-backend reproducibility test only on a configured CUDA host:
+
+```bash
+RUN_RENDERER_REGRESSION=1 python -m unittest \
+  tests.test_adapters.RendererReproducibilityRegressionTest -v
+```
+
+On PowerShell:
+
+```powershell
+$env:RUN_RENDERER_REGRESSION = "1"
+python -m unittest tests.test_adapters.RendererReproducibilityRegressionTest -v
+```
+
+Tests must release renderer references and call `torch.cuda.empty_cache()`
+between GPU cases. A test may skip an unavailable optional CUDA backend, but
+its reason must identify the missing package or platform capability.
+
+## Submitting Benchmark Results
 
 Include all of the following in the pull request:
 
-- GPU model and VRAM;
-- operating system and driver version;
-- Python, PyTorch, CUDA runtime, and CUDA toolkit versions;
-- renderer repository and exact commit;
-- scene source and Gaussian count;
-- resolution, camera preset, warmup, frames, and repeats;
-- mean, median, P95, P99, peak VRAM, PSNR, and SSIM;
-- whether GPU clocks were locked.
+- GPU model, VRAM, driver, and clock-lock status;
+- operating system, Python, PyTorch, CUDA runtime, and toolkit versions;
+- renderer repository, exact commit, build command, and patch files;
+- scene source, checkpoint hash, Gaussian count, and reference-image hashes;
+- camera manifest hash, resolution, warmup, frames, and repeats;
+- raw frame times, mean, median, P95, P99, FPS, and peak memory;
+- PSNR, SSIM, LPIPS, thresholds, and quality-gate result.
 
-Do not compare numbers produced from different scenes, cameras, resolutions,
-quality thresholds, or timing boundaries as if they were a leaderboard.
+Results from different scenes, trajectories, resolutions, timing boundaries,
+or quality references belong to separate cohorts. Missing metrics remain
+`null`; never estimate them.
 
-## Pull requests
+## Documentation and Style
 
-Keep changes focused. Run the CPU tests and compile check before opening a pull
-request, and explain any test that cannot run in your environment. Bug reports
-and renderer proposals can start from the repository issue templates.
+Use clear academic English, one sentence per line when practical, fenced code
+blocks with a language identifier, and descriptive link text. Keep headings
+hierarchical and tables aligned. Placeholder benchmark data must use the form
+`> **Note:** ...` and must state how to generate the missing measurement.
+
+## Pull Request Checklist
+
+- [ ] The change is scoped to the stated issue.
+- [ ] New behavior has a test.
+- [ ] CPU tests and compile checks pass.
+- [ ] Relevant GPU tests pass or have an explained skip.
+- [ ] Public behavior and protocol changes are documented.
+- [ ] Benchmark claims include raw artifacts and provenance.
+- [ ] No missing measurement has been inferred or fabricated.
+
+By contributing, you agree that your changes are licensed under the
+repository's MIT License.

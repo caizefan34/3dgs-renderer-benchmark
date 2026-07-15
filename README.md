@@ -12,6 +12,38 @@ Synthetic stress results, real-scene quality results, real-scene speed results,
 and Pareto analysis are kept separate. Synthetic speed is never treated as
 ground-truth quality evidence.
 
+## Why This Benchmark?
+
+3DGS renderer evaluations often report the fastest favorable scene while
+changing Gaussian count, camera path, resolution, or image quality. A renderer
+can increase FPS by pruning visible Gaussians, approximating spherical
+harmonics, or changing compositing order; the resulting speedup is not useful
+if it silently degrades the image. Mean latency alone also hides long-tail
+stalls, and peak memory is frequently omitted even though it determines which
+scenes can run on a target GPU.
+
+This benchmark treats speed as valid only within a declared quality envelope.
+Every comparable run fixes the scene, camera sequence, resolution, warmup,
+measurement boundary, and software environment. PSNR, SSIM, and LPIPS gates
+reject outputs that do not meet the configured reference quality. Raw JSON
+artifacts remain the source of truth, so leaderboard and Pareto results can be
+audited or regenerated.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[Dataset Loading] --> B[Camera Trajectory Sampling]
+    B --> C[Renderer Adapter]
+    C --> D[Warmup/Repeat Timing]
+    D --> E[Quality Gate<br/>PSNR / SSIM / LPIPS]
+    E --> F[JSON Result Export]
+    F --> G[Pareto Analysis]
+```
+
+The strict adapter contract is defined in `src/adapters/base.py`. Benchmark
+Protocol v1.0 is specified in [docs/protocol.md](docs/protocol.md).
+
 ## Project Overview
 
 The benchmark platform provides:
@@ -29,12 +61,39 @@ The benchmark platform provides:
 
 ## Key Results
 
-The existing reported measurements are preserved unchanged.
+The table combines only committed artifacts. Performance values marked 1080p
+come from the 50K-Gaussian synthetic stress cohort at 1920x1080. Quality values
+come from the paired official Train reference audit and therefore describe
+renderer fidelity, not held-out reconstruction quality. A dash means that no
+compatible committed measurement exists.
+
+<!-- markdownlint-disable MD013 -->
+
+| Renderer Name | Average FPS (1080p) | Peak GPU Memory (MB) | PSNR (dB) | SSIM | LPIPS |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HiGS tile16 | 502.7 | 147 | — | — | — |
+| Speedy-Splat | 79.6 | 584 | — | — | — |
+| gsplat dense | 81.6 | 368 | 24.3061 | 0.858717 | 0.226278 |
+| original 3DGS | — | — | 24.9319 | 0.865773 | 0.223592 |
+| TC-GS | — | — | 24.9138 | 0.865044 | 0.222874 |
+
+<!-- markdownlint-enable MD013 -->
+
+> **Note:** HiGS and Speedy-Splat quality cells remain placeholders until a
+> non-superseded paired-reference run is committed. Generate them with the
+> quality-validation command documented in Quick Start.
+
+<!-- Separate placeholder notices. -->
+
+> **Note:** Original 3DGS and TC-GS 1080p performance cells remain
+> placeholders because their committed speed smoke test used 1959x1090.
+> Generate comparable rows with `src/run_benchmark.py` at 1920x1080 and use
+> the same 50K scene and camera manifest as the synthetic cohort.
 
 Synthetic stress timing on an RTX 5070 Laptop at 1920x1080:
 
 | Scene | Renderer | GPU mean | P99 | FPS | Peak VRAM | GT quality |
-|---|---|---:|---:|---:|---:|---|
+| --- | --- | ---: | ---: | ---: | ---: | --- |
 | 50K | HiGS tile16 | 1.99 ms | 2.45 ms | 502.7 | 147 MB | N/A |
 | 200K | HiGS tile16 | 6.34 ms | 7.23 ms | 157.8 | 391 MB | N/A |
 | 400K | HiGS tile8 | 15.96 ms | 23.22 ms | 62.7 | 1057 MB | N/A |
@@ -42,7 +101,7 @@ Synthetic stress timing on an RTX 5070 Laptop at 1920x1080:
 Paired-reference quality audit on the official Train model:
 
 | Renderer | PSNR | SSIM | LPIPS | Status |
-|---|---:|---:|---:|---|
+| --- | ---: | ---: | ---: | --- |
 | original 3DGS | 24.9319 | 0.865773 | 0.223592 | reference |
 | gsplat dense | 24.3061 | 0.858717 | 0.226278 | -0.6257 dB; not equivalent |
 | TC-GS | 24.9138 | 0.865044 | 0.222874 | equivalent at configured thresholds |
@@ -66,16 +125,29 @@ python -m unittest discover -s tests -v
 GPU smoke test after installing a CUDA-enabled PyTorch build and at least one
 renderer backend:
 
-```text
+```bash
 python src/scripts/generate_scene.py --gaussians 50000 --output data/scene.ply
 python src/run_benchmark.py --list-renderers
-python src/run_benchmark.py --scene data/scene.ply --camera-path circle --renderers gsplat --frames 100 --warmup 30 --repeats 3 --output results/quickstart
+python src/run_benchmark.py \
+  --scene data/scene.ply --camera-path circle --renderers gsplat \
+  --frames 100 --warmup 30 --repeats 3 --output results/quickstart
+```
+
+Generate a paired-reference quality row for a missing renderer:
+
+```bash
+python src/scripts/validate_quality.py \
+  --renderers speedy_splat --scene SCENE.ply --cameras CAMERAS.json \
+  --ground-truth-dir IMAGES --output results/speedy_splat_quality.json
 ```
 
 Generate leaderboards from committed benchmark JSON:
 
-```text
-python src/scripts/generate_leaderboard.py --inputs data/results/rtx5070_laptop_2026-07-13.json data/results/rtx5070_train_reference_summary_2026-07-14.json --output-dir results/leaderboard
+```bash
+python src/scripts/generate_leaderboard.py \
+  --inputs data/results/rtx5070_laptop_2026-07-13.json \
+  data/results/rtx5070_train_reference_summary_2026-07-14.json \
+  --output-dir results/leaderboard
 ```
 
 List official training dataset sources:
@@ -141,6 +213,41 @@ Renderer source, commit, and reproducibility notes are tracked in
 - [Leaderboard pipeline](docs/leaderboard.md)
 - [Reproducibility](docs/reproducibility.md)
 - [Architecture](docs/architecture.md)
+- [Benchmark Protocol v1.0](docs/protocol.md)
+- [How to add a new renderer](docs/adding-a-renderer.md)
 - [Research extensions](docs/research_extensions.md)
 - [Summary report](docs/summary_report.md)
 - [Contributing](CONTRIBUTING.md)
+
+## FAQ
+
+### Why Is a Renderer Missing From the Quality-Gated Leaderboard?
+
+The backend may be unavailable on the measurement host, or it may lack a
+paired-reference quality artifact. An unavailable value remains a placeholder
+until a reproducible JSON result is submitted; it is never inferred from a
+paper or a different workload.
+
+### Can Results From Different GPUs or Scenes Be Compared?
+
+They may be displayed as separate evidence, but they must not share a ranking.
+Comparable rows require the same GPU cohort, checkpoint, camera manifest,
+resolution, timing protocol, and quality reference.
+
+### Why Are Warmup Frames Excluded?
+
+Initial calls may compile kernels, allocate caches, and raise GPU clocks. The
+fixed warmup phase stabilizes those effects before measurement while retaining
+all required steady-state per-frame work inside the timing boundary.
+
+### What Happens When a Renderer Fails a Quality Gate?
+
+Its raw diagnostic timing remains available, but it is excluded from the
+quality-gated leaderboard and Pareto frontier. The report records every failed
+threshold so the rejection is auditable.
+
+### How Are Out-of-Memory Failures Handled?
+
+Each renderer is isolated, references are released, and the CUDA cache is
+cleared between cases. An OOM is reported as a failed or skipped run with no
+fabricated metrics.

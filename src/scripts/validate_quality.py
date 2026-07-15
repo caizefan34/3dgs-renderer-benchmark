@@ -27,6 +27,7 @@ REPO_ROOT = os.path.dirname(SRC_DIR)
 sys.path.insert(0, SRC_DIR)
 
 from benchmark_framework import load_cameras_from_json, load_ply
+from adapters.quality import QualityThresholds, evaluate_quality_gate
 from renderers import get_renderer
 
 
@@ -173,20 +174,30 @@ def _expected_image_names(path: str) -> list:
 
 
 def _summary(psnrs, ssims, lpips_values, args) -> dict:
+    mean_psnr = float(np.mean(psnrs))
+    mean_ssim = float(np.mean(ssims))
+    mean_lpips = float(np.mean(lpips_values))
     result = {
-        "mean_psnr_db": _json_number(float(np.mean(psnrs))),
+        "mean_psnr_db": _json_number(mean_psnr),
         "min_psnr_db": _json_number(float(np.min(psnrs))),
-        "mean_ssim": float(np.mean(ssims)),
+        "mean_ssim": mean_ssim,
         "min_ssim": float(np.min(ssims)),
-        "mean_lpips": float(np.mean(lpips_values)),
+        "mean_lpips": mean_lpips,
         "max_lpips": float(np.max(lpips_values)),
         "num_views": len(psnrs),
     }
-    result["passed"] = (
-        float(np.mean(psnrs)) >= args.min_psnr
-        and float(np.mean(ssims)) >= args.min_ssim
-        and float(np.mean(lpips_values)) <= args.max_lpips
+    gate = evaluate_quality_gate(
+        mean_psnr,
+        mean_ssim,
+        mean_lpips,
+        QualityThresholds(
+            min_psnr_db=args.min_psnr,
+            min_ssim=args.min_ssim,
+            max_lpips=args.max_lpips,
+        ),
     )
+    result["passed"] = gate.passed
+    result["gate_failures"] = list(gate.failures)
     return result
 
 

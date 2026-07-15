@@ -10,14 +10,17 @@ References:
     3D Gaussian Splatting for Real-Time Radiance Field Rendering.
     ACM Transactions on Graphics, 42(4).
 """
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+from pathlib import Path
 from typing import Optional
 import torch
 from importlib import metadata
 import importlib
 
+from adapters.base import RendererAdapter as StrictRendererAdapter
 
-class RendererAdapter(ABC):
+
+class RendererAdapter(StrictRendererAdapter):
     """Abstract base class for all renderer adapters.
 
     Each concrete adapter wraps a specific 3DGS rasterization backend
@@ -37,7 +40,34 @@ class RendererAdapter(ABC):
     source_url: str = ""
 
     def __init__(self, device: str = "cuda"):
-        self.device = device
+        super().__init__(device=device)
+        self._checkpoint = None
+
+    def load_checkpoint(self, path: Path):
+        """Load and prepare the legacy PLY checkpoint format."""
+        from benchmark_framework import load_ply
+
+        scene_data = load_ply(str(path), device=self.device)
+        self._checkpoint = self.prepare_scene(scene_data)
+        return self._checkpoint
+
+    def get_memory_usage_mb(self) -> float:
+        if not str(self.device).startswith("cuda") or not torch.cuda.is_available():
+            return 0.0
+        return float(torch.cuda.memory_allocated(self.device) / (1024 * 1024))
+
+    def get_device_properties(self) -> dict:
+        if not str(self.device).startswith("cuda") or not torch.cuda.is_available():
+            return {"device": str(self.device), "cuda_available": False}
+        properties = torch.cuda.get_device_properties(self.device)
+        return {
+            "device": str(self.device),
+            "cuda_available": True,
+            "name": properties.name,
+            "compute_capability": f"{properties.major}.{properties.minor}",
+            "total_memory_mb": float(properties.total_memory / (1024 * 1024)),
+            "multi_processor_count": properties.multi_processor_count,
+        }
 
     @abstractmethod
     def render(self, scene_data: dict, camera: "Camera") -> torch.Tensor:
