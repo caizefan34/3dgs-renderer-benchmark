@@ -19,6 +19,7 @@ References:
 """
 import sys, os, time, json, argparse, gc, subprocess, hashlib
 from datetime import date
+PROCESS_STARTED_AT = time.perf_counter()
 import torch
 import numpy as np
 
@@ -27,7 +28,8 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from benchmark_framework import (
     load_ply, load_cameras_from_json, generate_cameras, resize_cameras,
-    validate_cameras_facing_point, RendererMetrics, ResultsManager, BenchmarkConfig
+    validate_cameras_facing_point, RendererMetrics, ResultsManager, BenchmarkConfig,
+    NvmlProcessMemorySampler,
 )
 from benchmark.difficulty import (
     DifficultyConfig,
@@ -309,6 +311,11 @@ def main():
     print("=" * 70)
 
     # Phase 1: Load scene
+    parent_launch_ns = os.environ.get("BENCHMARK_PARENT_LAUNCH_NS")
+    process_startup_time_ms = (
+        (time.perf_counter_ns() - int(parent_launch_ns)) / 1_000_000.0
+        if parent_launch_ns else (time.perf_counter() - PROCESS_STARTED_AT) * 1000.0
+    )
     print("\n[1/5] Loading scene data...")
     assert os.path.exists(scene_path), f"Scene not found: {scene_path}"
     t0 = time.perf_counter()
@@ -355,15 +362,28 @@ def main():
 
     for rname in renderers:
         print(f"\n  --- {rname} ---")
+        startup_start = time.perf_counter()
         renderer = get_renderer(rname)
         if not renderer:
             continue
+        renderer_init_time_ms = (time.perf_counter() - startup_start) * 1000.0
 
+        nvml_sampler = NvmlProcessMemorySampler().start()
+        prepare_start = time.perf_counter()
         prep_data = renderer.prepare_scene(scene_data)
+        torch.cuda.synchronize()
+        renderer_prepare_time_ms = (time.perf_counter() - prepare_start) * 1000.0
+        first_frame_start = time.perf_counter()
+        with torch.no_grad():
+            renderer.render(prep_data, cameras[0])
+        torch.cuda.synchronize()
+        time_to_first_frame_ms = (time.perf_counter() - first_frame_start) * 1000.0
         all_frame_times = []
         all_wall_times = []
         all_peak_mem = 0
         all_mem_samples = []
+        repeat_frame_times = []
+        repeat_wall_times = []
 
         for repeat_idx in range(cfg.repeats):
             if cfg.repeats > 1:
@@ -412,9 +432,14 @@ def main():
 
             all_frame_times.extend(frame_times)
             all_wall_times.extend(wall_times)
+            repeat_frame_times.append(frame_times)
+            repeat_wall_times.append(wall_times)
             all_mem_samples.extend(mem_samples)
             if peak_mem > all_peak_mem:
                 all_peak_mem = peak_mem
+
+        nvml_sampler.stop()
+        nvml_peak_vram_mb = nvml_sampler.peak_mb if nvml_sampler.available else None
 
         t_arr = np.array(all_frame_times)
         renderer_meta = renderer.metadata()
@@ -439,9 +464,15 @@ def main():
             cuda_version=torch.version.cuda,
             hardware_metadata=hardware_metadata,
             peak_vram_mb=all_peak_mem,
+            nvml_peak_vram_mb=nvml_peak_vram_mb,
+            nvml_pre_renderer_baseline_mb=nvml_sampler.baseline_mb,
             avg_vram_mb=float(np.mean(all_mem_samples)),
             scene_load_time_ms=scene_load_ms,
             scene_parse_time_ms=0.0,
+            startup_time_ms=process_startup_time_ms,
+            renderer_init_time_ms=renderer_init_time_ms,
+            renderer_prepare_time_ms=renderer_prepare_time_ms,
+            time_to_first_frame_ms=time_to_first_frame_ms,
             file_size_mb=file_size_mb,
             benchmark_type=cfg.benchmark_type,
             difficulty_score=difficulty.score if difficulty else None,
@@ -450,6 +481,8 @@ def main():
             difficulty_normalization=difficulty.to_dict()["normalization"] if difficulty else None,
             frame_times_ms=[round(x, 2) for x in all_frame_times],
             wall_frame_times_ms=[round(x, 2) for x in all_wall_times],
+            repeat_frame_times_ms=[[round(x, 2) for x in repeat] for repeat in repeat_frame_times],
+            repeat_wall_frame_times_ms=[[round(x, 2) for x in repeat] for repeat in repeat_wall_times],
         )
         metrics.compute()
 

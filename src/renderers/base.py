@@ -16,6 +16,8 @@ from typing import Optional
 import torch
 from importlib import metadata
 import importlib
+import json
+import subprocess
 
 from adapters.base import RendererAdapter as StrictRendererAdapter
 
@@ -111,6 +113,8 @@ class RendererAdapter(StrictRendererAdapter):
 
     def metadata(self) -> dict:
         version = "unknown"
+        commit_hash = None
+        module = None
         if self.module_name:
             try:
                 module = importlib.import_module(self.module_name)
@@ -123,8 +127,27 @@ class RendererAdapter(StrictRendererAdapter):
                     version = metadata.version(self.package_name)
                 except metadata.PackageNotFoundError:
                     pass
+            try:
+                direct_url = metadata.distribution(self.package_name).read_text("direct_url.json")
+                if direct_url:
+                    commit_hash = json.loads(direct_url).get("vcs_info", {}).get("commit_id")
+            except (metadata.PackageNotFoundError, json.JSONDecodeError):
+                pass
+        if commit_hash is None and module is not None and getattr(module, "__file__", None):
+            for parent in Path(module.__file__).resolve().parents:
+                if (parent / ".git").exists():
+                    try:
+                        commit_hash = subprocess.check_output(
+                            ["git", "-C", str(parent), "rev-parse", "HEAD"],
+                            text=True,
+                            stderr=subprocess.DEVNULL,
+                        ).strip()
+                    except (OSError, subprocess.SubprocessError):
+                        pass
+                    break
         return {
             "implementation": self.implementation or self.name,
             "version": version,
             "source_url": self.source_url,
+            "commit_hash": commit_hash,
         }

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caizefan34.github.io/3dgs-renderer-benchmark/benchmark/schemas/result.schema.json",
+  "title": "3DGS Benchmark Matrix v2 Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "result_id", "evidence_tier", "status", "renderer", "benchmark", "environment", "metrics", "provenance"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "result_id": {"type": "string", "minLength": 1},
+    "evidence_tier": {"enum": ["measured", "reproduced", "paper_reported"]},
+    "status": {"enum": ["complete", "failed", "oom", "unsupported", "incomplete"]},
+    "renderer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "config_id", "name", "version", "source_uri", "source_commit", "build_command", "runtime_command", "api", "backend", "platforms", "features"],
+      "properties": {
+        "id": {"type": "string"}, "config_id": {"type": "string"}, "name": {"type": "string"},
+        "version": {"type": "string"}, "source_uri": {"type": "string"}, "source_commit": {"type": "string"},
+        "build_command": {"type": "string"}, "runtime_command": {"type": "string"}, "api": {"type": "string"},
+        "backend": {"type": "string"}, "platforms": {"type": "array", "items": {"type": "string"}},
+        "features": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["suite_id", "suite_version", "track_id", "case_id", "dataset_id", "dataset_sha256", "scene_id", "scene_tier", "checkpoint_sha256", "gaussian_count", "sh_degree", "camera_trajectory_id", "camera_trajectory_sha256", "quality_reference_sha256", "resolution", "color_space", "background", "protocol_id", "protocol_sha256"],
+      "properties": {
+        "suite_id": {"type": "string"}, "suite_version": {"type": "string"}, "track_id": {"type": "string"},
+        "case_id": {"type": "string"}, "dataset_id": {"type": "string"}, "dataset_sha256": {"type": "string"},
+        "scene_id": {"type": "string"}, "scene_tier": {"enum": ["small", "medium", "large"]},
+        "checkpoint_sha256": {"type": "string"}, "gaussian_count": {"type": "integer", "minimum": 1},
+        "sh_degree": {"type": "integer", "minimum": 0}, "camera_trajectory_id": {"type": "string"},
+        "camera_trajectory_sha256": {"type": "string"}, "quality_reference_sha256": {"type": "string"},
+        "resolution": {"type": "object", "additionalProperties": false, "required": ["width", "height"], "properties": {"width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}},
+        "color_space": {"type": "string"}, "background": {"type": "string"},
+        "protocol_id": {"type": "string"}, "protocol_sha256": {"type": "string"}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hardware_profile_id", "gpu", "gpu_uuid", "gpu_vram_mb", "cpu", "ram_mb", "os", "driver", "cuda", "python", "pytorch", "benchmark_commit", "clock_policy", "power_limit_w"],
+      "properties": {
+        "hardware_profile_id": {"type": "string"}, "gpu": {"type": "string"}, "gpu_uuid": {"type": ["string", "null"]},
+        "gpu_vram_mb": {"type": "number"}, "cpu": {"type": "string"}, "ram_mb": {"type": "number"},
+        "os": {"type": "string"}, "driver": {"type": "string"}, "cuda": {"type": "string"},
+        "python": {"type": "string"}, "pytorch": {"type": "string"}, "benchmark_commit": {"type": "string"},
+        "clock_policy": {"type": "string"}, "power_limit_w": {"type": ["number", "null"]}
+      }
+    },
+    "metrics": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["performance", "quality", "raw_samples"],
+      "properties": {
+        "performance": {
+          "type": "object", "additionalProperties": false,
+          "required": ["fps", "fps_ci95_low", "fps_ci95_high", "frame_time_ms", "p95_frame_time_ms", "p99_frame_time_ms", "peak_vram_mb", "startup_time_ms", "renderer_init_time_ms", "scene_load_time_ms", "renderer_prepare_time_ms", "time_to_first_frame_ms"],
+          "properties": {
+            "fps": {"type": "number"}, "fps_ci95_low": {"type": "number"}, "fps_ci95_high": {"type": "number"}, "frame_time_ms": {"type": "number"}, "p95_frame_time_ms": {"type": "number"},
+            "p99_frame_time_ms": {"type": "number"}, "peak_vram_mb": {"type": "number"}, "startup_time_ms": {"type": "number"},
+            "renderer_init_time_ms": {"type": "number"}, "scene_load_time_ms": {"type": "number"}, "renderer_prepare_time_ms": {"type": "number"}, "time_to_first_frame_ms": {"type": "number"}
+          }
+        },
+        "quality": {"type": "object", "additionalProperties": false, "required": ["psnr_db", "ssim", "lpips"], "properties": {"psnr_db": {"type": "number"}, "ssim": {"type": "number"}, "lpips": {"type": "number"}}},
+        "raw_samples": {"type": "object"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type", "source_uri", "measured_at", "raw_samples_uri", "raw_samples_sha256"],
+      "properties": {
+        "source_type": {"enum": ["repository_run", "official_implementation_run", "paper"]},
+        "source_uri": {"type": "string"}, "measured_at": {"type": "string"},
+        "raw_samples_uri": {"type": ["string", "null"]}, "raw_samples_sha256": {"type": ["string", "null"]},
+        "citation": {"type": "string"}, "paper_table_or_figure": {"type": "string"},
+        "deviations": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "complete"}}},
+      "then": {"properties": {"metrics": {"type": "object"}}}
+    }
+  ]
+}

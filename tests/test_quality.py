@@ -13,12 +13,22 @@ from scripts.validate_quality import (
     _ground_truth_manifest,
     compute_psnr,
     compute_ssim,
+    load_ground_truth,
     resize_reference,
 )
 from benchmark_framework import RendererMetrics
 
 
 class QualityMetricTest(unittest.TestCase):
+    def test_ground_truth_crop_is_applied_before_resizing(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "frame.png"
+            Image.new("RGB", (8, 6), (255, 0, 0)).save(path)
+            cropped = load_ground_truth(path, "cpu", "black", (0, 1, 8, 5))
+        self.assertEqual(tuple(cropped.shape), (4, 8, 3))
+
     def test_identical_images(self):
         image = torch.rand(16, 16, 3)
         self.assertEqual(compute_psnr(image, image), float("inf"))

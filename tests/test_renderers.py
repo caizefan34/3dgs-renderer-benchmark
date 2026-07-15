@@ -44,6 +44,7 @@ class CameraConventionTest(unittest.TestCase):
             "position": [0.0, 0.0, 2.0],
             "rotation": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             "fx": 8.0, "fy": 8.0,
+            "reference_crop": [0, 1, 8, 3],
         }]
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "cameras.json"
@@ -51,6 +52,7 @@ class CameraConventionTest(unittest.TestCase):
             camera = load_cameras_from_json(str(path), device="cpu")[0]
 
         self.assertEqual(camera.image_name, "frame_001")
+        self.assertEqual(camera.reference_crop, (0, 1, 8, 3))
         torch.testing.assert_close(camera.camera_center, torch.tensor([0.0, 0.0, 2.0]))
         torch.testing.assert_close(camera.viewmatrix[:3, 3], torch.tensor([0.0, 0.0, -2.0]))
 

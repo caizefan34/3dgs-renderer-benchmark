@@ -34,6 +34,10 @@ jobs:
           python src/scripts/generate_leaderboard.py
           --inputs data/results/rtx5070_laptop_2026-07-13.json data/results/rtx5070_train_reference_summary_2026-07-14.json
           --output-dir results/leaderboard
+      - name: Validate Matrix v2 command and reports
+        run: |
+          python benchmark.py run gsplat --dataset garden --dry-run
+          python benchmark.py report --output-dir results/matrix
       - name: Validate JSON artifacts
         run: |
           python src/scripts/validate_artifacts.py --schema schemas/benchmark_result.schema.json --json data/results/rtx5070_laptop_2026-07-13.json data/results/rtx5070_train_reference_summary_2026-07-14.json

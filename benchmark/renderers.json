@@ -1,0 +1,82 @@
+{
+  "schema_version": 2,
+  "policy": "Only automatic_ready adapters may produce Tier A records. A renderer mode that changes precision, SH evaluation, tiling, or pruning has its own config_id.",
+  "renderers": [
+    {
+      "id": "original_3dgs", "name": "Original 3DGS rasterizer", "source_uri": "https://github.com/graphdeco-inria/diff-gaussian-rasterization", "source_commit": "9c5c2028f6fbee2be239bc4c9421ff894fe4fbe0",
+      "adapter_ids": ["original_3dgs", "diff_gaussian"], "default_adapter_id": "original_3dgs", "primary_excluded_adapter_ids": ["diff_gaussian"],
+      "build": "Clone the official repository at a pinned commit and run pip install . in submodules/diff-gaussian-rasterization.",
+      "runtime": "In-process adapter: src/renderers/diff_gaussian_renderer.py", "dataset_format": "Canonical 3DGS PLY plus cameras.json", "output_format": "float32 HWC RGB tensor in [0,1]",
+      "api": "PyTorch CUDA extension", "backend": "CUDA", "platforms": ["Linux", "Windows"], "features": ["spherical harmonics", "alpha compositing"],
+      "execution_status": "automatic_ready", "priority": 1, "gap": "Pin the upstream commit in the environment lock."
+    },
+    {
+      "id": "gsplat", "name": "gsplat packed/dense", "source_uri": "https://github.com/nerfstudio-project/gsplat", "source_commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "adapter_ids": ["gsplat", "gsplat_dense"], "default_adapter_id": "gsplat", "primary_excluded_adapter_ids": [],
+      "build": "pip install gsplat, or install the pinned source commit; apply the documented CUDA 13 patch only when required.",
+      "runtime": "In-process adapters: gsplat and gsplat_dense", "dataset_format": "Canonical 3DGS PLY plus cameras.json", "output_format": "float32 HWC RGB tensor in [0,1]",
+      "api": "PyTorch", "backend": "CUDA", "platforms": ["Linux", "Windows"], "features": ["packed rasterization", "dense rasterization", "spherical harmonics"],
+      "execution_status": "automatic_ready", "priority": 1, "gap": "Resolve the installed package to an immutable source commit, not only a package version."
+    },
+    {
+      "id": "gsplat_higs", "name": "gsplat HiGS variants", "source_uri": "https://github.com/nerfstudio-project/gsplat", "source_commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "adapter_ids": ["gsplat_higs", "gsplat_higs_tile16", "gsplat_higs_sh32", "gsplat_higs_sh16", "gsplat_higs_tile16_sh32", "gsplat_higs_tile16_sh16", "gsplat_higs_auto"], "default_adapter_id": "gsplat_higs", "primary_excluded_adapter_ids": [],
+      "build": "Install the pinned gsplat source commit containing the HiGS inference path.",
+      "runtime": "In-process adapters: gsplat_higs, tile/SH variants, and gsplat_higs_auto", "dataset_format": "Canonical 3DGS PLY plus cameras.json", "output_format": "float32 HWC RGB tensor in [0,1]",
+      "api": "PyTorch", "backend": "CUDA", "platforms": ["Linux", "Windows"], "features": ["hierarchical tiling", "configurable tile size", "optional SH approximation"],
+      "execution_status": "automatic_ready", "priority": 2, "gap": "Register each tile/SH mode as a distinct renderer config and pin the source commit."
+    },
+    {
+      "id": "speedy_splat", "name": "Speedy-Splat", "source_uri": "https://github.com/j-alex-hanson/speedy-splat", "source_commit": "34c45c6d9b8bd6110231864f2f358b6d3abbf73d",
+      "adapter_ids": ["speedy_splat", "speedy_splat_raw"], "default_adapter_id": "speedy_splat", "primary_excluded_adapter_ids": ["speedy_splat_raw"],
+      "build": "Clone the pinned repository and install its CUDA rasterizer extension in the active PyTorch environment.",
+      "runtime": "In-process adapter: src/renderers/speedy_splat_renderer.py", "dataset_format": "Canonical 3DGS PLY plus cameras.json", "output_format": "float32 HWC RGB tensor in [0,1]",
+      "api": "PyTorch CUDA extension", "backend": "CUDA", "platforms": ["Linux", "Windows"], "features": ["exact localization", "primitive pruning"],
+      "execution_status": "automatic_ready", "priority": 1, "gap": "Add a reproducible build container for every supported CUDA architecture."
+    },
+    {
+      "id": "tcgs", "name": "3DGSTensorCore / TC-GS", "source_uri": "https://github.com/DeepLink-org/3DGSTensorCore", "source_commit": "0bb82f88fde211c34b42e1497f0fc7265461592b",
+      "adapter_ids": ["tcgs"], "default_adapter_id": "tcgs", "primary_excluded_adapter_ids": [],
+      "build": "Use docker/tcgs.Dockerfile or clone the pinned repository and build the Speedy-Splat integration for the target SM architecture.",
+      "runtime": "In-process adapter: src/renderers/tcgs_renderer.py", "dataset_format": "Canonical 3DGS PLY plus cameras.json", "output_format": "float32 HWC RGB tensor in [0,1]",
+      "api": "PyTorch CUDA extension", "backend": "CUDA Tensor Cores", "platforms": ["Linux", "Windows"], "features": ["FP16 Tensor Core alpha evaluation"],
+      "execution_status": "automatic_ready", "priority": 2, "gap": "Make build flags and supported compute capabilities machine-readable."
+    },
+    {
+      "id": "fast_gauss", "name": "fast-gaussian-rasterization", "source_uri": "https://github.com/dendenxu/fast-gaussian-rasterization", "source_commit": "bbe7196f8bc0708cb24cdaea2c264a7b6942d980",
+      "adapter_ids": ["fast_gauss"], "default_adapter_id": "fast_gauss", "primary_excluded_adapter_ids": [],
+      "build": "Clone the pinned repository and build its CUDA/OpenGL extension with EGL support.",
+      "runtime": "In-process adapter: src/renderers/fast_gauss_renderer.py", "dataset_format": "Canonical 3DGS PLY plus cameras.json", "output_format": "OpenGL framebuffer copied to float32 HWC RGB",
+      "api": "Python + OpenGL", "backend": "CUDA/OpenGL", "platforms": ["Linux EGL", "WSL2 EGL"], "features": ["global CUDA sort", "OpenGL rasterization"],
+      "execution_status": "environment_blocked", "priority": 3, "gap": "CI/local hosts need a validated EGL context and framebuffer readback path."
+    },
+    {
+      "id": "flashgs", "name": "FlashGS", "source_uri": "https://github.com/InternLandMark/FlashGS", "source_commit": "cdfc4e4002318423eda356eed02df8e01fa32cb6",
+      "adapter_ids": ["flashgs"], "default_adapter_id": "flashgs", "primary_excluded_adapter_ids": [],
+      "build": "Follow the pinned upstream CUDA extension build.", "runtime": "No repository adapter yet", "dataset_format": "Upstream model format requires a lossless canonical PLY mapping", "output_format": "Must be adapted to float32 HWC RGB in [0,1]",
+      "api": "PyTorch/CUDA", "backend": "CUDA", "platforms": ["Linux"], "features": ["redundancy elimination", "pipeline scheduling"],
+      "execution_status": "custom_adapter_required", "priority": 2, "gap": "Implement scene conversion, camera mapping, output normalization, and quality tests."
+    },
+    {
+      "id": "local_gs", "name": "Local-GS / TiCoGS", "source_uri": "https://github.com/tilaba/Local-GS", "source_commit": "0c6d9e4a2cc458de90d3dc40753187d6d03ea514",
+      "adapter_ids": ["local_gs"], "default_adapter_id": "local_gs", "primary_excluded_adapter_ids": [],
+      "build": "Follow the pinned upstream CUDA extension build.", "runtime": "No repository adapter yet", "dataset_format": "Canonical PLY mapping unverified", "output_format": "Must be adapted to float32 HWC RGB in [0,1]",
+      "api": "CUDA extension", "backend": "CUDA", "platforms": ["Linux"], "features": ["warp-coherent tile-local blending"],
+      "execution_status": "custom_adapter_required", "priority": 3, "gap": "Implement and validate the extension plus a same-checkpoint adapter."
+    },
+    {
+      "id": "gemm_gs", "name": "GEMM-GS", "source_uri": "https://github.com/shieldforever/GEMM-GS", "source_commit": "aca61f897f58964ff7204e1e3c6485995b5f212c",
+      "adapter_ids": ["gemm_gs"], "default_adapter_id": "gemm_gs", "primary_excluded_adapter_ids": [],
+      "build": "Follow the pinned upstream CUDA extension build.", "runtime": "No repository adapter yet", "dataset_format": "Canonical PLY mapping unverified", "output_format": "Must be adapted to float32 HWC RGB in [0,1]",
+      "api": "CUDA extension", "backend": "CUDA Tensor Cores", "platforms": ["Linux"], "features": ["GEMM blending", "double-buffered pipeline"],
+      "execution_status": "custom_adapter_required", "priority": 3, "gap": "Implement adapter and establish supported precision/architecture policy."
+    },
+    {
+      "id": "stopthepop", "name": "StopThePop", "source_uri": "https://github.com/r4dl/StopThePop", "source_commit": "859b11bde9195e19a1c40536e1ab16765b64b365",
+      "adapter_ids": ["stopthepop"], "default_adapter_id": "stopthepop", "primary_excluded_adapter_ids": [],
+      "build": "Follow the pinned upstream build.", "runtime": "No repository adapter yet", "dataset_format": "May require retrained models; same-checkpoint path must be isolated", "output_format": "Must be adapted to float32 HWC RGB in [0,1]",
+      "api": "CUDA extension", "backend": "CUDA", "platforms": ["Linux"], "features": ["hierarchical sorting", "view-consistency control"],
+      "execution_status": "separate_track_required", "priority": 4, "gap": "Define same-checkpoint and retrained-model tracks before integration."
+    }
+  ]
+}

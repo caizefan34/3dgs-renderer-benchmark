@@ -114,12 +114,22 @@ def resolve_ground_truth(index: dict, image_name: str) -> Path:
     return index[stem]
 
 
-def load_ground_truth(path: Path, device: str, background: str) -> torch.Tensor:
+def load_ground_truth(
+    path: Path,
+    device: str,
+    background: str,
+    crop: tuple[int, int, int, int] | None = None,
+) -> torch.Tensor:
     try:
         from PIL import Image
     except ImportError as exc:
         raise RuntimeError("Pillow is required to load ground-truth images") from exc
     with Image.open(path) as source:
+        if crop is not None:
+            left, top, right, bottom = crop
+            if not (0 <= left < right <= source.width and 0 <= top < bottom <= source.height):
+                raise ValueError(f"invalid reference crop {crop} for {source.width}x{source.height}")
+            source = source.crop(crop)
         rgba = np.asarray(source.convert("RGBA"), dtype=np.float32) / 255.0
     rgb, alpha = rgba[..., :3], rgba[..., 3:4]
     background_value = 1.0 if background == "white" else 0.0
@@ -222,6 +232,8 @@ def parse_args():
         help="Use a hash-validated official benchmark-suite scene and camera path",
     )
     parser.add_argument("--resolution", choices=["720p", "1080p", "4k"])
+    parser.add_argument("--width", type=int)
+    parser.add_argument("--height", type=int)
     parser.add_argument("--ground-truth-dir", required=True)
     parser.add_argument("--frames", type=int, default=None)
     parser.add_argument(
@@ -257,6 +269,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if (args.width is None) != (args.height is None):
+        raise SystemExit("--width and --height must be provided together")
+    if args.width is not None and (args.width <= 0 or args.height <= 0):
+        raise SystemExit("--width and --height must be positive")
     suite_case = None
     if args.suite_scene:
         if args.scene or args.cameras:
@@ -300,11 +316,16 @@ def main():
     )
     evaluation_pairs = []
     for camera, image_path in pairs:
-        reference_cpu = load_ground_truth(image_path, "cpu", args.background)
+        reference_cpu = load_ground_truth(
+            image_path, "cpu", args.background, camera.reference_crop
+        )
         if suite_case:
             width, height = suite_case["resolution"]
             reference_cpu = resize_reference(reference_cpu, width, height)
             camera = resize_cameras([camera], width, height)[0]
+        elif args.width is not None:
+            reference_cpu = resize_reference(reference_cpu, args.width, args.height)
+            camera = resize_cameras([camera], args.width, args.height)[0]
         else:
             camera = camera_at_image_size(camera, reference_cpu)
         evaluation_pairs.append((camera, image_path, reference_cpu))

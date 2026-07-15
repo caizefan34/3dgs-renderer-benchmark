@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,9 +29,12 @@ def _resolve_renderers(requested: list[str] | None) -> list[str]:
 
 
 def _run_command(command: list[str], cwd: Path) -> dict[str, Any]:
+    environment = os.environ.copy()
+    environment["BENCHMARK_PARENT_LAUNCH_NS"] = str(time.perf_counter_ns())
     completed = subprocess.run(
         command,
         cwd=str(cwd),
+        env=environment,
         capture_output=True,
         text=True,
         check=False,
@@ -68,6 +73,8 @@ def _speed_command(
     warmup: int,
     repeats: int,
     benchmark_type: str,
+    width: int | None,
+    height: int | None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -89,6 +96,8 @@ def _speed_command(
     ]
     if cameras is not None:
         command.extend(["--cameras", str(cameras)])
+    if width is not None and height is not None:
+        command.extend(["--width", str(width), "--height", str(height)])
     return command
 
 
@@ -98,8 +107,10 @@ def _quality_command(
     cameras: Path,
     ground_truth_dir: Path,
     output_dir: Path,
+    width: int | None,
+    height: int | None,
 ) -> list[str]:
-    return [
+    command = [
         sys.executable,
         "src/scripts/validate_quality.py",
         "--renderers",
@@ -112,9 +123,13 @@ def _quality_command(
         str(ground_truth_dir),
         "--split-label",
         "official dataset evaluation split",
+        "--require-all-ground-truth",
         "--output",
         str(output_dir / renderer / "quality" / "quality_gt.json"),
     ]
+    if width is not None and height is not None:
+        command.extend(["--width", str(width), "--height", str(height)])
+    return command
 
 
 def run_suite(args: argparse.Namespace) -> dict[str, Any]:
@@ -152,6 +167,8 @@ def run_suite(args: argparse.Namespace) -> dict[str, Any]:
                 args.warmup,
                 args.repeats,
                 args.benchmark_type,
+                getattr(args, "width", None),
+                getattr(args, "height", None),
             )
             result = _run_command(command, REPO_ROOT)
             report["speed_runs"].append({"renderer": renderer, "status": "ok" if result["returncode"] == 0 else "failed", **result})
@@ -164,7 +181,10 @@ def run_suite(args: argparse.Namespace) -> dict[str, Any]:
                 report["quality_runs"].append({"renderer": renderer, "status": "skipped_unavailable"})
                 continue
             result = _run_command(
-                _quality_command(renderer, scene, cameras, ground_truth_dir, output_dir),
+                _quality_command(
+                    renderer, scene, cameras, ground_truth_dir, output_dir,
+                    getattr(args, "width", None), getattr(args, "height", None),
+                ),
                 REPO_ROOT,
             )
             report["quality_runs"].append({"renderer": renderer, "status": "ok" if result["returncode"] == 0 else "failed", **result})
@@ -182,6 +202,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup", type=int, default=30)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--width", type=int, default=None)
+    parser.add_argument("--height", type=int, default=None)
     parser.add_argument(
         "--benchmark-type",
         choices=["synthetic_stress", "real_scene_speed"],

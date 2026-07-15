@@ -6,6 +6,12 @@ on:
     paths:
       - "docs/**"
       - "data/results/**"
+      - "benchmark/**"
+      - "results/measured/**"
+      - "results/reproduced/**"
+      - "results/paper/**"
+      - "src/benchmark_cli.py"
+      - "src/benchmark_matrix.py"
       - "src/leaderboard/**"
       - "src/analysis/pareto.py"
       - "src/scripts/generate_leaderboard.py"
@@ -33,10 +39,7 @@ jobs:
           python-version: "3.12"
 
       - name: Regenerate leaderboard
-        run: >
-          python src/scripts/generate_leaderboard.py
-          --inputs data/results/rtx5070_laptop_2026-07-13.json data/results/rtx5070_train_reference_summary_2026-07-14.json
-          --output-dir docs/leaderboard
+        run: python benchmark.py report --output-dir docs/leaderboard
 
       - name: Publish docs and report JSON to gh-pages
         shell: bash

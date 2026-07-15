@@ -22,10 +22,11 @@ from .cameras import (
 from .metrics import Timer, RendererMetrics, FrameMetrics
 from .results import ResultsManager
 from .config import BenchmarkConfig
+from .nvml import NvmlProcessMemorySampler
 
 __all__ = [
     "load_ply", "compute_cov3d_from_scales_rot",
     "generate_cameras", "load_cameras_from_json", "resize_cameras", "validate_cameras_facing_point", "Camera",
     "Timer", "RendererMetrics", "FrameMetrics",
-    "ResultsManager", "BenchmarkConfig",
+    "ResultsManager", "BenchmarkConfig", "NvmlProcessMemorySampler",
 ]
