@@ -85,6 +85,20 @@ python src/scripts/download_datasets.py --list-official
 python src/scripts/validate_official_training.py
 ```
 
+Run local renderer availability plus speed/quality suite on an official scene:
+
+```text
+python src/scripts/run_local_renderer_suite.py \
+  --scene data/official/mipnerf360/garden/point_cloud.ply \
+  --cameras data/official/mipnerf360/garden/cameras.json \
+  --ground-truth-dir data/official/mipnerf360/garden/images \
+  --renderers all \
+  --output-dir results/local_renderer_suite
+```
+
+Unavailable renderer backends are reported as skipped; metrics are generated
+only for adapters that actually run locally.
+
 ## Leaderboard
 
 Committed GitHub Pages artifacts live in [`docs/leaderboard`](docs/leaderboard).

@@ -1,32 +1,20 @@
-"""
-Renderer adapter registry.
+"""Renderer adapter registry."""
+from __future__ import annotations
 
-Provides a registration mechanism and lookup functions for renderer adapters.
-Each adapter is registered by name and can be queried for availability.
-"""
+from typing import Type
+
 from .base import RendererAdapter
 
-_RENDERER_REGISTRY = {}
+_RENDERER_REGISTRY: dict[str, Type[RendererAdapter]] = {}
 
-def register_renderer(name, cls):
-    """Register a renderer adapter class.
 
-    Args:
-        name: String identifier for the renderer (e.g., 'diff_gaussian').
-        cls: RendererAdapter subclass to register.
-    """
+def register_renderer(name: str, cls: Type[RendererAdapter]) -> None:
+    """Register a renderer adapter class."""
     _RENDERER_REGISTRY[name] = cls
 
-def get_renderer(name, device="cuda"):
-    """Retrieve a renderer instance by name.
 
-    Args:
-        name: Renderer identifier string.
-        device: Target device for tensor allocation.
-
-    Returns:
-        RendererAdapter instance, or None if not registered or unavailable.
-    """
+def get_renderer(name: str, device: str = "cuda") -> RendererAdapter | None:
+    """Retrieve a renderer instance by name."""
     if name not in _RENDERER_REGISTRY:
         print(f"  Renderer '{name}' not registered")
         return None
@@ -36,20 +24,20 @@ def get_renderer(name, device="cuda"):
         return None
     return renderer
 
-def list_renderers():
+
+def get_renderer_class(name: str) -> Type[RendererAdapter] | None:
+    """Return the registered renderer class without availability filtering."""
+    return _RENDERER_REGISTRY.get(name)
+
+
+def list_renderers() -> list[str]:
     """Return all registered renderer names."""
     return list(_RENDERER_REGISTRY.keys())
 
-def list_available(device="cuda"):
-    """Return names of renderers that are currently available.
 
-    Args:
-        device: Target device for availability check.
-
-    Returns:
-        List of available renderer name strings.
-    """
-    available = []
+def list_available(device: str = "cuda") -> list[str]:
+    """Return names of renderers that are currently available."""
+    available: list[str] = []
     for name, cls in _RENDERER_REGISTRY.items():
         r = cls(device=device)
         if r.is_available():
@@ -71,6 +59,12 @@ from .diff_gaussian_renderer import DiffGaussianRenderer
 from .fast_gauss_renderer import FastGaussRenderer
 from .speedy_splat_renderer import SpeedySplatRenderer, SpeedySplatRawRenderer
 from .tcgs_renderer import TCGSRenderer
+from .experimental_renderer import (
+    FlashGSRenderer,
+    GemmGSRenderer,
+    LocalGSRenderer,
+    StopThePopRenderer,
+)
 
 register_renderer("gsplat", GsplatRenderer)
 register_renderer("gsplat_dense", GsplatDenseRenderer)
@@ -87,3 +81,7 @@ register_renderer("fast_gauss", FastGaussRenderer)
 register_renderer("speedy_splat", SpeedySplatRenderer)
 register_renderer("speedy_splat_raw", SpeedySplatRawRenderer)
 register_renderer("tcgs", TCGSRenderer)
+register_renderer("flashgs", FlashGSRenderer)
+register_renderer("local_gs", LocalGSRenderer)
+register_renderer("gemm_gs", GemmGSRenderer)
+register_renderer("stopthepop", StopThePopRenderer)
