@@ -6,9 +6,6 @@ import json
 import os
 import sys
 
-import matplotlib.pyplot as plt
-
-
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.dirname(PROJECT_ROOT)
 SCHEMA_DIR = os.path.join(PROJECT_ROOT, "schemas")
@@ -65,6 +62,8 @@ def load_records(paths):
 
 
 def render_plot(records, output_path):
+    import matplotlib.pyplot as plt
+
     renderer_style = {
         "gsplat_higs_auto": ("HiGS Auto", "#0f766e", "o"),
         "speedy_splat": ("Speedy-Splat", "#b45309", "s"),
