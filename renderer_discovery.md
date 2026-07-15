@@ -32,3 +32,17 @@ python src/scripts/validate_official_training.py
 
 This validates both official dataset policy and renderer candidate registry.
 
+## Local Batch Testing
+
+```text
+python src/scripts/run_local_renderer_suite.py \
+  --scene data/official/mipnerf360/garden/point_cloud.ply \
+  --cameras data/official/mipnerf360/garden/cameras.json \
+  --ground-truth-dir data/official/mipnerf360/garden/images \
+  --renderers all \
+  --output-dir results/local_renderer_suite
+```
+
+The suite records renderer availability first. Missing candidate libraries such
+as FlashGS, Local-GS, GEMM-GS, and StopThePop are registered as interface
+stubs and are skipped until a real backend adapter is installed.
