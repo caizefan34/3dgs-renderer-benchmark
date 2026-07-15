@@ -11,6 +11,13 @@ import csv
 from typing import Dict, List
 from .metrics import RendererMetrics
 
+from analysis.efficiency import (
+    QualityAdjustmentConfig,
+    calculate_quality_adjusted_efficiency,
+)
+from analysis.pareto import pareto_analysis
+from analysis.recommendations import build_recommendations
+
 
 def _format_quality(value, digits: int) -> str:
     return "N/A" if value is None else f"{value:.{digits}f}"
@@ -51,6 +58,67 @@ class ResultsManager:
         rankings.sort(key=lambda x: x[1], reverse=(key == "mean_fps"))
         return rankings
 
+    def apply_quality_adjustment(
+        self,
+        reference_renderer: str,
+        config: QualityAdjustmentConfig = QualityAdjustmentConfig(),
+    ) -> None:
+        """Compute experimental effective FPS relative to a GT-scored baseline."""
+        if reference_renderer not in self.results:
+            raise KeyError(f"Unknown quality reference renderer: {reference_renderer}")
+        reference = self.results[reference_renderer]
+        reference_quality = {
+            "psnr": reference.psnr,
+            "ssim": reference.ssim,
+            "lpips": reference.lpips,
+        }
+        for metrics in self.results.values():
+            adjusted = calculate_quality_adjusted_efficiency(
+                metrics.mean_fps,
+                {"psnr": metrics.psnr, "ssim": metrics.ssim, "lpips": metrics.lpips},
+                reference_quality,
+                config,
+            )
+            metrics.quality_factor = adjusted.quality_factor
+            metrics.effective_fps = adjusted.effective_fps
+            metrics.quality_adjustment = adjusted.to_dict()
+
+    def get_analysis_records(self) -> List[dict]:
+        """Return canonical flat rows consumed by analysis modules."""
+        return [
+            {
+                "renderer": name,
+                "fps": metrics.mean_fps,
+                "latency_ms": metrics.mean_latency_ms,
+                "p99_latency_ms": metrics.p99_latency_ms,
+                "psnr": metrics.psnr,
+                "ssim": metrics.ssim,
+                "lpips": metrics.lpips,
+                "quality_factor": metrics.quality_factor,
+                "effective_fps": metrics.effective_fps,
+                "peak_vram_mb": metrics.peak_vram_mb,
+                "stability_score": metrics.stability_score,
+                "benchmark_type": metrics.benchmark_type,
+            }
+            for name, metrics in self.results.items()
+        ]
+
+    def export_analysis(self, output_dir: str) -> tuple:
+        """Write Pareto and deterministic recommendation artifacts."""
+        records = self.get_analysis_records()
+        pareto = pareto_analysis(records)
+        recommendations = build_recommendations(records, pareto["frontier"])
+        outputs = (
+            ("pareto_frontier.json", pareto),
+            ("recommendations.json", recommendations),
+        )
+        for filename, data in outputs:
+            path = os.path.join(output_dir, filename)
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2, ensure_ascii=False, allow_nan=False)
+            print(f"  Exported: {path}")
+        return pareto, recommendations
+
     # --- Export ---
 
     def export_json(self, path: str):
@@ -88,6 +156,8 @@ class ResultsManager:
                 "p95_latency_ms": d["p95_latency_ms"],
                 "p99_latency_ms": d["p99_latency_ms"],
                 "jitter_pct": d["jitter_pct"],
+                "coefficient_of_variation": d["coefficient_of_variation"],
+                "stability_score": d["stability_score"],
                 "peak_vram_mb": d["peak_vram_mb"],
                 "avg_vram_mb": d["avg_vram_mb"],
                 "load_time_ms": d["scene_load_time_ms"],
@@ -97,7 +167,11 @@ class ResultsManager:
                 "psnr": d["psnr"],
                 "ssim": d["ssim"],
                 "lpips": d["lpips"],
+                "quality_factor": d["quality_factor"],
+                "effective_fps": d["effective_fps"],
                 "num_gaussians": d["num_gaussians"],
+                "difficulty_score": d["difficulty_score"],
+                "benchmark_type": d["benchmark_type"],
             }
             rows.append(row)
         if not rows:
@@ -122,20 +196,29 @@ class ResultsManager:
             "",
             "## Summary",
             "",
-            "| Rank | Renderer | Mean FPS | Median (ms) | P99 (ms) | VRAM(MB) | PSNR vs GT | SSIM vs GT | LPIPS vs GT |",
-            "|------|----------|:--------:|:-----------:|:--------:|:--------:|:----------:|:----------:|:-----------:|",
+            "| Rank | Renderer | Type | Mean FPS | Effective FPS* | Median (ms) | P99 (ms) | Stability | VRAM(MB) | Difficulty | PSNR vs GT | SSIM vs GT | LPIPS vs GT |",
+            "|------|----------|------|:--------:|:--------------:|:-----------:|:--------:|:---------:|:--------:|:----------:|:----------:|:----------:|:-----------:|",
         ]
         for i, (name, fps, lat) in enumerate(rankings, 1):
             m = self.results[name]
             tag = " (fastest)" if name == fastest else ""
             lines.append(
-                f"| {i}{tag} | {name} | {m.mean_fps:.1f} | {m.median_latency_ms:.2f} | "
-                f"{m.p99_latency_ms:.2f} | {m.peak_vram_mb:.0f} | "
+                f"| {i}{tag} | {name} | {m.benchmark_type} | {m.mean_fps:.1f} | "
+                f"{_format_quality(m.effective_fps, 1)} | {m.median_latency_ms:.2f} | "
+                f"{m.p99_latency_ms:.2f} | {m.stability_score:.3f} | {m.peak_vram_mb:.0f} | "
+                f"{_format_quality(m.difficulty_score, 2)} | "
                 f"{_format_quality(m.psnr, 2)} | {_format_quality(m.ssim, 4)} | "
                 f"{_format_quality(m.lpips, 4)} |"
             )
 
-        lines += ["", "## Per-Renderer Details", ""]
+        lines += [
+            "",
+            "*Effective FPS is experimental and remains N/A without GT metrics.*",
+            "Synthetic Stress results must not be interpreted as quality equivalence.",
+            "",
+            "## Per-Renderer Details",
+            "",
+        ]
         for rname in sorted(self.results.keys()):
             m = self.results[rname]
             d = m.to_dict()
@@ -146,11 +229,13 @@ class ResultsManager:
                 f"- **Latency**: mean={m.mean_latency_ms}ms, median={m.median_latency_ms}ms, "
                 f"P99={m.p99_latency_ms}ms",
                 f"- **Jitter**: {m.jitter_pct:.1f}%",
+                f"- **Stability**: CV={m.coefficient_of_variation:.4f}, score={m.stability_score:.4f}",
                 f"- **VRAM**: peak={m.peak_vram_mb:.0f}MB, avg={m.avg_vram_mb:.0f}MB",
                 f"- **Quality vs ground truth**: PSNR={_format_quality(m.psnr, 2)}, "
                 f"SSIM={_format_quality(m.ssim, 4)}, LPIPS={_format_quality(m.lpips, 4)} "
                 f"({m.quality_status})",
                 f"- **Scene**: {d['num_gaussians']:,} gaussians, {d['file_size_mb']:.1f}MB",
+                f"- **Difficulty**: {_format_quality(m.difficulty_score, 2)} ({m.difficulty_formula or 'not measured'})",
                 f"- **Load Time**: {d['scene_load_time_ms']:.1f}ms",
                 "",
             ]
@@ -183,11 +268,14 @@ class ResultsManager:
             <td>{i}</td>
             <td>{tag} {name}</td>
             <td>{m.mean_fps:.1f}</td>
+            <td>{_format_quality(m.effective_fps, 1)}</td>
             <td>{m.median_latency_ms:.2f}</td>
             <td>{m.p1_latency_ms:.2f}</td>
             <td>{m.p99_latency_ms:.2f}</td>
             <td>{m.jitter_pct:.1f}%</td>
+            <td>{m.stability_score:.3f}</td>
             <td>{m.peak_vram_mb:.0f}</td>
+            <td>{_format_quality(m.difficulty_score, 2)}</td>
             <td>{_format_quality(m.psnr, 2)}</td>
             <td>{_format_quality(m.ssim, 4)}</td>
             <td>{_format_quality(m.lpips, 4)}</td>
@@ -223,8 +311,9 @@ tr:hover {{ background: #1e3a5f; }}
 
 <div class="card">
 <h2>Summary</h2>
+<p><b>Scientific scope:</b> Synthetic Stress speed does not establish quality equivalence. Effective FPS is experimental and is N/A without GT metrics.</p>
 <table>
-<tr><th>Rank</th><th>Renderer</th><th>Mean FPS</th><th>Median (ms)</th><th>P1 (ms)</th><th>P99 (ms)</th><th>Jitter</th><th>VRAM</th><th>PSNR vs GT</th><th>SSIM vs GT</th><th>LPIPS vs GT</th></tr>
+<tr><th>Rank</th><th>Renderer</th><th>Mean FPS</th><th>Effective FPS*</th><th>Median (ms)</th><th>P1 (ms)</th><th>P99 (ms)</th><th>Jitter</th><th>Stability</th><th>VRAM</th><th>Difficulty</th><th>PSNR vs GT</th><th>SSIM vs GT</th><th>LPIPS vs GT</th></tr>
 {trows}
 </table>
 </div>

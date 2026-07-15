@@ -24,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Publish docs to gh-pages
+      - name: Publish docs and report JSON to gh-pages
         shell: bash
         run: |
           set -euo pipefail
@@ -34,6 +34,12 @@ jobs:
           git worktree add /tmp/gh-pages origin/gh-pages
           find /tmp/gh-pages -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp -R docs/. /tmp/gh-pages/
+          if [[ -d docs/data ]]; then
+            while IFS= read -r -d '' report; do
+              relative_path="${report#docs/}"
+              test -f "/tmp/gh-pages/${relative_path}"
+            done < <(find docs/data -type f -name '*.json' -print0)
+          fi
           touch /tmp/gh-pages/.nojekyll
           cd /tmp/gh-pages
           git add -A

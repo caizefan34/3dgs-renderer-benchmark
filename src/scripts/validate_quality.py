@@ -329,6 +329,7 @@ def main():
     )
     report = {
         "schema_version": 3,
+        "benchmark_type": "real_scene_quality",
         "reference": {
             "type": "ground_truth",
             "camera_manifest": os.path.abspath(args.cameras),

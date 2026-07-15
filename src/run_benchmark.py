@@ -29,6 +29,11 @@ from benchmark_framework import (
     validate_cameras_facing_point, RendererMetrics, ResultsManager, BenchmarkConfig
 )
 from renderers import get_renderer, list_renderers, list_available
+from benchmark.difficulty import (
+    DifficultyConfig,
+    DifficultyInputs,
+    calculate_difficulty,
+)
 
 
 def _uniform_camera_resolution(cameras):
@@ -55,7 +60,49 @@ def parse_args():
     p.add_argument("--list-renderers", action="store_true", help="List registered renderers and exit")
     p.add_argument("--allow-backfacing-cameras", action="store_true",
                    help="Allow camera paths whose scene center has z <= 0")
+    p.add_argument(
+        "--benchmark-type",
+        choices=["synthetic_stress", "real_scene_speed"],
+        default=None,
+        help="Result taxonomy (default: synthetic_stress)",
+    )
+    p.add_argument(
+        "--difficulty-metrics",
+        default=None,
+        help="JSON containing measured visibility, overlap, tile density, and depth complexity",
+    )
     return p.parse_args()
+
+
+def _load_difficulty(path):
+    """Load explicitly measured scene factors without inventing missing values."""
+    if path is None:
+        return None
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    raw_inputs = data.get("inputs", data)
+    raw_config = data.get("normalization", {})
+    config_names = {
+        "visible_gaussian_count": "visible_gaussian_scale",
+        "overlap_ratio": "overlap_ratio_scale",
+        "average_tile_density": "average_tile_density_scale",
+        "depth_complexity": "depth_complexity_scale",
+    }
+    config = DifficultyConfig(**{
+        config_names[name]: value
+        for name, value in raw_config.items()
+        if name in config_names
+    })
+    inputs = DifficultyInputs(**{
+        name: raw_inputs[name]
+        for name in (
+            "visible_gaussian_count",
+            "overlap_ratio",
+            "average_tile_density",
+            "depth_complexity",
+        )
+    })
+    return calculate_difficulty(inputs, config)
 
 
 def main():
@@ -79,6 +126,8 @@ def main():
     if args.width: cfg.image_width = args.width
     if args.height: cfg.image_height = args.height
     if args.output: cfg.output_dir = args.output
+    if args.benchmark_type: cfg.benchmark_type = args.benchmark_type
+    difficulty = _load_difficulty(args.difficulty_metrics)
 
     repo_root = os.path.dirname(PROJECT_ROOT)
     data_dir = os.path.join(repo_root, "data")
@@ -249,6 +298,11 @@ def main():
             scene_load_time_ms=scene_load_ms,
             scene_parse_time_ms=0.0,
             file_size_mb=file_size_mb,
+            benchmark_type=cfg.benchmark_type,
+            difficulty_score=difficulty.score if difficulty else None,
+            difficulty_formula=difficulty.formula_id if difficulty else None,
+            difficulty_inputs=difficulty.to_dict()["inputs"] if difficulty else None,
+            difficulty_normalization=difficulty.to_dict()["normalization"] if difficulty else None,
             frame_times_ms=[round(x, 2) for x in all_frame_times],
             wall_frame_times_ms=[round(x, 2) for x in all_wall_times],
         )
@@ -275,6 +329,7 @@ def main():
     results_mgr.export_markdown(os.path.join(output_dir, "benchmark_report.md"))
     results_mgr.export_html(os.path.join(output_dir, "benchmark_report.html"),
                             title="3DGS Renderer Benchmark")
+    results_mgr.export_analysis(output_dir)
 
     # Summary
     print("\n" + "=" * 70)

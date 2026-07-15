@@ -56,6 +56,8 @@ class RendererMetrics:
     min_latency_ms: float = 0.0
     max_latency_ms: float = 0.0
     std_latency_ms: float = 0.0
+    coefficient_of_variation: float = 0.0
+    stability_score: float = 0.0
     p1_latency_ms: float = 0.0
     p5_latency_ms: float = 0.0
     p10_latency_ms: float = 0.0
@@ -95,6 +97,14 @@ class RendererMetrics:
     psnr: Optional[float] = None
     ssim: Optional[float] = None
     lpips: Optional[float] = None
+    quality_factor: Optional[float] = None
+    effective_fps: Optional[float] = None
+    quality_adjustment: Optional[dict] = None
+    benchmark_type: str = "synthetic_stress"
+    difficulty_score: Optional[float] = None
+    difficulty_formula: Optional[str] = None
+    difficulty_inputs: Optional[dict] = None
+    difficulty_normalization: Optional[dict] = None
 
     frame_times_ms: List[float] = field(default_factory=list)
     wall_frame_times_ms: List[float] = field(default_factory=list)
@@ -116,7 +126,8 @@ class RendererMetrics:
         self.mean_latency_ms = float(t.mean())
         self.median_latency_ms = float(np.median(t))
         self.std_latency_ms = float(t.std())
-        self.jitter_ms = float(t.std() / t.mean() * 100) if t.mean() > 0 else 0.0
+        self.coefficient_of_variation = float(t.std() / t.mean()) if t.mean() > 0 else 0.0
+        self.jitter_ms = self.coefficient_of_variation * 100
 
         self.p1_latency_ms = float(np.percentile(t, 1))
         self.p5_latency_ms = float(np.percentile(t, 5))
@@ -126,6 +137,10 @@ class RendererMetrics:
         self.p90_latency_ms = float(np.percentile(t, 90))
         self.p95_latency_ms = float(np.percentile(t, 95))
         self.p99_latency_ms = float(np.percentile(t, 99))
+        self.stability_score = (
+            min(self.median_latency_ms / self.p99_latency_ms, 1.0)
+            if self.p99_latency_ms > 0 else 0.0
+        )
 
         self.mean_fps = round(1000.0 / self.mean_latency_ms, 1) if self.mean_latency_ms > 0 else 0.0
         self.p1_fps = round(1000.0 / self.p99_latency_ms, 1) if self.p99_latency_ms > 0 else 0.0
@@ -168,6 +183,8 @@ class RendererMetrics:
             "min_latency_ms": self.min_latency_ms,
             "max_latency_ms": self.max_latency_ms,
             "std_latency_ms": self.std_latency_ms,
+            "coefficient_of_variation": self.coefficient_of_variation,
+            "stability_score": self.stability_score,
             "jitter_pct": round(self.jitter_pct, 2),
         }
         for p in [1, 5, 10, 25, 75, 90, 95, 99]:
@@ -185,6 +202,14 @@ class RendererMetrics:
             "psnr": round(self.psnr, 4) if self.psnr is not None else None,
             "ssim": round(self.ssim, 6) if self.ssim is not None else None,
             "lpips": round(self.lpips, 6) if self.lpips is not None else None,
+            "quality_factor": round(self.quality_factor, 6) if self.quality_factor is not None else None,
+            "effective_fps": round(self.effective_fps, 3) if self.effective_fps is not None else None,
+            "quality_adjustment": self.quality_adjustment,
+            "benchmark_type": self.benchmark_type,
+            "difficulty_score": self.difficulty_score,
+            "difficulty_formula": self.difficulty_formula,
+            "difficulty_inputs": self.difficulty_inputs,
+            "difficulty_normalization": self.difficulty_normalization,
             "frame_times_ms": [round(x, 2) for x in self.frame_times_ms],
             "wall_frame_times_ms": [round(x, 2) for x in self.wall_frame_times_ms],
         })

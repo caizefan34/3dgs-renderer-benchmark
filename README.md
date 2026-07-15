@@ -1,17 +1,42 @@
-# Reproducible 3DGS Renderer Benchmark
+# 3DGS Renderer Evaluation Framework
 
 [![Tests](https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/ci.yml/badge.svg)](https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/ci.yml)
 [![Pages](https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/deploy-pages.yml/badge.svg)](https://caizefan34.github.io/3dgs-renderer-benchmark/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/caizefan34/3dgs-renderer-benchmark?style=social)](https://github.com/caizefan34/3dgs-renderer-benchmark/stargazers)
 
-A quality-gated benchmark for CUDA 3D Gaussian Splatting renderers. It answers
-a deceptively hard question: **which renderer is actually faster when scene
-tensors, cameras, resolution, timing, and image quality are held constant?**
+A quality-gated evaluation framework for CUDA 3D Gaussian Splatting renderers.
+Its primary question is: **which renderer is most efficient under explicit
+quality constraints?** Raw speed remains available, but it is interpreted
+together with image quality, stability, memory, and scene difficulty.
 
 [Explore the results](https://caizefan34.github.io/3dgs-renderer-benchmark/)
 | [Review the protocol](#methodology)
 | [Add a renderer](CONTRIBUTING.md#adding-a-renderer)
+
+> [!IMPORTANT]
+> **Synthetic speed is not quality equivalence.** Generated stress scenes have
+> no GT photographs and never enter GT-quality rankings, Pareto frontiers, or
+> quality-preserving recommendations.
+
+## Benchmark taxonomy
+
+The framework reports four deliberately separate result classes:
+
+1. **Synthetic Stress Benchmark** — scalability, overlap, tile-list growth,
+   scheduling, and memory behavior.
+2. **Real Scene Quality Benchmark** — PSNR, SSIM, and LPIPS against held-out
+   GT images. The current paired Train audit is renderer-fidelity verification;
+   its holdout status is unverified.
+3. **Real Scene Speed Benchmark** — trained scenes with identical cameras and
+   resolution across renderers.
+4. **Pareto Analysis** — non-dominated renderers in compatible speed-quality
+   cohorts.
+
+See the full [taxonomy](docs/benchmark_taxonomy.md),
+[evaluation methodology](docs/evaluation_methodology.md),
+[Synthetic Stress Suite](docs/synthetic_stress_suite.md), and
+[architecture](docs/architecture.md).
 
 ## Why this benchmark
 
@@ -48,6 +73,21 @@ python -m pip install numpy gsplat
 python src/scripts/generate_scene.py --gaussians 50000 --output data/scene.ply
 python src/run_benchmark.py --list-renderers
 python src/run_benchmark.py --scene data/scene.ply --camera-path circle --renderers gsplat --frames 100 --warmup 30 --repeats 3 --output results/quickstart
+```
+
+The standard run keeps all old output files and additionally emits
+`pareto_frontier.json` and `recommendations.json`. With no GT metrics these
+files contain honest exclusions/empty quality categories rather than assuming
+quality equivalence.
+
+For a compatible real-scene cohort, compute configurable experimental
+effective FPS, Pareto membership, recommendations, and an HTML plot with:
+
+```powershell
+python src/scripts/analyze_results.py `
+  --input data/examples/evaluation_records.json `
+  --output-dir results/evaluation `
+  --reference-renderer reference_renderer
 ```
 
 > [!NOTE]
@@ -193,6 +233,12 @@ Before measurement, this work corrected:
 
 ## Methodology
 
+The formulas and deterministic recommendation rules are specified in
+[Evaluation methodology](docs/evaluation_methodology.md). New additive fields
+include a versioned 0–10 Scene Difficulty Score, coefficient of variation,
+`median/P99` stability score, quality factor, and experimental effective FPS.
+Missing quality remains `null`.
+
 - Corrected fixed camera paths use +Z facing the scene.
 - Camera validation rejects paths placing the scene center behind the camera.
 - Static scene packing and activation occur before timing.
@@ -200,9 +246,16 @@ Before measurement, this work corrected:
   end event. Synchronization is outside the GPU event interval and avoids deep
   WDDM queues.
 - GPU and end-to-end latency are exported separately with percentiles and VRAM.
+- Raw latency standard deviation, CV, and stability score are exported without
+  changing the existing jitter field.
 - A real-scene result is quality-verified only after finite-output,
   camera-change, and GT-relative PSNR/SSIM/LPIPS checks pass. Synthetic timing
   results are labeled separately.
+
+Attach independently measured scene factors with
+`--difficulty-metrics data/examples/difficulty_metrics.json`; if they are not
+available, `difficulty_score` remains `null` rather than being guessed from
+Gaussian count.
 
 Example:
 

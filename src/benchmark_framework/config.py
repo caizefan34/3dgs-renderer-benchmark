@@ -32,6 +32,7 @@ class BenchmarkConfig:
     image_width: int = 1920
     image_height: int = 1080
     output_dir: str = "results"
+    benchmark_type: str = "synthetic_stress"
 
     @classmethod
     def create_default(cls):

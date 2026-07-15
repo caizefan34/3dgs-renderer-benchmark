@@ -1,4 +1,5 @@
 import sys
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,46 @@ from benchmark_framework import RendererMetrics, ResultsManager
 
 
 class ResultsExportTest(unittest.TestCase):
+    def test_analysis_artifacts_are_additive(self):
+        reference = RendererMetrics(
+            renderer_name="reference",
+            frame_times_ms=[10.0],
+            psnr=30.0,
+            ssim=0.95,
+            lpips=0.10,
+            peak_vram_mb=500,
+            benchmark_type="real_scene_speed",
+        )
+        candidate = RendererMetrics(
+            renderer_name="candidate",
+            frame_times_ms=[5.0],
+            psnr=29.9,
+            ssim=0.949,
+            lpips=0.101,
+            peak_vram_mb=600,
+            benchmark_type="real_scene_speed",
+        )
+        reference.compute()
+        candidate.compute()
+        manager = ResultsManager()
+        manager.add_result("reference", reference)
+        manager.add_result("candidate", candidate)
+        manager.apply_quality_adjustment("reference")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager.export_analysis(temp_dir)
+            pareto = json.loads((Path(temp_dir) / "pareto_frontier.json").read_text())
+            recommendations = json.loads(
+                (Path(temp_dir) / "recommendations.json").read_text()
+            )
+
+        self.assertEqual(set(pareto["frontier"]), {"reference", "candidate"})
+        self.assertEqual(
+            recommendations["recommendations"]["best_absolute_speed"]["renderer"],
+            "candidate",
+        )
+        self.assertIsNotNone(candidate.to_dict()["effective_fps"])
+
     def test_unmeasured_quality_is_null_and_na(self):
         metrics = RendererMetrics(renderer_name="test", frame_times_ms=[2.0])
         metrics.compute()
