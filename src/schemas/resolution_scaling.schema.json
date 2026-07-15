@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Resolution scaling benchmark",
+  "type": "object",
+  "required": ["schema_version", "benchmark_suite_version", "environment", "protocol", "records"],
+  "properties": {
+    "schema_version": {"type": "integer", "minimum": 1},
+    "benchmark_suite_version": {"type": "string"},
+    "environment": {"type": "object"},
+    "protocol": {"type": "object"},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scene_id", "renderer", "resolution_name", "width", "height", "mean_fps", "mean_latency_ms", "peak_vram_mb"],
+        "properties": {
+          "scene_id": {"type": "string"},
+          "renderer": {"type": "string"},
+          "resolution_name": {"type": "string", "enum": ["720p", "1080p", "4k"]},
+          "width": {"type": "integer", "minimum": 1},
+          "height": {"type": "integer", "minimum": 1},
+          "mean_fps": {"type": "number"},
+          "mean_latency_ms": {"type": "number"},
+          "peak_vram_mb": {"type": "number"}
+        }
+      }
+    }
+  }
+}

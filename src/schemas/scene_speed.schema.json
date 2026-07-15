@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Official scene renderer speed benchmark",
+  "type": "object",
+  "required": ["schema_version", "benchmark_suite_version", "status", "date", "environment", "protocol", "scene", "results"],
+  "properties": {
+    "schema_version": {"type": "integer", "minimum": 1},
+    "benchmark_suite_version": {"type": "string"},
+    "status": {"type": "string", "enum": ["complete", "partial", "failed"]},
+    "date": {"type": "string"},
+    "environment": {
+      "type": "object",
+      "required": ["gpu", "python", "pytorch", "cuda_runtime"],
+      "properties": {
+        "gpu": {"type": ["string", "null"]},
+        "python": {"type": "string"},
+        "pytorch": {"type": "string"},
+        "cuda_runtime": {"type": ["string", "null"]}
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "required": ["resolution", "warmup_frames", "measured_frames_per_repeat", "repeats", "total_measured_frames", "timing"],
+      "properties": {
+        "resolution": {"type": "array", "items": {"type": "integer"}},
+        "resolution_name": {"type": "string"},
+        "warmup_frames": {"type": "integer", "minimum": 0},
+        "measured_frames_per_repeat": {"type": "integer", "minimum": 1},
+        "repeats": {"type": "integer", "minimum": 1},
+        "total_measured_frames": {"type": "integer", "minimum": 1},
+        "timing": {"type": "string"}
+      }
+    },
+    "scene": {
+      "type": "object",
+      "required": ["scene_id", "dataset_family", "model_path", "model_sha256", "camera_path", "camera_sha256", "num_gaussians"],
+      "properties": {
+        "scene_id": {"type": "string"},
+        "dataset_family": {"type": "string"},
+        "model_path": {"type": "string"},
+        "model_sha256": {"type": "string"},
+        "camera_path": {"type": "string"},
+        "camera_sha256": {"type": "string"},
+        "num_gaussians": {"type": "integer", "minimum": 1}
+      }
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["renderer", "num_frames", "warmup_frames", "measured_frames_per_repeat", "repeats", "frame_times_ms", "image_width", "image_height", "mean_fps", "peak_vram_mb"],
+        "properties": {
+          "renderer": {"type": "string"},
+          "num_frames": {"type": "integer", "minimum": 1},
+          "warmup_frames": {"type": "integer", "minimum": 0},
+          "measured_frames_per_repeat": {"type": "integer", "minimum": 1},
+          "repeats": {"type": "integer", "minimum": 1},
+          "frame_times_ms": {"type": "array", "items": {"type": "number"}},
+          "image_width": {"type": "integer", "minimum": 1},
+          "image_height": {"type": "integer", "minimum": 1},
+          "mean_fps": {"type": "number"},
+          "peak_vram_mb": {"type": "number"}
+        }
+      }
+    }
+  }
+}

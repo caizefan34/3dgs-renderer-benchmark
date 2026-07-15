@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import torch
@@ -59,6 +60,30 @@ class CameraConventionTest(unittest.TestCase):
 
         cameras = generate_cameras(2, image_width=19, image_height=11, device="cpu")
         self.assertEqual(_uniform_camera_resolution(cameras), (19, 11))
+
+    def test_resize_cameras_preserves_fov_and_scales_intrinsics(self):
+        from benchmark_framework import generate_cameras, resize_cameras
+
+        camera = generate_cameras(1, image_width=8, image_height=4, device="cpu")[0]
+        resized = resize_cameras([camera], 16, 9)[0]
+
+        self.assertEqual((resized.image_width, resized.image_height), (16, 9))
+        self.assertEqual(resized.fov_x, camera.fov_x)
+        self.assertEqual(resized.fov_y, camera.fov_y)
+        torch.testing.assert_close(resized.K[0, 0], camera.K[0, 0] * 2.0)
+        torch.testing.assert_close(resized.K[1, 1], camera.K[1, 1] * 2.25)
+        torch.testing.assert_close(resized.viewmatrix, camera.viewmatrix)
+
+    def test_named_resolution_presets(self):
+        from run_benchmark import _requested_resolution
+
+        for name, expected in {
+            "720p": (1280, 720),
+            "1080p": (1920, 1080),
+            "4k": (3840, 2160),
+        }.items():
+            args = SimpleNamespace(resolution=name, width=None, height=None)
+            self.assertEqual(_requested_resolution(args), expected)
 
 
 class HiGSAutoConfigTest(unittest.TestCase):

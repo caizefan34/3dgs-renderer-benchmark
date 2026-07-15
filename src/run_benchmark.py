@@ -17,7 +17,8 @@ References:
     3D Gaussian Splatting for Real-Time Radiance Field Rendering.
     ACM Transactions on Graphics, 42(4).
 """
-import sys, os, time, json, argparse, gc, subprocess
+import sys, os, time, json, argparse, gc, subprocess, hashlib
+from datetime import date
 import torch
 import numpy as np
 
@@ -25,10 +26,9 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_ROOT)
 
 from benchmark_framework import (
-    load_ply, load_cameras_from_json, generate_cameras,
+    load_ply, load_cameras_from_json, generate_cameras, resize_cameras,
     validate_cameras_facing_point, RendererMetrics, ResultsManager, BenchmarkConfig
 )
-from renderers import get_renderer, list_renderers, list_available
 from benchmark.difficulty import (
     DifficultyConfig,
     DifficultyInputs,
@@ -37,11 +37,40 @@ from benchmark.difficulty import (
 from benchmark_suite import BENCHMARK_SUITE_VERSION
 
 
+RESOLUTION_PRESETS = {
+    "720p": (1280, 720),
+    "1080p": (1920, 1080),
+    "4k": (3840, 2160),
+}
+
+
 def _uniform_camera_resolution(cameras):
     resolutions = {(camera.image_width, camera.image_height) for camera in cameras}
     if len(resolutions) != 1:
         raise ValueError(f"Benchmark requires one camera resolution, got {sorted(resolutions)}")
     return next(iter(resolutions))
+
+
+def _requested_resolution(args):
+    if (args.width is None) != (args.height is None):
+        raise ValueError("--width and --height must be provided together")
+    if args.resolution and (args.width is not None or args.height is not None):
+        raise ValueError("--resolution cannot be combined with --width/--height")
+    if args.resolution in RESOLUTION_PRESETS:
+        return RESOLUTION_PRESETS[args.resolution]
+    if args.width is not None:
+        if args.width <= 0 or args.height <= 0:
+            raise ValueError("Resolution dimensions must be positive")
+        return args.width, args.height
+    return None
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _git_commit_hash(repo_root):
@@ -87,7 +116,19 @@ def parse_args():
     p.add_argument("--clock-lock", action="store_true", default=None, help="Enable GPU clock lock")
     p.add_argument("--width", type=int, default=None, help="Image width in pixels")
     p.add_argument("--height", type=int, default=None, help="Image height in pixels")
+    p.add_argument(
+        "--resolution",
+        choices=["native", *RESOLUTION_PRESETS],
+        default=None,
+        help="Named output resolution; native keeps camera-file dimensions",
+    )
     p.add_argument("--output", type=str, default=None, help="Output directory for results")
+    p.add_argument("--scene-id", type=str, default=None, help="Stable scene identifier for metadata")
+    p.add_argument("--dataset-family", type=str, default="unknown", help="Dataset family for metadata")
+    p.add_argument("--gsplat-extension-dir", type=str, default=None)
+    p.add_argument("--gsplat-source-dir", type=str, default=None)
+    p.add_argument("--gsplat-scene-extension-dir", type=str, default=None)
+    p.add_argument("--gsplat-inference-extension-dir", type=str, default=None)
     p.add_argument("--camera-path", type=str, default=None, choices=["spiral", "circle", "flythrough", "random_walk"],
                    help="Standard camera path preset (from data/camera_presets/)")
     p.add_argument("--list-renderers", action="store_true", help="List registered renderers and exit")
@@ -149,6 +190,21 @@ def main():
         5. Export results in JSON, CSV, Markdown, and HTML formats
     """
     args = parse_args()
+    try:
+        requested_resolution = _requested_resolution(args)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+
+    from run_full_benchmark import _collect_environment, _preload_gsplat_extension
+
+    _preload_gsplat_extension(
+        args.gsplat_extension_dir,
+        args.gsplat_source_dir,
+        args.gsplat_scene_extension_dir,
+        args.gsplat_inference_extension_dir,
+    )
+    from renderers import get_renderer, list_renderers, list_available
+
     cfg = BenchmarkConfig.create_default()
 
     if args.renderers: cfg.renderers = args.renderers
@@ -156,8 +212,8 @@ def main():
     if args.warmup: cfg.warmup_frames = args.warmup
     if args.repeats: cfg.repeats = args.repeats
     if args.clock_lock is not None: cfg.clock_lock = args.clock_lock
-    if args.width: cfg.image_width = args.width
-    if args.height: cfg.image_height = args.height
+    if requested_resolution:
+        cfg.image_width, cfg.image_height = requested_resolution
     if args.output: cfg.output_dir = args.output
     if args.benchmark_type: cfg.benchmark_type = args.benchmark_type
     difficulty = _load_difficulty(args.difficulty_metrics)
@@ -201,7 +257,10 @@ def main():
     print(f"  Scene: {scene_path}")
     print(f"  Cameras: {cameras_path}")
     resolution_label = (
-        "from camera file" if os.path.exists(cameras_path)
+        f"{requested_resolution[0]}x{requested_resolution[1]}"
+        if requested_resolution
+        else "from camera file"
+        if os.path.exists(cameras_path)
         else f"{cfg.image_width}x{cfg.image_height}"
     )
     print(f"  Resolution: {resolution_label}")
@@ -223,6 +282,8 @@ def main():
     if os.path.exists(cameras_path):
         t0 = time.perf_counter()
         cameras = load_cameras_from_json(cameras_path, device="cuda")
+        if requested_resolution:
+            cameras = resize_cameras(cameras, *requested_resolution)
         cam_load_ms = (time.perf_counter() - t0) * 1000
         print(f"  Loaded {len(cameras)} cameras ({cam_load_ms:.0f}ms)")
     else:
@@ -321,6 +382,8 @@ def main():
             renderer_name=rname,
             num_frames=cfg.benchmark_frames * cfg.repeats,
             warmup_frames=cfg.warmup_frames,
+            measured_frames_per_repeat=cfg.benchmark_frames,
+            repeats=cfg.repeats,
             image_width=image_width,
             image_height=image_height,
             num_gaussians=N,
@@ -366,12 +429,57 @@ def main():
     rankings = results_mgr.get_ranking()
     fastest = rankings[0][0] if rankings else ""
 
-    results_mgr.export_json(os.path.join(output_dir, "benchmark_results.json"))
+    environment = _collect_environment()
+    environment.update({
+        "gsplat_extension_dir": os.path.abspath(args.gsplat_extension_dir) if args.gsplat_extension_dir else None,
+        "gsplat_source_dir": os.path.abspath(args.gsplat_source_dir) if args.gsplat_source_dir else None,
+        "gsplat_scene_extension_dir": os.path.abspath(args.gsplat_scene_extension_dir) if args.gsplat_scene_extension_dir else None,
+        "gsplat_inference_extension_dir": os.path.abspath(args.gsplat_inference_extension_dir) if args.gsplat_inference_extension_dir else None,
+    })
+    scene_id = args.scene_id or os.path.basename(os.path.dirname(os.path.abspath(scene_path)))
+    document = {
+        "schema_version": 1,
+        "benchmark_suite_version": BENCHMARK_SUITE_VERSION,
+        "status": "complete" if len(results_mgr.results) == len(cfg.renderers) else "partial" if results_mgr.results else "failed",
+        "date": date.today().isoformat(),
+        "environment": environment,
+        "protocol": {
+            "resolution": [image_width, image_height],
+            "resolution_name": args.resolution or ("custom" if requested_resolution else "native"),
+            "warmup_frames": cfg.warmup_frames,
+            "measured_frames_per_repeat": cfg.benchmark_frames,
+            "repeats": cfg.repeats,
+            "total_measured_frames": cfg.benchmark_frames * cfg.repeats,
+            "timing": "torch.cuda.Event elapsed time; per-frame synchronization",
+        },
+        "scene": {
+            "scene_id": scene_id,
+            "dataset_family": args.dataset_family,
+            "model_path": os.path.abspath(scene_path),
+            "model_sha256": _sha256(scene_path),
+            "camera_path": os.path.abspath(cameras_path),
+            "camera_sha256": _sha256(cameras_path),
+            "num_gaussians": N,
+        },
+        "results": results_mgr.get_summary(),
+    }
+    benchmark_json = os.path.join(output_dir, "benchmark_results.json")
+    with open(benchmark_json, "w", encoding="utf-8") as handle:
+        json.dump(document, handle, indent=2, ensure_ascii=False, allow_nan=False)
+    from schema_validation import validate_json_file
+    schema_dir = os.path.join(PROJECT_ROOT, "schemas")
+    validate_json_file(benchmark_json, os.path.join(schema_dir, "scene_speed.schema.json"))
+    print(f"  Exported and validated: {benchmark_json}")
     results_mgr.export_csv(os.path.join(output_dir, "benchmark_results.csv"))
     results_mgr.export_markdown(os.path.join(output_dir, "benchmark_report.md"))
     results_mgr.export_html(os.path.join(output_dir, "benchmark_report.html"),
                             title="3DGS Renderer Benchmark")
     results_mgr.export_analysis(output_dir)
+    for artifact in ("pareto_frontier.json", "recommendations.json"):
+        validate_json_file(
+            os.path.join(output_dir, artifact),
+            os.path.join(schema_dir, "analysis_artifact.schema.json"),
+        )
 
     # Summary
     print("\n" + "=" * 70)

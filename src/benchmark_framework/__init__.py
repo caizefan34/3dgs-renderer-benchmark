@@ -15,6 +15,7 @@ from .scene import load_ply, compute_cov3d_from_scales_rot
 from .cameras import (
     generate_cameras,
     load_cameras_from_json,
+    resize_cameras,
     validate_cameras_facing_point,
     Camera,
 )
@@ -24,7 +25,7 @@ from .config import BenchmarkConfig
 
 __all__ = [
     "load_ply", "compute_cov3d_from_scales_rot",
-    "generate_cameras", "load_cameras_from_json", "validate_cameras_facing_point", "Camera",
+    "generate_cameras", "load_cameras_from_json", "resize_cameras", "validate_cameras_facing_point", "Camera",
     "Timer", "RendererMetrics", "FrameMetrics",
     "ResultsManager", "BenchmarkConfig",
 ]

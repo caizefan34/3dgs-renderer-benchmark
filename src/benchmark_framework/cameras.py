@@ -11,7 +11,7 @@ import json
 import math
 import numpy as np
 import torch
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import List, Optional
 
 
@@ -49,6 +49,30 @@ class Camera:
     tanfovy: float
     K: torch.Tensor
     image_name: Optional[str] = None
+
+
+def resize_cameras(
+    cameras: List[Camera], image_width: int, image_height: int
+) -> List[Camera]:
+    """Resize camera outputs while preserving poses and horizontal/vertical FOV."""
+    if image_width <= 0 or image_height <= 0:
+        raise ValueError("Camera dimensions must be positive")
+    resized = []
+    for camera in cameras:
+        K = camera.K.clone()
+        K[0, 0] = image_width / (2.0 * camera.tanfovx)
+        K[0, 2] = image_width / 2.0
+        K[1, 1] = image_height / (2.0 * camera.tanfovy)
+        K[1, 2] = image_height / 2.0
+        resized.append(
+            replace(
+                camera,
+                image_width=image_width,
+                image_height=image_height,
+                K=K,
+            )
+        )
+    return resized
 
 
 def _camera_from_3dgs_json(cd: dict, device: str) -> Camera:

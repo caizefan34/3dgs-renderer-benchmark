@@ -71,19 +71,13 @@ compatible committed measurement exists.
 
 | Renderer Name | Average FPS (1080p) | Peak GPU Memory (MB) | PSNR (dB) | SSIM | LPIPS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| HiGS tile16 | 502.7 | 147 | — | — | — |
-| Speedy-Splat | 79.6 | 584 | — | — | — |
+| HiGS tile16 | 502.7 | 147 | 24.3047 | 0.858592 | 0.225616 |
+| Speedy-Splat | 79.6 | 584 | 24.9311 | 0.865762 | 0.223610 |
 | gsplat dense | 81.6 | 368 | 24.3061 | 0.858717 | 0.226278 |
 | original 3DGS | — | — | 24.9319 | 0.865773 | 0.223592 |
 | TC-GS | — | — | 24.9138 | 0.865044 | 0.222874 |
 
 <!-- markdownlint-enable MD013 -->
-
-> **Note:** HiGS and Speedy-Splat quality cells remain placeholders until a
-> non-superseded paired-reference run is committed. Generate them with the
-> quality-validation command documented in Quick Start.
-
-<!-- Separate placeholder notices. -->
 
 > **Note:** Original 3DGS and TC-GS 1080p performance cells remain
 > placeholders because their committed speed smoke test used 1959x1090.
@@ -103,12 +97,34 @@ Paired-reference quality audit on the official Train model:
 | Renderer | PSNR | SSIM | LPIPS | Status |
 | --- | ---: | ---: | ---: | --- |
 | original 3DGS | 24.9319 | 0.865773 | 0.223592 | reference |
+| Speedy-Splat | 24.9311 | 0.865762 | 0.223610 | audited |
 | gsplat dense | 24.3061 | 0.858717 | 0.226278 | -0.6257 dB; not equivalent |
+| HiGS tile16 | 24.3047 | 0.858592 | 0.225616 | -0.6272 dB; not equivalent |
 | TC-GS | 24.9138 | 0.865044 | 0.222874 | equivalent at configured thresholds |
 
 The pretrained model archive does not prove that those 38 reference images
 were excluded from training, so these are renderer-fidelity results rather
 than a held-out reconstruction leaderboard.
+
+The HiGS and Speedy-Splat audit artifacts are committed under `data/results`
+with the date `2026-07-15` and contain all 38 per-view measurements.
+
+Mip-NeRF 360 speed scaling on the same RTX 5070 Laptop:
+
+| Scene | Renderer | 720p FPS | 1080p FPS | 4K FPS |
+| --- | --- | ---: | ---: | ---: |
+| garden | HiGS Auto | 258.7 | 236.5 | 139.9 |
+| garden | Speedy-Splat | 71.2 | 61.9 | 38.7 |
+| bicycle | HiGS Auto | 255.6 | 245.9 | 124.8 |
+| bicycle | Speedy-Splat | 76.2 | 56.3 | 39.7 |
+| room | HiGS Auto | 870.6 | 489.8 | 318.9 |
+| room | Speedy-Splat | 277.5 | 176.4 | 89.7 |
+
+Each point uses 10 warmup frames and 30 measured frames across three repeats.
+The runs used Python 3.10 and PyTorch 2.12.1+cu130; PyTorch 2.1 cannot target
+the RTX 5070's `sm_120` architecture. See the
+[validated scaling data](data/results/mipnerf360_resolution_scaling_2026-07-15.json)
+and [resolution scaling plot](data/results/mipnerf360_resolution_scaling_2026-07-15.png).
 
 ## Quick Start
 
@@ -130,7 +146,8 @@ python src/scripts/generate_scene.py --gaussians 50000 --output data/scene.ply
 python src/run_benchmark.py --list-renderers
 python src/run_benchmark.py \
   --scene data/scene.ply --camera-path circle --renderers gsplat \
-  --frames 100 --warmup 30 --repeats 3 --output results/quickstart
+  --resolution 1080p --frames 100 --warmup 30 --repeats 3 \
+  --output results/quickstart
 ```
 
 Generate a paired-reference quality row for a missing renderer:

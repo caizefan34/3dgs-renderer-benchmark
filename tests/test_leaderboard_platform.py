@@ -86,6 +86,12 @@ class SchemaValidationTest(unittest.TestCase):
 
         validate_schema(instance, schema)
 
+    def test_schema_validator_checks_additional_property_values(self):
+        schema = {"type": "object", "additionalProperties": {"type": "number"}}
+        validate_schema({"valid": 1.0}, schema)
+        with self.assertRaises(SchemaValidationError):
+            validate_schema({"invalid": "not-a-number"}, schema)
+
 
 class RegressionDetectionTest(unittest.TestCase):
     def test_detects_fps_regression(self):

@@ -50,6 +50,12 @@ def validate_schema(instance: Any, schema: Mapping[str, Any], path: str = "$") -
         for key, value in instance.items():
             if key in properties:
                 validate_schema(value, properties[key], f"{path}.{key}")
+            elif isinstance(schema.get("additionalProperties"), Mapping):
+                validate_schema(
+                    value,
+                    schema["additionalProperties"],
+                    f"{path}.{key}",
+                )
             elif schema.get("additionalProperties") is False:
                 raise SchemaValidationError(f"{path}: unexpected key {key!r}")
     elif isinstance(instance, list) and "items" in schema:

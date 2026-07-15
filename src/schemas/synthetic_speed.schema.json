@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthetic renderer speed benchmark",
+  "type": "object",
+  "required": ["schema_version", "benchmark_suite_version", "status", "date", "environment", "protocol", "results", "failures"],
+  "properties": {
+    "schema_version": {"type": "integer", "minimum": 1},
+    "benchmark_suite_version": {"type": "string"},
+    "status": {"type": "string"},
+    "date": {"type": "string"},
+    "environment": {
+      "type": "object",
+      "required": ["gpu", "python", "pytorch", "cuda_runtime"],
+      "properties": {
+        "gpu": {"type": ["string", "null"]},
+        "python": {"type": "string"},
+        "pytorch": {"type": "string"},
+        "cuda_runtime": {"type": ["string", "null"]}
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "required": ["resolution", "warmup_frames", "measured_frames_per_repeat", "repeats", "total_measured_frames", "timing"],
+      "properties": {
+        "resolution": {"type": "array", "items": {"type": "integer"}},
+        "warmup_frames": {"type": "integer", "minimum": 0},
+        "measured_frames_per_repeat": {"type": "integer", "minimum": 1},
+        "repeats": {"type": "integer", "minimum": 1},
+        "total_measured_frames": {"type": "integer", "minimum": 1},
+        "timing": {"type": "string"}
+      }
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["renderer_name", "num_frames", "warmup_frames", "measured_frames_per_repeat", "repeats", "total_measured_frames", "frame_times_ms", "image_width", "image_height"],
+        "properties": {
+          "renderer_name": {"type": "string"},
+          "num_frames": {"type": "integer", "minimum": 1},
+          "warmup_frames": {"type": "integer", "minimum": 0},
+          "measured_frames_per_repeat": {"type": "integer", "minimum": 1},
+          "repeats": {"type": "integer", "minimum": 1},
+          "total_measured_frames": {"type": "integer", "minimum": 1},
+          "frame_times_ms": {"type": "array", "items": {"type": "number"}},
+          "image_width": {"type": "integer", "minimum": 1},
+          "image_height": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "failures": {"type": "array", "items": {"type": "object"}}
+  }
+}

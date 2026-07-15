@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3DGS Renderer Benchmark</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1100px; margin: 0 auto; padding: 20px; background: #0f172a; color: #e2e8f0; }
+h1, h2, h3 { color: #f8fafc; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; background: #1e293b; border-radius: 8px; overflow: hidden; }
+th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #334155; }
+th { background: #0f172a; color: #60a5fa; font-weight: 600; }
+tr:hover { background: #1e3a5f; }
+.fastest { background: #065f4620 !important; }
+.card { background: #1e293b; border-radius: 12px; padding: 20px; margin: 16px 0; border: 1px solid #334155; }
+.plot { width: 100%; height: 400px; }
+.meta { font-size: 0.9em; color: #94a3b8; }
+</style>
+</head>
+<body>
+<h1>&#9733; 3DGS Renderer Benchmark</h1>
+
+<div class="card">
+<h2>Summary</h2>
+<p><b>Scientific scope:</b> Synthetic Stress speed does not establish quality equivalence. Effective FPS is experimental and is N/A without GT metrics.</p>
+<table>
+<tr><th>Rank</th><th>Renderer</th><th>Mean FPS</th><th>Effective FPS*</th><th>Median (ms)</th><th>P1 (ms)</th><th>P99 (ms)</th><th>Jitter</th><th>Stability</th><th>VRAM</th><th>Difficulty</th><th>PSNR vs GT</th><th>SSIM vs GT</th><th>LPIPS vs GT</th></tr>
+<tr class="fastest">
+            <td>1</td>
+            <td>&#9733; gsplat_higs_auto</td>
+            <td>255.6</td>
+            <td>N/A</td>
+            <td>3.86</td>
+            <td>3.30</td>
+            <td>5.00</td>
+            <td>12.0%</td>
+            <td>0.772</td>
+            <td>2744</td>
+            <td>N/A</td>
+            <td>N/A</td>
+            <td>N/A</td>
+            <td>N/A</td>
+        </tr><tr>
+            <td>2</td>
+            <td> speedy_splat</td>
+            <td>76.2</td>
+            <td>N/A</td>
+            <td>12.72</td>
+            <td>10.66</td>
+            <td>16.56</td>
+            <td>12.3%</td>
+            <td>0.768</td>
+            <td>3522</td>
+            <td>N/A</td>
+            <td>N/A</td>
+            <td>N/A</td>
+            <td>N/A</td>
+        </tr>
+</table>
+</div>
+
+<div class="card">
+<h2>Frame Time Timeline</h2>
+<div id="chart" class="plot"></div>
+</div>
+
+<div class="card meta">
+<p><b>GPU</b>: NVIDIA GeForce RTX 5070 Laptop GPU |
+<b>Resolution</b>: 1280x720 |
+<b>Frames</b>: 90</p>
+</div>
+
+<script>
+var raw = {"gsplat_higs_auto": [4.52, 4.59, 4.41, 4.05, 3.88, 4.1, 4.28, 4.03, 3.86, 3.73, 3.64, 4.03, 3.94, 3.91, 3.56, 3.34, 3.62, 3.77, 3.72, 3.54, 3.42, 3.44, 3.66, 3.34, 3.5, 4.08, 4.88, 3.51, 4.66, 3.35, 4.66, 4.59, 4.44, 3.98, 3.86, 4.11, 4.33, 4.0, 3.83, 3.71, 3.57, 3.94, 3.86, 3.87, 3.77, 3.39, 3.64, 3.78, 3.74, 3.56, 3.53, 3.45, 3.68, 3.33, 3.46, 4.05, 4.84, 3.53, 4.6, 3.3, 4.49, 4.56, 4.43, 5.96, 3.94, 4.16, 4.67, 4.03, 3.86, 3.74, 4.33, 3.95, 3.87, 3.94, 3.57, 3.35, 3.62, 3.79, 3.87, 3.5, 3.39, 3.44, 3.72, 3.36, 3.46, 4.08, 4.81, 3.59, 4.62, 3.3], "speedy_splat": [15.35, 16.14, 14.64, 14.28, 14.25, 14.93, 14.27, 13.29, 12.25, 11.88, 12.72, 12.61, 12.82, 12.72, 11.5, 10.83, 12.98, 13.12, 12.27, 11.53, 11.12, 11.25, 13.17, 12.5, 11.28, 14.92, 17.0, 11.6, 16.26, 10.67, 16.51, 15.1, 14.6, 13.01, 12.74, 15.51, 15.92, 13.5, 12.32, 11.86, 12.09, 12.6, 15.15, 15.18, 11.52, 10.89, 12.42, 12.41, 12.09, 11.42, 11.19, 12.51, 12.59, 11.29, 11.37, 13.69, 15.9, 12.65, 15.24, 10.92, 15.86, 15.05, 14.6, 13.06, 15.07, 15.07, 14.3, 13.24, 12.23, 11.98, 12.76, 12.51, 13.51, 12.63, 11.47, 10.67, 11.61, 13.75, 13.43, 11.54, 11.77, 13.31, 12.11, 12.48, 11.28, 13.58, 16.12, 12.72, 15.15, 10.61]};
+var traces = [];
+for (var rname in raw) {
+    traces.push({
+        y: raw[rname], type: 'scatter', mode: 'lines', name: rname,
+        line: { width: 1.5 }
+    });
+}
+var layout = {
+    title: 'Frame Render Time Over Benchmark Run',
+    xaxis: { title: 'Frame', gridcolor: '#334155' },
+    yaxis: { title: 'Time (ms)', gridcolor: '#334155' },
+    paper_bgcolor: '#1e293b',
+    plot_bgcolor: '#0f172a',
+    font: { color: '#e2e8f0' },
+    legend: { orientation: 'h', y: -0.2 }
+};
+Plotly.newPlot('chart', traces, layout);
+</script>
+</body>
+</html>

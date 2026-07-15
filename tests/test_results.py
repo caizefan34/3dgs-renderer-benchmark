@@ -105,6 +105,22 @@ class ResultsExportTest(unittest.TestCase):
         self.assertEqual(metrics.jitter_pct, 50.0)
         self.assertEqual(metrics.to_dict()["jitter_pct"], 50.0)
 
+    def test_timing_protocol_fields_are_serialized(self):
+        metrics = RendererMetrics(
+            renderer_name="test",
+            frame_times_ms=[1.0] * 6,
+            warmup_frames=2,
+            measured_frames_per_repeat=3,
+            repeats=2,
+            num_frames=6,
+        )
+        metrics.compute()
+
+        data = metrics.to_dict()
+        self.assertEqual(data["warmup_frames"], 2)
+        self.assertEqual(data["measured_frames_per_repeat"], 3)
+        self.assertEqual(data["repeats"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

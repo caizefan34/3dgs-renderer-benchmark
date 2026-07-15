@@ -1,7 +1,9 @@
 import math
 import sys
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -18,7 +20,11 @@ from benchmark.difficulty import (
     calculate_difficulty,
 )
 from benchmark_framework import RendererMetrics
-from run_full_benchmark import _load_synthetic_difficulty_catalog
+from run_full_benchmark import (
+    _build_result_document,
+    _load_synthetic_difficulty_catalog,
+    _preload_gsplat_extension,
+)
 
 
 class DifficultyScoreTest(unittest.TestCase):
@@ -210,6 +216,47 @@ class SyntheticStressSuiteTest(unittest.TestCase):
         self.assertEqual(heavy["difficulty_formula"], "geometric_mean_v1")
         self.assertEqual(heavy["synthetic_stress_class"], "Heavy Overlap")
         self.assertEqual(heavy["difficulty_inputs"]["visible_gaussian_count"], 400000)
+
+    def test_result_document_preserves_timing_protocol(self):
+        document = _build_result_document(
+            results={"gsplat_50K": {"mean_fps": 100.0}},
+            frames=20,
+            warmup_frames=5,
+            repeats=3,
+            resolution=(1920, 1080),
+            environment={"gpu": "test"},
+            date="2026-07-15",
+        )
+
+        self.assertEqual(document["schema_version"], 1)
+        self.assertEqual(document["protocol"]["warmup_frames"], 5)
+        self.assertEqual(document["protocol"]["measured_frames_per_repeat"], 20)
+        self.assertEqual(document["protocol"]["repeats"], 3)
+        self.assertEqual(document["protocol"]["total_measured_frames"], 60)
+        self.assertEqual(document["protocol"]["resolution"], [1920, 1080])
+
+    def test_preload_gsplat_extension_aliases_cached_module(self):
+        fake_extension = types.ModuleType("gsplat_cuda")
+        fake_inference = types.ModuleType(
+            "experimental_gaussian_render_inference_scene_cuda"
+        )
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "gsplat_cuda": fake_extension,
+                "experimental_gaussian_render_inference_scene_cuda": fake_inference,
+            },
+        ):
+            loaded = _preload_gsplat_extension(
+                "cached-extension",
+                inference_extension_dir="cached-inference",
+            )
+            self.assertIs(loaded, fake_extension)
+            self.assertIs(sys.modules["gsplat.csrc"], fake_extension)
+            self.assertIs(
+                sys.modules["gsplat.experimental.render.kernels.csrc"],
+                fake_inference,
+            )
 
 
 if __name__ == "__main__":

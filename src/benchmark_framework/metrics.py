@@ -75,6 +75,8 @@ class RendererMetrics:
     jitter_ms: float = 0.0
     num_frames: int = 0
     warmup_frames: int = 0
+    measured_frames_per_repeat: int = 0
+    repeats: int = 1
     image_width: int = 1920
     image_height: int = 1080
     num_gaussians: int = 0
@@ -205,7 +207,11 @@ class RendererMetrics:
             d[f"p{p}_latency_ms"] = getattr(self, f"p{p}_latency_ms")
             d[f"p{p}_fps"] = round(1000.0 / getattr(self, f"p{p}_latency_ms"), 1) if getattr(self, f"p{p}_latency_ms") > 0 else 0.0
         d.update({
-            "num_frames": self.num_frames, "image_width": self.image_width, "image_height": self.image_height,
+            "num_frames": self.num_frames,
+            "warmup_frames": self.warmup_frames,
+            "measured_frames_per_repeat": self.measured_frames_per_repeat,
+            "repeats": self.repeats,
+            "image_width": self.image_width, "image_height": self.image_height,
             "num_gaussians": self.num_gaussians, "gpu": self.gpu_name,
             "peak_vram_mb": round(self.peak_vram_mb, 1), "avg_vram_mb": round(self.avg_vram_mb, 1),
             "scene_load_time_ms": round(self.scene_load_time_ms, 2),
