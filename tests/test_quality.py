@@ -13,6 +13,7 @@ from scripts.validate_quality import (
     _ground_truth_manifest,
     compute_psnr,
     compute_ssim,
+    resize_reference,
 )
 from benchmark_framework import RendererMetrics
 
@@ -27,6 +28,11 @@ class QualityMetricTest(unittest.TestCase):
         reference = torch.zeros(16, 16, 3)
         prediction = torch.full_like(reference, 0.1)
         self.assertAlmostEqual(compute_psnr(prediction, reference), 20.0, places=5)
+
+    def test_reference_can_be_resized_to_official_profile(self):
+        image = torch.rand(8, 12, 3)
+        resized = resize_reference(image, 16, 9)
+        self.assertEqual(tuple(resized.shape), (9, 16, 3))
 
     def test_ssim_matches_graphdeco_zero_padding(self):
         prediction = torch.zeros(16, 16, 3)

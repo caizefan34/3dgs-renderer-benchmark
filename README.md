@@ -167,6 +167,38 @@ python src/scripts/generate_leaderboard.py \
   --output-dir results/leaderboard
 ```
 
+Official rankings now accept only hash-validated cases declared in
+`benchmark_suite/suite.json`. Run an official speed case with fixed cameras,
+resolution, warmup, frame count, and repeats:
+
+```bash
+python src/scripts/validate_benchmark_suite.py --scene garden
+python src/run_benchmark.py \
+  --suite-scene garden --resolution 1080p \
+  --renderers gsplat gsplat_higs_auto \
+  --output results/garden_1080p
+```
+
+Generate quality measurements at the same suite resolution, then pass both
+JSON files to the leaderboard generator. It joins them only when suite,
+dataset, scene, camera, resolution, and GPU identities match:
+
+```bash
+python src/scripts/validate_quality.py \
+  --suite-scene garden --resolution 1080p \
+  --ground-truth-dir DATASET_IMAGES \
+  --renderers gsplat gsplat_higs_auto \
+  --output results/garden_1080p/quality.json
+
+python src/scripts/generate_leaderboard.py \
+  --inputs results/garden_1080p/benchmark_results.json \
+           results/garden_1080p/quality.json \
+  --output-dir results/leaderboard
+```
+
+The generated artifacts include Fastest @ PSNR >= 30/31/32, Pareto-optimal
+renderers, a quality-adjusted FPS efficiency score, and `quality_speed.html`.
+
 List official training dataset sources:
 
 ```text

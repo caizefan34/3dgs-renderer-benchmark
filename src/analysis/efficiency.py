@@ -7,6 +7,17 @@ from typing import Mapping, Optional
 QUALITY_KEYS = ("psnr", "ssim", "lpips")
 
 
+def calculate_efficiency_score(fps: float, psnr: float, target_psnr: float = 32.0) -> float:
+    """Return quality-adjusted FPS using PSNR's linear MSE ratio.
+
+    A renderer at ``target_psnr`` keeps its raw FPS. Each 10 dB below the
+    target reduces the score by 10x; quality above the target increases it.
+    """
+    if fps < 0:
+        raise ValueError("FPS must be non-negative")
+    return float(fps) * 10.0 ** ((float(psnr) - float(target_psnr)) / 10.0)
+
+
 @dataclass(frozen=True)
 class QualityAdjustmentConfig:
     """Penalty coefficients, expressed per native metric unit."""

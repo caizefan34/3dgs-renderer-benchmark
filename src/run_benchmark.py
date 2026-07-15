@@ -34,7 +34,7 @@ from benchmark.difficulty import (
     DifficultyInputs,
     calculate_difficulty,
 )
-from benchmark_suite import BENCHMARK_SUITE_VERSION
+from benchmark_suite import BENCHMARK_SUITE_VERSION, resolve_suite_case
 
 
 RESOLUTION_PRESETS = {
@@ -109,6 +109,11 @@ def parse_args():
     p = argparse.ArgumentParser(description="3DGS Renderer Benchmark")
     p.add_argument("--scene", type=str, default=None, help="Path to .ply scene file")
     p.add_argument("--cameras", type=str, default=None, help="Path to cameras.json")
+    p.add_argument(
+        "--suite-scene",
+        choices=["garden", "bicycle", "room"],
+        help="Run a hash-validated official benchmark-suite scene",
+    )
     p.add_argument("--renderers", type=str, nargs="+", default=None, help="Renderers to benchmark")
     p.add_argument("--frames", type=int, default=None, help="Number of benchmark frames")
     p.add_argument("--warmup", type=int, default=None, help="Number of warmup frames")
@@ -195,6 +200,41 @@ def main():
     except ValueError as error:
         raise SystemExit(str(error)) from error
 
+    suite_case = None
+    if args.suite_scene:
+        if args.scene or args.cameras or args.camera_path or args.width or args.height:
+            raise SystemExit(
+                "--suite-scene cannot be combined with arbitrary scene, camera, or size options"
+            )
+        if args.resolution not in RESOLUTION_PRESETS:
+            raise SystemExit(
+                "--suite-scene requires --resolution 720p, 1080p, or 4k"
+            )
+        if args.benchmark_type not in (None, "real_scene_speed"):
+            raise SystemExit("Official suite requires --benchmark-type real_scene_speed")
+        args.benchmark_type = "real_scene_speed"
+        suite_case = resolve_suite_case(args.suite_scene, args.resolution)
+        requested_resolution = tuple(suite_case["resolution"])
+        fixed = suite_case["protocol"]
+        supplied = {
+            "frames": args.frames,
+            "warmup": args.warmup,
+            "repeats": args.repeats,
+        }
+        expected = {
+            "frames": fixed["measured_frames_per_repeat"],
+            "warmup": fixed["warmup_frames"],
+            "repeats": fixed["repeats"],
+        }
+        for name, value in supplied.items():
+            if value is not None and value != expected[name]:
+                raise SystemExit(
+                    f"Official suite fixes --{name}={expected[name]}, got {value}"
+                )
+        args.frames = expected["frames"]
+        args.warmup = expected["warmup"]
+        args.repeats = expected["repeats"]
+
     from run_full_benchmark import _collect_environment, _preload_gsplat_extension
 
     _preload_gsplat_extension(
@@ -224,12 +264,12 @@ def main():
     driver_version = _cuda_driver_version()
     data_dir = os.path.join(repo_root, "data")
     default_data_dirs = [data_dir, os.path.join(PROJECT_ROOT, "data")]
-    scene_path = args.scene or next(
+    scene_path = suite_case["paths"]["scene"] if suite_case else args.scene or next(
         (os.path.join(d, "scene.ply") for d in default_data_dirs
          if os.path.exists(os.path.join(d, "scene.ply"))),
         os.path.join(data_dir, "scene.ply"),
     )
-    cameras_path = args.cameras or next(
+    cameras_path = suite_case["paths"]["camera"] if suite_case else args.cameras or next(
         (os.path.join(d, "cameras.json") for d in default_data_dirs
          if os.path.exists(os.path.join(d, "cameras.json"))),
         os.path.join(data_dir, "cameras.json"),
@@ -436,13 +476,25 @@ def main():
         "gsplat_scene_extension_dir": os.path.abspath(args.gsplat_scene_extension_dir) if args.gsplat_scene_extension_dir else None,
         "gsplat_inference_extension_dir": os.path.abspath(args.gsplat_inference_extension_dir) if args.gsplat_inference_extension_dir else None,
     })
-    scene_id = args.scene_id or os.path.basename(os.path.dirname(os.path.abspath(scene_path)))
+    scene_id = (
+        suite_case["scene_id"] if suite_case else
+        args.scene_id or os.path.basename(os.path.dirname(os.path.abspath(scene_path)))
+    )
+    dataset_family = suite_case["dataset_family"] if suite_case else args.dataset_family
     document = {
         "schema_version": 1,
         "benchmark_suite_version": BENCHMARK_SUITE_VERSION,
         "status": "complete" if len(results_mgr.results) == len(cfg.renderers) else "partial" if results_mgr.results else "failed",
         "date": date.today().isoformat(),
         "environment": environment,
+        "benchmark_suite": {
+            key: value for key, value in (suite_case or {}).items()
+            if key not in {"paths", "protocol"}
+        } if suite_case else {
+            "official": False,
+            "validated": False,
+            "suite_version": BENCHMARK_SUITE_VERSION,
+        },
         "protocol": {
             "resolution": [image_width, image_height],
             "resolution_name": args.resolution or ("custom" if requested_resolution else "native"),
@@ -454,7 +506,8 @@ def main():
         },
         "scene": {
             "scene_id": scene_id,
-            "dataset_family": args.dataset_family,
+            "dataset_family": dataset_family,
+            "dataset_sha256": suite_case["dataset_sha256"] if suite_case else None,
             "model_path": os.path.abspath(scene_path),
             "model_sha256": _sha256(scene_path),
             "camera_path": os.path.abspath(cameras_path),

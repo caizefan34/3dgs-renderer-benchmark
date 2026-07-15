@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch.nn.functional import conv2d
+from torch.nn.functional import conv2d, interpolate
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,7 +26,8 @@ SRC_DIR = os.path.dirname(SCRIPT_DIR)
 REPO_ROOT = os.path.dirname(SRC_DIR)
 sys.path.insert(0, SRC_DIR)
 
-from benchmark_framework import load_cameras_from_json, load_ply
+from benchmark_framework import load_cameras_from_json, load_ply, resize_cameras
+from benchmark_suite import resolve_suite_case
 from adapters.quality import QualityThresholds, evaluate_quality_gate
 from renderers import get_renderer
 
@@ -142,6 +143,15 @@ def camera_at_image_size(camera, image: torch.Tensor):
     return replace(camera, image_width=width, image_height=height, K=K)
 
 
+def resize_reference(image: torch.Tensor, width: int, height: int) -> torch.Tensor:
+    """Resize an HWC reference image to an official resolution profile."""
+    if tuple(image.shape[:2]) == (height, width):
+        return image
+    nchw = image.permute(2, 0, 1).unsqueeze(0)
+    resized = interpolate(nchw, size=(height, width), mode="area")
+    return resized.squeeze(0).permute(1, 2, 0).contiguous()
+
+
 def _json_number(value: float):
     return value if math.isfinite(value) else "inf"
 
@@ -204,8 +214,14 @@ def _summary(psnrs, ssims, lpips_values, args) -> dict:
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--renderers", nargs="+", required=True)
-    parser.add_argument("--scene", required=True)
-    parser.add_argument("--cameras", required=True)
+    parser.add_argument("--scene")
+    parser.add_argument("--cameras")
+    parser.add_argument(
+        "--suite-scene",
+        choices=["garden", "bicycle", "room"],
+        help="Use a hash-validated official benchmark-suite scene and camera path",
+    )
+    parser.add_argument("--resolution", choices=["720p", "1080p", "4k"])
     parser.add_argument("--ground-truth-dir", required=True)
     parser.add_argument("--frames", type=int, default=None)
     parser.add_argument(
@@ -241,6 +257,20 @@ def parse_args():
 
 def main():
     args = parse_args()
+    suite_case = None
+    if args.suite_scene:
+        if args.scene or args.cameras:
+            raise SystemExit("--suite-scene cannot be combined with --scene/--cameras")
+        if not args.resolution:
+            raise SystemExit("--suite-scene requires --resolution")
+        if args.frames is not None:
+            raise SystemExit("Official suite quality evaluation uses the full camera path")
+        args.require_all_ground_truth = True
+        suite_case = resolve_suite_case(args.suite_scene, args.resolution)
+        args.scene = suite_case["paths"]["scene"]
+        args.cameras = suite_case["paths"]["camera"]
+    elif not args.scene or not args.cameras:
+        raise SystemExit("--scene and --cameras are required outside the official suite")
     device = "cuda"
     scene = load_ply(args.scene, device=device)
     cameras = load_cameras_from_json(args.cameras, device=device)
@@ -271,9 +301,13 @@ def main():
     evaluation_pairs = []
     for camera, image_path in pairs:
         reference_cpu = load_ground_truth(image_path, "cpu", args.background)
-        evaluation_pairs.append(
-            (camera_at_image_size(camera, reference_cpu), image_path, reference_cpu)
-        )
+        if suite_case:
+            width, height = suite_case["resolution"]
+            reference_cpu = resize_reference(reference_cpu, width, height)
+            camera = resize_cameras([camera], width, height)[0]
+        else:
+            camera = camera_at_image_size(camera, reference_cpu)
+        evaluation_pairs.append((camera, image_path, reference_cpu))
     lpips_metric = LPIPSMetric(device=device, net=args.lpips_net)
     renderer_results = []
 
@@ -340,7 +374,20 @@ def main():
     )
     report = {
         "schema_version": 3,
+        "benchmark_suite_version": suite_case["suite_version"] if suite_case else None,
         "benchmark_type": "real_scene_quality",
+        "environment": {
+            "gpu": torch.cuda.get_device_name(0),
+            "pytorch": torch.__version__,
+            "cuda_runtime": torch.version.cuda,
+        },
+        "benchmark_suite": {
+            key: value for key, value in (suite_case or {}).items()
+            if key not in {"paths", "protocol"}
+        } if suite_case else {
+            "official": False,
+            "validated": False,
+        },
         "reference": {
             "type": "ground_truth",
             "camera_manifest": os.path.abspath(args.cameras),
@@ -352,6 +399,7 @@ def main():
             "num_views": len(ground_truth_manifest),
             "evaluated_images": ground_truth_manifest,
             "ground_truth_manifest_sha256": ground_truth_manifest_sha256,
+            "resolution": suite_case["resolution"] if suite_case else list(evaluation_pairs[0][2].shape[1::-1]),
         },
         "scene": os.path.abspath(args.scene),
         "scene_sha256": _sha256_file(args.scene),

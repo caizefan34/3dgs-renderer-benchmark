@@ -11,56 +11,117 @@ from analysis.hardware import summarize_hardware_profile
 from analysis.regression import compare_regressions
 from analysis.roofline import roofline_classification
 from benchmark_suite import BENCHMARK_SUITE_VERSION
+from benchmark_suite import resolve_suite_case
 from benchmark_framework import RendererMetrics
 from leaderboard.generator import generate_leaderboard, load_records, write_leaderboard
 from schema_validation import SchemaValidationError, validate_schema
 
 
 class LeaderboardGenerationTest(unittest.TestCase):
-    def test_generates_separate_leaderboards_without_quality_leakage(self):
+    def _official(self, **values):
+        case = resolve_suite_case("garden", "1080p", verify_assets=False)
+        return {
+            "official_eligible": True,
+            "official": True,
+            "validated": True,
+            "suite_version": case["suite_version"],
+            **{key: case[key] for key in (
+                "suite_id", "suite_case_id", "dataset_sha256", "scene_sha256",
+                "camera_sha256", "resolution_profile", "resolution",
+            )},
+            "hardware": "Test GPU",
+            **values,
+        }
+
+    def test_generates_quality_constrained_and_efficiency_leaderboards(self):
         records = [
-            {
-                "renderer": "synthetic_fast",
-                "benchmark_type": "synthetic_stress",
-                "fps": 300,
-                "peak_vram_mb": 500,
-                "psnr": None,
-                "ssim": None,
-                "lpips": None,
-            },
-            {
-                "renderer": "quality_ref",
-                "benchmark_type": "real_scene_quality",
-                "psnr": 30,
-                "ssim": 0.95,
-                "lpips": 0.1,
-            },
-            {
-                "renderer": "balanced",
-                "benchmark_type": "real_scene_speed",
-                "fps": 150,
-                "peak_vram_mb": 600,
-                "psnr": 29.8,
-                "ssim": 0.94,
-                "lpips": 0.11,
-            },
+            self._official(renderer="fast30", fps=200, psnr=30.5, ssim=.94, lpips=.12),
+            self._official(renderer="slow32", fps=120, psnr=32.2, ssim=.96, lpips=.08),
+            self._official(renderer="fail", fps=300, psnr=29.9, ssim=.93, lpips=.14),
         ]
 
         leaderboard = generate_leaderboard(records)
 
         self.assertEqual(leaderboard["benchmark_suite_version"], BENCHMARK_SUITE_VERSION)
-        self.assertEqual(leaderboard["leaderboards"]["speed"][0]["renderer"], "synthetic_fast")
-        quality_renderers = {row["renderer"] for row in leaderboard["leaderboards"]["quality"]}
-        self.assertNotIn("synthetic_fast", quality_renderers)
-        self.assertIn("balanced", quality_renderers)
+        constrained = leaderboard["leaderboards"]["quality_constrained"]
+        self.assertEqual([row["renderer"] for row in constrained["30"]], ["fast30", "slow32"])
+        self.assertEqual([row["renderer"] for row in constrained["31"]], ["slow32"])
+        self.assertEqual([row["renderer"] for row in constrained["32"]], ["slow32"])
+        self.assertEqual(leaderboard["leaderboards"]["efficiency"][0]["renderer"], "fast30")
+
+    def test_official_ranking_excludes_unvalidated_records(self):
+        forged = self._official(renderer="forged", fps=1000, psnr=40, ssim=1, lpips=0)
+        forged["scene_sha256"] = "0" * 64
+        leaderboard = generate_leaderboard([
+            {"renderer": "arbitrary", "fps": 999, "psnr": 40, "official_eligible": False},
+            forged,
+            self._official(renderer="official", fps=100, psnr=31, ssim=.95, lpips=.1),
+        ])
+
+        self.assertEqual(leaderboard["source_record_count"], 3)
+        self.assertEqual(leaderboard["official_record_count"], 1)
+        self.assertEqual(leaderboard["leaderboards"]["efficiency"][0]["renderer"], "official")
+
+    def test_merges_speed_and_quality_for_the_same_suite_case(self):
+        records = [
+            self._official(renderer="joined", benchmark_type="real_scene_speed", fps=180),
+            self._official(renderer="joined", benchmark_type="real_scene_quality", psnr=31.5, ssim=.95, lpips=.1),
+        ]
+
+        leaderboard = generate_leaderboard(records)
+
+        row = leaderboard["leaderboards"]["quality_constrained"]["31"][0]
+        self.assertEqual(row["renderer"], "joined")
+        self.assertEqual(row["fps"], 180)
+
+    def test_loads_and_joins_official_speed_and_quality_documents(self):
+        case = resolve_suite_case("garden", "1080p", verify_assets=False)
+        suite = {
+            **{key: value for key, value in case.items() if key not in {"paths", "protocol"}},
+            "validated": True,
+        }
+        speed = {
+            "benchmark_suite": suite,
+            "environment": {"gpu": "Test GPU"},
+            "protocol": {"resolution": [1920, 1080]},
+            "results": {"r": {"renderer": "r", "mean_fps": 100}},
+        }
+        quality = {
+            "benchmark_suite": suite,
+            "environment": {"gpu": "Test GPU"},
+            "benchmark_type": "real_scene_quality",
+            "results": [{
+                "renderer": "r",
+                "quality": {"mean_psnr_db": 31, "mean_ssim": .95, "mean_lpips": .1},
+            }],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            speed_path = Path(temp_dir) / "speed.json"
+            quality_path = Path(temp_dir) / "quality.json"
+            speed_path.write_text(json.dumps(speed), encoding="utf-8")
+            quality_path.write_text(json.dumps(quality), encoding="utf-8")
+            leaderboard = generate_leaderboard(load_records([str(speed_path), str(quality_path)]))
+
+        self.assertEqual(
+            leaderboard["leaderboards"]["quality_constrained"]["31"][0]["renderer"],
+            "r",
+        )
 
     def test_writes_three_artifacts(self):
-        leaderboard = generate_leaderboard([{"renderer": "a", "fps": 1.0}])
+        leaderboard = generate_leaderboard([
+            self._official(renderer="a", fps=1.0, psnr=30, ssim=.9, lpips=.2)
+        ])
+        root = Path(__file__).resolve().parents[1]
+        schema = json.loads(
+            (root / "schemas" / "leaderboard.schema.json").read_text(encoding="utf-8")
+        )
+        validate_schema(leaderboard, schema)
         with tempfile.TemporaryDirectory() as temp_dir:
             write_leaderboard(leaderboard, temp_dir)
             self.assertTrue((Path(temp_dir) / "leaderboard.json").exists())
             self.assertTrue((Path(temp_dir) / "leaderboard.md").exists())
             self.assertTrue((Path(temp_dir) / "leaderboard.html").exists())
+            self.assertTrue((Path(temp_dir) / "quality_speed.html").exists())
 
     def test_loads_existing_result_formats(self):
         root = Path(__file__).resolve().parents[1]
