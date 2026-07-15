@@ -20,6 +20,7 @@ The benchmark platform provides:
   TC-GS, and registered experimental renderers;
 - fixed scenes, camera trajectories, timing protocol, and reproducibility
   metadata;
+- official-dataset training policy for quality-bearing benchmark submissions;
 - PSNR, SSIM, and LPIPS quality gates for real-scene validation;
 - Scene Difficulty Score, stability metrics, effective FPS, Pareto analysis,
   and deterministic recommendations as additive metrics;
@@ -77,6 +78,13 @@ Generate leaderboards from committed benchmark JSON:
 python src/scripts/generate_leaderboard.py --inputs data/results/rtx5070_laptop_2026-07-13.json data/results/rtx5070_train_reference_summary_2026-07-14.json --output-dir results/leaderboard
 ```
 
+List official training dataset sources:
+
+```text
+python src/scripts/download_datasets.py --list-official
+python src/scripts/validate_official_training.py
+```
+
 ## Leaderboard
 
 Committed GitHub Pages artifacts live in [`docs/leaderboard`](docs/leaderboard).
@@ -113,6 +121,8 @@ Renderer source, commit, and reproducibility notes are tracked in
 - [Methodology](docs/methodology.md)
 - [Evaluation formulas](docs/evaluation_methodology.md)
 - [Benchmark suite](docs/benchmark_suite.md)
+- [Official dataset training](docs/official_dataset_training.md)
+- [Renderer discovery](docs/renderer_discovery.md)
 - [Synthetic Stress Suite](docs/synthetic_stress_suite.md)
 - [Leaderboard pipeline](docs/leaderboard.md)
 - [Reproducibility](docs/reproducibility.md)
@@ -120,4 +130,3 @@ Renderer source, commit, and reproducibility notes are tracked in
 - [Research extensions](docs/research_extensions.md)
 - [Summary report](docs/summary_report.md)
 - [Contributing](CONTRIBUTING.md)
-

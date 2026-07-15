@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "benchmark_suite_version": "v1.0",
+  "policy": {
+    "training_data_rule": "Official datasets only for training and quality-bearing benchmark submissions.",
+    "synthetic_generated_data_rule": "Repository-generated scenes are allowed only for Synthetic Stress Benchmark rows and must not enter GT-quality leaderboards.",
+    "required_eval_mode": "Use dataset-provided or official train/test splits where available; for official 3DGS training, pass --eval."
+  },
+  "official_sources": [
+    {
+      "dataset_family": "Mip-NeRF 360",
+      "official_url": "https://jonbarron.info/mipnerf360/",
+      "used_by_official_3dgs": true,
+      "scene_ids": ["bicycle", "bonsai", "counter", "garden", "kitchen", "room", "stump"],
+      "benchmark_role": ["real_scene_training", "real_scene_quality", "real_scene_speed"]
+    },
+    {
+      "dataset_family": "Tanks and Temples",
+      "official_url": "https://www.tanksandtemples.org/download/",
+      "used_by_official_3dgs": true,
+      "scene_ids": ["truck", "train"],
+      "benchmark_role": ["real_scene_training", "real_scene_quality", "real_scene_speed"]
+    },
+    {
+      "dataset_family": "Deep Blending",
+      "official_url": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/input/tandt_db.zip",
+      "used_by_official_3dgs": true,
+      "scene_ids": ["drjohnson", "playroom"],
+      "benchmark_role": ["real_scene_training", "real_scene_quality", "real_scene_speed"]
+    }
+  ],
+  "training_jobs": [
+    {
+      "job_id": "mipnerf360_garden_3dgs_eval",
+      "dataset_family": "Mip-NeRF 360",
+      "scene_id": "garden",
+      "renderer_baseline": "original_3dgs",
+      "source_path_template": "data/official/mipnerf360/garden",
+      "output_path_template": "outputs/official/mipnerf360/garden",
+      "train_command": "python train.py -s data/official/mipnerf360/garden -m outputs/official/mipnerf360/garden --eval",
+      "quality_reference": "official_eval_split"
+    },
+    {
+      "job_id": "tanks_train_3dgs_eval",
+      "dataset_family": "Tanks and Temples",
+      "scene_id": "train",
+      "renderer_baseline": "original_3dgs",
+      "source_path_template": "data/official/tanks_and_temples/train",
+      "output_path_template": "outputs/official/tanks_and_temples/train",
+      "train_command": "python train.py -s data/official/tanks_and_temples/train -m outputs/official/tanks_and_temples/train --eval",
+      "quality_reference": "official_eval_split"
+    },
+    {
+      "job_id": "deep_blending_drjohnson_3dgs_eval",
+      "dataset_family": "Deep Blending",
+      "scene_id": "drjohnson",
+      "renderer_baseline": "original_3dgs",
+      "source_path_template": "data/official/deep_blending/drjohnson",
+      "output_path_template": "outputs/official/deep_blending/drjohnson",
+      "train_command": "python train.py -s data/official/deep_blending/drjohnson -m outputs/official/deep_blending/drjohnson --eval",
+      "quality_reference": "official_eval_split"
+    }
+  ]
+}
+

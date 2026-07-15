@@ -38,6 +38,8 @@ jobs:
         run: |
           python src/scripts/validate_artifacts.py --schema schemas/benchmark_result.schema.json --json data/results/rtx5070_laptop_2026-07-13.json data/results/rtx5070_train_reference_summary_2026-07-14.json
           python src/scripts/validate_artifacts.py --schema schemas/leaderboard.schema.json --json results/leaderboard/leaderboard.json
+      - name: Validate official training policy
+        run: python src/scripts/validate_official_training.py
       - name: Regression check smoke test
         run: >
           python src/scripts/check_regressions.py

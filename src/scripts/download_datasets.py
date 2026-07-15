@@ -13,6 +13,7 @@ from pathlib import Path
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(REPO_ROOT, "data", "scenes")
 MANIFEST_PATH = os.path.join(REPO_ROOT, "data", "scenes", "scenes.json")
+OFFICIAL_MANIFEST_PATH = os.path.join(REPO_ROOT, "data", "datasets", "official_training_datasets.json")
 
 
 def load_manifest():
@@ -30,12 +31,26 @@ def list_datasets():
     if not scenes:
         print("No datasets configured. Check data/scenes/scenes.json")
         return
-    print(f"{'Name':20s} {'Status':10s} {'Source':20s} {'Size':8s} {'Type':15s} {'Gaussians':>10s}")
-    print("-" * 90)
+    print(f"{'Name':20s} {'Status':10s} {'Source':20s} {'Train':>5s} {'Quality':>7s} {'Gaussians':>10s}")
+    print("-" * 92)
     for s in scenes:
-        print(f"{s['name']:20s} {s.get('status', 'planned'):10s} {s['source']:20s} {str(s['size_gb'])+'GB':8s} "
-              f"{s['type']:15s} {s.get('num_gaussians', '?'):>10,}")
+        print(f"{s['name']:20s} {s.get('status', 'planned'):10s} {s['source']:20s} "
+              f"{str(bool(s.get('training_eligible'))):>5s} {str(bool(s.get('quality_leaderboard_eligible'))):>7s} "
+              f"{s.get('num_gaussians', '?'):>10,}")
     print()
+
+
+def list_official_training_sources():
+    with open(OFFICIAL_MANIFEST_PATH, encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    print("Official training dataset families:")
+    for source in manifest.get("official_sources", []):
+        scenes = ", ".join(source.get("scene_ids", []))
+        print(f"  - {source['dataset_family']}: {source['official_url']}")
+        print(f"    scenes: {scenes}")
+    print("\nTraining jobs:")
+    for job in manifest.get("training_jobs", []):
+        print(f"  - {job['job_id']}: {job['train_command']}")
 
 
 def download_file(url, dest_path, expected_md5=None):
@@ -88,7 +103,7 @@ def download_dataset(name, output_dir=None):
         if scene.get("reference_manifest"):
             print(f"See data/scenes/{scene['reference_manifest']} for official URLs and hashes.")
         else:
-            print("Use src/scripts/generate_scene.py for the current synthetic benchmark.")
+            print("Use data/datasets/official_training_datasets.json for official training sources.")
         return False
 
     output_dir = output_dir or os.path.join(REPO_ROOT, "data")
@@ -121,10 +136,15 @@ def main():
     p.add_argument("--output-dir", type=str, default=None,
                    help="Output directory (default: data/)")
     p.add_argument("--list", action="store_true", help="List available datasets")
+    p.add_argument("--list-official", action="store_true", help="List official training dataset families and jobs")
     args = p.parse_args()
 
     if args.list:
         list_datasets()
+        return
+
+    if args.list_official:
+        list_official_training_sources()
         return
 
     if args.dataset:
