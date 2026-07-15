@@ -13,6 +13,8 @@ Version `v1.0` tracks:
 - benchmark taxonomy;
 - synthetic stress suite definitions;
 - camera trajectory presets;
+- official dataset training policy;
+- renderer candidate registry and inclusion rules;
 - timing protocol;
 - GT quality metrics;
 - Scene Difficulty Score formula;
@@ -22,4 +24,3 @@ Version `v1.0` tracks:
 Future suite changes that alter comparability should increment the suite
 version and document migration rules. Historical results should retain the
 version under which they were produced.
-

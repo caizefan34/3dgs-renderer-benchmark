@@ -11,6 +11,8 @@
 - Benchmark suite versioning via `benchmark_suite_version`.
 - Community submission template.
 - Optional hardware profiling and roofline analysis helpers.
+- Official-dataset-first training policy for quality-bearing benchmarks.
+- Renderer candidate registry for globally tracked speed/quality candidates.
 
 ## Architectural Improvements
 
@@ -21,6 +23,10 @@
 - Renderer adapters remain isolated from leaderboard, schema, and CI tooling.
 - Optional profiler-derived metrics are kept separate from core benchmark
   timing.
+- Self-generated scenes are explicitly scoped to synthetic stress only; official
+  datasets are required for training and quality-bearing comparisons.
+- Renderer discovery is separated from leaderboard inclusion, so unverified
+  upstream claims do not become benchmark conclusions.
 
 ## Remaining Recommendations
 
@@ -29,6 +35,8 @@
 - Expand Dockerfiles with exact renderer build pins after upstream packaging is
   stable for the target CUDA version.
 - Add signed community submissions if third-party results become common.
+- Train fresh official-dataset checkpoints for every tracked renderer cohort
+  before publishing balanced or Pareto claims.
 
 ## Estimated Maintenance Impact
 
@@ -42,4 +50,3 @@ CUDA, PyTorch, and upstream renderer packages change.
 - Add generated plot thumbnails to GitHub Pages.
 - Add Nsight Compute profile import for optional hardware analysis.
 - Add formal benchmark-suite version migration notes for `v1.1` and beyond.
-
