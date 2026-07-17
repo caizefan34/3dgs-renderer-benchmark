@@ -96,6 +96,24 @@ class HiGSAutoConfigTest(unittest.TestCase):
         self.assertEqual(GsplatHiGSAutoRenderer.select_config(400_000), (8, "32b"))
 
 
+class HiGSRendererTest(unittest.TestCase):
+    def test_casts_backend_output_to_float32(self):
+        from benchmark_framework import generate_cameras
+        from renderers.gsplat_renderer import GsplatHiGSRenderer
+
+        renderer = GsplatHiGSRenderer(device="cpu")
+        renderer._renderer = mock.Mock()
+        renderer._renderer.render.return_value = SimpleNamespace(
+            frame=torch.zeros(1, 4, 8, 4, dtype=torch.float16)
+        )
+
+        image = renderer.render(
+            {}, generate_cameras(1, image_width=8, image_height=4, device="cpu")[0]
+        )
+
+        self.assertEqual(image.dtype, torch.float32)
+
+
 class GsplatRendererTest(unittest.TestCase):
     def _camera(self):
         from benchmark_framework import Camera
@@ -171,6 +189,48 @@ class GsplatRendererTest(unittest.TestCase):
 
 
 class Original3DGSRendererTest(unittest.TestCase):
+    def test_accepts_pinned_three_value_result(self):
+        settings_seen = []
+
+        class Settings:
+            def __init__(self, antialiasing, **kwargs):
+                settings_seen.append({"antialiasing": antialiasing, **kwargs})
+
+        class Rasterizer:
+            def __init__(self, raster_settings):
+                pass
+
+            def __call__(self, **kwargs):
+                return (
+                    torch.zeros(3, 4, 8),
+                    torch.zeros(1),
+                    torch.zeros(1, 4, 8),
+                )
+
+        fake = types.ModuleType("diff_gaussian_rasterization")
+        fake.GaussianRasterizationSettings = Settings
+        fake.GaussianRasterizer = Rasterizer
+        with mock.patch.dict(sys.modules, {"diff_gaussian_rasterization": fake}):
+            from benchmark_framework import generate_cameras
+            from renderers.diff_gaussian_renderer import DiffGaussianRenderer
+
+            scene = {
+                "xyz": torch.zeros(2, 3),
+                "opacity": torch.zeros(2),
+                "scales": torch.zeros(2, 3),
+                "rotations": torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(2, 1),
+                "shs": torch.zeros(2, 4, 3),
+                "sh_degree": 1,
+            }
+            renderer = DiffGaussianRenderer(device="cpu")
+            image = renderer.render(
+                renderer.prepare_scene(scene),
+                generate_cameras(1, image_width=8, image_height=4, device="cpu")[0],
+            )
+
+        self.assertEqual(image.shape, (4, 8, 3))
+        self.assertFalse(settings_seen[0]["antialiasing"])
+
     def test_uses_scene_sh_degree(self):
         settings_seen = []
 

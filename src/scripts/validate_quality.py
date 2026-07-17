@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -185,6 +186,41 @@ def _ground_truth_manifest(paths) -> tuple:
     return entries, hashlib.sha256(encoded).hexdigest()
 
 
+def _safe_component(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._") or "unnamed"
+
+
+def _export_render_output(
+    prediction: torch.Tensor,
+    output_root: Path,
+    renderer_name: str,
+    view_index: int,
+    image_name: str,
+) -> dict:
+    """Persist a losslessly encoded RGB8 view from the already-rendered tensor."""
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError("Pillow is required to export render-output PNGs") from exc
+    renderer_dir = output_root / _safe_component(renderer_name)
+    renderer_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{view_index:03d}-{_safe_component(Path(image_name).stem)}.png"
+    path = renderer_dir / filename
+    array = prediction.detach().cpu().contiguous().numpy()
+    if array.ndim != 3 or array.shape[-1] != 3:
+        raise ValueError(f"render output must be HWC RGB, got {array.shape}")
+    encoded = np.rint(np.clip(array, 0.0, 1.0) * 255.0).astype(np.uint8)
+    Image.fromarray(encoded).save(path, format="PNG", compress_level=9, optimize=False)
+    return {
+        "path": path.relative_to(output_root).as_posix(),
+        "sha256": _sha256_file(path),
+        "format": "png",
+        "source_tensor_dtype": str(array.dtype),
+        "source_tensor_shape": list(array.shape),
+        "export_encoding": "RGB8 PNG; clamp [0,1], multiply by 255, round to nearest integer",
+    }
+
+
 def _expected_image_names(path: str) -> list:
     with open(path, encoding="utf-8") as file:
         names = [line.strip() for line in file if line.strip() and not line.startswith("#")]
@@ -264,6 +300,10 @@ def parse_args():
     parser.add_argument(
         "--output", default=os.path.join(REPO_ROOT, "results", "verified", "quality_gt.json")
     )
+    parser.add_argument(
+        "--render-output-dir",
+        help="Directory for lossless per-renderer/view PNGs; defaults beside --output",
+    )
     return parser.parse_args()
 
 
@@ -330,6 +370,9 @@ def main():
             camera = camera_at_image_size(camera, reference_cpu)
         evaluation_pairs.append((camera, image_path, reference_cpu))
     lpips_metric = LPIPSMetric(device=device, net=args.lpips_net)
+    render_output_root = Path(
+        args.render_output_dir or (Path(args.output).resolve().parent / "render_outputs")
+    )
     renderer_results = []
 
     for renderer_name in args.renderers:
@@ -346,6 +389,9 @@ def main():
                 psnr = compute_psnr(prediction, reference)
                 ssim = compute_ssim(prediction, reference)
                 lpips_value = lpips_metric(prediction, reference)
+                render_output = _export_render_output(
+                    prediction, render_output_root, renderer_name, index, image_path.name
+                )
                 psnrs.append(psnr)
                 ssims.append(ssim)
                 lpips_values.append(lpips_value)
@@ -355,6 +401,7 @@ def main():
                     "psnr_db": _json_number(psnr),
                     "ssim": ssim,
                     "lpips": lpips_value,
+                    "render_output": render_output,
                 })
                 print(
                     f"{renderer_name} frame={index:03d} PSNR={psnr:8.3f}dB "
@@ -421,6 +468,11 @@ def main():
             "evaluated_images": ground_truth_manifest,
             "ground_truth_manifest_sha256": ground_truth_manifest_sha256,
             "resolution": suite_case["resolution"] if suite_case else list(evaluation_pairs[0][2].shape[1::-1]),
+        },
+        "render_outputs": {
+            "root": str(render_output_root.resolve()),
+            "format": "losslessly encoded RGB8 PNG with source tensor metadata",
+            "timing": "exported after render and metric computation; outside performance timing",
         },
         "scene": os.path.abspath(args.scene),
         "scene_sha256": _sha256_file(args.scene),

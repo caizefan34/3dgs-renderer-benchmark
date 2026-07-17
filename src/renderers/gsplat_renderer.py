@@ -127,7 +127,7 @@ class GsplatHiGSRenderer(RendererAdapter):
             width=camera.image_width,
             height=camera.image_height,
         )
-        return result.frame[0, ..., :3].clamp(0, 1)
+        return result.frame[0, ..., :3].float().clamp(0, 1)
 
 
 class GsplatHiGSTile16Renderer(GsplatHiGSRenderer):

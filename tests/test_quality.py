@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from scripts.validate_quality import (
     LPIPSMetric,
+    _export_render_output,
     _ground_truth_manifest,
     compute_psnr,
     compute_ssim,
@@ -20,6 +21,27 @@ from benchmark_framework import RendererMetrics
 
 
 class QualityMetricTest(unittest.TestCase):
+    def test_render_output_export_writes_png_with_source_tensor_metadata(self):
+        from PIL import Image
+
+        prediction = torch.zeros(4, 5, 3, dtype=torch.float32)
+        prediction[0, 0] = torch.tensor([1.0, 0.5, 0.0])
+        prediction_before_export = prediction.clone()
+        with tempfile.TemporaryDirectory() as directory:
+            record = _export_render_output(
+                prediction, Path(directory), "renderer/test", 7, "view.png"
+            )
+            with Image.open(Path(directory) / record["path"]) as exported:
+                pixel = exported.getpixel((0, 0))
+
+        self.assertEqual(pixel, (255, 128, 0))
+        self.assertTrue(torch.equal(prediction, prediction_before_export))
+        self.assertEqual(record["format"], "png")
+        self.assertEqual(record["source_tensor_dtype"], "float32")
+        self.assertEqual(record["source_tensor_shape"], [4, 5, 3])
+        self.assertIn("RGB8", record["export_encoding"])
+        self.assertEqual(len(record["sha256"]), 64)
+
     def test_ground_truth_crop_is_applied_before_resizing(self):
         from PIL import Image
 

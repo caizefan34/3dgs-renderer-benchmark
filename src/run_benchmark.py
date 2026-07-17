@@ -358,6 +358,7 @@ def main():
     # Phase 4: Run benchmarks
     print("\n[4/5] Running benchmarks...")
     results_mgr = ResultsManager()
+    nvml_samples_by_renderer = {}
     gpu_name = torch.cuda.get_device_name(0)
 
     for rname in renderers:
@@ -440,6 +441,7 @@ def main():
 
         nvml_sampler.stop()
         nvml_peak_vram_mb = nvml_sampler.peak_mb if nvml_sampler.available else None
+        nvml_samples_by_renderer[rname] = nvml_sampler.samples
 
         t_arr = np.array(all_frame_times)
         renderer_meta = renderer.metadata()
@@ -552,6 +554,12 @@ def main():
     benchmark_json = os.path.join(output_dir, "benchmark_results.json")
     with open(benchmark_json, "w", encoding="utf-8") as handle:
         json.dump(document, handle, indent=2, ensure_ascii=False, allow_nan=False)
+    with open(os.path.join(output_dir, "nvml_samples.json"), "w", encoding="utf-8") as handle:
+        json.dump({
+            "schema_version": 1,
+            "sampling_interval_ms": 5,
+            "renderers": nvml_samples_by_renderer,
+        }, handle, indent=2, ensure_ascii=False, allow_nan=False)
     from schema_validation import validate_json_file
     schema_dir = os.path.join(PROJECT_ROOT, "schemas")
     validate_json_file(benchmark_json, os.path.join(schema_dir, "scene_speed.schema.json"))

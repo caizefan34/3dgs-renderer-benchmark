@@ -28,9 +28,43 @@ def _resolve_renderers(requested: list[str] | None) -> list[str]:
     return requested
 
 
-def _run_command(command: list[str], cwd: Path) -> dict[str, Any]:
+def _capture_nvidia_smi(arguments: list[str]) -> dict[str, Any]:
+    command = ["nvidia-smi", *arguments]
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, check=False, timeout=15
+        )
+        return {
+            "command": command,
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+        }
+    except Exception as exc:
+        return {"command": command, "error": repr(exc)}
+
+
+def _capture_gpu_state() -> dict[str, Any]:
+    return {
+        "captured_at_utc": datetime.now(timezone.utc).isoformat(),
+        "gpus": _capture_nvidia_smi([
+            "--query-gpu=timestamp,index,uuid,name,memory.total,memory.used,memory.free,utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ]),
+        "processes": _capture_nvidia_smi([
+            "--query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory",
+            "--format=csv,noheader,nounits",
+        ]),
+    }
+
+
+def _run_command(
+    command: list[str], cwd: Path, failure_context: dict[str, Any] | None = None
+) -> dict[str, Any]:
     environment = os.environ.copy()
     environment["BENCHMARK_PARENT_LAUNCH_NS"] = str(time.perf_counter_ns())
+    started_at = datetime.now(timezone.utc)
+    started_perf = time.perf_counter()
     completed = subprocess.run(
         command,
         cwd=str(cwd),
@@ -39,11 +73,57 @@ def _run_command(command: list[str], cwd: Path) -> dict[str, Any]:
         text=True,
         check=False,
     )
-    return {
+    result = {
         "command": command,
         "returncode": completed.returncode,
         "stdout_tail": completed.stdout.splitlines()[-20:],
         "stderr_tail": completed.stderr.splitlines()[-20:],
+    }
+    if completed.returncode != 0:
+        evidence = {
+            "started_at_utc": started_at.isoformat(),
+            "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+            "duration_ms": (time.perf_counter() - started_perf) * 1000.0,
+            "command": command,
+            "cwd": str(cwd.resolve()),
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "stack_trace": completed.stderr,
+            "gpu_memory_state": _capture_gpu_state(),
+        }
+        evidence.update(failure_context or {})
+        result["failure_evidence"] = evidence
+    return result
+
+
+def _persist_failure(
+    output_dir: Path, renderer: str, phase: str, evidence: dict[str, Any]
+) -> str:
+    path = output_dir / "failures" / f"{renderer}-{phase}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(evidence, indent=2, ensure_ascii=False, allow_nan=False),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def _unavailable_evidence(renderer: str, phase: str, scene: Path | None) -> dict[str, Any]:
+    timestamp = datetime.now(timezone.utc).isoformat()
+    return {
+        "started_at_utc": timestamp,
+        "completed_at_utc": timestamp,
+        "duration_ms": 0.0,
+        "returncode": None,
+        "stdout": "",
+        "stderr": "",
+        "stack_trace": "",
+        "reason": "renderer adapter is not available in this environment",
+        "phase": phase,
+        "renderer_config_id": renderer,
+        "scene": str(scene) if scene else None,
+        "gpu_memory_state": _capture_gpu_state(),
     }
 
 
@@ -95,7 +175,11 @@ def _speed_command(
         str(output_dir / renderer / "speed"),
     ]
     if cameras is not None:
-        command.extend(["--cameras", str(cameras)])
+        command.extend([
+            "--cameras",
+            str(cameras),
+            "--allow-backfacing-cameras",
+        ])
     if width is not None and height is not None:
         command.extend(["--width", str(width), "--height", str(height)])
     return command
@@ -126,6 +210,8 @@ def _quality_command(
         "--require-all-ground-truth",
         "--output",
         str(output_dir / renderer / "quality" / "quality_gt.json"),
+        "--render-output-dir",
+        str(output_dir / "render_outputs"),
     ]
     if width is not None and height is not None:
         command.extend(["--width", str(width), "--height", str(height)])
@@ -156,7 +242,15 @@ def run_suite(args: argparse.Namespace) -> dict[str, Any]:
     else:
         for renderer in renderers:
             if renderer not in available:
-                report["speed_runs"].append({"renderer": renderer, "status": "skipped_unavailable"})
+                evidence = _unavailable_evidence(renderer, "speed", scene)
+                report["speed_runs"].append({
+                    "renderer": renderer,
+                    "status": "skipped_unavailable",
+                    "failure_evidence": evidence,
+                    "failure_evidence_path": _persist_failure(
+                        output_dir, renderer, "speed", evidence
+                    ),
+                })
                 continue
             command = _speed_command(
                 renderer,
@@ -171,6 +265,25 @@ def run_suite(args: argparse.Namespace) -> dict[str, Any]:
                 getattr(args, "height", None),
             )
             result = _run_command(command, REPO_ROOT)
+            if result["returncode"] != 0:
+                result["failure_evidence"].update({
+                    "phase": "speed",
+                    "renderer_config_id": renderer,
+                    "renderer_config": {
+                        "frames": args.frames,
+                        "warmup": args.warmup,
+                        "repeats": args.repeats,
+                        "device": args.device,
+                        "width": getattr(args, "width", None),
+                        "height": getattr(args, "height", None),
+                        "benchmark_type": args.benchmark_type,
+                    },
+                    "scene": str(scene),
+                    "cameras": str(cameras) if cameras else None,
+                })
+                result["failure_evidence_path"] = _persist_failure(
+                    output_dir, renderer, "speed", result["failure_evidence"]
+                )
             report["speed_runs"].append({"renderer": renderer, "status": "ok" if result["returncode"] == 0 else "failed", **result})
 
     if cameras is None or ground_truth_dir is None or not ground_truth_dir.exists() or scene is None:
@@ -178,7 +291,16 @@ def run_suite(args: argparse.Namespace) -> dict[str, Any]:
     else:
         for renderer in renderers:
             if renderer not in available:
-                report["quality_runs"].append({"renderer": renderer, "status": "skipped_unavailable"})
+                evidence = _unavailable_evidence(renderer, "quality", scene)
+                evidence["ground_truth_dir"] = str(ground_truth_dir)
+                report["quality_runs"].append({
+                    "renderer": renderer,
+                    "status": "skipped_unavailable",
+                    "failure_evidence": evidence,
+                    "failure_evidence_path": _persist_failure(
+                        output_dir, renderer, "quality", evidence
+                    ),
+                })
                 continue
             result = _run_command(
                 _quality_command(
@@ -187,6 +309,22 @@ def run_suite(args: argparse.Namespace) -> dict[str, Any]:
                 ),
                 REPO_ROOT,
             )
+            if result["returncode"] != 0:
+                result["failure_evidence"].update({
+                    "phase": "quality",
+                    "renderer_config_id": renderer,
+                    "renderer_config": {
+                        "device": args.device,
+                        "width": getattr(args, "width", None),
+                        "height": getattr(args, "height", None),
+                    },
+                    "scene": str(scene),
+                    "cameras": str(cameras),
+                    "ground_truth_dir": str(ground_truth_dir),
+                })
+                result["failure_evidence_path"] = _persist_failure(
+                    output_dir, renderer, "quality", result["failure_evidence"]
+                )
             report["quality_runs"].append({"renderer": renderer, "status": "ok" if result["returncode"] == 0 else "failed", **result})
     return report
 

@@ -75,6 +75,53 @@ def _expected_quality_images(camera_path: Path, ground_truth_dir: Path) -> list[
     return expected
 
 
+def _verify_render_outputs(quality_document: dict, quality_frames: list[dict]) -> list[dict]:
+    root_value = quality_document.get("render_outputs", {}).get("root")
+    if not root_value:
+        raise ValueError("quality artifact lacks lossless render-output root")
+    root = Path(root_value).resolve()
+    verified = []
+    for frame in quality_frames:
+        record = frame.get("render_output")
+        if not record or not all(
+            key in record for key in (
+                "path", "sha256", "format", "source_tensor_dtype",
+                "source_tensor_shape", "export_encoding",
+            )
+        ):
+            raise ValueError("quality frame lacks lossless render-output evidence")
+        if record["format"] != "png" or not record["path"].lower().endswith(".png"):
+            raise ValueError("render output must be a PNG")
+        path = (root / record["path"]).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("render-output path escapes its evidence root") from exc
+        if not path.is_file():
+            raise ValueError(f"render output is missing: {record['path']}")
+        if _sha256(path) != record["sha256"]:
+            raise ValueError(f"render output hash mismatch: {record['path']}")
+        try:
+            from PIL import Image
+            with Image.open(path) as image:
+                image.load()
+                source_shape = record["source_tensor_shape"]
+                if image.format != "PNG" or image.mode != "RGB":
+                    raise ValueError(f"render output is not RGB PNG: {record['path']}")
+                if len(source_shape) != 3 or source_shape[-1] != 3:
+                    raise ValueError("render-output source tensor shape is not HWC RGB")
+                if image.size != (source_shape[1], source_shape[0]):
+                    raise ValueError(f"render-output dimensions mismatch: {record['path']}")
+        except OSError as exc:
+            raise ValueError(f"render output is not a valid PNG: {record['path']}") from exc
+        verified.append({
+            "frame": frame.get("frame"),
+            "image": frame.get("image"),
+            **record,
+        })
+    return verified
+
+
 def collect(run_dir: Path, renderer_id: str, case_id: str) -> dict:
     suite = _load(ROOT / "benchmark" / "suite.json")
     protocol = _load(ROOT / "benchmark" / "protocol.json")
@@ -90,8 +137,16 @@ def collect(run_dir: Path, renderer_id: str, case_id: str) -> dict:
         raise ValueError(f"{renderer_id} is excluded from the primary recommendation track")
 
     speed_path = run_dir / renderer_id / "speed" / "benchmark_results.json"
+    nvml_samples_path = run_dir / renderer_id / "speed" / "nvml_samples.json"
     quality_path = run_dir / renderer_id / "quality" / "quality_gt.json"
     speed_doc, quality_doc = _load(speed_path), _load(quality_path)
+    nvml_samples_doc = _load(nvml_samples_path)
+    nvml_samples = nvml_samples_doc.get("renderers", {}).get(renderer_id, [])
+    if not nvml_samples:
+        raise ValueError("speed artifact lacks raw NVML process-memory samples")
+    for sample in nvml_samples:
+        if not all(key in sample for key in ("relative_ms", "timestamp_utc", "pid", "used_gpu_memory_mib")):
+            raise ValueError("raw NVML sample is incomplete")
     if speed_doc.get("status") != "complete":
         raise ValueError("speed artifact is not complete")
     speed, quality_result = _speed_row(speed_doc, renderer_id), _quality_row(quality_doc, renderer_id)
@@ -119,6 +174,7 @@ def collect(run_dir: Path, renderer_id: str, case_id: str) -> dict:
     quality_frames = quality_result.get("frames", [])
     if not quality_frames:
         raise ValueError("quality artifact lacks per-view samples")
+    render_outputs = _verify_render_outputs(quality_doc, quality_frames)
     if speed.get("nvml_peak_vram_mb") is None:
         raise ValueError("Tier A requires NVML process peak memory; install nvidia-ml-py")
 
@@ -131,8 +187,13 @@ def collect(run_dir: Path, renderer_id: str, case_id: str) -> dict:
         "repeat_wall_frame_times_ms": repeat_wall_samples,
         "repeat_gpu_frame_times_ms": repeat_gpu_samples,
         "quality_frames": quality_frames,
+        "render_output_root": quality_doc["render_outputs"]["root"],
+        "render_outputs": render_outputs,
+        "nvml_process_memory_samples": nvml_samples,
+        "nvml_sampling_interval_ms": nvml_samples_doc.get("sampling_interval_ms"),
         "source_speed_sha256": _sha256(speed_path),
         "source_quality_sha256": _sha256(quality_path),
+        "source_nvml_samples_sha256": _sha256(nvml_samples_path),
     }
     raw_path = run_dir / "raw_samples.json"
     raw_path.write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
