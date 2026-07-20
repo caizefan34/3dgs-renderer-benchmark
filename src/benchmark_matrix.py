@@ -585,6 +585,18 @@ def write_report(report: Mapping, output_dir: str | Path) -> None:
             tier_report["overall"], tier_report["pareto_frontiers"]["speed_lpips"],
             "lpips", "LPIPS (lower is better)", output / f"{tier}-speed-vs-lpips.svg",
         )
+        if tier_report["overall"]:
+            for metric, title, unit, higher_is_better, precision, filename in (
+                ("fps", "Aggregate throughput", "FPS", True, 2, "fps"),
+                ("psnr_db", "Aggregate PSNR", "dB", True, 3, "psnr"),
+                ("ssim", "Aggregate SSIM", "", True, 4, "ssim"),
+                ("lpips", "Aggregate LPIPS", "", False, 4, "lpips"),
+                ("peak_vram_mb", "Peak process VRAM", "MiB", False, 0, "vram"),
+            ):
+                _write_metric_rank_svg(
+                    tier_report["overall"], metric, title, unit,
+                    higher_is_better, precision, output / f"{tier}-{filename}-ranking.svg",
+                )
         for index, cohort in enumerate(tier_report.get("suite_cohorts", []), 1):
             cohort_report = cohort["report"]
             _write_scatter_svg(
@@ -651,6 +663,87 @@ def _append_detailed_boards(lines: list[str], tier_report: Mapping, heading: str
         _append_markdown_rows(lines, rows)
 
 
+def _chart_short_name(row: Mapping) -> str:
+    renderer_id = str(row.get("renderer_id") or row.get("competitor_id") or "")
+    known = {
+        "original_3dgs": "Original 3DGS",
+        "gsplat": "gsplat",
+        "gsplat_higs": "gsplat HiGS",
+        "speedy_splat": "Speedy-Splat",
+        "tcgs": "TC-GS",
+    }
+    label = known.get(renderer_id, str(row["renderer"]))
+    return label if len(label) <= 24 else label[:23] + "…"
+
+
+def _renderer_chart_color(row: Mapping) -> str:
+    return {
+        "original_3dgs": "#8b5cf6",
+        "gsplat": "#3b82f6",
+        "gsplat_higs": "#22c55e",
+        "speedy_splat": "#f59e0b",
+        "tcgs": "#ec4899",
+    }.get(str(row.get("renderer_id") or row.get("competitor_id") or ""), "#38bdf8")
+
+
+def _write_metric_rank_svg(
+    rows, metric, title, unit, higher_is_better, precision, path: Path
+) -> None:
+    """Write one consistently styled, exact-value metric ranking chart."""
+    width, height = 1100, 500
+    ordered = sorted(rows, key=lambda row: float(row[metric]), reverse=higher_is_better)
+    values = [float(row[metric]) for row in ordered]
+    low, high = (min(values), max(values)) if values else (0.0, 1.0)
+
+    def bar_fraction(value):
+        if high == low:
+            return 1.0
+        rank_position = (value - low) / (high - low)
+        if not higher_is_better:
+            rank_position = 1.0 - rank_position
+        return .18 + .82 * rank_position
+
+    def display_value(value):
+        number = f"{value:,.{precision}f}"
+        return f"{number} {unit}" if unit else number
+
+    direction = "higher is better" if higher_is_better else "lower is better"
+    case_count = ordered[0].get("case_count", 0) if ordered else 0
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" rx="16" fill="#0f172a"/>',
+        f'<text x="40" y="42" fill="#f8fafc" font-family="system-ui" font-size="24" font-weight="700">{html.escape(title)}</text>',
+        f'<text x="40" y="68" fill="#94a3b8" font-family="system-ui" font-size="13">{direction} · aggregate of {case_count} required cases · same Tier A cohort</text>',
+        '<text x="40" y="98" fill="#64748b" font-family="system-ui" font-size="11">Rank</text>',
+        '<text x="92" y="98" fill="#64748b" font-family="system-ui" font-size="11">Renderer</text>',
+        '<text x="930" y="98" fill="#64748b" font-family="system-ui" font-size="11">Exact value</text>',
+    ]
+    if not ordered:
+        parts.append(
+            '<text x="550" y="260" text-anchor="middle" fill="#94a3b8" font-family="system-ui" font-size="18">No complete, comparable results in this evidence tier</text>'
+        )
+    for rank, row in enumerate(ordered, 1):
+        value = float(row[metric])
+        y = 132 + (rank - 1) * 62
+        bar_width = 620 * bar_fraction(value)
+        color = _renderer_chart_color(row)
+        parts.extend((
+            f'<circle cx="54" cy="{y}" r="15" fill="{color}"/>',
+            f'<text x="54" y="{y + 5}" text-anchor="middle" fill="#0f172a" font-family="system-ui" font-size="13" font-weight="700">{rank}</text>',
+            f'<text x="92" y="{y + 5}" fill="#e2e8f0" font-family="system-ui" font-size="16" font-weight="700">{html.escape(_chart_short_name(row))}</text>',
+            f'<rect x="270" y="{y - 14}" width="620" height="28" rx="8" fill="#1e293b"/>',
+            f'<rect x="270" y="{y - 14}" width="{bar_width:.2f}" height="28" rx="8" fill="{color}" opacity=".88"/>',
+            f'<text x="930" y="{y + 5}" fill="#f8fafc" font-family="system-ui" font-size="15" font-weight="700">{display_value(value)}</text>',
+        ))
+    parts.extend((
+        '<text x="40" y="462" fill="#94a3b8" font-family="system-ui" font-size="12">Bar lengths are normalized within this cohort; use the exact values for numeric comparison.</text>',
+        '<text x="40" y="484" fill="#64748b" font-family="system-ui" font-size="11">Source: generated ranking.json · overall rows only · renderer colors remain consistent across charts</text>',
+        '</svg>',
+    ))
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write("\n".join(parts) + "\n")
+
+
 def _write_scatter_svg(rows, frontier_ids, y_metric, y_label, path: Path) -> None:
     """Write a dependency-free Pareto scatter chart, including honest empty state."""
     width, height = 1100, 620
@@ -674,18 +767,6 @@ def _write_scatter_svg(rows, frontier_ids, y_metric, y_label, path: Path) -> Non
 
     def py(value):
         return top + (y_max - float(value)) / (y_max - y_min) * plot_h
-
-    def short_name(row):
-        renderer_id = str(row.get("renderer_id") or row.get("competitor_id") or "")
-        known = {
-            "original_3dgs": "Original 3DGS",
-            "gsplat": "gsplat",
-            "gsplat_higs": "gsplat HiGS",
-            "speedy_splat": "Speedy-Splat",
-            "tcgs": "TC-GS",
-        }
-        label = known.get(renderer_id, str(row["renderer"]))
-        return label if len(label) <= 24 else label[:23] + "…"
 
     def y_value(value):
         suffix = " dB" if y_metric == "psnr_db" else ""
@@ -731,7 +812,7 @@ def _write_scatter_svg(rows, frontier_ids, y_metric, y_label, path: Path) -> Non
             f'<text x="{x:.2f}" y="{y + 4:.2f}" text-anchor="middle" fill="#0f172a" font-family="system-ui" font-size="11" font-weight="700">{index}</text>',
             f'<circle cx="{left + plot_w + 54}" cy="{legend_y}" r="10" fill="{color}"/>',
             f'<text x="{left + plot_w + 54}" y="{legend_y + 4}" text-anchor="middle" fill="#0f172a" font-family="system-ui" font-size="10" font-weight="700">{index}</text>',
-            f'<text x="{left + plot_w + 74}" y="{legend_y - 5}" fill="#e2e8f0" font-family="system-ui" font-size="14" font-weight="700">{html.escape(short_name(row))}</text>',
+            f'<text x="{left + plot_w + 74}" y="{legend_y - 5}" fill="#e2e8f0" font-family="system-ui" font-size="14" font-weight="700">{html.escape(_chart_short_name(row))}</text>',
             f'<text x="{left + plot_w + 74}" y="{legend_y + 16}" fill="#94a3b8" font-family="system-ui" font-size="12">{float(row["fps"]):.2f} FPS · {y_value(row[y_metric])}{" · Pareto" if is_frontier else ""}</text>',
         ))
     parts.append(
