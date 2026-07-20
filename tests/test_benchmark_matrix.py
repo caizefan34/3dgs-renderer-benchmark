@@ -163,6 +163,15 @@ class BenchmarkMatrixTest(unittest.TestCase):
             )
             self.assertEqual(len(payload["tiers"]["measured"]["overall"]), 1)
 
+            chart = (Path(temp_dir) / "measured-speed-vs-psnr.svg").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn('viewBox="0 0 1100 620"', chart)
+            self.assertIn("Aggregate of 2 required cases", chart)
+            self.assertIn("100.00 FPS", chart)
+            self.assertIn("30.000 dB", chart)
+            self.assertIn(">1</text>", chart)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,8 +15,6 @@ strict per-process NVML peaks, pinned renderer sources, and one immutable hardwa
 See the generated [Tier A ranking](docs/leaderboard/ranking.md) and the
 [reproducibility report](reports/reproducibility.md).
 
-![Measured FPS versus PSNR Pareto chart](docs/leaderboard/measured-speed-vs-psnr.svg)
-
 | Use case | Current recommendation | Basis |
 | --- | --- | --- |
 | Highest FPS | gsplat HiGS variants | 5.671x reference speed index; 696.91 aggregate FPS |
@@ -28,6 +26,24 @@ See the generated [Tier A ranking](docs/leaderboard/ranking.md) and the
 
 Tier A measured results are preferred over Tier B reproductions, which are preferred over Tier C paper values.
 These evidence classes never share a ranking table.
+
+## Tier A comparison charts
+
+The numbered points match the exact values in each chart's data panel. Both charts
+use the same 25 accepted runs (5 renderers × 5 cases) from the EPIC-05 A100 cohort;
+green points are on that chart's two-dimensional Pareto frontier.
+
+### Throughput vs PSNR
+
+![Tier A aggregate FPS versus PSNR comparison](docs/leaderboard/measured-speed-vs-psnr.svg)
+
+### Throughput vs LPIPS
+
+![Tier A aggregate FPS versus LPIPS comparison](docs/leaderboard/measured-speed-vs-lpips.svg)
+
+Exact values, confidence intervals, and per-metric rankings are in the
+[generated Tier A ranking](docs/leaderboard/ranking.md). PSNR is higher-is-better;
+LPIPS is lower-is-better.
 
 ## Run the benchmark locally
 
