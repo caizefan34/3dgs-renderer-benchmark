@@ -185,7 +185,8 @@ renderer_id, scene_path, cameras_path = sys.argv[1:]
 renderer = get_renderer_class(renderer_id)(device="cuda")
 scene = renderer.prepare_scene(load_ply(scene_path, device="cuda"))
 camera = load_cameras_from_json(cameras_path, device="cuda")[0]
-image = renderer.render(scene, camera)
+with torch.inference_mode():
+    image = renderer.render(scene, camera)
 assert image.dtype == torch.float32, image.dtype
 assert image.ndim == 3 and image.shape[-1] == 3, image.shape
 assert image.is_cuda
