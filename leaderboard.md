@@ -1,14 +1,22 @@
 # Leaderboard Pipeline
 
-Generate all public tables and charts from strict result records:
+Generate all public tables and charts from strict Matrix v2 result records:
 
 ```text
 benchmark report --output-dir docs/leaderboard
 ```
 
-Outputs are JSON, CSV, Markdown, and separate FPS–PSNR/FPS–LPIPS SVG charts for Measured, Reproduced, and Paper Reported evidence.
-Tier A is preferred when available, but tier tables remain separate.
-Overall rows require complete suite coverage.
+The output directory contains JSON, CSV, Markdown, and separate FPS-vs-PSNR and
+FPS-vs-LPIPS SVG charts for measured, reproduced, and paper-reported evidence.
+Tier A is preferred when available, but tiers never share a ranking table.
+Overall rows require complete suite coverage in one immutable cohort.
 
-The legacy `src/scripts/generate_leaderboard.py` remains only for reading pre-Matrix artifacts during migration.
-It is not the publication path.
+Publication artifacts:
+
+- [`leaderboard/ranking.md`](leaderboard/ranking.md)
+- [`leaderboard/ranking.json`](leaderboard/ranking.json)
+- [`leaderboard/ranking.csv`](leaderboard/ranking.csv)
+- [`comparison-analysis.md`](comparison-analysis.md)
+
+The legacy `src/scripts/generate_leaderboard.py` reads pre-Matrix artifacts only
+and is not a publication path.
