@@ -51,8 +51,20 @@ def find_scene(scene_fname, scene_dir=None):
     return None
 
 
+def _physical_gpu_identifier(device_index=0):
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if not visible:
+        return str(device_index)
+    devices = [value.strip() for value in visible.split(",") if value.strip()]
+    if device_index >= len(devices):
+        raise ValueError("CUDA_VISIBLE_DEVICES does not expose the requested device")
+    return devices[device_index]
+
+
 def _collect_environment():
     import torch
+
+    physical_gpu = _physical_gpu_identifier()
 
     try:
         gsplat_version = metadata.version("gsplat")
@@ -63,6 +75,7 @@ def _collect_environment():
         driver = subprocess.check_output(
             [
                 "nvidia-smi",
+                f"--id={physical_gpu}",
                 "--query-gpu=driver_version",
                 "--format=csv,noheader",
             ],
@@ -81,7 +94,12 @@ def _collect_environment():
     power_limit_w = None
     try:
         query = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=uuid,power.limit", "--format=csv,noheader,nounits"],
+            [
+                "nvidia-smi",
+                f"--id={physical_gpu}",
+                "--query-gpu=uuid,power.limit",
+                "--format=csv,noheader,nounits",
+            ],
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip().splitlines()[0].split(",")
