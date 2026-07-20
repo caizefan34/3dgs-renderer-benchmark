@@ -38,6 +38,8 @@ class EnvironmentCollectionTest(unittest.TestCase):
             return "GPU-selected, 400.0\n"
 
         with mock.patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": "2"}), \
+             mock.patch("run_full_benchmark.platform.processor", return_value="CPU"), \
+             mock.patch("run_full_benchmark.platform.platform", return_value="Linux"), \
              mock.patch("run_full_benchmark.subprocess.check_output", side_effect=fake_check_output):
             environment = _collect_environment()
 
