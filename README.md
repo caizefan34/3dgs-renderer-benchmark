@@ -107,6 +107,9 @@ See [renderer integration and gap analysis](docs/renderer-integration.md) and th
 
 ## Documentation
 
+- [Tier A comparison analysis](docs/comparison-analysis.md)
+- [Documentation guide](docs/README.md)
+- [EPIC-05 benchmark report](reports/benchmark_report.md)
 - [Methodology](docs/methodology.md)
 - [Ranking design](docs/ranking.md)
 - [Datasets](docs/datasets.md)

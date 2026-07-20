@@ -1,22 +1,51 @@
-# Benchmark report — partial, non-ranking evidence
+# EPIC-05 Tier A Benchmark Report
 
-The table below is the completed Train run from timestamp `20260717T022523Z`. It is **not an official Matrix result** because the required absolute NVML process peak is unavailable and only one of five required cases was executed before the hard blocker stop.
+## Outcome
 
-| Renderer | Wall FPS | Mean wall ms | PSNR dB | SSIM | LPIPS | Framework peak MiB (secondary only) | NVML process peak MiB |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| original_3dgs | 57.6 | 17.3742 | 23.5410 | 0.809344 | 0.299728 | 1254.4 | unavailable (recorded 0) |
-| gsplat | 151.8 | 6.5870 | 22.3809 | 0.798356 | 0.305869 | 728.1 | unavailable (recorded 0) |
-| gsplat_higs | 516.6 | 1.9358 | 22.3817 | 0.798291 | 0.304925 | 553.4 | unavailable (recorded 0) |
-| speedy_splat | 174.2 | 5.7413 | 23.5422 | 0.809371 | 0.299723 | 772.0 | unavailable (recorded 0) |
-| tcgs | 227.7 | 4.3917 | 23.5434 | 0.809089 | 0.298932 | 780.2 | unavailable (recorded 0) |
+The Linux Tier A matrix completed all 25 renderer/case combinations on one
+EPIC-05 NVIDIA A100 cohort. The final report contains five eligible overall
+rows and no rejected inputs.
 
-Evidence completeness for every row:
+| Requirement | Result |
+| --- | --- |
+| Renderer/case coverage | 5 x 5 = 25 complete results |
+| Evidence tier | Tier A measured |
+| Hardware cohorts | 1 |
+| Strict NVML process peaks | Positive samples in every result |
+| Report rejected files | 0 |
+| Overall eligible renderers | 5 |
+| Local project tests | 115 passed, 1 skipped |
+| GitHub CI | Python 3.10 and 3.12 passed |
 
-- 500 synchronized wall samples and 500 CUDA-event samples.
-- Five repeat arrays of 100 samples.
-- 100 quality views.
-- 100 hashed RGB PNG render outputs.
-- Raw NVML samples at the configured 5 ms request interval. Sample counts varied with render duration: original 599, gsplat 287, HiGS 93, Speedy 115, TC-GS 101. Every process-memory value was unavailable/zero under WDDM.
-- Cold-path fields: process startup, renderer init, scene load/parse, renderer preparation/upload, and time to first frame.
+## Main findings
 
-Ranking output: `generated/ranking/ranking.md` and `generated/ranking/ranking.json`. The official measured table is empty.
+- gsplat HiGS is the throughput and efficiency winner at 696.91 aggregate FPS
+  and a 5.671x reference speed index.
+- Speedy-Splat is the balanced recommendation: 2.385x reference speed,
+  reference-level aggregate quality, and 4,276 MiB maximum process VRAM.
+- TC-GS leads aggregate PSNR and LPIPS while reaching a 2.048x speed index.
+- gsplat packed/dense has the lowest full-suite peak VRAM at 4,206 MiB.
+- Original 3DGS remains the scientific baseline.
+
+The detailed interpretation is in
+[`docs/comparison-analysis.md`](../docs/comparison-analysis.md). Generated
+numeric outputs are in [`docs/leaderboard/`](../docs/leaderboard/).
+
+## Evidence layout
+
+Each published run contains only the reviewable JSON evidence needed to verify
+the result:
+
+```text
+results/measured/<renderer>/<dataset>/<scene>/<run-id>/
+  metrics.json
+  raw_samples.json
+  <renderer>/speed/benchmark_results.json
+  <renderer>/speed/nvml_samples.json
+  <renderer>/speed/pareto_frontier.json
+  <renderer>/speed/recommendations.json
+  <renderer>/quality/quality_gt.json
+```
+
+Render PNGs, failed attempts, local suite reports, environments, build trees,
+and temporary credentials are not publication evidence and were not committed.
