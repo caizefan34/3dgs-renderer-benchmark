@@ -152,6 +152,17 @@ class BenchmarkMatrixTest(unittest.TestCase):
             payload = json.loads((Path(temp_dir) / "ranking.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["tiers"]["measured"]["overall"], [])
 
+    def test_complete_single_cohort_report_is_writable(self):
+        report = generate_matrix_report(
+            [self.result("r", "a"), self.result("r", "b")], self.suite
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            write_report(report, temp_dir)
+            payload = json.loads(
+                (Path(temp_dir) / "ranking.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(len(payload["tiers"]["measured"]["overall"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

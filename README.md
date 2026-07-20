@@ -8,22 +8,23 @@ This repository measures those trade-offs on identical scenes, cameras, checkpoi
 
 ## Comparison summary
 
-**Current scientific result: no renderer is eligible for an overall Matrix v2 recommendation yet.**
+**Current scientific result: all five supported renderers have complete Tier A coverage on one Linux A100 cohort.**
 
-The committed legacy measurements use incompatible workloads or incomplete provenance.
-They remain auditable, but they are not combined into a ranking.
-The first official recommendation will appear only after at least the reference renderer and one candidate complete all five canonical cases with coupled speed and GT quality.
+The EPIC-05 run covers all five canonical cases with coupled speed and GT quality,
+strict per-process NVML peaks, pinned renderer sources, and one immutable hardware/software cohort.
+See the generated [Tier A ranking](docs/leaderboard/ranking.md) and the
+[reproducibility report](reports/reproducibility.md).
 
 ![Measured FPS versus PSNR Pareto chart](docs/leaderboard/measured-speed-vs-psnr.svg)
 
-| Use case | Current recommendation | Rule once Tier A data exists |
+| Use case | Current recommendation | Basis |
 | --- | --- | --- |
-| Highest FPS | Not yet measured | Fastest full-suite renderer passing the quality gate |
-| Highest quality | Not yet measured | Best PSNR/SSIM/LPIPS for the target case |
-| Low VRAM | Not yet measured | Lowest peak process VRAM within declared quality loss |
+| Highest FPS | gsplat HiGS variants | 5.671x reference speed index; 696.91 aggregate FPS |
+| Highest quality | Speedy-Splat | Highest combined quality utility; TC-GS leads aggregate PSNR and LPIPS |
+| Low VRAM | gsplat packed/dense | Lowest full-suite peak process VRAM: 4,206 MiB |
 | Web viewer | No verified web adapter | Tier A WebGPU/WebGL renderer only |
 | Research | Original 3DGS as reference, not winner | Reference plus deterministic raw-output adapters |
-| Production | Not yet measured | Pareto renderer meeting platform, stability, startup, and memory limits |
+| Production | Speedy-Splat for balance; gsplat HiGS for speed | Generated best-balance and best-efficiency recommendations |
 
 Tier A measured results are preferred over Tier B reproductions, which are preferred over Tier C paper values.
 These evidence classes never share a ranking table.

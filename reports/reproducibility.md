@@ -1,44 +1,74 @@
 # Reproducibility and resume instructions
 
-## Verify the repository and assets
+## Published cohort
 
-```powershell
+The Tier A evidence was collected from benchmark commit
+`dc9bb4e9231ae2fdf90fa9c40bcd6e0dbd7d104f` with protocol SHA-256
+`892e18890501c408dc6746af69f17e16973604f0c02a3caddf1954d3bf1fede2`.
+
+All 25 renderer/case results share this immutable cohort:
+
+- GPU UUID: `GPU-12b6b703-727b-0c6e-1433-4e6161c54938` (physical GPU 2)
+- NVIDIA driver: 580.105.08
+- PyTorch CUDA runtime: 12.8
+- Python: 3.10.20
+- PyTorch: 2.9.1+cu128
+- OS fingerprint: `Linux-5.10.134-16.3.al8.x86_64-x86_64-with-glibc2.35`
+
+The later report-serialization fix does not alter any collected metric or raw sample.
+
+## Verify the checkout and protocol
+
+```bash
 git rev-parse HEAD
-Get-FileHash -Algorithm SHA256 benchmark\protocol.json
+sha256sum benchmark/protocol.json
 ```
 
-Expected base commit: `b46e8f27fbc3beea89a12f25c35ce8b296f24cd9`.
-
-Expected protocol SHA-256: `892e18890501c408dc6746af69f17e16973604f0c02a3caddf1954d3bf1fede2`.
-
-Use the Git commit containing these reports; it includes the evidence-export and adapter compatibility changes required by this run.
-
-## Environment
-
-Use Python 3.10.20, PyTorch 2.12.1+cu130, CUDA toolkit 13.3, and the pinned renderer checkouts listed in `renderer_report.md`. The current Windows build details are in `../artifacts/environment-setup/`.
-
-The per-process backend selector used for the balanced all-renderer run is:
-
-`../artifacts/environment-setup/sitecustomize.py`
-
-## Run on an NVML-capable host
-
-First confirm that a live CUDA process has a numeric `used_gpu_memory` value:
+Use the pinned renderer commits in `benchmark/renderers.json`. The four isolated
+environments used on EPIC-05 were:
 
 ```text
+/root/miniforge3/envs/original3dgs
+/root/miniforge3/envs/gsplat
+/root/miniforge3/envs/speedy
+/root/miniforge3/envs/tcgs
+```
+
+## Verify strict NVML process memory
+
+Before collection, confirm that a live CUDA process exposes a numeric process
+memory value:
+
+```bash
 nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory --format=csv
 ```
 
-Do not continue if the field is `N/A`.
+Do not substitute framework allocator memory for the Tier A peak.
 
-Then run the fixed suite:
+## Run or resume the fixed matrix
 
-```powershell
-$env:CUDA_VISIBLE_DEVICES='0'
-$env:PYTHONNOUSERSITE='1'
-$env:PYTHONPATH="$PWD\artifacts\environment-setup"
-C:\Users\36570\miniconda3\envs\gsplat\python.exe benchmark.py run all
-C:\Users\36570\miniconda3\envs\gsplat\python.exe benchmark.py report --output-dir reports\generated\ranking
+```bash
+cd /root/3dgs-renderer-benchmark
+export CUDA_VISIBLE_DEVICES=2
+export PYTHONNOUSERSITE=1
+/root/miniforge3/envs/gsplat/bin/python \
+  src/scripts/run_linux_tier_a_matrix.py --resume
 ```
 
-The run must produce valid `metrics.json` files for all five required cases for both `original_3dgs` and at least one candidate. Do not copy the partial Train numbers into `metrics.json` or substitute framework memory.
+The runner verifies canonical assets, enforces the canonical 25-step order,
+adopts only one valid orphan metric, and refuses mixed cohorts. A successful run
+must pass `validate_session_metrics` with 25 metrics, five renderers, five cases,
+and one cohort.
+
+Generate the public report with:
+
+```bash
+/root/miniforge3/envs/gsplat/bin/python benchmark.py report \
+  --output-dir docs/leaderboard
+```
+
+Acceptance requires `rejected_files=[]` and five rows in Tier A `overall`.
+The published run met both conditions. One unsuccessful Speedy-Splat/Train
+attempt rounded a microsecond-scale initialization measurement to `0.00 ms` and
+was rejected before `metrics.json` creation; it is not part of the session or
+published evidence.

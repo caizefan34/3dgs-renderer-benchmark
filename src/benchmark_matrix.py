@@ -453,7 +453,7 @@ def _tier_report(documents: list[Mapping], required_cases: set[str], reference_r
             "report": _single_cohort_report(rows, required_cases, reference_renderer_id),
         })
     if len(reports) == 1:
-        primary = reports[0]["report"]
+        primary = dict(reports[0]["report"])
     else:
         primary = _single_cohort_report([], required_cases, reference_renderer_id)
         if reports:
