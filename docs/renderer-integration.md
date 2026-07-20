@@ -13,7 +13,10 @@ The repository has callable adapters for:
 - TC-GS.
 
 They share the canonical Graphdeco PLY and camera loader and normalize output to an RGB tensor.
-Tier A still requires the pinned environment, prepared five-scene assets, same-case quality run, and strict result collector.
+All five automatic paths completed the pinned five-scene Tier A matrix on
+EPIC-05. Future results must still use prepared assets, same-case quality, and
+the strict result collector; new hardware/software combinations form separate
+cohorts.
 
 ## Environment integration required
 
@@ -31,12 +34,11 @@ Tier A still requires the pinned environment, prepared five-scene assets, same-c
 
 ## Prioritized roadmap
 
-1. Complete reproducible original 3DGS and gsplat builds and all five Tier A cases.
-2. Pin Speedy-Splat and repair the TC-GS container so it actually installs the extension.
-3. Qualify one fixed HiGS configuration; keep adaptive and SH/tile ablations out of the default recommendation table.
-4. Add a Linux EGL image and repair fast-gaussian per-camera state.
-5. Integrate FlashGS, Local-GS, and GEMM-GS one at a time with image-difference regression tests.
-6. Add StopThePop as a temporal/native pipeline track.
+1. Reproduce the complete matrix on a second GPU cohort without mixing results.
+2. Add a Linux EGL image and repair fast-gaussian per-camera state.
+3. Integrate FlashGS, Local-GS, and GEMM-GS one at a time with image-difference regression tests.
+4. Add StopThePop as a temporal/native pipeline track.
+5. Add a verified browser/WebGPU track before making web-viewer recommendations.
 
 Registered aliases and tuning modes must use distinct `config_id` values.
 The diagnostic `speedy_splat_raw` mode is not a product recommendation candidate.

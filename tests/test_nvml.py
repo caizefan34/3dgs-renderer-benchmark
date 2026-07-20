@@ -11,6 +11,24 @@ from benchmark_framework.nvml import NvmlProcessMemorySampler
 
 
 class NvmlSamplerEvidenceTest(unittest.TestCase):
+    def test_visible_cuda_index_resolves_to_physical_nvml_device(self):
+        sampler = NvmlProcessMemorySampler()
+        sampler._nvml = mock.Mock()
+
+        with mock.patch.dict("os.environ", {"CUDA_VISIBLE_DEVICES": "3,5"}):
+            sampler._device_handle()
+
+        sampler._nvml.nvmlDeviceGetHandleByIndex.assert_called_once_with(3)
+
+    def test_visible_cuda_uuid_resolves_with_nvml_uuid(self):
+        sampler = NvmlProcessMemorySampler()
+        sampler._nvml = mock.Mock()
+
+        with mock.patch.dict("os.environ", {"CUDA_VISIBLE_DEVICES": "GPU-example"}):
+            sampler._device_handle()
+
+        sampler._nvml.nvmlDeviceGetHandleByUUID.assert_called_once_with("GPU-example")
+
     def test_sample_records_auditable_timestamp_pid_and_mib(self):
         sampler = NvmlProcessMemorySampler()
         sampler._start_perf_ns = 1_000_000_000

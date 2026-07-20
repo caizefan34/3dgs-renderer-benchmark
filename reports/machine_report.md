@@ -4,30 +4,41 @@
 
 | Item | Value |
 | --- | --- |
-| CPU | Intel Core Ultra 9 275HX, 24 cores / 24 logical processors |
-| RAM | 33,752,997,888 bytes (31.44 GiB) |
-| NVIDIA GPU | NVIDIA GeForce RTX 5070 Laptop GPU, Blackwell, compute capability 12.0 |
-| NVIDIA UUID | `GPU-ddda4ab2-d9b9-0efc-a5f9-f438ff9214b9` |
-| NVIDIA VRAM | 8,151 MiB reported by NVML |
-| Integrated GPU | Intel(R) Graphics, driver 32.0.101.8331 |
+| Host | EPIC-05 |
+| CPU | 2 x Intel Xeon Platinum 8369B at 2.90 GHz |
+| CPU topology | 64 physical cores / 128 logical processors |
+| RAM | 2,163,293,777,920 bytes (about 1.97 TiB) |
+| NVIDIA GPUs | 8 x NVIDIA A100-SXM4-80GB, compute capability 8.0 |
+| Selected GPU | Physical GPU 2 (`CUDA_VISIBLE_DEVICES=2`) |
+| Selected GPU UUID | `GPU-12b6b703-727b-0c6e-1433-4e6161c54938` |
+| Selected GPU VRAM | 81,920 MiB reported by `nvidia-smi`; 81,152.8 MiB reported by PyTorch |
+| Power limit | 400 W |
 
-Only CUDA device 0, the NVIDIA GPU, was selected with `CUDA_VISIBLE_DEVICES=0`. No benchmark process selected the Intel GPU.
+All published metrics identify the selected physical GPU UUID. The earlier
+GPU-metadata attempt was isolated and is not part of the published matrix.
 
 ## Software
 
 | Item | Value |
 | --- | --- |
-| OS | Windows 11 Home Chinese, 64-bit, 10.0.26200 build 26200 |
-| NVIDIA driver | 592.01 |
-| Driver model | WDDM |
-| CUDA reported by driver | 13.1 |
-| CUDA toolkit used for builds | 13.3 (`nvcc 13.3.73`) |
-| PyTorch CUDA runtime | 13.0 |
+| Userland OS | Ubuntu 22.04.5 LTS (Jammy Jellyfish) |
+| Kernel | `5.10.134-16.3.al8.x86_64` |
+| NVIDIA driver | 580.105.08 |
+| CUDA toolkit used for builds | 12.9 (`nvcc 12.9.86`) |
+| PyTorch CUDA runtime | 12.8 |
 | Benchmark Python | 3.10.20 |
-| PyTorch | 2.12.1+cu130 |
-| Benchmark base commit | `b46e8f27fbc3beea89a12f25c35ce8b296f24cd9` |
+| PyTorch | 2.9.1+cu128 |
+| Benchmark evidence commit | `dc9bb4e9231ae2fdf90fa9c40bcd6e0dbd7d104f` |
 | Protocol SHA-256 | `892e18890501c408dc6746af69f17e16973604f0c02a3caddf1954d3bf1fede2` |
 
-The benchmark changes add raw NVML sample retention, render-output export, complete failure evidence, external canonical camera handling, and adapter output/API compatibility. They do not modify `benchmark/protocol.json`, `benchmark/suite.json`, ranking rules, workloads, camera data, resolution, or metric definitions.
+## Published matrix
 
-Raw environment export: `generated/machine_environment.json`.
+- 25 complete Tier A results: five renderers by five canonical cases.
+- 30 warmup frames and 5 x 100 measured frames per speed run.
+- 100 ordered GT views per quality run with PSNR, SSIM, and LPIPS-vgg.
+- Strict positive NVML process-memory samples for every result.
+- One hardware/software cohort and no rejected report inputs.
+
+The generated Tier A overall table contains all five renderers. Its aggregate
+process peak range is 4,206-8,234 MiB; raw per-run NVML evidence remains adjacent
+to each published `metrics.json`.

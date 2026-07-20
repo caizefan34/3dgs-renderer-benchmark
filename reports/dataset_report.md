@@ -15,7 +15,10 @@ Dataset terms remain governed by the source sites linked from the repository man
 
 ## Canonical cases
 
-Every case has `status: canonical`, 100 GT files, and benchmark preparation commit `b46e8f27fbc3beea89a12f25c35ce8b296f24cd9`.
+Every case has `status: canonical` and 100 GT files. The assets were prepared at
+`b46e8f27fbc3beea89a12f25c35ce8b296f24cd9` and revalidated byte-for-byte by
+the Tier A runner at evidence commit
+`dc9bb4e9231ae2fdf90fa9c40bcd6e0dbd7d104f`.
 
 | Case | Checkpoint SHA-256 | Camera SHA-256 | GT manifest SHA-256 | Result |
 | --- | --- | --- | --- | --- |

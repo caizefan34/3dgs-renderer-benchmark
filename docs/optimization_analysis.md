@@ -1,5 +1,9 @@
 # Optimization Analysis
 
+> Historical RTX 5070 exploratory analysis. Current cross-renderer conclusions
+> come from the complete EPIC-05 A100 Tier A matrix in
+> [`comparison-analysis.md`](comparison-analysis.md).
+
 ## Where the time goes
 
 A tile-based 3DGS forward pass has four relevant stages:

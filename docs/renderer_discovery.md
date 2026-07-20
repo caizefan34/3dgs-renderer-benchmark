@@ -17,12 +17,16 @@ leaderboard only after:
 
 ## Current Candidate Classes
 
-- Locally measured: original 3DGS, gsplat, TC-GS.
-- Synthetic speed measured but still needs official-scene quality coupling:
-  gsplat HiGS, Speedy-Splat.
+- Complete Tier A matrix: original 3DGS, gsplat, gsplat HiGS, Speedy-Splat,
+  and TC-GS. Each has five canonical cases with coupled speed, GT quality, and
+  strict NVML process-memory evidence on the EPIC-05 A100 cohort.
 - Adapter or environment pending: FlashGS, Local-GS/TiCoGS, GEMM-GS,
   fast-gaussian-rasterization.
 - Quality/view-consistency candidate: StopThePop.
+
+The current measured comparison and decision guide are in
+[`comparison-analysis.md`](comparison-analysis.md). Candidate registry entries
+remain broader than the published leaderboard.
 
 ## Validation
 

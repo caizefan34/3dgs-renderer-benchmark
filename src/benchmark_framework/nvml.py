@@ -22,6 +22,18 @@ class NvmlProcessMemorySampler:
         self._nvml = None
         self._handle = None
 
+    def _device_handle(self):
+        visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+        if not visible:
+            return self._nvml.nvmlDeviceGetHandleByIndex(self.device_index)
+        devices = [value.strip() for value in visible.split(",") if value.strip()]
+        if self.device_index >= len(devices):
+            raise RuntimeError("CUDA_VISIBLE_DEVICES does not expose the requested device")
+        physical = devices[self.device_index]
+        if physical.isdigit():
+            return self._nvml.nvmlDeviceGetHandleByIndex(int(physical))
+        return self._nvml.nvmlDeviceGetHandleByUUID(physical)
+
     def _usage_mb(self):
         processes = []
         for function_name in ("nvmlDeviceGetComputeRunningProcesses", "nvmlDeviceGetGraphicsRunningProcesses"):
@@ -44,7 +56,7 @@ class NvmlProcessMemorySampler:
             import pynvml
             pynvml.nvmlInit()
             self._nvml = pynvml
-            self._handle = pynvml.nvmlDeviceGetHandleByIndex(self.device_index)
+            self._handle = self._device_handle()
             self.baseline_mb = self._usage_mb()
         except Exception:
             return self

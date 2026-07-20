@@ -1,64 +1,61 @@
-# Migration Plan
+# Matrix v2 Migration Status
 
-## Phase 1 — Stop publishing invalid comparisons
+## Phase 1 - Stop publishing invalid comparisons (complete)
 
-- Replace the README table that joins synthetic FPS with unrelated quality.
-- Regenerate the public leaderboard from Matrix v2 only.
-- Preserve the honest empty state until complete comparable results exist.
-- Label `docs/index.html` and the current `docs/leaderboard/*` as legacy or replace them with generated v2 outputs.
+- Replaced tables that joined synthetic FPS with unrelated quality values.
+- Made Matrix v2 the only public leaderboard generator.
+- Preserved the empty state until a complete comparable cohort existed.
+- Replaced the GitHub Pages empty state with the complete Tier A baseline.
 
-## Phase 2 — Quarantine legacy artifacts
+## Phase 2 - Quarantine legacy artifacts (complete)
 
-Do not rewrite old JSON to look compliant.
-Inventory `data/results/**` under `results/quarantine/legacy-index.json` with explicit reasons such as mismatched resolution, missing renderer commit, missing protocol hash, synthetic workload, missing GT quality, or incomplete suite coverage.
+Legacy results remain auditable and are never rewritten to look compliant.
+Historical Windows/WDDM reports now live under
+`reports/archive/windows-rtx5070-2026-07/`, separated from the current Linux
+baseline. Legacy result records remain classified by provenance and cannot enter
+the default ranking.
 
-## Phase 3 — Establish canonical assets
+## Phase 3 - Establish canonical assets (complete)
 
-Completed in suite v3.1.0:
+Suite v3.1.0 pins:
 
-- Pin official per-scene transport identities and the T&T archive SHA-256.
-- Pin official iteration-30000 checkpoint members and source camera exports.
-- Define deterministic 100-view ordering, selection, 16:9 crop, and GT mapping.
-- Publish checkpoint, canonical camera, and GT manifest SHA-256 for all five cases.
+- official per-scene transport identities and archive checksums;
+- official iteration-30000 checkpoint members and source cameras;
+- deterministic 100-view ordering, 16:9 crop, and GT mapping;
+- checkpoint, camera, and GT manifest SHA-256 values for all five cases.
 
-## Phase 4 — Gather Tier A baseline
+## Phase 4 - Gather Tier A baseline (complete)
 
-- Measure original 3DGS and gsplat on the same reference host.
-- Require all five cases and coupled speed/quality records.
-- Add Speedy-Splat, TC-GS, and one fixed HiGS configuration after build provenance passes.
+- Measured original 3DGS, gsplat, gsplat HiGS, Speedy-Splat, and TC-GS on the
+  same EPIC-05 A100 host.
+- Completed all five cases with coupled speed/quality records and strict NVML
+  process peaks.
+- Published 25 results, five eligible overall rows, one cohort, and no rejected
+  files.
 
-## Phase 5 — Continuous publication
+## Phase 5 - Continuous publication (active)
 
 - Run CPU validation and dry-run planning in ordinary CI.
-- Run the GPU benchmark on a labeled self-hosted runner on demand/nightly.
-- Upload raw result directories as immutable artifacts.
-- Generate reports from `results/measured/**/metrics.json`.
-- Require review before promoting GPU-run artifacts into the published baseline.
+- Re-run GPU benchmarks on labeled self-hosted runners when a new cohort is
+  intentionally created.
+- Keep raw result directories immutable and review generated changes before
+  promotion.
+- Never mix new hardware/software cohorts with the EPIC-05 baseline.
+- Add automated documentation consistency checks so current conclusions cannot
+  drift from generated `ranking.json`.
 
-## File actions
+## Current repository layout
 
-Add:
+```text
+benchmark/                 Protocol, suite, renderer, dataset, and schema definitions
+src/                       Benchmark, adapters, collection, ranking, and reporting code
+results/measured/          Published Tier A JSON evidence
+docs/leaderboard/          Generated public ranking artifacts
+docs/comparison-analysis.md Human-readable interpretation and decision guide
+reports/                   Current machine, dataset, reproduction, and outcome reports
+reports/archive/           Historical machine-specific investigations
+```
 
-- `benchmark/suite.json`, `benchmark/protocol.json`, `benchmark/renderers.json`;
-- `benchmark/datasets/*.json`, `benchmark/schemas/result.schema.json`;
-- `src/benchmark_cli.py`, `src/benchmark_matrix.py`;
-- `src/scripts/prepare_datasets.py`, `src/scripts/collect_matrix_result.py`;
-- `src/scripts/stage_dataset_case.py`;
-- `results/{measured,reproduced,paper,quarantine}/`;
-- `docs/{methodology,hardware,datasets,ranking,repository-architecture,renderer-integration,migration}.md`.
-
-Reorganize:
-
-- `benchmark_suite/` into compatibility shims pointing at `benchmark/` after v1 callers are migrated;
-- `data/results/` into a read-only legacy archive plus explicit quarantine index;
-- duplicate `schemas/` and `src/schemas/` into `benchmark/schemas/` by version;
-- generated plots/reports out of source-data directories.
-
-Remove after compatibility sunset:
-
-- hand-maintained numeric ranking tables in `README.md` and `docs/index.html`;
-- stale v1 leaderboard artifacts;
-- duplicated protocol defaults in code and documentation;
-- paper-reported numbers from any default ranking input.
-
-Compatibility files should not be deleted until old result readers and CI checks are migrated.
+Compatibility shims under `benchmark_suite/`, legacy schemas, and historical
+documents remain until their callers are explicitly retired. They are not the
+publication path.

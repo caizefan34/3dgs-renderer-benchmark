@@ -3,26 +3,58 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>3DGS Renderer Benchmark Matrix</title>
+  <meta name="description" content="Comparable Tier A benchmarks for five 3D Gaussian Splatting renderers on an NVIDIA A100 cohort.">
+  <title>3DGS Renderer Benchmark</title>
   <style>
-    body{font-family:system-ui;max-width:1000px;margin:auto;padding:32px;background:#0f172a;color:#e2e8f0;line-height:1.55}
-    a{color:#60a5fa} .notice{padding:16px;border:1px solid #334155;border-radius:10px;background:#111827}
-    img{width:100%;margin:24px 0} table{border-collapse:collapse;width:100%} th,td{border:1px solid #334155;padding:9px;text-align:left}
+    :root{color-scheme:dark;--bg:#0b1120;--panel:#111827;--line:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--good:#34d399}
+    *{box-sizing:border-box} body{font-family:Inter,ui-sans-serif,system-ui,sans-serif;max-width:1120px;margin:auto;padding:36px 24px;background:var(--bg);color:var(--text);line-height:1.55}
+    a{color:var(--accent)} h1{font-size:clamp(2rem,5vw,3.5rem);line-height:1.08;margin:.2em 0} h2{margin-top:2.2rem}
+    .lead{font-size:1.15rem;color:var(--muted);max-width:850px}.badge{display:inline-block;padding:5px 10px;border:1px solid #065f46;border-radius:999px;color:var(--good);background:#052e2b;font-weight:700}
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:28px 0}.card{padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}.card strong{display:block;font-size:1.5rem}.card span{color:var(--muted)}
+    .notice{padding:18px;border-left:4px solid var(--accent);background:var(--panel);border-radius:8px}.chart{width:100%;margin:24px 0;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+    table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left;white-space:nowrap}th{color:var(--muted)}
+    .links{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.links a{display:block;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);text-decoration:none}
+    footer{margin-top:42px;color:var(--muted);font-size:.9rem}
   </style>
 </head>
 <body>
+  <span class="badge">Tier A complete: 25/25 runs</span>
   <h1>Which 3DGS renderer should I use?</h1>
-  <div class="notice"><strong>No overall Matrix v2 winner yet.</strong> Legacy measurements are not comparable enough to rank. This page stays empty until complete Tier A speed and quality records exist for the five-case suite.</div>
-  <img src="leaderboard/measured-speed-vs-psnr.svg" alt="Measured FPS versus PSNR Pareto chart">
-  <h2>Evidence policy</h2>
-  <p>Measured repository runs are preferred over official reproductions, which are preferred over paper-reported values. Tiers never share a ranking table.</p>
-  <h2>Generated artifacts</h2>
-  <ul>
-    <li><a href="leaderboard/ranking.md">Tier-separated ranking tables</a></li>
-    <li><a href="leaderboard/ranking.json">Machine-readable rankings</a></li>
-    <li><a href="leaderboard/ranking.csv">CSV rankings</a></li>
-    <li><a href="methodology.md">Methodology</a></li>
-    <li><a href="ranking.md">Ranking design</a></li>
-  </ul>
+  <p class="lead">Five renderers measured on the same checkpoints, cameras, 1080p protocol, A100 GPU UUID, and strict NVML process-memory collector.</p>
+
+  <div class="cards">
+    <div class="card"><strong>gsplat HiGS</strong><span>Fastest: 696.91 aggregate FPS</span></div>
+    <div class="card"><strong>Speedy-Splat</strong><span>Best balanced recommendation</span></div>
+    <div class="card"><strong>gsplat</strong><span>Lowest max VRAM: 4,206 MiB</span></div>
+    <div class="card"><strong>0 rejected</strong><span>Five eligible overall rows</span></div>
+  </div>
+
+  <div class="notice"><strong>Bottom line:</strong> choose gsplat HiGS for maximum throughput, Speedy-Splat for reference-level quality and balanced deployment, gsplat for the lowest measured peak memory, and Original 3DGS when an official reference path matters most.</div>
+
+  <img class="chart" src="leaderboard/measured-speed-vs-psnr.svg" alt="Measured FPS versus PSNR Pareto chart">
+
+  <h2>Overall Tier A comparison</h2>
+  <table>
+    <thead><tr><th>Renderer</th><th>Speed index</th><th>FPS</th><th>PSNR</th><th>SSIM</th><th>LPIPS</th><th>Peak VRAM</th></tr></thead>
+    <tbody>
+      <tr><td>gsplat HiGS</td><td>5.671x</td><td>696.91</td><td>25.834</td><td>0.8372</td><td>0.2649</td><td>6,616 MiB</td></tr>
+      <tr><td>Speedy-Splat</td><td>2.385x</td><td>293.03</td><td>26.121</td><td>0.8404</td><td>0.2637</td><td>4,276 MiB</td></tr>
+      <tr><td>TC-GS</td><td>2.048x</td><td>251.62</td><td>26.130</td><td>0.8401</td><td>0.2633</td><td>4,322 MiB</td></tr>
+      <tr><td>gsplat</td><td>1.966x</td><td>241.60</td><td>25.834</td><td>0.8372</td><td>0.2653</td><td>4,206 MiB</td></tr>
+      <tr><td>Original 3DGS</td><td>1.000x</td><td>122.88</td><td>26.120</td><td>0.8403</td><td>0.2637</td><td>8,234 MiB</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Explore the evidence</h2>
+  <div class="links">
+    <a href="comparison-analysis.md"><strong>Comparison analysis</strong><br>Trade-offs, case winners, limitations, and decision guide</a>
+    <a href="leaderboard/ranking.md"><strong>Generated ranking tables</strong><br>Overall, speed, quality, memory, efficiency, and Pareto boards</a>
+    <a href="leaderboard/ranking.json"><strong>Machine-readable ranking</strong><br>Exact metrics, confidence intervals, cohorts, and recommendations</a>
+    <a href="methodology.md"><strong>Methodology</strong><br>Evidence tiers, canonical workload, and measurement rules</a>
+    <a href="README.md"><strong>Documentation guide</strong><br>Current docs, integration references, and historical context</a>
+    <a href="../reports/README.md"><strong>Run reports</strong><br>Machine cohort, reproduction, dataset hashes, and archived Windows audit</a>
+  </div>
+
+  <footer>Evidence tiers never mix. These recommendations apply to the published EPIC-05 A100 common-representation cohort.</footer>
 </body>
 </html>
