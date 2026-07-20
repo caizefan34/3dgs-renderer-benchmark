@@ -29,17 +29,42 @@ These evidence classes never share a ranking table.
 
 ## Tier A comparison charts
 
-The numbered points match the exact values in each chart's data panel. Both charts
-use the same 25 accepted runs (5 renderers × 5 cases) from the EPIC-05 A100 cohort;
-green points are on that chart's two-dimensional Pareto frontier.
+Every chart uses the same 25 accepted runs (5 renderers × 5 cases) from the
+EPIC-05 A100 cohort. Renderer colors stay consistent across charts. Ranking-bar
+lengths are normalized within this cohort, while the exact measured values are
+printed on every row.
 
-### Throughput vs PSNR
+### Aggregate FPS
 
-![Tier A aggregate FPS versus PSNR comparison](docs/leaderboard/measured-speed-vs-psnr.svg)
+[![Tier A aggregate FPS ranking](docs/leaderboard/measured-fps-ranking.svg)](docs/leaderboard/measured-fps-ranking.svg)
 
-### Throughput vs LPIPS
+### Aggregate PSNR
 
-![Tier A aggregate FPS versus LPIPS comparison](docs/leaderboard/measured-speed-vs-lpips.svg)
+[![Tier A aggregate PSNR ranking](docs/leaderboard/measured-psnr-ranking.svg)](docs/leaderboard/measured-psnr-ranking.svg)
+
+### Aggregate SSIM
+
+[![Tier A aggregate SSIM ranking](docs/leaderboard/measured-ssim-ranking.svg)](docs/leaderboard/measured-ssim-ranking.svg)
+
+### Aggregate LPIPS
+
+[![Tier A aggregate LPIPS ranking](docs/leaderboard/measured-lpips-ranking.svg)](docs/leaderboard/measured-lpips-ranking.svg)
+
+### Peak process VRAM
+
+[![Tier A peak process VRAM ranking](docs/leaderboard/measured-vram-ranking.svg)](docs/leaderboard/measured-vram-ranking.svg)
+
+The following Pareto charts combine speed and quality. Numbered points match the
+exact values in each chart's data panel; green points are on that chart's
+two-dimensional Pareto frontier.
+
+### FPS vs PSNR Pareto
+
+[![Tier A aggregate FPS versus PSNR comparison](docs/leaderboard/measured-speed-vs-psnr.svg)](docs/leaderboard/measured-speed-vs-psnr.svg)
+
+### FPS vs LPIPS Pareto
+
+[![Tier A aggregate FPS versus LPIPS comparison](docs/leaderboard/measured-speed-vs-lpips.svg)](docs/leaderboard/measured-speed-vs-lpips.svg)
 
 Exact values, confidence intervals, and per-metric rankings are in the
 [generated Tier A ranking](docs/leaderboard/ranking.md). PSNR is higher-is-better;

@@ -38,6 +38,10 @@ class DocumentationConsistencyTest(unittest.TestCase):
         self.assertIn("complete Tier A coverage", readme)
         self.assertIn("## Tier A comparison charts", readme)
         self.assertIn("measured-speed-vs-lpips.svg", readme)
+        for metric in ("fps", "psnr", "ssim", "lpips", "vram"):
+            filename = f"measured-{metric}-ranking.svg"
+            self.assertIn(filename, readme)
+            self.assertIn(filename, index)
         self.assertIn("Tier A complete: 25/25 runs", index)
         self.assertIn("Chart data", index)
         self.assertIn("25 accepted runs", index)

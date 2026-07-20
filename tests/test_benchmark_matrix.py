@@ -172,6 +172,22 @@ class BenchmarkMatrixTest(unittest.TestCase):
             self.assertIn("30.000 dB", chart)
             self.assertIn(">1</text>", chart)
 
+            metric_charts = {
+                "measured-fps-ranking.svg": ("Aggregate throughput", "100.00 FPS"),
+                "measured-psnr-ranking.svg": ("Aggregate PSNR", "30.000 dB"),
+                "measured-ssim-ranking.svg": ("Aggregate SSIM", "0.9500"),
+                "measured-lpips-ranking.svg": ("Aggregate LPIPS", "0.1000"),
+                "measured-vram-ranking.svg": ("Peak process VRAM", "1,024 MiB"),
+            }
+            for filename, expected in metric_charts.items():
+                metric_chart = (Path(temp_dir) / filename).read_text(
+                    encoding="utf-8"
+                )
+                self.assertIn('viewBox="0 0 1100 500"', metric_chart)
+                self.assertIn(expected[0], metric_chart)
+                self.assertIn(expected[1], metric_chart)
+                self.assertIn("Bar lengths are normalized within this cohort", metric_chart)
+
 
 if __name__ == "__main__":
     unittest.main()
