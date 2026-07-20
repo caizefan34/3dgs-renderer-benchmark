@@ -36,7 +36,11 @@ class DocumentationConsistencyTest(unittest.TestCase):
         index = (ROOT / "docs" / "index.html").read_text(encoding="utf-8")
 
         self.assertIn("complete Tier A coverage", readme)
+        self.assertIn("## Tier A comparison charts", readme)
+        self.assertIn("measured-speed-vs-lpips.svg", readme)
         self.assertIn("Tier A complete: 25/25 runs", index)
+        self.assertIn("Chart data", index)
+        self.assertIn("25 accepted runs", index)
         self.assertNotIn("No overall Matrix v2 winner yet", index)
 
     def test_current_and_historical_reports_are_separated(self):

@@ -653,8 +653,8 @@ def _append_detailed_boards(lines: list[str], tier_report: Mapping, heading: str
 
 def _write_scatter_svg(rows, frontier_ids, y_metric, y_label, path: Path) -> None:
     """Write a dependency-free Pareto scatter chart, including honest empty state."""
-    width, height = 900, 560
-    left, right, top, bottom = 90, 30, 55, 75
+    width, height = 1100, 620
+    left, right, top, bottom = 90, 350, 90, 85
     plot_w, plot_h = width - left - right, height - top - bottom
     frontier = set(frontier_ids)
     if rows:
@@ -675,25 +675,68 @@ def _write_scatter_svg(rows, frontier_ids, y_metric, y_label, path: Path) -> Non
     def py(value):
         return top + (y_max - float(value)) / (y_max - y_min) * plot_h
 
+    def short_name(row):
+        renderer_id = str(row.get("renderer_id") or row.get("competitor_id") or "")
+        known = {
+            "original_3dgs": "Original 3DGS",
+            "gsplat": "gsplat",
+            "gsplat_higs": "gsplat HiGS",
+            "speedy_splat": "Speedy-Splat",
+            "tcgs": "TC-GS",
+        }
+        label = known.get(renderer_id, str(row["renderer"]))
+        return label if len(label) <= 24 else label[:23] + "…"
+
+    def y_value(value):
+        suffix = " dB" if y_metric == "psnr_db" else ""
+        precision = 3 if y_metric == "psnr_db" else 4
+        return f"{float(value):.{precision}f}{suffix}"
+
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
         '<rect width="100%" height="100%" fill="#0f172a"/>',
-        f'<text x="{width/2}" y="30" text-anchor="middle" fill="#f8fafc" font-family="system-ui" font-size="20">Speed-quality Pareto</text>',
+        f'<text x="{width/2}" y="32" text-anchor="middle" fill="#f8fafc" font-family="system-ui" font-size="22" font-weight="700">Speed-quality Pareto: FPS vs {"PSNR" if y_metric == "psnr_db" else "LPIPS"}</text>',
+        f'<text x="{width/2}" y="58" text-anchor="middle" fill="#94a3b8" font-family="system-ui" font-size="13">Aggregate of {rows[0].get("case_count", 0) if rows else 0} required cases · same Tier A cohort · labels report exact aggregate values</text>',
         f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" stroke="#94a3b8"/>',
         f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" stroke="#94a3b8"/>',
-        f'<text x="{left + plot_w/2}" y="{height - 20}" text-anchor="middle" fill="#cbd5e1" font-family="system-ui">FPS (higher is better)</text>',
+        f'<text x="{left + plot_w/2}" y="{height - 34}" text-anchor="middle" fill="#cbd5e1" font-family="system-ui">FPS (higher is better →)</text>',
         f'<text transform="translate(24 {top + plot_h/2}) rotate(-90)" text-anchor="middle" fill="#cbd5e1" font-family="system-ui">{html.escape(y_label)}</text>',
+        f'<text x="{left + plot_w + 42}" y="{top + 8}" fill="#f8fafc" font-family="system-ui" font-size="15" font-weight="700">Chart data</text>',
     ]
+    for index in range(5):
+        x_tick = x_min + (x_max - x_min) * index / 4
+        x = px(x_tick)
+        parts.extend((
+            f'<line x1="{x:.2f}" y1="{top}" x2="{x:.2f}" y2="{top + plot_h}" stroke="#1e293b"/>',
+            f'<text x="{x:.2f}" y="{top + plot_h + 24}" text-anchor="middle" fill="#94a3b8" font-family="system-ui" font-size="12">{x_tick:.0f}</text>',
+        ))
+        y_tick = y_min + (y_max - y_min) * index / 4
+        y = py(y_tick)
+        parts.extend((
+            f'<line x1="{left}" y1="{y:.2f}" x2="{left + plot_w}" y2="{y:.2f}" stroke="#1e293b"/>',
+            f'<text x="{left - 10}" y="{y + 4:.2f}" text-anchor="end" fill="#94a3b8" font-family="system-ui" font-size="12">{y_tick:.{3 if y_metric == "psnr_db" else 4}f}</text>',
+        ))
     if not rows:
         parts.append(
             f'<text x="{left + plot_w/2}" y="{top + plot_h/2}" text-anchor="middle" fill="#94a3b8" font-family="system-ui" font-size="18">No complete, comparable results in this evidence tier</text>'
         )
-    for row in rows:
+    for index, row in enumerate(rows, 1):
         x, y = px(row["fps"]), py(row[y_metric])
         is_frontier = row["competitor_id"] in frontier
         color = "#22c55e" if is_frontier else "#8b5cf6"
-        radius = 8 if is_frontier else 6
-        parts.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{radius}" fill="{color}"/>')
-        parts.append(f'<text x="{x + 10:.2f}" y="{y - 8:.2f}" fill="#e2e8f0" font-family="system-ui" font-size="12">{html.escape(str(row["renderer"]))}</text>')
+        radius = 12 if is_frontier else 10
+        legend_y = top + 38 + (index - 1) * 62
+        parts.extend((
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{radius}" fill="{color}" stroke="#f8fafc" stroke-width="1.5"/>',
+            f'<text x="{x:.2f}" y="{y + 4:.2f}" text-anchor="middle" fill="#0f172a" font-family="system-ui" font-size="11" font-weight="700">{index}</text>',
+            f'<circle cx="{left + plot_w + 54}" cy="{legend_y}" r="10" fill="{color}"/>',
+            f'<text x="{left + plot_w + 54}" y="{legend_y + 4}" text-anchor="middle" fill="#0f172a" font-family="system-ui" font-size="10" font-weight="700">{index}</text>',
+            f'<text x="{left + plot_w + 74}" y="{legend_y - 5}" fill="#e2e8f0" font-family="system-ui" font-size="14" font-weight="700">{html.escape(short_name(row))}</text>',
+            f'<text x="{left + plot_w + 74}" y="{legend_y + 16}" fill="#94a3b8" font-family="system-ui" font-size="12">{float(row["fps"]):.2f} FPS · {y_value(row[y_metric])}{" · Pareto" if is_frontier else ""}</text>',
+        ))
+    parts.append(
+        f'<text x="{left}" y="{height - 10}" fill="#64748b" font-family="system-ui" font-size="11">Source: generated ranking.json · overall rows only · green = 2D Pareto frontier</text>'
+    )
     parts.append('</svg>')
-    path.write_text("\n".join(parts) + "\n", encoding="utf-8")
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write("\n".join(parts) + "\n")
