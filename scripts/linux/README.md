@@ -21,7 +21,9 @@ bash scripts/linux/setup_tier_a_envs.sh
 ~/miniforge3/envs/gsplat/bin/python \
   src/scripts/run_linux_tier_a_matrix.py --dry-run
 ~/miniforge3/envs/gsplat/bin/python \
-  src/scripts/run_linux_tier_a_matrix.py
+  src/scripts/run_linux_tier_a_matrix.py --max-steps 5
+~/miniforge3/envs/gsplat/bin/python \
+  src/scripts/run_linux_tier_a_matrix.py --resume
 ```
 
 To select one idle physical GPU while keeping it as logical CUDA device zero
@@ -52,6 +54,9 @@ driver, GPU, and benchmark commit cohort for a publishable run.
 If a run is interrupted, use `--resume`. The session manifest is retained at
 `artifacts/run-logs/linux-tier-a-session.json`. Do not delete or archive partial
 metrics before resuming.
+
+The first command deliberately stops after the five garden rows so their
+metrics and NVML evidence can be reviewed before the remaining 20 rows resume.
 
 The runner stops before measurement unless all canonical hashes match, all four
 environment interpreters exist, and a live CUDA process reports positive numeric

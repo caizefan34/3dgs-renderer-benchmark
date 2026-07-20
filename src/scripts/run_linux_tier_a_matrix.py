@@ -378,7 +378,13 @@ def _validate_report(report_path: Path) -> dict:
     return report
 
 
-def run_matrix(root: Path, env_root: Path, session_path: Path, resume: bool = False) -> dict:
+def run_matrix(
+    root: Path,
+    env_root: Path,
+    session_path: Path,
+    resume: bool = False,
+    max_steps: int | None = None,
+) -> dict:
     if platform.system() != "Linux":
         raise RuntimeError("the Tier A matrix runner must execute on native Linux")
     checkout_commit = _clean_checkout_commit(root)
@@ -442,6 +448,8 @@ def run_matrix(root: Path, env_root: Path, session_path: Path, resume: bool = Fa
         _write_session(session_path, session)
 
     for row in plan[len(completed):]:
+        if max_steps is not None and len(session["completed"]) >= max_steps:
+            break
         before = _metric_paths(root, row["renderer"], row["case_id"], cases)
         if len(before) == 1:
             metric_path = next(iter(before))
@@ -458,6 +466,8 @@ def run_matrix(root: Path, env_root: Path, session_path: Path, resume: bool = Fa
                 "metrics_path": str(metric_path.relative_to(root)),
             })
             _write_session(session_path, session)
+            if max_steps is not None and len(session["completed"]) >= max_steps:
+                break
             continue
         print(f"[{row['step']:02d}/25] {row['case_id']} :: {row['renderer']}", flush=True)
         subprocess.run(row["command"], cwd=root, check=True, env={
@@ -486,6 +496,14 @@ def run_matrix(root: Path, env_root: Path, session_path: Path, resume: bool = Fa
             "metrics_path": str(metric_path.relative_to(root)),
         })
         _write_session(session_path, session)
+        if max_steps is not None and len(session["completed"]) >= max_steps:
+            break
+
+    if len(session["completed"]) < len(plan):
+        session["status"] = "partial"
+        session["completed_count"] = len(session["completed"])
+        _write_session(session_path, session)
+        return session
 
     metric_paths = [root / item["metrics_path"] for item in session["completed"]]
     summary = validate_session_metrics(metric_paths, root, checkout_commit)
@@ -521,16 +539,24 @@ def main(argv=None) -> int:
         default=ROOT / "artifacts" / "run-logs" / "linux-tier-a-session.json",
     )
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--max-steps", type=int)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
     root = args.root.resolve()
     env_root = args.env_root.expanduser().resolve()
+    if args.max_steps is not None and not 1 <= args.max_steps <= len(MATRIX_ORDER):
+        parser.error(f"--max-steps must be between 1 and {len(MATRIX_ORDER)}")
     if args.dry_run:
         print(json.dumps(build_plan(root, env_root), indent=2))
         return 0
-    session = run_matrix(root, env_root, args.session.resolve(), args.resume)
-    print(json.dumps(session["summary"], indent=2))
+    session = run_matrix(
+        root, env_root, args.session.resolve(), args.resume, args.max_steps
+    )
+    print(json.dumps(session.get("summary", {
+        "status": session["status"],
+        "completed_count": len(session["completed"]),
+    }), indent=2))
     return 0
 
 
