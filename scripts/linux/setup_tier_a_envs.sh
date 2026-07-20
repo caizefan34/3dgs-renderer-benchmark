@@ -85,6 +85,7 @@ prepare_source() {
   local directory="$1"
   local url="$2"
   local commit="$3"
+  shift 3
   if [[ -d "$directory/.git" ]]; then
     [[ -z "$(git -C "$directory" status --porcelain --untracked-files=no --ignore-submodules=untracked)" ]] || {
       echo "Renderer checkout has modified tracked files: $directory" >&2
@@ -95,7 +96,9 @@ prepare_source() {
     git clone "$url" "$directory"
   fi
   git -C "$directory" checkout --detach "$commit"
-  git -C "$directory" submodule update --init --recursive
+  if [[ "$#" -gt 0 ]]; then
+    git -C "$directory" submodule update --init --recursive -- "$@"
+  fi
   [[ "$(git -C "$directory" rev-parse HEAD)" == "$commit" ]]
 }
 
@@ -103,15 +106,18 @@ mkdir -p "$SOURCE_ROOT"
 prepare_source \
   "$SOURCE_ROOT/original-diff-gaussian-rasterization" \
   https://github.com/graphdeco-inria/diff-gaussian-rasterization \
-  9c5c2028f6fbee2be239bc4c9421ff894fe4fbe0
+  9c5c2028f6fbee2be239bc4c9421ff894fe4fbe0 \
+  third_party/glm
 prepare_source \
   "$SOURCE_ROOT/gsplat" \
   https://github.com/nerfstudio-project/gsplat \
-  77ab983ffe43420b2131669cb35776b883ca4c3c
+  77ab983ffe43420b2131669cb35776b883ca4c3c \
+  gsplat/cuda/csrc/third_party/glm
 prepare_source \
   "$SOURCE_ROOT/speedy-splat" \
   https://github.com/j-alex-hanson/speedy-splat \
-  34c45c6d9b8bd6110231864f2f358b6d3abbf73d
+  34c45c6d9b8bd6110231864f2f358b6d3abbf73d \
+  submodules/diff-gaussian-rasterization
 prepare_source \
   "$SOURCE_ROOT/3DGSTensorCore" \
   https://github.com/DeepLink-org/3DGSTensorCore \
