@@ -48,10 +48,9 @@ for scene in truck train; do
     --archive "$DOWNLOADS/tandt_db.zip"
 done
 
-for case_id in \
-  small-garden-1080p medium-truck-1080p medium-train-1080p \
-  large-bicycle-1080p large-bonsai-1080p; do
-  case_path="$ROOT/$($PYTHON - "$ROOT/benchmark/suite.json" "$case_id" <<'PY'
+prepare_case() {
+  local case_id="$1"
+  local case_path="$ROOT/$($PYTHON - "$ROOT/benchmark/suite.json" "$case_id" <<'PY'
 import json
 import sys
 
@@ -62,6 +61,13 @@ PY
   if [[ ! -f "$case_path" ]]; then
     "$PYTHON" "$ROOT/src/scripts/prepare_suite_case.py" "$case_id"
   fi
+}
+
+for case_id in \
+  small-garden-1080p medium-truck-1080p medium-train-1080p \
+  large-bicycle-1080p large-bonsai-1080p; do
+  prepare_case "$case_id" &
 done
+wait
 
 echo "EPIC-05 canonical data are ready under $DATA_ROOT"
