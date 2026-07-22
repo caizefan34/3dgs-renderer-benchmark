@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caizefan34.github.io/3dgs-renderer-benchmark/benchmark/schemas/compression-artifact.schema.json",
+  "title": "3DGS compressed artifact manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "source", "codec", "compressed_artifact", "decode", "timings_ms", "provenance"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "status": {"const": "artifact_ready"},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "gaussian_count", "properties"],
+      "properties": {
+        "path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "bytes": {"type": "integer", "minimum": 1}, "gaussian_count": {"type": "integer", "minimum": 1},
+        "properties": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    },
+    "codec": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "parameters", "common_representation_compatible", "retraining_required"],
+      "properties": {
+        "id": {"enum": ["block-float", "tile-codebook"]}, "version": {"const": "1"},
+        "parameters": {"type": "object"}, "common_representation_compatible": {"const": true},
+        "retraining_required": {"const": false}
+      }
+    },
+    "compressed_artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "compression_ratio"],
+      "properties": {
+        "path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "bytes": {"type": "integer", "minimum": 1}, "compression_ratio": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "decode": {
+      "type": "object", "additionalProperties": false,
+      "required": ["output_format", "artifact_sha256", "cpu_only", "peak_decode_vram_mb"],
+      "properties": {
+        "output_format": {"const": "binary_little_endian_ply"},
+        "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "cpu_only": {"const": true}, "peak_decode_vram_mb": {"const": 0.0}
+      }
+    },
+    "timings_ms": {
+      "type": "object", "additionalProperties": false,
+      "required": ["encode", "decode_validation"],
+      "properties": {"encode": {"type": "number", "exclusiveMinimum": 0}, "decode_validation": {"type": "number", "exclusiveMinimum": 0}}
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["benchmark_commit", "created_at_utc", "command"],
+      "properties": {"benchmark_commit": {"type": "string"}, "created_at_utc": {"type": "string"}, "command": {"type": "string"}}
+    }
+  }
+}

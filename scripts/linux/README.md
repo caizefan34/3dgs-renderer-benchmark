@@ -93,3 +93,29 @@ environment interpreters exist, and a live CUDA process reports positive numeric
 NVML process memory. Each new `metrics.json` and its raw NVML samples are checked
 immediately. The final report is generated only after all 25 renderer/case pairs
 belong to one hardware cohort.
+
+## Common-compatible compression baselines
+
+The compression track keeps quantized checkpoints out of the primary renderer
+ranking. Both initial codecs decode back to a standard binary 3DGS PLY and do
+not require pruning or retraining:
+
+```bash
+~/miniforge3/envs/gsplat/bin/python src/scripts/compress_ply.py encode \
+  --input datasets/processed/mipnerf360/garden/point_cloud.ply \
+  --output artifacts/compression/garden.block-float.zip \
+  --manifest artifacts/compression/garden.block-float.json \
+  --codec block-float
+
+~/miniforge3/envs/gsplat/bin/python src/scripts/compress_ply.py decode \
+  --input artifacts/compression/garden.block-float.zip \
+  --output artifacts/compression/garden.block-float.ply
+```
+
+`block-float` uses a 16-bit codebook shared by sequential blocks.
+`tile-codebook` spatially reorders Gaussians, keeps position/DC/opacity/scale/
+rotation at 16 bits, and quantizes remaining SH coefficients with a per-tile
+8-bit codebook. The artifact manifest records source and compressed hashes,
+byte ratio, encode/decode time, and that CPU decoding consumes zero GPU VRAM.
+Rendering FPS and PSNR/SSIM/LPIPS must still be measured from the decoded PLY
+on EPIC-05 before either artifact is called near-lossless.
