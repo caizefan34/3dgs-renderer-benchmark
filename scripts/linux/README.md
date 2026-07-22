@@ -133,3 +133,18 @@ tile-codebook for each of the five cases. Each compressed row must share the
 reference row's GPU UUID/software cohort. The collector enforces a strict
 numeric near-lossless gate (PSNR drop <0.2 dB, SSIM drop <0.002, LPIPS increase
 <0.005) and leaves the overall gate pending until a visual audit is recorded.
+
+## Candidate renderer environments
+
+FlashGS, Local-GS, and GEMM-GS use mutually incompatible CUDA packages, so
+they must not overwrite the four primary renderer environments. Build their
+isolated environments and pinned checkouts with:
+
+```bash
+bash scripts/linux/setup_candidate_envs.sh
+```
+
+After one-frame differential quality checks pass, run their separate 15-row
+matrix with `--profile candidate-renderers` and a separate session/report path.
+Do not add these rows to the primary recommendation table until all five cases
+pass the same camera order, raw NVML evidence, and quality contract.

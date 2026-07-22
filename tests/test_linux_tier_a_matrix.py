@@ -79,6 +79,15 @@ class LinuxTierAMatrixPlanTest(unittest.TestCase):
         self.assertEqual(plan[2]["environment"], "gsplat")
         self.assertEqual(matrix_order("higs-ablation")[0][1], "gsplat_higs")
 
+        candidates = build_plan(
+            Path("/repo"), Path("/opt/miniforge/envs"), profile="candidate-renderers"
+        )
+        self.assertEqual(len(candidates), 15)
+        self.assertEqual(
+            {row["environment"] for row in candidates},
+            {"flashgs", "localgs", "gemmgs"},
+        )
+
     def test_idle_gpu_gate_requires_consecutive_samples(self):
         samples = iter([(900.0, 2.0), (1500.0, 2.0), (800.0, 3.0), (700.0, 1.0)])
         with mock.patch.object(matrix, "query_gpu_state", side_effect=samples), \

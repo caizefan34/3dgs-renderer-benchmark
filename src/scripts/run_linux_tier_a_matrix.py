@@ -71,10 +71,12 @@ ALL_CONFIGS = (
 HIGS_ABLATION_CONFIGS = tuple(
     config for config in ALL_CONFIGS if config.startswith("gsplat_higs")
 )
+CANDIDATE_CONFIGS = ("flashgs", "local_gs", "gemm_gs")
 PROFILE_RENDERERS = {
     "primary": tuple(dict.fromkeys(renderer for _, renderer in MATRIX_ORDER)),
     "all-configs": ALL_CONFIGS,
     "higs-ablation": HIGS_ABLATION_CONFIGS,
+    "candidate-renderers": CANDIDATE_CONFIGS,
 }
 ENV_BY_RENDERER = {
     "original_3dgs": "original3dgs",
@@ -89,6 +91,9 @@ ENV_BY_RENDERER = {
     "gsplat_higs_auto": "gsplat",
     "speedy_splat": "speedy",
     "tcgs": "tcgs",
+    "flashgs": "flashgs",
+    "local_gs": "localgs",
+    "gemm_gs": "gemmgs",
 }
 COHORT_FIELDS = ("gpu_uuid", "driver", "cuda", "pytorch", "benchmark_commit", "os")
 
