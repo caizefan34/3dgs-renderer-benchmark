@@ -18,7 +18,8 @@ wait_for_size() {
   done
 }
 
-while [[ ! -x "$PYTHON" ]]; do
+while [[ ! -x "$PYTHON" ]] || \
+  ! "$PYTHON" -c "import google_crc32c, PIL, remotezip" >/dev/null 2>&1; do
   echo "waiting for benchmark environment: $PYTHON"
   sleep 30
 done
