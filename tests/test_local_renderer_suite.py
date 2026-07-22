@@ -14,7 +14,7 @@ from scripts.run_local_renderer_suite import _run_command, _speed_command, run_s
 
 class RendererStubTest(unittest.TestCase):
     def test_missing_renderer_stubs_keep_interface(self):
-        for name in ("local_gs", "gemm_gs", "stopthepop"):
+        for name in ("stopthepop",):
             self.assertIn(name, list_renderers())
             cls = get_renderer_class(name)
             self.assertIsNotNone(cls)

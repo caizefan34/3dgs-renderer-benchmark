@@ -16,6 +16,7 @@ class FlashGSRenderer(RendererAdapter):
     module_name = "flash_gaussian_splatting"
     implementation = "InternLandMark/FlashGS"
     source_url = "https://github.com/InternLandMark/FlashGS"
+    source_commit = "cdfc4e4002318423eda356eed02df8e01fa32cb6"
 
     def __init__(self, device: str = "cuda", max_rendered: int | None = None):
         super().__init__(device)
@@ -34,6 +35,12 @@ class FlashGSRenderer(RendererAdapter):
             except (ImportError, OSError):
                 self._available = False
         return self._available
+
+    def metadata(self) -> dict:
+        result = super().metadata()
+        if self.is_available():
+            result["commit_hash"] = self.source_commit
+        return result
 
     def prepare_scene(self, scene_data: dict) -> dict:
         if not self.is_available():

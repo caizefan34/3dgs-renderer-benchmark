@@ -32,20 +32,6 @@ class MissingRendererAdapter(RendererAdapter):
         )
 
 
-class LocalGSRenderer(MissingRendererAdapter):
-    name = "local_gs"
-    implementation = "Local-GS / TiCoGS"
-    source_url = "https://github.com/tilaba/Local-GS"
-    install_hint = "Install Local-GS/TiCoGS and replace this stub with a real adapter."
-
-
-class GemmGSRenderer(MissingRendererAdapter):
-    name = "gemm_gs"
-    implementation = "GEMM-GS"
-    source_url = "https://github.com/shieldforever/GEMM-GS"
-    install_hint = "Install GEMM-GS and replace this stub with a real adapter."
-
-
 class StopThePopRenderer(MissingRendererAdapter):
     name = "stopthepop"
     implementation = "StopThePop"

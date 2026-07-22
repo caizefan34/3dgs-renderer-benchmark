@@ -43,11 +43,16 @@ class SpeedySplatRenderer(RendererAdapter):
         """Check if speedy_gaussian_rasterization is importable."""
         if self._available is None:
             try:
-                from speedy_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+                self._backend()
                 self._available = True
-            except ImportError:
+            except (ImportError, OSError):
                 self._available = False
         return self._available
+
+    @staticmethod
+    def _backend():
+        import speedy_gaussian_rasterization
+        return speedy_gaussian_rasterization
 
     def prepare_scene(self, scene_data: dict) -> dict:
         """Activate static parameters and allocate fixed buffers once."""
@@ -76,7 +81,9 @@ class SpeedySplatRenderer(RendererAdapter):
         Returns:
             RGB image tensor of shape (H, W, 3) with values in [0, 1].
         """
-        from speedy_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+        backend = self._backend()
+        GaussianRasterizationSettings = backend.GaussianRasterizationSettings
+        GaussianRasterizer = backend.GaussianRasterizer
 
         if self._bg is None:
             self._bg = torch.zeros(3, dtype=torch.float32, device=self.device)
