@@ -16,6 +16,7 @@
 - [Renderer survey](renderer_survey.md)
 - [Repository architecture](repository-architecture.md)
 - [Reproducibility](reproducibility.md)
+- [2026 renderer and compression research roadmap](research-roadmap-2026.md)
 
 ## Research and historical context
 
