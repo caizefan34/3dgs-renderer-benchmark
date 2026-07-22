@@ -119,3 +119,17 @@ rotation at 16 bits, and quantizes remaining SH coefficients with a per-tile
 byte ratio, encode/decode time, and that CPU decoding consumes zero GPU VRAM.
 Rendering FPS and PSNR/SSIM/LPIPS must still be measured from the decoded PLY
 on EPIC-05 before either artifact is called near-lossless.
+
+Encode all ten compressed artifacts without competing for a shared GPU:
+
+```bash
+~/miniforge3/envs/gsplat/bin/python \
+  src/scripts/run_linux_compression_matrix.py --encode-only
+```
+
+After the renderer matrix releases an idle GPU, resume the same session without
+`--encode-only`. The 15 measured rows are canonical PLY, block-float, and
+tile-codebook for each of the five cases. Each compressed row must share the
+reference row's GPU UUID/software cohort. The collector enforces a strict
+numeric near-lossless gate (PSNR drop <0.2 dB, SSIM drop <0.002, LPIPS increase
+<0.005) and leaves the overall gate pending until a visual audit is recorded.
