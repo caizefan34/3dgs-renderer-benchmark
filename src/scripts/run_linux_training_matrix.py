@@ -152,6 +152,7 @@ def _result(row: dict, args, returncode: int, wall: float, peak: float) -> dict:
         "artifact": artifact, "quality": quality,
         "provenance": {"gpu_index": args.wait_gpu, "command": row["command"],
                        "repository": row["repository"],
+                       "cohort_mode": os.environ.get("EPIC05_TRAINING_COHORT_MODE", "isolated_single_gpu"),
                        "measured_at_utc": datetime.now(timezone.utc).isoformat()},
     }
 
