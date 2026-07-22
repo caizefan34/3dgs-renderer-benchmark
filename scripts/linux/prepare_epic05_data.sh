@@ -59,7 +59,12 @@ print(next(row["scene_path"] for row in suite["cases"] if row["case_id"] == sys.
 PY
 )"
   if [[ ! -f "$case_path" ]]; then
-    "$PYTHON" "$ROOT/src/scripts/prepare_suite_case.py" "$case_id"
+    local model_args=()
+    if [[ -f "$DOWNLOADS/models.zip" ]] && \
+      [[ "$(stat -c %s "$DOWNLOADS/models.zip")" -eq 14660630999 ]]; then
+      model_args=(--model-archive "$DOWNLOADS/models.zip")
+    fi
+    "$PYTHON" "$ROOT/src/scripts/prepare_suite_case.py" "$case_id" "${model_args[@]}"
   fi
 }
 
