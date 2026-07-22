@@ -5,7 +5,7 @@ ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 STATE_ROOT="${STATE_ROOT:-/mnt/workspace/codex-3dgs-epic05}"
 PYTHON="${PYTHON:-$HOME/miniforge3/envs/gsplat/bin/python}"
 DOWNLOADS="$STATE_ROOT/downloads"
-DATA_ROOT="$STATE_ROOT/datasets"
+DATA_ROOT="${DATA_ROOT:-$STATE_ROOT/datasets}"
 
 wait_for_size() {
   local path="$1"

@@ -56,9 +56,14 @@ the persistent workspace mount and restore the canonical symlinks with:
 
 ```bash
 STATE_ROOT=/mnt/workspace/codex-3dgs-epic05 \
+DATA_ROOT=/root/epic05-data \
 PYTHON=~/miniforge3/envs/gsplat/bin/python \
 bash scripts/linux/prepare_epic05_data.sh
 ```
+
+Use node-local SSD for `DATA_ROOT` when training wall time is measured; keep the
+verified archives, sessions, and compact results under `STATE_ROOT` so a replaced
+container can reconstruct the local working set without changing provenance.
 
 If a run is interrupted, use `--resume`. The session manifest is retained at
 `artifacts/run-logs/linux-tier-a-session.json`. Do not delete or archive partial
