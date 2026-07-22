@@ -9,6 +9,7 @@ PYTHON="$ENV_ROOT/gsplat/bin/python"
 
 required_files=(
   "$ENV_ROOT/.tier-a-ready"
+  "$ENV_ROOT/.training-ready"
   "$ENV_ROOT/original3dgs/bin/python"
   "$ENV_ROOT/gsplat/bin/python"
   "$ENV_ROOT/speedy/bin/python"

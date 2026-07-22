@@ -67,3 +67,4 @@ for specification in \
 done
 
 echo "Native training environments are ready under $ENV_ROOT"
+touch "$ENV_ROOT/.training-ready"
