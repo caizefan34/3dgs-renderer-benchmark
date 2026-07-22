@@ -60,7 +60,7 @@ PY
 )"
   if [[ ! -f "$case_path" ]]; then
     local model_args=()
-    if [[ -f "$DOWNLOADS/models.zip" ]] && \
+    if [[ -f "$DOWNLOADS/models.zip" && ! -e "$DOWNLOADS/models.zip.aria2" ]] && \
       [[ "$(stat -c %s "$DOWNLOADS/models.zip")" -eq 14660630999 ]]; then
       model_args=(--model-archive "$DOWNLOADS/models.zip")
     fi
