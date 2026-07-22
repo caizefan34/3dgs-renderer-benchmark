@@ -149,6 +149,8 @@ See [renderer integration and gap analysis](docs/renderer-integration.md) and th
 ## Documentation
 
 - [Tier A comparison analysis](docs/comparison-analysis.md)
+- [EPIC-05 Tier A evidence summary](reports/epic05-tier-a-baseline-2026-07-20.md)
+- [2026 renderer and compression research roadmap](docs/research-roadmap-2026.md)
 - [Documentation guide](docs/README.md)
 - [EPIC-05 benchmark report](reports/benchmark_report.md)
 - [Methodology](docs/methodology.md)
