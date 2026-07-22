@@ -122,6 +122,13 @@ rendered through the common gsplat evaluator on the canonical evaluation views.
 Original 3DGS, Local-GS, and GEMM-GS use isolated environments and pinned source
 commits; Local-GS remains native-only because its pruning changes the model.
 
+Create those isolated environments after the Tier A base cohort is available:
+
+```bash
+MINIFORGE_HOME=~/miniforge3 CANDIDATE_ROOT=~/renderer-candidates \
+CUDA_HOME=/usr/local/cuda bash scripts/linux/setup_training_envs.sh
+```
+
 ## Common-compatible compression baselines
 
 The compression track keeps quantized checkpoints out of the primary renderer
