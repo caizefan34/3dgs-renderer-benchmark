@@ -196,6 +196,13 @@ compressed bytes, decode time, peak decode VRAM, render FPS, PSNR/SSIM/LPIPS,
 and whether retraining or a special renderer is required. A near-lossless gate
 is PSNR drop below 0.2 dB plus a declared LPIPS threshold and visual audit.
 
+The first artifact-layer Tier A measurements are published in
+[`reports/epic05-compression-artifact-encoding-2026-07-23.md`](../reports/epic05-compression-artifact-encoding-2026-07-23.md).
+Across all five canonical checkpoints, block-float measured 2.170x aggregate
+compression and tile-codebook measured 3.840x. These rows are deliberately
+`artifact_ready`: decoded-render FPS, quality deltas, and visual audit are still
+required before either codec can be called near-lossless.
+
 | Method / format | Main idea | Typical evidence | Rendering compatibility | Track |
 | --- | --- | --- | --- | --- |
 | PLY | raw float attributes | C baseline | universal | common reference |
