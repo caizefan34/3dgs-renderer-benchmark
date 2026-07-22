@@ -25,12 +25,21 @@ if [[ ! -d "$original/.git" ]]; then
 fi
 git -C "$original" fetch -q --depth 1 origin 54c035f7834b564019656c3e3fcc3646292f727d
 git -C "$original" switch -q --detach FETCH_HEAD
-git -C "$original" submodule update --init --depth 1 \
+git -C "$original" submodule update --init --recursive --depth 1 \
   submodules/simple-knn submodules/diff-gaussian-rasterization submodules/fused-ssim
 
-git -C "$CANDIDATE_ROOT/local_gs" submodule update --init --depth 1 submodules/simple-knn
-git -C "$CANDIDATE_ROOT/gemm_gs" submodule update --init --depth 1 \
+git -C "$CANDIDATE_ROOT/local_gs" submodule update --init --recursive --depth 1 submodules/simple-knn
+git -C "$CANDIDATE_ROOT/gemm_gs" submodule update --init --recursive --depth 1 \
   submodules/simple-knn submodules/fused-ssim
+
+local_knn="$CANDIDATE_ROOT/local_gs/submodules/simple-knn"
+local_knn_patch="$ROOT/scripts/linux/patches/local-gs-simple-knn-cfloat.patch"
+if git -C "$local_knn" apply --check "$local_knn_patch"; then
+  git -C "$local_knn" apply "$local_knn_patch"
+elif ! git -C "$local_knn" apply --reverse --check "$local_knn_patch"; then
+  echo "Local-GS simple-knn compatibility patch does not apply cleanly" >&2
+  exit 1
+fi
 
 clone_env() {
   local source="$1" destination="$2"

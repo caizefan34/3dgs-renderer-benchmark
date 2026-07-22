@@ -26,6 +26,13 @@ class TrainingMatrixTest(unittest.TestCase):
         self.assertEqual(rows[0]["backend"]["commit"],
                          "aca61f897f58964ff7204e1e3c6485995b5f212c")
 
+    def test_local_gs_records_cuda_compatibility_patch(self):
+        root = Path(__file__).resolve().parents[1]
+        rows = build_plan(root, Path("/repos"), Path("/envs"), Path("/outputs"),
+                          {"local_gs_train"}, {"small-garden-1080p"})
+        self.assertEqual(rows[0]["backend"]["patches"],
+                         ["scripts/linux/patches/local-gs-simple-knn-cfloat.patch"])
+
     def test_reads_binary_ply_vertex_count_from_header(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "model.ply"

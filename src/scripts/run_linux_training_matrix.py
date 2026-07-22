@@ -139,10 +139,13 @@ def _result(row: dict, args, returncode: int, wall: float, peak: float) -> dict:
         artifact = {"path": str(ply), "sha256": _sha256(ply),
                     "size_bytes": ply.stat().st_size, "gaussian_count": _ply_vertices(ply)}
         quality = _evaluate(row, args, ply, output)
+    backend = {"id": row["backend"]["id"], "commit": row["backend"]["commit"]}
+    if row["backend"].get("patches"):
+        backend["patches"] = row["backend"]["patches"]
     return {
         "schema_version": "1.0", "status": "complete" if complete else "failed",
         "evidence_tier": "measured", "track": "native_training",
-        "backend": {"id": row["backend"]["id"], "commit": row["backend"]["commit"]},
+        "backend": backend,
         "case": {"case_id": row["case"]["case_id"], "dataset_id": row["case"]["dataset_id"],
                  "scene_id": row["case"]["scene_id"]},
         "budget": {"iterations": row["iterations"], "eval_split": True},
