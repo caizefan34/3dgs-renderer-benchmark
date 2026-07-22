@@ -30,6 +30,8 @@ rows and no rejected inputs.
 The detailed interpretation is in
 [`docs/comparison-analysis.md`](../docs/comparison-analysis.md). Generated
 numeric outputs are in [`docs/leaderboard/`](../docs/leaderboard/).
+The longer renderer, HiGS, compression, and publication plan is in
+[`docs/research-roadmap-2026.md`](../docs/research-roadmap-2026.md).
 
 ## Evidence layout
 
