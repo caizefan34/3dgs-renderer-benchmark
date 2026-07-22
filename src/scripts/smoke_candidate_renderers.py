@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -42,12 +43,13 @@ def run(scene_path: Path, cameras_path: Path, renderer_name: str, device: str) -
         reference = reference_renderer.render(reference_scene, camera)
         candidate = candidate_renderer.render(candidate_scene, camera)
     torch.cuda.synchronize(device)
+    psnr = compute_psnr(candidate, reference)
     return {
         "renderer": renderer_name,
         "scene_sha256": _sha256(scene_path),
         "camera_sha256": _sha256(cameras_path),
         "shape": list(candidate.shape),
-        "psnr_vs_gsplat_db": compute_psnr(candidate, reference),
+        "psnr_vs_gsplat_db": psnr if math.isfinite(psnr) else 999.0,
         "ssim_vs_gsplat": compute_ssim(candidate, reference),
         "max_abs_error": float((candidate - reference).abs().max().item()),
         "mean_abs_error": float((candidate - reference).abs().mean().item()),
