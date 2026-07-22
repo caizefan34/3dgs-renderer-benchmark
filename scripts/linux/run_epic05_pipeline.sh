@@ -58,4 +58,14 @@ MINIFORGE_HOME="$MINIFORGE_HOME" CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}" \
 CUDA_VISIBLE_DEVICES="$GPU" "$PYTHON" "$ROOT/src/scripts/run_candidate_smoke_matrix.py" \
   --root "$ROOT" --env-root "$ENV_ROOT" --wait-gpu "$GPU"
 
+candidate_session="$ROOT/artifacts/run-logs/linux-candidate-renderers-session.json"
+candidate_resume=()
+[[ -f "$candidate_session" ]] && candidate_resume=(--resume)
+CUDA_VISIBLE_DEVICES="$GPU" "$PYTHON" "$ROOT/src/scripts/run_linux_tier_a_matrix.py" \
+  --root "$ROOT" --env-root "$ENV_ROOT" --profile candidate-renderers \
+  --session "$candidate_session" \
+  --report-output "$ROOT/reports/generated/candidate-renderers" \
+  --wait-gpu "$GPU" --idle-max-memory-mib 1024 --idle-max-utilization 5 \
+  --idle-samples 3 --idle-poll-seconds 30 "${candidate_resume[@]}"
+
 echo "EPIC-05 renderer, compression, temporal, and candidate pipeline complete"

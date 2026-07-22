@@ -17,6 +17,7 @@ root = pathlib.Path(sys.argv[1])
 checks = [
     (root / "artifacts/run-logs/linux-all-configs-session.json", "complete"),
     (root / "artifacts/run-logs/linux-compression-session.json", "complete"),
+    (root / "artifacts/run-logs/linux-candidate-renderers-session.json", "complete"),
 ]
 ok = all(path.is_file() and json.load(path.open()).get("status") == status for path, status in checks)
 ok = ok and (root / "artifacts/candidate-smoke/summary.json").is_file()

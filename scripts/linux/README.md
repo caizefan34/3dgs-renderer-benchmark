@@ -127,6 +127,10 @@ rendered through the common gsplat evaluator on the canonical evaluation views.
 Original 3DGS, Local-GS, and GEMM-GS use isolated environments and pinned source
 commits; Local-GS remains native-only because its pruning changes the model.
 
+After differential smoke passes, the EPIC pipeline also runs the formal
+`candidate-renderers` profile (FlashGS, Local-GS, and GEMM-GS across five cases)
+before releasing the GPU to native-training shards.
+
 Create those isolated environments after the Tier A base cohort is available:
 
 ```bash
