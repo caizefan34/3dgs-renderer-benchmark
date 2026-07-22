@@ -58,6 +58,36 @@ metrics before resuming.
 The first command deliberately stops after the five garden rows so their
 metrics and NVML evidence can be reviewed before the remaining 20 rows resume.
 
+## Full registered-configuration matrix
+
+The roadmap matrix expands the primary five-renderer comparison to every
+automatic-ready configuration already implemented by the repository:
+original 3DGS, gsplat packed and dense, all seven HiGS tile/SH/auto modes,
+Speedy-Splat, and TC-GS. This produces 12 configurations x 5 cases = 60 rows.
+It writes a separate report so the primary leaderboard is not overwritten.
+
+On a shared EPIC-05 host, require the selected physical GPU to be idle for
+three consecutive samples before preflight and before every row:
+
+```bash
+CUDA_VISIBLE_DEVICES=7 ~/miniforge3/envs/gsplat/bin/python \
+  src/scripts/run_linux_tier_a_matrix.py \
+  --profile all-configs \
+  --session artifacts/run-logs/linux-all-configs-session.json \
+  --report-output reports/generated/all-configs \
+  --wait-gpu 7 \
+  --idle-max-memory-mib 1024 \
+  --idle-max-utilization 5 \
+  --idle-samples 3 \
+  --idle-poll-seconds 30
+```
+
+Use `--profile higs-ablation` for the seven HiGS configurations only. Resume
+an interrupted run with the same profile, session, report output, and idle-GPU
+arguments plus `--resume`. Every result records its renderer family in `id`
+and its exact executable mode in `config_id`, so variants remain separate
+benchmark rows without pretending to be separate upstream projects.
+
 The runner stops before measurement unless all canonical hashes match, all four
 environment interpreters exist, and a live CUDA process reports positive numeric
 NVML process memory. Each new `metrics.json` and its raw NVML samples are checked
