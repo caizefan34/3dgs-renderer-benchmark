@@ -8,7 +8,8 @@ CANDIDATE_ROOT="${CANDIDATE_ROOT:-$HOME/renderer-candidates}"
 BASE_ENV="$ENV_ROOT/gsplat"
 CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
 
-while [[ ! -x "$BASE_ENV/bin/python" ]] || \
+while [[ ! -f "$ENV_ROOT/.tier-a-ready" ]] || \
+  [[ ! -x "$BASE_ENV/bin/python" ]] || \
   ! "$BASE_ENV/bin/python" -c "import torch; assert torch.cuda.is_available()" >/dev/null 2>&1; do
   echo "waiting for base gsplat environment: $BASE_ENV"
   sleep 30
