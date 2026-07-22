@@ -51,6 +51,15 @@ Set `MINIFORGE_HOME` to relocate the four environments or
 All four renderer environments must retain the same Python, PyTorch, CUDA wheel,
 driver, GPU, and benchmark commit cohort for a publishable run.
 
+For a restarted EPIC-05 container, keep official archives and prepared data on
+the persistent workspace mount and restore the canonical symlinks with:
+
+```bash
+STATE_ROOT=/mnt/workspace/codex-3dgs-epic05 \
+PYTHON=~/miniforge3/envs/gsplat/bin/python \
+bash scripts/linux/prepare_epic05_data.sh
+```
+
 If a run is interrupted, use `--resume`. The session manifest is retained at
 `artifacts/run-logs/linux-tier-a-session.json`. Do not delete or archive partial
 metrics before resuming.
@@ -93,6 +102,25 @@ environment interpreters exist, and a live CUDA process reports positive numeric
 NVML process memory. Each new `metrics.json` and its raw NVML samples are checked
 immediately. The final report is generated only after all 25 renderer/case pairs
 belong to one hardware cohort.
+
+## Native training matrix
+
+`benchmark/training.json` defines three pinned native backends and five official
+evaluation scenes. The 15 rows use a fixed 30,000-iteration budget and are kept
+out of the common-checkpoint renderer ranking:
+
+```bash
+~/miniforge3/envs/gsplat/bin/python \
+  src/scripts/run_linux_training_matrix.py --dry-run
+~/miniforge3/envs/gsplat/bin/python \
+  src/scripts/run_linux_training_matrix.py --wait-gpu 7
+```
+
+The runner is resumable and records training wall time, iterations per second,
+peak NVML process memory, final PLY SHA-256/bytes/Gaussian count, and quality
+rendered through the common gsplat evaluator on the canonical evaluation views.
+Original 3DGS, Local-GS, and GEMM-GS use isolated environments and pinned source
+commits; Local-GS remains native-only because its pruning changes the model.
 
 ## Common-compatible compression baselines
 
