@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caizefan34.github.io/3dgs-renderer-benchmark/benchmark/schemas/temporal-result.schema.json",
+  "title": "3DGS ordered-camera temporal fidelity result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "evidence_tier", "source_result", "sequence", "metrics", "provenance"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "status": {"const": "complete"},
+    "evidence_tier": {"enum": ["measured", "reproduced"]},
+    "source_result": {"type": "object"},
+    "sequence": {"type": "object"},
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mean_temporal_residual", "p95_temporal_residual", "mean_luma_temporal_residual", "temporal_delta_psnr_db"],
+      "properties": {
+        "mean_temporal_residual": {"type": "number"},
+        "p95_temporal_residual": {"type": "number"},
+        "mean_luma_temporal_residual": {"type": "number"},
+        "temporal_delta_psnr_db": {"type": "number"}
+      }
+    },
+    "provenance": {"type": "object"}
+  }
+}

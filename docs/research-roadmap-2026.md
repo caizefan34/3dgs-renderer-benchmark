@@ -196,6 +196,13 @@ compressed bytes, decode time, peak decode VRAM, render FPS, PSNR/SSIM/LPIPS,
 and whether retraining or a special renderer is required. A near-lossless gate
 is PSNR drop below 0.2 dB plus a declared LPIPS threshold and visual audit.
 
+The first artifact-layer Tier A measurements are published in
+[`reports/epic05-compression-artifact-encoding-2026-07-23.md`](../reports/epic05-compression-artifact-encoding-2026-07-23.md).
+Across all five canonical checkpoints, block-float measured 2.170x aggregate
+compression and tile-codebook measured 3.840x. These rows are deliberately
+`artifact_ready`: decoded-render FPS, quality deltas, and visual audit are still
+required before either codec can be called near-lossless.
+
 | Method / format | Main idea | Typical evidence | Rendering compatibility | Track |
 | --- | --- | --- | --- | --- |
 | PLY | raw float attributes | C baseline | universal | common reference |
@@ -274,8 +281,8 @@ Ideas that cannot produce a reproducible row are research notes, not rankings.
 
 ### Three months
 
-- **Benchmark Engineering:** add native training and temporal sequence tracks;
-  validate fast-gauss on Linux EGL.
+- **Benchmark Engineering:** execute the implemented fixed-budget native
+  training and temporal sequence tracks; validate fast-gauss on Linux EGL.
 - **Renderer Research:** evaluate late-stage and lazy-rebuild HiGS.
 - **Compression Research:** compare codebooks, HAC/HAC++, and texture coding
   on identical checkpoints.
@@ -306,3 +313,11 @@ source commit and hashes, the benchmark command is recorded, the quality gate
 is paired to the same camera order, and the generated report explains why the
 row is measured, reproduced, paper-reported, or rejected. This keeps the
 benchmark itself as the product.
+
+The EPIC-05 implementation now includes `benchmark/training.json`, a native
+training result schema, and a resumable 15-row runner covering original 3DGS,
+Local-GS, and GEMM-GS over the five canonical official scenes at 30,000
+iterations. It records wall time, throughput, peak process VRAM, final PLY
+identity and Gaussian count, and common-gsplat evaluation quality. These rows
+remain a separate native-training cohort because Local-GS changes pruning and
+model structure.

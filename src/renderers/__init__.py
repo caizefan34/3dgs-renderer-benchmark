@@ -59,10 +59,10 @@ from .diff_gaussian_renderer import DiffGaussianRenderer
 from .fast_gauss_renderer import FastGaussRenderer
 from .speedy_splat_renderer import SpeedySplatRenderer, SpeedySplatRawRenderer
 from .tcgs_renderer import TCGSRenderer
+from .flashgs_renderer import FlashGSRenderer
+from .local_gs_renderer import LocalGSRenderer
+from .gemm_gs_renderer import GemmGSRenderer
 from .experimental_renderer import (
-    FlashGSRenderer,
-    GemmGSRenderer,
-    LocalGSRenderer,
     StopThePopRenderer,
 )
 

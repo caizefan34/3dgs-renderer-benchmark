@@ -18,9 +18,13 @@ from scripts.run_linux_tier_a_matrix import (  # noqa: E402
     _validate_metric,
     _validate_report,
     build_plan,
+    generate_session_report,
+    matrix_order,
     parse_nvml_process_memory,
     preflight_nvml,
+    query_gpu_state,
     run_matrix,
+    wait_for_idle_gpu,
     validate_case_assets,
     validate_session_metrics,
 )
@@ -59,6 +63,50 @@ class LinuxTierAMatrixPlanTest(unittest.TestCase):
             parse_nvml_process_memory(output, 4321)
         with self.assertRaisesRegex(RuntimeError, "not reported"):
             parse_nvml_process_memory(output, 9999)
+
+    def test_all_config_profile_contains_twelve_configs_for_five_cases(self):
+        plan = build_plan(
+            Path("/repo"), Path("/opt/miniforge/envs"), profile="all-configs"
+        )
+
+        self.assertEqual(len(plan), 60)
+        self.assertEqual(
+            {row["renderer"] for row in plan}, set(matrix.PROFILE_RENDERERS["all-configs"])
+        )
+        self.assertEqual(
+            len({row["case_id"] for row in plan}), 5
+        )
+        self.assertEqual(plan[2]["environment"], "gsplat")
+        self.assertEqual(matrix_order("higs-ablation")[0][1], "gsplat_higs")
+
+        candidates = build_plan(
+            Path("/repo"), Path("/opt/miniforge/envs"), profile="candidate-renderers"
+        )
+        self.assertEqual(len(candidates), 15)
+        self.assertEqual(
+            {row["environment"] for row in candidates},
+            {"flashgs", "localgs", "gemmgs"},
+        )
+
+    def test_idle_gpu_gate_requires_consecutive_samples(self):
+        samples = iter([(900.0, 2.0), (1500.0, 2.0), (800.0, 3.0), (700.0, 1.0)])
+        with mock.patch.object(matrix, "query_gpu_state", side_effect=samples), \
+             mock.patch.object(matrix.time, "sleep") as sleep:
+            result = wait_for_idle_gpu(
+                3, max_memory_mib=1024, max_utilization=5,
+                required_samples=2, poll_seconds=0.1,
+            )
+
+        self.assertEqual(result["gpu_index"], 3)
+        self.assertEqual(result["memory_used_mib"], 700.0)
+        self.assertEqual(sleep.call_count, 3)
+
+    def test_gpu_state_query_targets_physical_index(self):
+        with mock.patch.object(
+            matrix.subprocess, "check_output", return_value="512, 4\n"
+        ) as check_output:
+            self.assertEqual(query_gpu_state(6), (512.0, 4.0))
+        self.assertIn("--id=6", check_output.call_args.args[0])
 
 
 class LinuxTierAMatrixEvidenceTest(unittest.TestCase):
@@ -107,7 +155,11 @@ class LinuxTierAMatrixEvidenceTest(unittest.TestCase):
         for _, renderer in MATRIX_ORDER:
             if any(row["id"] == renderer for row in renderers):
                 continue
-            renderers.append({"id": renderer, "source_commit": "d" * 40})
+            renderers.append({
+                "id": renderer,
+                "adapter_ids": [renderer],
+                "source_commit": "d" * 40,
+            })
         (benchmark / "renderers.json").write_text(
             json.dumps({"renderers": renderers}), encoding="utf-8"
         )
@@ -163,7 +215,8 @@ class LinuxTierAMatrixEvidenceTest(unittest.TestCase):
         self.assertEqual(summary["ground_truth_file_count"], 1)
 
     def _write_metric(
-        self, root, renderer, case_id, peak=512.0, gpu_uuid="GPU-1", run_name="run"
+        self, root, renderer, case_id, peak=512.0, gpu_uuid="GPU-1", run_name="run",
+        family_id=None,
     ):
         suite = json.loads((root / "benchmark" / "suite.json").read_text())
         protocol = json.loads((root / "benchmark" / "protocol.json").read_text())
@@ -192,7 +245,7 @@ class LinuxTierAMatrixEvidenceTest(unittest.TestCase):
                 "evidence_tier": "measured",
                 "status": "complete",
                 "renderer": {
-                    "id": renderer, "config_id": renderer, "name": renderer,
+                    "id": family_id or renderer, "config_id": renderer, "name": renderer,
                     "version": "1", "source_uri": "https://example.invalid",
                     "source_commit": "d" * 40, "build_command": "build",
                     "runtime_command": "run", "api": "CUDA", "backend": "CUDA",
@@ -316,6 +369,32 @@ class LinuxTierAMatrixEvidenceTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "hashes disagree"):
                 _validate_metric(metric_path, root, self.COMMIT)
 
+    def test_metric_validator_accepts_registered_family_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_benchmark_metadata(root)
+            registry_path = root / "benchmark" / "renderers.json"
+            registry = json.loads(registry_path.read_text())
+            registry["renderers"].append({
+                "id": "gsplat_higs",
+                "adapter_ids": ["gsplat_higs", "gsplat_higs_tile16"],
+                "source_commit": "d" * 40,
+            })
+            registry_path.write_text(json.dumps(registry), encoding="utf-8")
+            case_id = MATRIX_ORDER[0][0]
+            metric_path = self._write_metric(
+                root, "gsplat_higs_tile16", case_id, family_id="gsplat_higs"
+            )
+
+            pair, _ = _validate_metric(metric_path, root, self.COMMIT)
+            self.assertEqual(pair, (case_id, "gsplat_higs_tile16"))
+
+            document = json.loads(metric_path.read_text())
+            document["renderer"]["config_id"] = "unregistered"
+            metric_path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "config is not registered"):
+                _validate_metric(metric_path, root, self.COMMIT)
+
     def test_clean_checkout_commit_rejects_tracked_changes(self):
         with mock.patch.object(
             matrix.subprocess,
@@ -386,6 +465,23 @@ class LinuxTierAMatrixEvidenceTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "rejected"):
                 _validate_report(path)
 
+    def test_metric_path_filter_ignores_prior_benchmark_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_benchmark_metadata(root)
+            case_id, renderer = MATRIX_ORDER[0]
+            old_path = self._write_metric(root, renderer, case_id, run_name="old")
+            old_document = json.loads(old_path.read_text())
+            old_document["environment"]["benchmark_commit"] = "0" * 40
+            old_path.write_text(json.dumps(old_document), encoding="utf-8")
+            current_path = self._write_metric(root, renderer, case_id, run_name="current")
+
+            paths = matrix._metric_paths(
+                root, renderer, case_id, matrix._suite_cases(root), self.COMMIT
+            )
+
+        self.assertEqual(paths, {current_path})
+
     def test_resume_adopts_one_valid_orphan_without_rerunning(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -411,9 +507,8 @@ class LinuxTierAMatrixEvidenceTest(unittest.TestCase):
                 } for index, (case_id, renderer) in enumerate(MATRIX_ORDER[:-1], start=1)],
             }), encoding="utf-8")
 
-            def fake_run(command, **kwargs):
-                self.assertIn("report", command)
-                report_dir = root / "docs" / "leaderboard"
+            def fake_report(metric_paths, report_root, report_dir):
+                self.assertEqual(report_root, root)
                 report_dir.mkdir(parents=True)
                 report_dir.joinpath("ranking.json").write_text(json.dumps({
                     "rejected_files": [],
@@ -422,16 +517,16 @@ class LinuxTierAMatrixEvidenceTest(unittest.TestCase):
                         for renderer in sorted({row[1] for row in MATRIX_ORDER})
                     ]}},
                 }), encoding="utf-8")
-                return SimpleNamespace(returncode=0)
+                return {}
 
             with mock.patch.object(matrix.platform, "system", return_value="Linux"), \
                  mock.patch.object(matrix, "_clean_checkout_commit", return_value=self.COMMIT), \
                  mock.patch.object(matrix, "validate_canonical_assets", return_value=[]), \
-                 mock.patch.object(matrix.subprocess, "run", side_effect=fake_run) as run:
+                 mock.patch.object(matrix, "generate_session_report", side_effect=fake_report) as report:
                 session = run_matrix(root, env_root, session_path, resume=True)
 
         self.assertEqual(len(session["completed"]), 25)
-        self.assertEqual(run.call_count, 1)
+        self.assertEqual(report.call_count, 1)
         self.assertEqual(session["report_output"].replace("\\", "/"), "docs/leaderboard")
 
     def test_resume_stops_on_multiple_orphans(self):

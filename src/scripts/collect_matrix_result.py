@@ -304,7 +304,7 @@ def collect(run_dir: Path, renderer_id: str, case_id: str) -> dict:
         "evidence_tier": "measured",
         "status": "complete",
         "renderer": {
-            "id": renderer_id,
+            "id": renderer["id"],
             "config_id": renderer_id,
             "name": f"{renderer['name']} ({renderer_id})",
             "version": speed.get("renderer_version") or "unknown",

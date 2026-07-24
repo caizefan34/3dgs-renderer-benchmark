@@ -204,3 +204,4 @@ fi
 
 echo "Tier A renderer environments are ready under $ENV_ROOT"
 echo "Dry run: $ENV_ROOT/gsplat/bin/python $ROOT/src/scripts/run_linux_tier_a_matrix.py --dry-run"
+touch "$ENV_ROOT/.tier-a-ready"

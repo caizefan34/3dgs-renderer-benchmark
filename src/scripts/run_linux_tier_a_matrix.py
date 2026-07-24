@@ -17,7 +17,12 @@ from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from benchmark_matrix import validate_result  # noqa: E402
+from benchmark_matrix import (  # noqa: E402
+    generate_matrix_report,
+    load_results,
+    validate_result,
+    write_report,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,20 +54,69 @@ MATRIX_ORDER = tuple(
     for case_id, renderers in CASE_ORDERS
     for renderer in renderers
 )
+ALL_CONFIGS = (
+    "original_3dgs",
+    "gsplat",
+    "gsplat_dense",
+    "gsplat_higs",
+    "gsplat_higs_tile16",
+    "gsplat_higs_sh32",
+    "gsplat_higs_sh16",
+    "gsplat_higs_tile16_sh32",
+    "gsplat_higs_tile16_sh16",
+    "gsplat_higs_auto",
+    "speedy_splat",
+    "tcgs",
+)
+HIGS_ABLATION_CONFIGS = tuple(
+    config for config in ALL_CONFIGS if config.startswith("gsplat_higs")
+)
+CANDIDATE_CONFIGS = ("flashgs", "local_gs", "gemm_gs")
+PROFILE_RENDERERS = {
+    "primary": tuple(dict.fromkeys(renderer for _, renderer in MATRIX_ORDER)),
+    "all-configs": ALL_CONFIGS,
+    "higs-ablation": HIGS_ABLATION_CONFIGS,
+    "candidate-renderers": CANDIDATE_CONFIGS,
+}
 ENV_BY_RENDERER = {
     "original_3dgs": "original3dgs",
     "gsplat": "gsplat",
     "gsplat_higs": "gsplat",
+    "gsplat_dense": "gsplat",
+    "gsplat_higs_tile16": "gsplat",
+    "gsplat_higs_sh32": "gsplat",
+    "gsplat_higs_sh16": "gsplat",
+    "gsplat_higs_tile16_sh32": "gsplat",
+    "gsplat_higs_tile16_sh16": "gsplat",
+    "gsplat_higs_auto": "gsplat",
     "speedy_splat": "speedy",
     "tcgs": "tcgs",
+    "flashgs": "flashgs",
+    "local_gs": "localgs",
+    "gemm_gs": "gemmgs",
 }
 COHORT_FIELDS = ("gpu_uuid", "driver", "cuda", "pytorch", "benchmark_commit", "os")
 
 
-def build_plan(root: Path = ROOT, env_root: Path | None = None) -> list[dict]:
+def matrix_order(profile: str = "primary") -> tuple[tuple[str, str], ...]:
+    if profile == "primary":
+        return MATRIX_ORDER
+    renderers = PROFILE_RENDERERS[profile]
+    cases = tuple(case_id for case_id, _ in CASE_ORDERS)
+    return tuple(
+        (case_id, renderer)
+        for case_index, case_id in enumerate(cases)
+        for renderer in renderers[case_index % len(renderers):]
+        + renderers[:case_index % len(renderers)]
+    )
+
+
+def build_plan(
+    root: Path = ROOT, env_root: Path | None = None, profile: str = "primary"
+) -> list[dict]:
     env_root = env_root or Path.home() / "miniforge3" / "envs"
     plan = []
-    for index, (case_id, renderer) in enumerate(MATRIX_ORDER, start=1):
+    for index, (case_id, renderer) in enumerate(matrix_order(profile), start=1):
         python = env_root / ENV_BY_RENDERER[renderer] / "bin" / "python"
         plan.append({
             "step": index,
@@ -101,6 +155,45 @@ def parse_nvml_process_memory(output: str, pid: int) -> float:
     if found_pid:
         raise RuntimeError(f"PID {pid} does not expose numeric NVML process memory")
     raise RuntimeError(f"PID {pid} was not reported by NVML")
+
+
+def query_gpu_state(gpu_index: int) -> tuple[float, float]:
+    output = subprocess.check_output(
+        [
+            "nvidia-smi",
+            f"--id={gpu_index}",
+            "--query-gpu=memory.used,utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ],
+        text=True,
+    ).strip().splitlines()[0]
+    memory_mib, utilization = (float(value.strip()) for value in output.split(","))
+    return memory_mib, utilization
+
+
+def wait_for_idle_gpu(
+    gpu_index: int,
+    max_memory_mib: float = 1024.0,
+    max_utilization: float = 5.0,
+    required_samples: int = 3,
+    poll_seconds: float = 30.0,
+) -> dict:
+    consecutive = 0
+    while consecutive < required_samples:
+        memory_mib, utilization = query_gpu_state(gpu_index)
+        if memory_mib <= max_memory_mib and utilization <= max_utilization:
+            consecutive += 1
+        else:
+            consecutive = 0
+        if consecutive < required_samples:
+            time.sleep(poll_seconds)
+    return {
+        "gpu_index": gpu_index,
+        "memory_used_mib": memory_mib,
+        "utilization_percent": utilization,
+        "required_samples": required_samples,
+        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def _load(path: Path) -> dict:
@@ -174,9 +267,11 @@ def _validate_metric(
 ) -> tuple[tuple[str, str], tuple]:
     document = _load(path)
     validate_result(document)
-    renderer = document.get("renderer", {}).get("id")
+    renderer_document = document.get("renderer", {})
+    renderer = renderer_document.get("id")
+    config_id = renderer_document.get("config_id")
     case_id = document.get("benchmark", {}).get("case_id")
-    if document.get("status") != "complete" or not renderer or not case_id:
+    if document.get("status") != "complete" or not renderer or not config_id or not case_id:
         raise ValueError(f"{path}: incomplete Tier A metric")
     if document.get("evidence_tier") != "measured":
         raise ValueError(f"{path}: Tier A metric must use measured evidence")
@@ -188,6 +283,9 @@ def _validate_metric(
         raise ValueError(f"{path}: renderer is not registered: {renderer}")
     if document["renderer"]["source_commit"] != renderers[renderer]["source_commit"]:
         raise ValueError(f"{path}: renderer source commit does not match registry")
+    adapter_ids = renderers[renderer].get("adapter_ids", [renderer])
+    if config_id not in adapter_ids:
+        raise ValueError(f"{path}: renderer config is not registered for family {renderer}: {config_id}")
 
     suite = _load(root / "benchmark" / "suite.json")
     protocol_path = root / suite["protocol_path"]
@@ -251,21 +349,22 @@ def _validate_metric(
     cohort = tuple(environment.get(field) for field in COHORT_FIELDS)
     if any(value in (None, "") for value in cohort):
         raise ValueError(f"{path}: incomplete hardware cohort metadata")
-    return (case_id, renderer), cohort
+    return (case_id, config_id), cohort
 
 
 def validate_session_metrics(
-    paths: list[Path], root: Path = ROOT, expected_commit: str | None = None
+    paths: list[Path], root: Path = ROOT, expected_commit: str | None = None,
+    expected_order: tuple[tuple[str, str], ...] = MATRIX_ORDER,
 ) -> dict:
-    if len(paths) != len(MATRIX_ORDER):
-        raise ValueError(f"expected {len(MATRIX_ORDER)} metrics, found {len(paths)}")
+    if len(paths) != len(expected_order):
+        raise ValueError(f"expected {len(expected_order)} metrics, found {len(paths)}")
     pairs = []
     cohorts = set()
     for path in paths:
         pair, cohort = _validate_metric(Path(path), root, expected_commit)
         pairs.append(pair)
         cohorts.add(cohort)
-    if len(set(pairs)) != len(pairs) or set(pairs) != set(MATRIX_ORDER):
+    if len(set(pairs)) != len(pairs) or set(pairs) != set(expected_order):
         raise ValueError("metrics do not contain exactly one row for every renderer/case pair")
     if len(cohorts) != 1:
         raise ValueError("Tier A metrics must belong to a single hardware cohort")
@@ -282,13 +381,26 @@ def _suite_cases(root: Path) -> dict[str, dict]:
     return {case["case_id"]: case for case in suite["cases"]}
 
 
-def _metric_paths(root: Path, renderer: str, case_id: str, cases: dict[str, dict]) -> set[Path]:
+def _metric_paths(
+    root: Path, renderer: str, case_id: str, cases: dict[str, dict],
+    benchmark_commit: str | None = None,
+) -> set[Path]:
     case = cases[case_id]
     directory = (
         root / "results" / "measured" / renderer /
         case["dataset_id"] / case["scene_id"]
     )
-    return set(directory.glob("*/metrics.json")) if directory.is_dir() else set()
+    paths = set(directory.glob("*/metrics.json")) if directory.is_dir() else set()
+    if benchmark_commit is None:
+        return paths
+    matching = set()
+    for path in paths:
+        try:
+            if _load(path).get("environment", {}).get("benchmark_commit") == benchmark_commit:
+                matching.add(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+    return matching
 
 
 def preflight_nvml(gsplat_python: Path, holder_seconds: float = 60.0) -> float:
@@ -366,15 +478,23 @@ def _write_session(path: Path, session: dict) -> None:
     path.write_text(json.dumps(session, indent=2) + "\n", encoding="utf-8")
 
 
-def _validate_report(report_path: Path) -> dict:
+def _validate_report(report_path: Path, expected_order=MATRIX_ORDER) -> dict:
     report = _load(report_path)
     if report.get("rejected_files"):
         raise RuntimeError("benchmark report rejected one or more result files")
     overall = report.get("tiers", {}).get("measured", {}).get("overall", [])
     renderers = {row.get("competitor_id") for row in overall}
-    expected = {renderer for _, renderer in MATRIX_ORDER}
+    expected = {renderer for _, renderer in expected_order}
     if len(overall) != len(expected) or renderers != expected:
-        raise RuntimeError("measured overall ranking must contain all five Tier A renderers")
+        raise RuntimeError("measured overall ranking must contain every requested configuration")
+    return report
+
+
+def generate_session_report(metric_paths: list[Path], root: Path, output_dir: Path) -> dict:
+    documents, rejected = load_results(metric_paths)
+    report = generate_matrix_report(documents, _load(root / "benchmark" / "suite.json"))
+    report["rejected_files"] = rejected
+    write_report(report, output_dir)
     return report
 
 
@@ -384,11 +504,19 @@ def run_matrix(
     session_path: Path,
     resume: bool = False,
     max_steps: int | None = None,
+    profile: str = "primary",
+    report_output: Path | None = None,
+    wait_gpu: int | None = None,
+    idle_max_memory_mib: float = 1024.0,
+    idle_max_utilization: float = 5.0,
+    idle_samples: int = 3,
+    idle_poll_seconds: float = 30.0,
 ) -> dict:
     if platform.system() != "Linux":
         raise RuntimeError("the Tier A matrix runner must execute on native Linux")
     checkout_commit = _clean_checkout_commit(root)
-    plan = build_plan(root, env_root)
+    expected_order = matrix_order(profile)
+    plan = build_plan(root, env_root, profile)
     for row in plan:
         python = Path(row["command"][0])
         if not python.is_file():
@@ -402,11 +530,15 @@ def run_matrix(
         session = _load(session_path)
         if session.get("benchmark_commit") != checkout_commit:
             raise RuntimeError("session benchmark commit does not match the checkout")
+        if session.get("profile", "primary") != profile:
+            raise RuntimeError("session matrix profile does not match the requested profile")
     else:
         existing = {
             path
             for row in plan
-            for path in _metric_paths(root, row["renderer"], row["case_id"], cases)
+            for path in _metric_paths(
+                root, row["renderer"], row["case_id"], cases, checkout_commit
+            )
         }
         if existing:
             raise RuntimeError(
@@ -416,6 +548,7 @@ def run_matrix(
             "schema_version": 1,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "benchmark_commit": checkout_commit,
+            "profile": profile,
             "completed": [],
         }
         _write_session(session_path, session)
@@ -436,13 +569,21 @@ def run_matrix(
         expected_cohort = cohort
 
     for row in plan[len(completed):]:
-        existing = _metric_paths(root, row["renderer"], row["case_id"], cases)
+        existing = _metric_paths(
+            root, row["renderer"], row["case_id"], cases, checkout_commit
+        )
         if len(existing) > 1:
             raise RuntimeError(
                 f"multiple unregistered metrics for {row['renderer']}/{row['case_id']}"
             )
 
     if not completed:
+        if wait_gpu is not None:
+            session.setdefault("idle_checks", []).append(wait_for_idle_gpu(
+                wait_gpu, idle_max_memory_mib, idle_max_utilization,
+                idle_samples, idle_poll_seconds,
+            ))
+            _write_session(session_path, session)
         memory_mb = preflight_nvml(env_root / "gsplat" / "bin" / "python")
         session["nvml_preflight_mib"] = memory_mb
         _write_session(session_path, session)
@@ -450,7 +591,9 @@ def run_matrix(
     for row in plan[len(completed):]:
         if max_steps is not None and len(session["completed"]) >= max_steps:
             break
-        before = _metric_paths(root, row["renderer"], row["case_id"], cases)
+        before = _metric_paths(
+            root, row["renderer"], row["case_id"], cases, checkout_commit
+        )
         if len(before) == 1:
             metric_path = next(iter(before))
             _, cohort = _validate_metric(metric_path, root, checkout_commit)
@@ -469,13 +612,21 @@ def run_matrix(
             if max_steps is not None and len(session["completed"]) >= max_steps:
                 break
             continue
-        print(f"[{row['step']:02d}/25] {row['case_id']} :: {row['renderer']}", flush=True)
+        if wait_gpu is not None:
+            session.setdefault("idle_checks", []).append(wait_for_idle_gpu(
+                wait_gpu, idle_max_memory_mib, idle_max_utilization,
+                idle_samples, idle_poll_seconds,
+            ))
+            _write_session(session_path, session)
+        print(f"[{row['step']:02d}/{len(plan)}] {row['case_id']} :: {row['renderer']}", flush=True)
         subprocess.run(row["command"], cwd=root, check=True, env={
             **os.environ,
             "CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES", "0"),
             "PYTHONNOUSERSITE": "1",
         })
-        after = _metric_paths(root, row["renderer"], row["case_id"], cases)
+        after = _metric_paths(
+            root, row["renderer"], row["case_id"], cases, checkout_commit
+        )
         created = after - before
         if len(created) != 1:
             raise RuntimeError(
@@ -506,20 +657,13 @@ def run_matrix(
         return session
 
     metric_paths = [root / item["metrics_path"] for item in session["completed"]]
-    summary = validate_session_metrics(metric_paths, root, checkout_commit)
-    report_output = root / "docs" / "leaderboard"
-    subprocess.run(
-        [
-            str(env_root / "gsplat" / "bin" / "python"),
-            str(root / "benchmark.py"),
-            "report",
-            "--output-dir",
-            str(report_output),
-        ],
-        cwd=root,
-        check=True,
+    summary = validate_session_metrics(metric_paths, root, checkout_commit, expected_order)
+    report_output = report_output or (
+        root / "docs" / "leaderboard" if profile == "primary"
+        else root / "reports" / "generated" / profile
     )
-    _validate_report(report_output / "ranking.json")
+    generate_session_report(metric_paths, root, report_output)
+    _validate_report(report_output / "ranking.json", expected_order)
     session["status"] = "complete"
     session["summary"] = summary
     session["report_output"] = str(report_output.relative_to(root))
@@ -539,19 +683,34 @@ def main(argv=None) -> int:
         default=ROOT / "artifacts" / "run-logs" / "linux-tier-a-session.json",
     )
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--profile", choices=sorted(PROFILE_RENDERERS), default="primary")
+    parser.add_argument("--report-output", type=Path)
+    parser.add_argument("--wait-gpu", type=int)
+    parser.add_argument("--idle-max-memory-mib", type=float, default=1024.0)
+    parser.add_argument("--idle-max-utilization", type=float, default=5.0)
+    parser.add_argument("--idle-samples", type=int, default=3)
+    parser.add_argument("--idle-poll-seconds", type=float, default=30.0)
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
     root = args.root.resolve()
     env_root = args.env_root.expanduser().resolve()
-    if args.max_steps is not None and not 1 <= args.max_steps <= len(MATRIX_ORDER):
-        parser.error(f"--max-steps must be between 1 and {len(MATRIX_ORDER)}")
+    requested_order = matrix_order(args.profile)
+    if args.max_steps is not None and not 1 <= args.max_steps <= len(requested_order):
+        parser.error(f"--max-steps must be between 1 and {len(requested_order)}")
     if args.dry_run:
-        print(json.dumps(build_plan(root, env_root), indent=2))
+        print(json.dumps(build_plan(root, env_root, args.profile), indent=2))
         return 0
     session = run_matrix(
-        root, env_root, args.session.resolve(), args.resume, args.max_steps
+        root, env_root, args.session.resolve(), args.resume, args.max_steps,
+        args.profile,
+        args.report_output.resolve() if args.report_output else None,
+        args.wait_gpu,
+        args.idle_max_memory_mib,
+        args.idle_max_utilization,
+        args.idle_samples,
+        args.idle_poll_seconds,
     )
     print(json.dumps(session.get("summary", {
         "status": session["status"],
