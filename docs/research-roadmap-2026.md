@@ -225,6 +225,12 @@ The common benchmark must measure a compressed artifact as a separate track:
 compressed bytes, decode time, peak decode VRAM, render FPS, PSNR/SSIM/LPIPS,
 and whether retraining or a special renderer is required. A near-lossless gate
 is PSNR drop below 0.2 dB plus a declared LPIPS threshold and visual audit.
+The machine-readable
+[`benchmark/compression-candidates.json`](../benchmark/compression-candidates.json)
+records the integration and EPIC-05 status of direct PLY formats, pretrained
+codecs, and retrained native representations. These tracks remain separate so
+a 100x retrained representation is not incorrectly compared with a bit-exact
+file compressor or a post-training format conversion.
 
 The first artifact-layer Tier A measurements are published in
 [`reports/epic05-compression-artifact-encoding-2026-07-23.md`](../reports/epic05-compression-artifact-encoding-2026-07-23.md).
