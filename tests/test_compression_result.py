@@ -10,10 +10,34 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from scripts.collect_compression_result import quality_gate
-from scripts.run_linux_compression_matrix import build_plan, run
+from scripts.run_linux_compression_matrix import _completed_renderer_run, build_plan, run
 
 
 class CompressionResultTest(unittest.TestCase):
+    def test_renderer_run_requires_nonempty_rows_and_output_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_dir = Path(temp_dir)
+            report = {
+                "speed_runs": [], "quality_runs": [],
+                "speed_skip_reason": "missing_scene",
+                "quality_skip_reason": "missing_scene_cameras_or_ground_truth",
+            }
+            self.assertFalse(_completed_renderer_run(run_dir, report))
+            report = {
+                "speed_runs": [{"status": "ok"}],
+                "quality_runs": [{"status": "ok"}],
+            }
+            self.assertFalse(_completed_renderer_run(run_dir, report))
+            for relative in (
+                "gsplat/speed/benchmark_results.json",
+                "gsplat/speed/nvml_samples.json",
+                "gsplat/quality/quality_gt.json",
+            ):
+                path = run_dir / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}", encoding="utf-8")
+            self.assertTrue(_completed_renderer_run(run_dir, report))
+
     def test_compression_plan_has_reference_and_eight_codecs_per_case(self):
         root = Path(__file__).resolve().parents[1]
         plan = build_plan(root)

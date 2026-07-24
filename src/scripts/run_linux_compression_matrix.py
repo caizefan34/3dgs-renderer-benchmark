@@ -114,12 +114,25 @@ def _decode(row: dict, python: Path, root: Path) -> Path:
     return decoded
 
 
+def _completed_renderer_run(run_dir: Path, document: dict) -> bool:
+    speed_runs = document.get("speed_runs", [])
+    quality_runs = document.get("quality_runs", [])
+    outputs = (
+        run_dir / "gsplat" / "speed" / "benchmark_results.json",
+        run_dir / "gsplat" / "speed" / "nvml_samples.json",
+        run_dir / "gsplat" / "quality" / "quality_gt.json",
+    )
+    return bool(speed_runs) and bool(quality_runs) and all(
+        item.get("status") == "ok" for item in (*speed_runs, *quality_runs)
+    ) and all(path.is_file() for path in outputs)
+
+
 def _run_renderer(row: dict, scene: Path, python: Path, root: Path, protocol: dict) -> Path:
     run_dir = Path(row["run_dir"])
     report = run_dir / "local_renderer_suite_report.json"
     if report.is_file():
         document = _load(report)
-        if all(item.get("status") == "ok" for key in ("speed_runs", "quality_runs") for item in document.get(key, [])):
+        if _completed_renderer_run(run_dir, document):
             return run_dir
     width, height = protocol["resolution"]
     timing = protocol["timing"]
