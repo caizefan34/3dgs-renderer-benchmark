@@ -1,0 +1,62 @@
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.cu
+index 27ed838..f39ac72 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.cu
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.cu
+@@ -423,11 +423,24 @@ __global__ void __launch_bounds__(RASTERIZE_CTA_SIZE, RASTERIZE_MIN_BLOCKS) macr
+     if(warp_id == 0)
+     {
+         uint32_t any_hit = 0;
++        int32_t hit_count = 0;
+ #pragma unroll
+         for(int32_t mb = 0; mb < MAX_MINI_BATCHES; ++mb)
+         {
+-            any_hit |= smem_masks[mb * MACRO_TILE_SIZE + lane_id];
++            const uint32_t hits = smem_masks[mb * MACRO_TILE_SIZE + lane_id];
++            any_hit |= hits;
++            hit_count += __popc(hits);
+         }
+ 
+         const int32_t global_tile_x = mt_col * FUSED_MACRO_TILE_WIDTH + (lane_id % FUSED_MACRO_TILE_WIDTH);
+@@ -436,12 +449,34 @@ __global__ void __launch_bounds__(RASTERIZE_CTA_SIZE, RASTERIZE_MIN_BLOCKS) macr
+             = __ballot_sync(~0u, (global_tile_x < args.tile_width) && (global_tile_y < args.tile_height));
+         const uint32_t active_mask = __ballot_sync(~0u, any_hit != 0) & valid_mask;
+ 
+-        // populate tile work queue for multi-warp rasterization
+-        if(active_mask & (1u << lane_id))
++        // Longest-processing-time-first queue. Sorting the 32 fine tiles by
++        // their exact mask population gives the first wave of warps the
++        // heaviest tiles and reduces the tail left after dynamic work stealing.
++        // The low five key bits provide deterministic tile-id tie-breaking.
++        uint32_t sort_key = (active_mask & (1u << lane_id))
++                                ? (static_cast<uint32_t>(hit_count) << 5) | (31u - lane_id)
++                                : 0u;
++        int32_t sorted_tile = lane_id;
++#pragma unroll
++        for(int32_t width = 2; width <= 32; width <<= 1)
+         {
+-            smem_tile_queue[__popc(active_mask & ((1u << lane_id) - 1))] = lane_id;
++#pragma unroll
++            for(int32_t stride = width >> 1; stride > 0; stride >>= 1)
++            {
++                const uint32_t other_key = __shfl_xor_sync(~0u, sort_key, stride);
++                const int32_t other_tile = __shfl_xor_sync(~0u, sorted_tile, stride);
++                const bool lower_lane = lane_id < (lane_id ^ stride);
++                const bool descending_segment = (lane_id & width) == 0;
++                const bool take_max = lower_lane == descending_segment;
++                const bool take_other = take_max ? (other_key > sort_key) : (other_key < sort_key);
++                if(take_other)
++                {
++                    sort_key = other_key;
++                    sorted_tile = other_tile;
++                }
++            }
+         }
+-        // get number of tiles to render
+         const int32_t n_active_tiles = __popc(active_mask);
++        if(lane_id < n_active_tiles)
++        {
++            smem_tile_queue[lane_id] = sorted_tile;
++        }
+         if(lane_id == 0)
+         {
+             // write queue metadata

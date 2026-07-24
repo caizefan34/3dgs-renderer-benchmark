@@ -14,6 +14,7 @@
     .notice{padding:18px;border-left:4px solid var(--accent);background:var(--panel);border-radius:8px}.chart-block{margin:28px 0 38px}.chart-block h2{margin-bottom:4px}.chart-block p{color:var(--muted);margin-top:0}.chart-link{display:block}.chart{display:block;width:100%;height:auto;margin:14px 0;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
     table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left;white-space:nowrap}th{color:var(--muted)}
     .links{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.links a{display:block;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);text-decoration:none}
+    .goals{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}.goal{padding:20px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}.goal h3{margin-top:0}.goal p{color:var(--muted)}.status{font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--good)}
     footer{margin-top:42px;color:var(--muted);font-size:.9rem}
   </style>
 </head>
@@ -30,6 +31,28 @@
   </div>
 
   <div class="notice"><strong>Bottom line:</strong> choose gsplat HiGS for maximum throughput, Speedy-Splat for reference-level quality and balanced deployment, gsplat for the lowest measured peak memory, and Original 3DGS when an official reference path matters most.</div>
+
+  <h2>Three optimization goals: delivered evidence</h2>
+  <div class="goals">
+    <article class="goal">
+      <div class="status">Goal 1 · analysis complete</div>
+      <h3>Why HiGS is inference-only, and how it can train</h3>
+      <p>Source inspection confirms forced no-grad execution, detached Gaussian tensors, no backward CUDA kernel, packed parameter storage, and hierarchy invalidation after densification or pruning. Training is feasible only with a new backward and hierarchy lifecycle.</p>
+      <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/higs-trainability-analysis-2026-07-24.md">Read the source-backed trainability report</a>
+    </article>
+    <article class="goal">
+      <div class="status">Goal 2 · prototypes measured</div>
+      <h3>Fuse renderer acceleration ideas into HiGS</h3>
+      <p>Thirty ideas are registered with EPIC-05 acceptance gates. The first measured selector chose tile 8 on 5/5 scenes and produced -0.97% aggregate FPS, a documented negative result. P99-aware LPT tile scheduling is the next CUDA prototype under qualification.</p>
+      <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/epic05-higs-calibrated-2026-07-24.md">See measured HiGS prototype evidence</a>
+    </article>
+    <article class="goal">
+      <div class="status">Goal 3 · five-scene winner established</div>
+      <h3>Maximum near-lossless checkpoint compression</h3>
+      <p>SPZ 8/8 compresses 4.161 GB to 725.9 MB (5.732x) and passes every numerical and visual gate. FCGS reaches 12.843x but passes the strict numerical gate on only 2/5 scenes, so it remains a light-loss alternative.</p>
+      <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/epic05-expanded-compression-qualification-2026-07-24.md">Open the complete compression comparison</a>
+    </article>
+  </div>
 
   <section class="chart-block">
     <h2>Metric-by-metric rankings</h2>

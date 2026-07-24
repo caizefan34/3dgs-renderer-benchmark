@@ -64,12 +64,12 @@ class LinuxTierAMatrixPlanTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not reported"):
             parse_nvml_process_memory(output, 9999)
 
-    def test_all_config_profile_contains_thirteen_configs_for_five_cases(self):
+    def test_all_config_profile_contains_fourteen_configs_for_five_cases(self):
         plan = build_plan(
             Path("/repo"), Path("/opt/miniforge/envs"), profile="all-configs"
         )
 
-        self.assertEqual(len(plan), 65)
+        self.assertEqual(len(plan), 70)
         self.assertEqual(
             {row["renderer"] for row in plan}, set(matrix.PROFILE_RENDERERS["all-configs"])
         )
@@ -81,6 +81,10 @@ class LinuxTierAMatrixPlanTest(unittest.TestCase):
         self.assertEqual(
             matrix_order("higs-calibrated"),
             tuple((case_id, "gsplat_higs_calibrated") for case_id, _ in matrix.CASE_ORDERS),
+        )
+        self.assertEqual(
+            matrix_order("higs-p99-lpt"),
+            tuple((case_id, "gsplat_higs_p99_lpt") for case_id, _ in matrix.CASE_ORDERS),
         )
 
         candidates = build_plan(

@@ -257,3 +257,20 @@ class GsplatHiGSCalibratedRenderer(GsplatHiGSRenderer):
         if self._renderer is None:
             self._calibrate(camera)
         return super().render(scene_data, camera)
+
+
+class GsplatHiGSP99LPTRenderer(GsplatHiGSRenderer):
+    """HiGS built with longest-processing-time-first fine-tile scheduling."""
+
+    name = "gsplat_higs_p99_lpt"
+    implementation = (
+        "nerfstudio-project/gsplat experimental HiGS "
+        "(tile 8, Gaussian-hit-count LPT warp queue)"
+    )
+
+    def __init__(self, device: str = "cuda"):
+        super().__init__(device=device, tile_size=8)
+        self.implementation = (
+            "nerfstudio-project/gsplat experimental HiGS "
+            "(tile 8, Gaussian-hit-count LPT warp queue)"
+        )

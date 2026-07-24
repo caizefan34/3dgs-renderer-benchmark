@@ -66,6 +66,7 @@ ALL_CONFIGS = (
     "gsplat_higs_tile16_sh16",
     "gsplat_higs_auto",
     "gsplat_higs_calibrated",
+    "gsplat_higs_p99_lpt",
     "speedy_splat",
     "tcgs",
 )
@@ -78,6 +79,7 @@ PROFILE_RENDERERS = {
     "all-configs": ALL_CONFIGS,
     "higs-ablation": HIGS_ABLATION_CONFIGS,
     "higs-calibrated": ("gsplat_higs_calibrated",),
+    "higs-p99-lpt": ("gsplat_higs_p99_lpt",),
     "candidate-renderers": CANDIDATE_CONFIGS,
 }
 ENV_BY_RENDERER = {
@@ -92,6 +94,7 @@ ENV_BY_RENDERER = {
     "gsplat_higs_tile16_sh16": "gsplat",
     "gsplat_higs_auto": "gsplat",
     "gsplat_higs_calibrated": "gsplat",
+    "gsplat_higs_p99_lpt": "gsplat",
     "speedy_splat": "speedy",
     "tcgs": "tcgs",
     "flashgs": "flashgs",
