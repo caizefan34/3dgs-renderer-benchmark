@@ -174,6 +174,13 @@ commits remain recorded in `benchmark/renderers.json`.
 
 Every item is a hypothesis. Feasibility is an engineering estimate; expected
 speedup is versus the matching baseline and must be measured.
+The machine-readable
+[`benchmark/renderer-research-experiments.json`](../benchmark/renderer-research-experiments.json)
+assigns every idea an EPIC-05 track, baseline, implementation status, and
+acceptance test. An idea remains `implementation_required` or
+`prototype_required` until a five-scene result is committed; existing HiGS,
+TC-GS, SH, startup, or temporal measurements are only `partially_measured`
+when they test one ingredient rather than the proposed fusion itself.
 
 | # | Idea | Feasibility | Speedup | Complexity | Publishability |
 | ---: | --- | --- | ---: | --- | --- |
