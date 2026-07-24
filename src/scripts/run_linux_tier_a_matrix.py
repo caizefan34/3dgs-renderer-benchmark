@@ -77,6 +77,7 @@ PROFILE_RENDERERS = {
     "primary": tuple(dict.fromkeys(renderer for _, renderer in MATRIX_ORDER)),
     "all-configs": ALL_CONFIGS,
     "higs-ablation": HIGS_ABLATION_CONFIGS,
+    "higs-calibrated": ("gsplat_higs_calibrated",),
     "candidate-renderers": CANDIDATE_CONFIGS,
 }
 ENV_BY_RENDERER = {
