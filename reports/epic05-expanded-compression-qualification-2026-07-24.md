@@ -36,9 +36,11 @@ still determined the overall result.
   limited to 1.166x.
 - Do not label SOG, SPZ 5/4, or the complete SPZ 6/6 curve as five-scene
   near-lossless under this protocol. Compressed PLY also fails on Bonsai.
-- FCGS, GSICO, HAC, and HAC++ remain separate pretrained/native compression
-  tracks because their decoder or training contract differs from a direct
-  same-checkpoint format conversion.
+- FCGS remains a separate pretrained-codec track because its decoder contract
+  differs from a direct same-checkpoint format conversion. Its completed
+  five-scene safest point reaches 12.843x but passes the strict numerical gate
+  on only 2/5 scenes. GSICO, HAC, and HAC++ remain pending research/native
+  compression tracks.
 
 Machine-readable evidence is in
 [`compression-results.json`](generated/compression-expanded-final/compression-results.json),

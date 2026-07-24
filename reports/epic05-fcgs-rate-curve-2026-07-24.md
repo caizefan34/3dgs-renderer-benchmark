@@ -18,8 +18,9 @@ the safest point exceeds both the SSIM-drop and LPIPS-increase limits. FCGS is
 therefore reported as a separate pretrained-codec rate-distortion option, not
 as the strict near-lossless storage winner.
 
-The five-scene `lambda=0.0001` qualification is running separately so the
-single-scene curve is not generalized without evidence.
+The five-scene `lambda=0.0001` qualification is now complete. It reaches
+12.843x aggregate compression but passes the strict numerical gate on only 2/5
+scenes. See the [five-scene report](epic05-fcgs-five-scene-2026-07-24.md).
 
 Machine-readable values are in
 [`fcgs-train-rate-curve.json`](generated/compression-expanded-final/fcgs-train-rate-curve.json).
