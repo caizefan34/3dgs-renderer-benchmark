@@ -233,6 +233,12 @@ cases. Worst deltas were PSNR `-0.01455 dB`, SSIM `-0.000217`, and LPIPS
 `+0.000666`; all five 100-frame visual audits passed. It is therefore the
 current same-checkpoint near-lossless recommendation.
 
+Compression sessions use isolated run roots and persist their selected cases,
+codecs, and benchmark commit. Resume rejects selection or checkout drift, so a
+parallel qualification cannot silently reuse another GPU cohort's renderer
+outputs. Visual audit decisions are recorded both in the audit artifact and in
+the candidate metrics provenance.
+
 | Method / format | Main idea | Typical evidence | Rendering compatibility | Track |
 | --- | --- | --- | --- | --- |
 | PLY | raw float attributes | C baseline | universal | common reference |

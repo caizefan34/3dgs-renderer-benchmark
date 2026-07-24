@@ -10,7 +10,9 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from scripts.audit_compression_visuals import _sha256, compare, make_contact_sheet
+from scripts.audit_compression_visuals import (
+    _sha256, compare, finalize_metrics, make_contact_sheet,
+)
 
 
 class CompressionVisualAuditTest(unittest.TestCase):
@@ -44,6 +46,34 @@ class CompressionVisualAuditTest(unittest.TestCase):
             self.assertAlmostEqual(frames[0]["mean_abs_error"], 2 / 255)
             self.assertEqual(frames[0]["pixel_fraction_over_1_255"], 1.0)
             self.assertTrue(sheet.is_file())
+
+    def test_finalize_metrics_records_audit_decision(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            metrics_path = root / "metrics.json"
+            audit_path = root / "visual-audit.json"
+            metrics_path.write_text(json.dumps({
+                "metrics": {"near_lossless_gate": {
+                    "numeric_pass": True, "visual_audit": "pending",
+                    "overall_pass": False,
+                }},
+                "provenance": {},
+            }), encoding="utf-8")
+            audit_path.write_text(json.dumps({"decision": "pass"}), encoding="utf-8")
+
+            finalize_metrics(metrics_path, audit_path, "pass")
+
+            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+            gate = metrics["metrics"]["near_lossless_gate"]
+            self.assertEqual(gate["visual_audit"], "pass")
+            self.assertTrue(gate["overall_pass"])
+            self.assertEqual(
+                metrics["provenance"]["visual_audit"]["sha256"],
+                _sha256(audit_path),
+            )
+
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                finalize_metrics(metrics_path, audit_path, "fail")
 
 
 if __name__ == "__main__":

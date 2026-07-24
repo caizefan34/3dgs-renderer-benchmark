@@ -54,7 +54,8 @@ class DocumentationConsistencyTest(unittest.TestCase):
         self.assertTrue((reports / "benchmark_report.md").is_file())
         self.assertTrue((reports / "machine_report.md").is_file())
         self.assertTrue((archive / "failure_report.md").is_file())
-        self.assertFalse((reports / "generated").exists())
+        self.assertTrue((reports / "generated").is_dir())
+        self.assertTrue((reports / "generated" / "compression" / "compression-results.md").is_file())
 
 
 if __name__ == "__main__":

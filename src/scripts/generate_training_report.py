@@ -35,8 +35,8 @@ def aggregate(root: Path, input_root: Path) -> dict:
     actual = {(row["backend"]["id"], row["case"]["case_id"]) for row in rows}
     missing = sorted(expected - actual)
     extra = sorted(actual - expected)
-    if missing:
-        print("WARNING: training matrix incomplete:", missing, file=__import__("sys").stderr)
+    if missing or extra:
+        raise ValueError(f"training matrix incomplete: missing={missing}, extra={extra}")
     summaries = []
     for backend in config["backends"]:
         group = [row for row in rows if row["backend"]["id"] == backend["id"]]

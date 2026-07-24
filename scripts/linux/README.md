@@ -203,6 +203,25 @@ reference/candidate rows explicitly:
   --session artifacts/run-logs/compression-spz-train.json
 ```
 
+Every session now receives its own renderer run directory derived from the
+session filename. This prevents a filtered or parallel matrix from reusing a
+different GPU cohort's `local_renderer_suite_report.json`. Resuming with a
+different case/codec selection is rejected; use a new session filename for a
+new matrix.
+
+After reviewing the generated worst-frame contact sheet, record the decision
+and atomically update the candidate metrics in one command:
+
+```bash
+~/miniforge3/envs/gsplat/bin/python \
+  src/scripts/audit_compression_visuals.py \
+  --reference-metrics results/measured-compression/reference-ply/.../metrics.json \
+  --candidate-metrics results/measured-compression/spz/.../metrics.json \
+  --output-dir reports/generated/compression-spz-audits/train \
+  --decision pass \
+  --metrics-to-update results/measured-compression/spz/.../metrics.json
+```
+
 ## Candidate renderer environments
 
 FlashGS, Local-GS, and GEMM-GS use mutually incompatible CUDA packages, so

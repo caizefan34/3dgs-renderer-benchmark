@@ -121,6 +121,25 @@ def make_contact_sheet(frames: list[dict], output: Path, count: int = 6) -> None
     sheet.save(output)
 
 
+def finalize_metrics(metrics_path: Path, audit_path: Path, decision: str) -> None:
+    audit = _load(audit_path)
+    if audit.get("decision") != decision:
+        raise ValueError("visual audit decision does not match the audit artifact")
+    metrics = _load(metrics_path)
+    gate = metrics["metrics"]["near_lossless_gate"]
+    gate["visual_audit"] = decision
+    gate["overall_pass"] = gate["numeric_pass"] and decision == "pass"
+    metrics.setdefault("provenance", {})["visual_audit"] = {
+        "path": str(audit_path.resolve()),
+        "sha256": _sha256(audit_path),
+    }
+    temporary = metrics_path.with_suffix(metrics_path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(metrics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    temporary.replace(metrics_path)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-metrics", type=Path, required=True)
@@ -128,6 +147,7 @@ def main(argv=None) -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--worst-frames", type=int, default=6)
     parser.add_argument("--decision", choices=["pass", "fail"])
+    parser.add_argument("--metrics-to-update", type=Path)
     args = parser.parse_args(argv)
     frames, summary = compare(args.reference_metrics.resolve(), args.candidate_metrics.resolve())
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -145,6 +165,10 @@ def main(argv=None) -> int:
     }
     output = args.output_dir / "visual-audit.json"
     output.write_text(json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if args.metrics_to_update:
+        if not args.decision:
+            parser.error("--metrics-to-update requires --decision")
+        finalize_metrics(args.metrics_to_update.resolve(), output.resolve(), args.decision)
     print(output)
     return 0
 

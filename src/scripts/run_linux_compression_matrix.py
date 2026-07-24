@@ -28,7 +28,9 @@ def _load(path: Path):
 def build_plan(
     root: Path, case_ids: set[str] | None = None,
     codecs: tuple[str, ...] = CODECS,
+    run_root: Path | None = None,
 ) -> list[dict]:
+    run_root = run_root or root / "artifacts" / "compression" / "runs"
     suite = _load(root / "benchmark" / "suite.json")
     rows = []
     for case in suite["cases"]:
@@ -49,7 +51,7 @@ def build_plan(
                 "archive": str(root / "artifacts" / "compression" / archive_name),
                 "manifest": str(root / "artifacts" / "compression" / f"{stem}.json"),
                 "decoded": str(root / "artifacts" / "compression" / "decoded" / f"{stem}.ply"),
-                "run_dir": str(root / "artifacts" / "compression" / "runs" / case["case_id"] / codec),
+                "run_dir": str(run_root / case["case_id"] / codec),
             })
     return rows
 
@@ -139,14 +141,18 @@ def _collect_row(row: dict, scene: Path, run_dir: Path, session: dict, root: Pat
 
 def _generate_report(session: dict, root: Path, output: Path) -> None:
     results = [_load(root / item["metrics_path"]) for item in session["completed"]]
+    pending_count = sum(
+        result["metrics"]["near_lossless_gate"]["visual_audit"] == "pending"
+        for result in results
+    )
     output.mkdir(parents=True, exist_ok=True)
     _write_json(output / "compression-results.json", {
         "schema_version": "1.0", "evidence_tier": "measured", "results": results,
     })
     lines = [
         "# EPIC-05 compression matrix", "",
-        "All rows use gsplat packed on decoded standard PLY files. Compressed rows remain",
-        "pending until their visual audit is recorded.", "",
+        "All rows use gsplat packed on decoded standard PLY files.",
+        f"Visual audits pending: {pending_count}.", "",
         "| Case | Codec | Ratio | Decode ms | FPS | PSNR | PSNR delta | LPIPS delta | Numeric gate | Visual audit |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
@@ -166,20 +172,36 @@ def _generate_report(session: dict, root: Path, output: Path) -> None:
 
 def run(args) -> dict:
     root, python = args.root.resolve(), args.python.resolve()
-    plan = build_plan(
-        root, set(args.case_id) if args.case_id else None,
-        tuple(args.codec) if args.codec else CODECS,
-    )
     session_path = args.session.resolve()
+    run_root = (
+        args.run_root.resolve() if args.run_root else
+        root / "artifacts" / "compression" / "runs" / session_path.stem
+    )
+    selected_case_ids = set(args.case_id) if args.case_id else None
+    selected_codecs = tuple(args.codec) if args.codec else CODECS
+    plan = build_plan(
+        root, selected_case_ids, selected_codecs, run_root,
+    )
+    selection = {
+        "case_ids": sorted(selected_case_ids) if selected_case_ids else None,
+        "codecs": list(selected_codecs),
+        "run_root": str(run_root),
+    }
     if session_path.is_file():
         if not args.resume:
             raise RuntimeError(f"session already exists; use --resume: {session_path}")
         session = _load(session_path)
+        if session.get("benchmark_commit") != subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True
+        ).strip():
+            raise RuntimeError("session benchmark commit does not match the checkout")
+        if session.get("selection") != selection:
+            raise RuntimeError("session selection does not match the requested matrix")
     else:
         session = {
             "schema_version": 1, "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "benchmark_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
-            "completed": [], "encoded": [],
+            "selection": selection, "completed": [], "encoded": [],
         }
         _write_json(session_path, session)
     completed = {(item["case_id"], item["codec"]) for item in session["completed"]}
@@ -220,6 +242,7 @@ def main(argv=None) -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--python", type=Path, default=Path.home() / "miniforge3" / "envs" / "gsplat" / "bin" / "python")
     parser.add_argument("--session", type=Path, default=ROOT / "artifacts" / "run-logs" / "linux-compression-session.json")
+    parser.add_argument("--run-root", type=Path)
     parser.add_argument("--report-output", type=Path, default=ROOT / "reports" / "generated" / "compression")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--encode-only", action="store_true")
@@ -233,9 +256,15 @@ def main(argv=None) -> int:
     parser.add_argument("--codec", action="append", choices=CODECS)
     args = parser.parse_args(argv)
     if args.dry_run:
+        root = args.root.resolve()
+        run_root = (
+            args.run_root.resolve() if args.run_root else
+            root / "artifacts" / "compression" / "runs" / args.session.resolve().stem
+        )
         print(json.dumps(build_plan(
-            args.root.resolve(), set(args.case_id) if args.case_id else None,
+            root, set(args.case_id) if args.case_id else None,
             tuple(args.codec) if args.codec else CODECS,
+            run_root,
         ), indent=2))
         return 0
     session = run(args)
