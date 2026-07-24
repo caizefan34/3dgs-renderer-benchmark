@@ -65,3 +65,41 @@ index 105f31e..fba2d45 100644
 +    c_flags = ['-O3', '-std=c++17']
  elif os.name == "nt":
      c_flags = ['/O2', '/std:c++17']
+diff --git a/encode_single_scene.py b/encode_single_scene.py
+index d48d9de..43c5f1a 100644
+--- a/encode_single_scene.py
++++ b/encode_single_scene.py
+@@ -3,7 +3,7 @@ import time
+ import torch
+ from model.FCGS_model import FCGS
+ import os
+-from gaussian_renderer import GaussianModel
++from scene.gaussian_model import GaussianModel
+ import numpy as np
+ from argparse import ArgumentParser
+ import sys
+diff --git a/decode_single_scene.py b/decode_single_scene.py
+index 1d2c9e8..d9b2559 100644
+--- a/decode_single_scene.py
++++ b/decode_single_scene.py
+@@ -4,7 +4,7 @@ import torch
+ import torch.nn as nn
+ from model.FCGS_model import FCGS
+ import os
+-from gaussian_renderer import GaussianModel
++from scene.gaussian_model import GaussianModel
+ from argparse import ArgumentParser
+ import sys
+ from typing import NamedTuple
+diff --git a/submodules/simple-knn/simple_knn.cu b/submodules/simple-knn/simple_knn.cu
+index 8675a38..3e6a813 100644
+--- a/submodules/simple-knn/simple_knn.cu
++++ b/submodules/simple-knn/simple_knn.cu
+@@ -16,6 +16,7 @@
+ #include <cub/device/device_radix_sort.cuh>
+ #include <vector>
+ #include <cuda_runtime_api.h>
++#include <cfloat>
+ #include <thrust/device_vector.h>
+ #include <thrust/sequence.h>
+ #define __CUDACC__
