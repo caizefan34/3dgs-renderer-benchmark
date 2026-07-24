@@ -2,7 +2,7 @@ diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Mac
 index 27ed838..f39ac72 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.cu
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.cu
-@@ -423,11 +423,24 @@ __global__ void __launch_bounds__(RASTERIZE_CTA_SIZE, RASTERIZE_MIN_BLOCKS) macr
+@@ -423,11 +423,14 @@ __global__ void __launch_bounds__(RASTERIZE_CTA_SIZE, RASTERIZE_MIN_BLOCKS) macr
      if(warp_id == 0)
      {
          uint32_t any_hit = 0;
@@ -17,7 +17,7 @@ index 27ed838..f39ac72 100644
          }
  
          const int32_t global_tile_x = mt_col * FUSED_MACRO_TILE_WIDTH + (lane_id % FUSED_MACRO_TILE_WIDTH);
-@@ -436,12 +449,34 @@ __global__ void __launch_bounds__(RASTERIZE_CTA_SIZE, RASTERIZE_MIN_BLOCKS) macr
+@@ -436,13 +439,38 @@ __global__ void __launch_bounds__(RASTERIZE_CTA_SIZE, RASTERIZE_MIN_BLOCKS) macr
              = __ballot_sync(~0u, (global_tile_x < args.tile_width) && (global_tile_y < args.tile_height));
          const uint32_t active_mask = __ballot_sync(~0u, any_hit != 0) & valid_mask;
  
