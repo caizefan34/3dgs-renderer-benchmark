@@ -14,16 +14,21 @@ from scripts.run_linux_compression_matrix import build_plan, run
 
 
 class CompressionResultTest(unittest.TestCase):
-    def test_compression_plan_has_reference_and_three_codecs_per_case(self):
+    def test_compression_plan_has_reference_and_eight_codecs_per_case(self):
         root = Path(__file__).resolve().parents[1]
         plan = build_plan(root)
-        self.assertEqual(len(plan), 20)
+        self.assertEqual(len(plan), 45)
         self.assertEqual(
-            [row["codec"] for row in plan[:4]],
-            ["reference-ply", "block-float", "tile-codebook", "spz"],
+            [row["codec"] for row in plan[:9]],
+            [
+                "reference-ply", "xz-lossless", "block-float", "tile-codebook",
+                "playcanvas-compressed-ply", "playcanvas-sog", "spz",
+                "spz-6-6", "spz-5-4",
+            ],
         )
-        self.assertTrue(plan[3]["archive"].endswith("small-garden-1080p.spz"))
-        self.assertFalse(plan[3]["archive"].endswith(".spz.spz"))
+        self.assertTrue(plan[6]["archive"].endswith("small-garden-1080p.spz"))
+        self.assertTrue(plan[7]["archive"].endswith("small-garden-1080p.spz-6-6.spz"))
+        self.assertEqual(plan[7]["encode_options"], ["--sh1-bits", "6", "--sh-rest-bits", "6"])
 
     def test_compression_plan_can_select_case_and_codecs(self):
         root = Path(__file__).resolve().parents[1]

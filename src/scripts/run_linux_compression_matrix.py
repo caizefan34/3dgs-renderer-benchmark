@@ -18,7 +18,33 @@ from scripts.collect_compression_result import collect  # noqa: E402
 from scripts.run_linux_tier_a_matrix import wait_for_idle_gpu  # noqa: E402
 
 
-CODECS = ("reference-ply", "block-float", "tile-codebook", "spz")
+CODECS = (
+    "reference-ply", "xz-lossless", "block-float", "tile-codebook",
+    "playcanvas-compressed-ply", "playcanvas-sog", "spz", "spz-6-6", "spz-5-4",
+)
+
+CODEC_CONFIGS = {
+    "reference-ply": {"encoder": None, "suffix": ".ply", "options": []},
+    "xz-lossless": {"encoder": "xz-lossless", "suffix": ".ply.xz", "options": []},
+    "block-float": {"encoder": "block-float", "suffix": ".zip", "options": []},
+    "tile-codebook": {"encoder": "tile-codebook", "suffix": ".zip", "options": []},
+    "playcanvas-compressed-ply": {
+        "encoder": "playcanvas-compressed-ply", "suffix": ".compressed.ply", "options": [],
+    },
+    "playcanvas-sog": {"encoder": "playcanvas-sog", "suffix": ".sog", "options": []},
+    "spz": {
+        "encoder": "spz", "suffix": ".spz",
+        "options": ["--sh1-bits", "8", "--sh-rest-bits", "8"],
+    },
+    "spz-6-6": {
+        "encoder": "spz", "suffix": ".spz",
+        "options": ["--sh1-bits", "6", "--sh-rest-bits", "6"],
+    },
+    "spz-5-4": {
+        "encoder": "spz", "suffix": ".spz",
+        "options": ["--sh1-bits", "5", "--sh-rest-bits", "4"],
+    },
+}
 
 
 def _load(path: Path):
@@ -37,14 +63,17 @@ def build_plan(
         if case_ids and case["case_id"] not in case_ids:
             continue
         for codec in codecs:
+            config = CODEC_CONFIGS[codec]
             stem = f"{case['case_id']}.{codec}"
-            archive_name = stem if codec == "spz" else f"{stem}.zip"
+            archive_name = f"{case['case_id']}{config['suffix']}" if codec == "spz" else f"{stem}{config['suffix']}"
             rows.append({
                 "step": len(rows) + 1,
                 "case_id": case["case_id"],
                 "dataset_id": case["dataset_id"],
                 "scene_id": case["scene_id"],
                 "codec": codec,
+                "encoder": config["encoder"],
+                "encode_options": config["options"],
                 "source": str(root / case["scene_path"]),
                 "cameras": str(root / case["camera_path"]),
                 "ground_truth": str(root / case["ground_truth_path"]),
@@ -67,7 +96,8 @@ def _encode(row: dict, python: Path, root: Path) -> None:
     subprocess.run([
         str(python), "src/scripts/compress_ply.py", "encode",
         "--input", row["source"], "--output", row["archive"],
-        "--manifest", row["manifest"], "--codec", row["codec"],
+        "--manifest", row["manifest"], "--codec", row["encoder"],
+        *row["encode_options"],
     ], cwd=root, check=True)
 
 

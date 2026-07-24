@@ -244,7 +244,11 @@ def main(argv=None) -> int:
     parser.add_argument("--case-id", required=True)
     parser.add_argument(
         "--codec-id",
-        choices=["reference-ply", "block-float", "tile-codebook", "spz"],
+        choices=[
+            "reference-ply", "xz-lossless", "block-float", "tile-codebook",
+            "playcanvas-compressed-ply", "playcanvas-sog", "spz",
+            "spz-6-6", "spz-5-4",
+        ],
         required=True,
     )
     parser.add_argument("--artifact-manifest", type=Path)

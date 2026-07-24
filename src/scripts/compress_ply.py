@@ -22,7 +22,14 @@ def main(argv=None) -> int:
     encode.add_argument("--input", type=Path, required=True)
     encode.add_argument("--output", type=Path, required=True)
     encode.add_argument("--manifest", type=Path, required=True)
-    encode.add_argument("--codec", choices=["block-float", "tile-codebook", "spz"], required=True)
+    encode.add_argument(
+        "--codec",
+        choices=[
+            "block-float", "tile-codebook", "spz", "xz-lossless",
+            "playcanvas-compressed-ply", "playcanvas-sog",
+        ],
+        required=True,
+    )
     encode.add_argument("--block-size", type=int, default=4096)
     encode.add_argument("--tile-resolution", type=int, default=8)
     encode.add_argument("--sh1-bits", type=int, default=8)

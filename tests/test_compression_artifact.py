@@ -39,6 +39,10 @@ def _write_test_ply(path: Path, count: int = 48) -> np.ndarray:
 
 
 class CompressionArtifactTest(unittest.TestCase):
+    def test_xz_lossless_round_trip_and_manifest(self):
+        manifest = self._round_trip("xz-lossless", max_error=0.0)
+        self.assertEqual(manifest["codec"]["parameters"]["check"], "crc64")
+
     def test_block_float_round_trip_and_manifest(self):
         self._round_trip("block-float", max_error=8e-5, block_size=16)
 
@@ -63,6 +67,28 @@ class CompressionArtifactTest(unittest.TestCase):
             manifest["codec"]["parameters"]["source_commit"], r"^[0-9a-f]{40}$"
         )
 
+    def test_playcanvas_compressed_ply_round_trip_with_optional_cli(self):
+        def fake_run(command, **_kwargs):
+            shutil.copyfile(command[-2], command[-1])
+            return types.SimpleNamespace(returncode=0)
+
+        with patch.dict("os.environ", {"SPLAT_TRANSFORM": "splat-transform"}), patch(
+            "compression_artifact.subprocess.run", side_effect=fake_run
+        ):
+            manifest = self._round_trip("playcanvas-compressed-ply", max_error=0.0)
+        self.assertEqual(manifest["codec"]["parameters"]["tool"], "splat-transform")
+
+    def test_playcanvas_sog_round_trip_with_optional_cli(self):
+        def fake_run(command, **_kwargs):
+            shutil.copyfile(command[-2], command[-1])
+            return types.SimpleNamespace(returncode=0)
+
+        with patch.dict("os.environ", {"SPLAT_TRANSFORM": "splat-transform"}), patch(
+            "compression_artifact.subprocess.run", side_effect=fake_run
+        ):
+            manifest = self._round_trip("playcanvas-sog", max_error=0.0)
+        self.assertEqual(manifest["codec"]["parameters"]["tool"], "splat-transform")
+
     def _round_trip(self, codec: str, max_error: float, **options):
         root = Path(__file__).resolve().parents[1]
         schema = json.loads(
@@ -71,7 +97,12 @@ class CompressionArtifactTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = Path(temp_dir)
             source = temp / "source.ply"
-            archive = temp / ("scene.spz" if codec == "spz" else f"scene.{codec}.zip")
+            suffixes = {
+                "spz": ".spz", "xz-lossless": ".ply.xz",
+                "playcanvas-compressed-ply": ".compressed.ply",
+                "playcanvas-sog": ".sog",
+            }
+            archive = temp / f"scene{suffixes.get(codec, f'.{codec}.zip')}"
             decoded = temp / "decoded.ply"
             manifest_path = temp / "manifest.json"
             expected = _write_test_ply(source)

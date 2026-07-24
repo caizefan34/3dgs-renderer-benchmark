@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import lzma
 import os
 import shutil
 import subprocess
@@ -19,6 +20,8 @@ import numpy as np
 
 _FLOAT_TYPES = {"float", "float32"}
 _SPZ_SOURCE_COMMIT = "21715c3b7a609ea6fb7c69b8ae42181a12b59f22"
+_SPLAT_TRANSFORM_VERSION = "3.1.6"
+_NORMAL_PROPERTIES = {"nx", "ny", "nz"}
 
 
 @dataclass(frozen=True)
@@ -263,10 +266,36 @@ def _decode_spz(archive_path: Path, output_path: Path) -> None:
         raise RuntimeError(f"SPZ failed to decode {archive_path}")
 
 
+def _splat_transform() -> str:
+    executable = os.environ.get("SPLAT_TRANSFORM") or shutil.which("splat-transform")
+    if not executable:
+        raise RuntimeError(
+            "PlayCanvas codecs require the splat-transform CLI; install "
+            "@playcanvas/splat-transform or set SPLAT_TRANSFORM"
+        )
+    return executable
+
+
+def _run_splat_transform(source: Path, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [_splat_transform(), str(source), str(output)],
+        check=True,
+    )
+
+
 def decode_ply(archive_path: Path, output_path: Path, chunk_size: int = 65536) -> None:
     archive_path, output_path = Path(archive_path), Path(output_path)
     if archive_path.suffix.lower() == ".spz":
         _decode_spz(archive_path, output_path)
+        return
+    if archive_path.suffix.lower() == ".xz":
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with lzma.open(archive_path, "rb") as source, output_path.open("wb") as output:
+            shutil.copyfileobj(source, output, 8 * 1024 * 1024)
+        return
+    if archive_path.suffix.lower() == ".sog" or archive_path.name.endswith(".compressed.ply"):
+        _run_splat_transform(archive_path, output_path)
         return
     with tempfile.TemporaryDirectory() as temp_dir:
         metadata, arrays = _load_archive(archive_path, Path(temp_dir))
@@ -322,39 +351,55 @@ def encode_ply(
     source_path, archive_path = Path(source_path).resolve(), Path(archive_path).resolve()
     layout, records = read_binary_ply(source_path)
     started = time.perf_counter()
-    if codec == "spz":
-        if not 1 <= sh1_bits <= 8 or not 1 <= sh_rest_bits <= 8:
-            raise ValueError("SPZ SH quantization bits must be between 1 and 8")
-        spz = _spz_module()
-        cloud = spz.load_splat_from_ply(str(source_path), spz.UnpackOptions())
-        options = spz.PackOptions()
-        options.sh1_bits = sh1_bits
-        options.sh_rest_bits = sh_rest_bits
-        archive_path.parent.mkdir(parents=True, exist_ok=True)
-        if not spz.save_spz(cloud, options, str(archive_path)):
-            raise RuntimeError(f"SPZ failed to encode {source_path}")
-        parameters = {
-            "format_version": 4, "sh1_bits": sh1_bits,
-            "sh_rest_bits": sh_rest_bits, "entropy_coder": "zstd",
-            "source_commit": _SPZ_SOURCE_COMMIT,
-        }
-    else:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp = Path(temp_dir)
-            if codec == "block-float":
-                codec_metadata, arrays = _encode_block_float(records, layout, temp, block_size)
-                parameters = {"block_size": block_size, "quant_bits": 16}
-            elif codec == "tile-codebook":
-                codec_metadata, arrays = _encode_tile_codebook(records, layout, temp, tile_resolution)
-                parameters = {"tile_resolution": tile_resolution, "geometry_bits": 16, "sh_rest_bits": 8}
-            else:
-                raise ValueError(f"unsupported codec: {codec}")
-            archive_metadata = {
-                "format_version": 1, "count": layout.count, "properties": layout.properties,
-                **codec_metadata,
+    try:
+        if codec == "xz-lossless":
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            with source_path.open("rb") as source, lzma.open(
+                archive_path, "wb", format=lzma.FORMAT_XZ,
+                check=lzma.CHECK_CRC64, preset=9,
+            ) as output:
+                shutil.copyfileobj(source, output, 8 * 1024 * 1024)
+            parameters = {"format": "xz", "preset": 9, "check": "crc64"}
+        elif codec in {"playcanvas-compressed-ply", "playcanvas-sog"}:
+            _run_splat_transform(source_path, archive_path)
+            parameters = {
+                "tool": "splat-transform", "version": _SPLAT_TRANSFORM_VERSION,
+                "format": "compressed-ply" if codec.endswith("compressed-ply") else "sog",
             }
-            _write_archive(archive_path, archive_metadata, arrays)
-    _close_memmap(records)
+        elif codec == "spz":
+            if not 1 <= sh1_bits <= 8 or not 1 <= sh_rest_bits <= 8:
+                raise ValueError("SPZ SH quantization bits must be between 1 and 8")
+            spz = _spz_module()
+            cloud = spz.load_splat_from_ply(str(source_path), spz.UnpackOptions())
+            options = spz.PackOptions()
+            options.sh1_bits = sh1_bits
+            options.sh_rest_bits = sh_rest_bits
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            if not spz.save_spz(cloud, options, str(archive_path)):
+                raise RuntimeError(f"SPZ failed to encode {source_path}")
+            parameters = {
+                "format_version": 4, "sh1_bits": sh1_bits,
+                "sh_rest_bits": sh_rest_bits, "entropy_coder": "zstd",
+                "source_commit": _SPZ_SOURCE_COMMIT,
+            }
+        else:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp = Path(temp_dir)
+                if codec == "block-float":
+                    codec_metadata, arrays = _encode_block_float(records, layout, temp, block_size)
+                    parameters = {"block_size": block_size, "quant_bits": 16}
+                elif codec == "tile-codebook":
+                    codec_metadata, arrays = _encode_tile_codebook(records, layout, temp, tile_resolution)
+                    parameters = {"tile_resolution": tile_resolution, "geometry_bits": 16, "sh_rest_bits": 8}
+                else:
+                    raise ValueError(f"unsupported codec: {codec}")
+                archive_metadata = {
+                    "format_version": 1, "count": layout.count, "properties": layout.properties,
+                    **codec_metadata,
+                }
+                _write_archive(archive_path, archive_metadata, arrays)
+    finally:
+        _close_memmap(records)
     encode_ms = (time.perf_counter() - started) * 1000.0
     artifact_sha = _sha256(archive_path)
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -363,7 +408,9 @@ def encode_ply(
         decode_ply(archive_path, validation_path)
         decode_ms = (time.perf_counter() - decode_started) * 1000.0
         decoded_layout = read_ply_layout(validation_path)
-        if decoded_layout.count != layout.count or decoded_layout.properties != layout.properties:
+        source_properties = set(layout.properties) - _NORMAL_PROPERTIES
+        decoded_properties = set(decoded_layout.properties) - _NORMAL_PROPERTIES
+        if decoded_layout.count != layout.count or decoded_properties != source_properties:
             raise ValueError("decoded PLY layout mismatch")
     source_bytes, compressed_bytes = source_path.stat().st_size, archive_path.stat().st_size
     return {
