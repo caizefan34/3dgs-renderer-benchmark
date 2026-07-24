@@ -247,7 +247,7 @@ def main(argv=None) -> int:
         choices=[
             "reference-ply", "xz-lossless", "block-float", "tile-codebook",
             "playcanvas-compressed-ply", "playcanvas-sog", "spz",
-            "spz-6-6", "spz-5-4",
+            "spz-6-6", "spz-5-4", "fcgs",
         ],
         required=True,
     )
