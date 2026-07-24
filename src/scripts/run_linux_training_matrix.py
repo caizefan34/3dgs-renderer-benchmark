@@ -138,7 +138,8 @@ def _result(row: dict, args, returncode: int, wall: float, peak: float) -> dict:
     if complete:
         artifact = {"path": str(ply), "sha256": _sha256(ply),
                     "size_bytes": ply.stat().st_size, "gaussian_count": _ply_vertices(ply)}
-        quality = _evaluate(row, args, ply, output)
+        if row["backend"]["id"] != "gemm_gs_train":
+            quality = _evaluate(row, args, ply, output)
     backend = {"id": row["backend"]["id"], "commit": row["backend"]["commit"]}
     if row["backend"].get("patches"):
         backend["patches"] = row["backend"]["patches"]

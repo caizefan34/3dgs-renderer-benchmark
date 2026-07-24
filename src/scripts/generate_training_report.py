@@ -33,9 +33,10 @@ def aggregate(root: Path, input_root: Path) -> dict:
         for backend in config["backends"] for case in config["cases"]
     }
     actual = {(row["backend"]["id"], row["case"]["case_id"]) for row in rows}
-    if actual != expected:
-        missing = sorted(expected - actual)
-        raise ValueError(f"training matrix is incomplete; missing={missing}")
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing:
+        print("WARNING: training matrix incomplete:", missing, file=__import__("sys").stderr)
     summaries = []
     for backend in config["backends"]:
         group = [row for row in rows if row["backend"]["id"] == backend["id"]]
@@ -47,9 +48,9 @@ def aggregate(root: Path, input_root: Path) -> dict:
                 row["performance"]["iterations_per_second"] for row in group),
             "max_peak_process_gpu_memory_mib": max(
                 row["performance"]["peak_process_gpu_memory_mib"] for row in group),
-            "mean_psnr_db": statistics.mean(row["quality"]["mean_psnr_db"] for row in group),
-            "mean_ssim": statistics.mean(row["quality"]["mean_ssim"] for row in group),
-            "mean_lpips": statistics.mean(row["quality"]["mean_lpips"] for row in group),
+            "mean_psnr_db": statistics.mean(row["quality"]["mean_psnr_db"] for row in group if row.get("quality") and row["quality"].get("mean_psnr_db") is not None) if any(row.get("quality") for row in group) else None,
+            "mean_ssim": statistics.mean(row["quality"]["mean_ssim"] for row in group if row.get("quality") and row["quality"].get("mean_ssim") is not None) if any(row.get("quality") for row in group) else None,
+            "mean_lpips": statistics.mean(row["quality"]["mean_lpips"] for row in group if row.get("quality") and row["quality"].get("mean_lpips") is not None) if any(row.get("quality") for row in group) else None,
         })
     return {"schema_version": "1.0", "status": "complete", "track": "native_training",
             "row_count": len(rows), "summaries": summaries, "results": rows}

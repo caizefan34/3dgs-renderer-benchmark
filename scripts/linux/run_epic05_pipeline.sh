@@ -4,8 +4,40 @@ set -euo pipefail
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 MINIFORGE_HOME="${MINIFORGE_HOME:-$HOME/miniforge3}"
 ENV_ROOT="$MINIFORGE_HOME/envs"
-GPU="${GPU:-7}"
 PYTHON="$ENV_ROOT/gsplat/bin/python"
+
+# Wait for any GPU to become idle
+wait_for_any_gpu() {
+  local max_memory_mib="${1:-1024}"
+  local max_utilization="${2:-5}"
+  local poll_seconds="${3:-30}"
+  local gpu_count="${4:-8}"
+
+  while true; do
+    for ((gpu = 0; gpu < gpu_count; gpu++)); do
+      local gpu_info
+      gpu_info=$(nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader -i "$gpu" 2>/dev/null) || continue
+      local mem_str util_str
+      mem_str=$(echo "$gpu_info" | awk -F', ' '{print $2}' | awk '{print $1}')
+      util_str=$(echo "$gpu_info" | awk -F', ' '{print $3}' | awk '{print $1}')
+      local mem=${mem_str//[!0-9]/}
+      local util=${util_str//[!0-9]/}
+      if [[ -n "$mem" && -n "$util" && "$mem" -le "$max_memory_mib" && "$util" -le "$max_utilization" ]]; then
+        echo "[pipeline] Selected GPU $gpu (memory: ${mem}MiB, utilization: ${util}%)" >&2
+        echo "$gpu"
+        return 0
+      fi
+    done
+    sleep "$poll_seconds"
+  done
+}
+
+# Determine GPU: explicit override or wait for any free GPU
+if [[ -z "${GPU:-}" ]]; then
+  echo "[pipeline] No GPU specified, waiting for any free GPU..."
+  GPU=$(wait_for_any_gpu)
+  echo "[pipeline] GPU $GPU is free, starting pipeline"
+fi
 
 required_files=(
   "$ENV_ROOT/.tier-a-ready"

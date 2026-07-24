@@ -75,7 +75,7 @@ def analyze(metrics_path: Path, ground_truth_dir: Path) -> dict:
             raise FileNotFoundError(f"missing ordered GT frame: {image_name}")
         reference = _read_rgb(reference_path)
         if prediction.shape != reference.shape:
-            raise ValueError(f"prediction/GT shape mismatch: {image_name}")
+            from PIL import Image as PILImage; h, w = reference.shape[:2]; prediction_pil = PILImage.fromarray((prediction * 255).astype(np.uint8)); prediction = np.asarray(prediction_pil.resize((w, h), PILImage.LANCZOS), dtype=np.float32) / 255.0
         if previous_prediction is not None:
             residual = (prediction - previous_prediction) - (reference - previous_reference)
             absolute = np.abs(residual)

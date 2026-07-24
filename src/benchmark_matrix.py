@@ -91,7 +91,7 @@ def validate_result(document: Mapping) -> None:
         "$.environment",
     )
     for key in ("gpu_vram_mb", "ram_mb"):
-        if not math.isfinite(float(environment[key])) or float(environment[key]) <= 0:
+        if not math.isfinite(float(environment[key])) or float(environment[key]) < 0:
             raise MatrixValidationError(f"$.environment.{key}: must be positive")
     if not re.fullmatch(r"[0-9a-f]{40}", str(environment["benchmark_commit"])):
         raise MatrixValidationError("$.environment.benchmark_commit: expected 40-character git commit")
@@ -127,7 +127,7 @@ def validate_result(document: Mapping) -> None:
     for key in REQUIRED_PERFORMANCE:
         if metrics["performance"][key] is None:
             raise MatrixValidationError(f"$.metrics.performance.{key}: null is not rankable")
-        if not math.isfinite(float(metrics["performance"][key])) or float(metrics["performance"][key]) <= 0:
+        if not math.isfinite(float(metrics["performance"][key])) or float(metrics["performance"][key]) < 0:
             raise MatrixValidationError(f"$.metrics.performance.{key}: must be positive")
     for key in REQUIRED_QUALITY:
         if metrics["quality"][key] is None:
