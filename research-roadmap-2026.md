@@ -74,8 +74,9 @@ rebuilding when Gaussian count changes.
 
 The intersection path groups work into fused macro tiles. Each macro tile first
 enumerates Gaussian intersections, then performs a segmented depth sort. The
-raster kernel loads 32-Gaussian mini-batches, computes a 32-bit overlap mask for
-the fine tiles, transposes masks with warp shuffles, and queues only active
+raster kernel loads 32-Gaussian mini-batches and already computes a conservative
+conic-versus-fine-tile edge/center overlap test in half2 before producing its
+32-bit mask. It transposes masks with warp shuffles and queues only active
 tiles. Colors are loaded after visibility is known. A work-stealing warp queue
 blends active fine tiles in shared memory, and a post-blend kernel composites
 macro-tile batches front to back with transmittance early-out. Tile 8 and tile
@@ -143,9 +144,9 @@ ranges for an ablation, not measured results.
 
 | Rank | Combination | Effort | Compatibility | Target FPS | Quality / VRAM risk | Why |
 | ---: | --- | --- | --- | --- | --- | --- |
-| 1 | HiGS + calibrated tile selector | low | direct | +5-20% | low / neutral | replaces count heuristic with occupancy calibration |
+| 1 | HiGS + conditional hit-count LPT queue | low | direct kernel change | unmeasured follow-up | low / neutral | always-on LPT measured -0.63% aggregate FPS; skip sorting unless work dispersion repays it |
 | 2 | HiGS + visibility cache | medium | direct inference | +10-35% sequences | stale-set artifacts / +5% | reuses stable macro-tile masks |
-| 3 | HiGS + exact fine-tile localization | medium | direct kernel change | +10-30% | low / neutral | rejects conic/tile false positives before SH and color loads |
+| 3 | HiGS + sparse/dense blend split | high | direct kernel change | +10-35% | precision / workspace | retains the existing warp path for sparse masks and dispatches dense masks to Tensor Cores |
 | 4 | HiGS + dynamic SH degree | medium | direct | +5-20% | view-dependent / lower | spend SH only where it affects pixels |
 | 5 | HiGS + FlashGS scheduling | high | representation audit | +10-30% | mapping risk | pipeline and redundancy removal |
 | 6 | HiGS + GEMM-GS | high | alpha path only | +15-40% | FP16 quality / workspace | complementary blend acceleration |
@@ -154,12 +155,14 @@ ranges for an ablation, not measured results.
 | 9 | HiGS + learned visibility | very high | new model track | +20-50% | false negatives / model VRAM | predicts work from camera and scene |
 | 10 | HiGS + StopThePop | very high | retrained track | unknown | quality and format risk | view-consistent ordering may conflict with cache |
 
-The strongest concrete fusion hypothesis is exact conic-versus-fine-tile
-localization inside HiGS macro-tile mask construction, followed by a
+The pinned HiGS baseline already contains conic-versus-fine-tile mask
+construction; it must not be presented as a new unimplemented feature. The
+current low-risk hypothesis is longest-processing-time-first scheduling from
+the existing mask population. The higher-effort hypothesis is a
 density-adaptive blend: retain the existing warp path for sparse masks and
 dispatch dense batches to a GEMM/Tensor-Core path. FlashGS and Speedy-Splat
-motivate reducing emitted intersections; GEMM-GS/TC-GS motivate the dense
-blend path. These are design hypotheses, not measured gains. The currently
+motivate reducing emitted work; GEMM-GS/TC-GS motivate the dense blend path.
+These are design hypotheses, not measured gains. The currently
 indexed Local-GS repository contains placeholder publication/repository fields,
 so its performance claims must not be treated as verified evidence.
 
