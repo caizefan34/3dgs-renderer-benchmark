@@ -95,6 +95,15 @@ class HiGSAutoConfigTest(unittest.TestCase):
         self.assertEqual(GsplatHiGSAutoRenderer.select_config(200_000), (16, "none"))
         self.assertEqual(GsplatHiGSAutoRenderer.select_config(400_000), (8, "32b"))
 
+    def test_runtime_calibration_selects_measured_tile(self):
+        from renderers.gsplat_renderer import GsplatHiGSCalibratedRenderer
+
+        self.assertEqual(
+            GsplatHiGSCalibratedRenderer.select_tile({8: 4.2, 16: 3.8}), 16
+        )
+        with self.assertRaises(ValueError):
+            GsplatHiGSCalibratedRenderer.select_tile({8: 4.2})
+
 
 class HiGSRendererTest(unittest.TestCase):
     def test_casts_backend_output_to_float32(self):

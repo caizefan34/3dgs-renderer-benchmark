@@ -65,6 +65,7 @@ ALL_CONFIGS = (
     "gsplat_higs_tile16_sh32",
     "gsplat_higs_tile16_sh16",
     "gsplat_higs_auto",
+    "gsplat_higs_calibrated",
     "speedy_splat",
     "tcgs",
 )
@@ -89,6 +90,7 @@ ENV_BY_RENDERER = {
     "gsplat_higs_tile16_sh32": "gsplat",
     "gsplat_higs_tile16_sh16": "gsplat",
     "gsplat_higs_auto": "gsplat",
+    "gsplat_higs_calibrated": "gsplat",
     "speedy_splat": "speedy",
     "tcgs": "tcgs",
     "flashgs": "flashgs",

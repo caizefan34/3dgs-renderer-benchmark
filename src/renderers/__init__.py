@@ -54,6 +54,7 @@ from .gsplat_renderer import (
     GsplatHiGSTile16SH32Renderer,
     GsplatHiGSTile16SH16Renderer,
     GsplatHiGSAutoRenderer,
+    GsplatHiGSCalibratedRenderer,
 )
 from .diff_gaussian_renderer import DiffGaussianRenderer
 from .fast_gauss_renderer import FastGaussRenderer
@@ -75,6 +76,7 @@ register_renderer("gsplat_higs_sh16", GsplatHiGSSH16Renderer)
 register_renderer("gsplat_higs_tile16_sh32", GsplatHiGSTile16SH32Renderer)
 register_renderer("gsplat_higs_tile16_sh16", GsplatHiGSTile16SH16Renderer)
 register_renderer("gsplat_higs_auto", GsplatHiGSAutoRenderer)
+register_renderer("gsplat_higs_calibrated", GsplatHiGSCalibratedRenderer)
 register_renderer("diff_gaussian", DiffGaussianRenderer)
 register_renderer("original_3dgs", DiffGaussianRenderer)
 register_renderer("fast_gauss", FastGaussRenderer)

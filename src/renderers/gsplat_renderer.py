@@ -185,3 +185,75 @@ class GsplatHiGSAutoRenderer(GsplatHiGSRenderer):
             f"(tile {self.tile_size}, SH {self.sh_compression})"
         )
         return super().prepare_scene(scene_data)
+
+
+class GsplatHiGSCalibratedRenderer(GsplatHiGSRenderer):
+    """Choose tile 8 or 16 from a short GPU calibration on the first view."""
+
+    name = "gsplat_higs_calibrated"
+
+    def __init__(self, device: str = "cuda", calibration_repeats: int = 5):
+        super().__init__(device=device, tile_size=8)
+        self.calibration_repeats = calibration_repeats
+        self._candidate_renderers = None
+
+    def prepare_scene(self, scene_data: dict) -> dict:
+        from gsplat.experimental import GaussianInferenceRenderer, GaussianInferenceScene
+
+        scene = GaussianInferenceScene.from_gaussian_tensors(
+            scene_data["xyz"],
+            torch.nn.functional.normalize(scene_data["rotations"], dim=-1),
+            torch.exp(scene_data["scales"]),
+            torch.sigmoid(scene_data["opacity"]),
+            scene_data["shs"],
+            sh_degree=scene_data.get("sh_degree", 3),
+            sh_compression="none",
+            id="benchmark",
+        )
+        self._candidate_renderers = {
+            8: GaussianInferenceRenderer(scene, tile_size=8),
+            16: GaussianInferenceRenderer(scene, tile_size=16),
+        }
+        self._renderer = None
+        return scene_data
+
+    @staticmethod
+    def select_tile(timings: dict[int, float]) -> int:
+        if set(timings) != {8, 16}:
+            raise ValueError("HiGS calibration requires tile 8 and tile 16 timings")
+        return min(timings, key=timings.get)
+
+    def _calibrate(self, camera: Camera) -> None:
+        timings = {}
+        for tile_size, renderer in self._candidate_renderers.items():
+            renderer.render(
+                viewmat=camera.viewmatrix,
+                K=camera.K,
+                width=camera.image_width,
+                height=camera.image_height,
+            )
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+            for _ in range(self.calibration_repeats):
+                renderer.render(
+                    viewmat=camera.viewmatrix,
+                    K=camera.K,
+                    width=camera.image_width,
+                    height=camera.image_height,
+                )
+            end.record()
+            end.synchronize()
+            timings[tile_size] = start.elapsed_time(end)
+        self.tile_size = self.select_tile(timings)
+        self._renderer = self._candidate_renderers[self.tile_size]
+        self._candidate_renderers = None
+        self.implementation = (
+            "nerfstudio-project/gsplat experimental HiGS calibrated "
+            f"(tile {self.tile_size}, first-view GPU timing)"
+        )
+
+    def render(self, scene_data: dict, camera: Camera) -> torch.Tensor:
+        if self._renderer is None:
+            self._calibrate(camera)
+        return super().render(scene_data, camera)
