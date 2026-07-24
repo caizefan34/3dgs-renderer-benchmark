@@ -10,13 +10,29 @@ from scripts.run_linux_compression_matrix import build_plan
 
 
 class CompressionResultTest(unittest.TestCase):
-    def test_compression_plan_has_reference_and_two_codecs_per_case(self):
+    def test_compression_plan_has_reference_and_three_codecs_per_case(self):
         root = Path(__file__).resolve().parents[1]
         plan = build_plan(root)
-        self.assertEqual(len(plan), 15)
+        self.assertEqual(len(plan), 20)
         self.assertEqual(
-            [row["codec"] for row in plan[:3]],
-            ["reference-ply", "block-float", "tile-codebook"],
+            [row["codec"] for row in plan[:4]],
+            ["reference-ply", "block-float", "tile-codebook", "spz"],
+        )
+        self.assertTrue(plan[3]["archive"].endswith("small-garden-1080p.spz"))
+        self.assertFalse(plan[3]["archive"].endswith(".spz.spz"))
+
+    def test_compression_plan_can_select_case_and_codecs(self):
+        root = Path(__file__).resolve().parents[1]
+        plan = build_plan(
+            root, {"medium-train-1080p"}, ("reference-ply", "spz"),
+        )
+        self.assertEqual(len(plan), 2)
+        self.assertEqual(
+            [(row["case_id"], row["codec"]) for row in plan],
+            [
+                ("medium-train-1080p", "reference-ply"),
+                ("medium-train-1080p", "spz"),
+            ],
         )
 
     def test_near_lossless_gate_requires_numeric_and_visual_pass(self):

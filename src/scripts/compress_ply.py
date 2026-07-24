@@ -22,9 +22,11 @@ def main(argv=None) -> int:
     encode.add_argument("--input", type=Path, required=True)
     encode.add_argument("--output", type=Path, required=True)
     encode.add_argument("--manifest", type=Path, required=True)
-    encode.add_argument("--codec", choices=["block-float", "tile-codebook"], required=True)
+    encode.add_argument("--codec", choices=["block-float", "tile-codebook", "spz"], required=True)
     encode.add_argument("--block-size", type=int, default=4096)
     encode.add_argument("--tile-resolution", type=int, default=8)
+    encode.add_argument("--sh1-bits", type=int, default=8)
+    encode.add_argument("--sh-rest-bits", type=int, default=8)
     decode = subparsers.add_parser("decode")
     decode.add_argument("--input", type=Path, required=True)
     decode.add_argument("--output", type=Path, required=True)
@@ -37,6 +39,7 @@ def main(argv=None) -> int:
     manifest = encode_ply(
         args.input, args.output, args.codec,
         block_size=args.block_size, tile_resolution=args.tile_resolution,
+        sh1_bits=args.sh1_bits, sh_rest_bits=args.sh_rest_bits,
     )
     schema = json.loads(
         (ROOT / "benchmark" / "schemas" / "compression-artifact.schema.json").read_text(encoding="utf-8")

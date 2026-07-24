@@ -18,19 +18,25 @@ from scripts.collect_compression_result import collect  # noqa: E402
 from scripts.run_linux_tier_a_matrix import wait_for_idle_gpu  # noqa: E402
 
 
-CODECS = ("reference-ply", "block-float", "tile-codebook")
+CODECS = ("reference-ply", "block-float", "tile-codebook", "spz")
 
 
 def _load(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def build_plan(root: Path) -> list[dict]:
+def build_plan(
+    root: Path, case_ids: set[str] | None = None,
+    codecs: tuple[str, ...] = CODECS,
+) -> list[dict]:
     suite = _load(root / "benchmark" / "suite.json")
     rows = []
     for case in suite["cases"]:
-        for codec in CODECS:
+        if case_ids and case["case_id"] not in case_ids:
+            continue
+        for codec in codecs:
             stem = f"{case['case_id']}.{codec}"
+            archive_name = stem if codec == "spz" else f"{stem}.zip"
             rows.append({
                 "step": len(rows) + 1,
                 "case_id": case["case_id"],
@@ -40,7 +46,7 @@ def build_plan(root: Path) -> list[dict]:
                 "source": str(root / case["scene_path"]),
                 "cameras": str(root / case["camera_path"]),
                 "ground_truth": str(root / case["ground_truth_path"]),
-                "archive": str(root / "artifacts" / "compression" / f"{stem}.zip"),
+                "archive": str(root / "artifacts" / "compression" / archive_name),
                 "manifest": str(root / "artifacts" / "compression" / f"{stem}.json"),
                 "decoded": str(root / "artifacts" / "compression" / "decoded" / f"{stem}.ply"),
                 "run_dir": str(root / "artifacts" / "compression" / "runs" / case["case_id"] / codec),
@@ -160,7 +166,10 @@ def _generate_report(session: dict, root: Path, output: Path) -> None:
 
 def run(args) -> dict:
     root, python = args.root.resolve(), args.python.resolve()
-    plan = build_plan(root)
+    plan = build_plan(
+        root, set(args.case_id) if args.case_id else None,
+        tuple(args.codec) if args.codec else CODECS,
+    )
     session_path = args.session.resolve()
     if session_path.is_file():
         if not args.resume:
@@ -220,9 +229,14 @@ def main(argv=None) -> int:
     parser.add_argument("--idle-max-utilization", type=float, default=5.0)
     parser.add_argument("--idle-samples", type=int, default=3)
     parser.add_argument("--idle-poll-seconds", type=float, default=30.0)
+    parser.add_argument("--case-id", action="append")
+    parser.add_argument("--codec", action="append", choices=CODECS)
     args = parser.parse_args(argv)
     if args.dry_run:
-        print(json.dumps(build_plan(args.root.resolve()), indent=2))
+        print(json.dumps(build_plan(
+            args.root.resolve(), set(args.case_id) if args.case_id else None,
+            tuple(args.codec) if args.codec else CODECS,
+        ), indent=2))
         return 0
     session = run(args)
     print(json.dumps({"status": session["status"], "encoded": len(session["encoded"]), "completed": len(session["completed"])}, indent=2))

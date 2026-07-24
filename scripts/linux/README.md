@@ -141,8 +141,14 @@ CUDA_HOME=/usr/local/cuda bash scripts/linux/setup_training_envs.sh
 ## Common-compatible compression baselines
 
 The compression track keeps quantized checkpoints out of the primary renderer
-ranking. Both initial codecs decode back to a standard binary 3DGS PLY and do
-not require pruning or retraining:
+ranking. All artifact codecs decode back to a standard binary 3DGS PLY and do
+not require pruning or retraining. `spz` is optional and uses the official
+NianticLabs Python package:
+
+```bash
+~/miniforge3/envs/gsplat/bin/pip install \
+  git+https://github.com/NianticLabs/spz.git@21715c3b7a609ea6fb7c69b8ae42181a12b59f22
+```
 
 ```bash
 ~/miniforge3/envs/gsplat/bin/python src/scripts/compress_ply.py encode \
@@ -154,17 +160,25 @@ not require pruning or retraining:
 ~/miniforge3/envs/gsplat/bin/python src/scripts/compress_ply.py decode \
   --input artifacts/compression/garden.block-float.zip \
   --output artifacts/compression/garden.block-float.ply
+
+~/miniforge3/envs/gsplat/bin/python src/scripts/compress_ply.py encode \
+  --input datasets/processed/mipnerf360/garden/point_cloud.ply \
+  --output artifacts/compression/garden.spz \
+  --manifest artifacts/compression/garden.spz.json \
+  --codec spz --sh1-bits 8 --sh-rest-bits 8
 ```
 
 `block-float` uses a 16-bit codebook shared by sequential blocks.
 `tile-codebook` spatially reorders Gaussians, keeps position/DC/opacity/scale/
 rotation at 16 bits, and quantizes remaining SH coefficients with a per-tile
-8-bit codebook. The artifact manifest records source and compressed hashes,
+8-bit codebook. `spz` v4 uses independent quantized attribute streams and Zstd;
+the benchmark overrides its lossy 5/4-bit SH defaults with 8/8 bits. The
+artifact manifest records source and compressed hashes,
 byte ratio, encode/decode time, and that CPU decoding consumes zero GPU VRAM.
 Rendering FPS and PSNR/SSIM/LPIPS must still be measured from the decoded PLY
-on EPIC-05 before either artifact is called near-lossless.
+on EPIC-05 before any artifact is called near-lossless.
 
-Encode all ten compressed artifacts without competing for a shared GPU:
+Encode all 15 compressed artifacts without competing for a shared GPU:
 
 ```bash
 ~/miniforge3/envs/gsplat/bin/python \
@@ -172,11 +186,22 @@ Encode all ten compressed artifacts without competing for a shared GPU:
 ```
 
 After the renderer matrix releases an idle GPU, resume the same session without
-`--encode-only`. The 15 measured rows are canonical PLY, block-float, and
-tile-codebook for each of the five cases. Each compressed row must share the
+`--encode-only`. The 20 measured rows are canonical PLY, block-float,
+tile-codebook, and SPZ for each of the five cases. Each compressed row must share the
 reference row's GPU UUID/software cohort. The collector enforces a strict
 numeric near-lossless gate (PSNR drop <0.2 dB, SSIM drop <0.002, LPIPS increase
 <0.005) and leaves the overall gate pending until a visual audit is recorded.
+
+For a fast codec qualification before the full matrix, select one case and the
+reference/candidate rows explicitly:
+
+```bash
+~/miniforge3/envs/gsplat/bin/python \
+  src/scripts/run_linux_compression_matrix.py \
+  --case-id medium-train-1080p \
+  --codec reference-ply --codec spz \
+  --session artifacts/run-logs/compression-spz-train.json
+```
 
 ## Candidate renderer environments
 

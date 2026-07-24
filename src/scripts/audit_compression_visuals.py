@@ -127,6 +127,7 @@ def main(argv=None) -> int:
     parser.add_argument("--candidate-metrics", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--worst-frames", type=int, default=6)
+    parser.add_argument("--decision", choices=["pass", "fail"])
     args = parser.parse_args(argv)
     frames, summary = compare(args.reference_metrics.resolve(), args.candidate_metrics.resolve())
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -134,13 +135,13 @@ def main(argv=None) -> int:
     make_contact_sheet(frames, contact_sheet, args.worst_frames)
     audit = {
         "schema_version": "1.0",
-        "status": "review_required",
+        "status": "complete" if args.decision else "review_required",
         "reference_metrics": str(args.reference_metrics.resolve()),
         "candidate_metrics": str(args.candidate_metrics.resolve()),
         "summary": summary,
         "frames": frames,
         "contact_sheet": {"path": str(contact_sheet), "sha256": _sha256(contact_sheet)},
-        "decision": None,
+        "decision": args.decision,
     }
     output = args.output_dir / "visual-audit.json"
     output.write_text(json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

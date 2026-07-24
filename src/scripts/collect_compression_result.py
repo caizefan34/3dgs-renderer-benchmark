@@ -242,7 +242,11 @@ def main(argv=None) -> int:
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--decoded-ply", type=Path, required=True)
     parser.add_argument("--case-id", required=True)
-    parser.add_argument("--codec-id", choices=["reference-ply", "block-float", "tile-codebook"], required=True)
+    parser.add_argument(
+        "--codec-id",
+        choices=["reference-ply", "block-float", "tile-codebook", "spz"],
+        required=True,
+    )
     parser.add_argument("--artifact-manifest", type=Path)
     parser.add_argument("--reference-result", type=Path)
     parser.add_argument("--visual-audit", choices=["not_applicable", "pending", "pass", "fail"], default="pending")

@@ -1,8 +1,11 @@
 import json
+import shutil
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -42,6 +45,24 @@ class CompressionArtifactTest(unittest.TestCase):
     def test_tile_codebook_round_trip_and_manifest(self):
         self._round_trip("tile-codebook", max_error=3e-3, tile_resolution=2)
 
+    def test_spz_round_trip_and_manifest_with_optional_backend(self):
+        class Options:
+            pass
+
+        fake_spz = types.SimpleNamespace(
+            UnpackOptions=Options,
+            PackOptions=Options,
+            load_splat_from_ply=lambda path, _options: Path(path),
+            save_spz=lambda cloud, _options, path: shutil.copyfile(cloud, path) is not None,
+            load_spz=lambda path, _options: Path(path),
+            save_splat_to_ply=lambda cloud, _options, path: shutil.copyfile(cloud, path) is not None,
+        )
+        with patch.dict(sys.modules, {"spz": fake_spz}):
+            manifest = self._round_trip("spz", max_error=0.0, sh1_bits=8, sh_rest_bits=8)
+        self.assertRegex(
+            manifest["codec"]["parameters"]["source_commit"], r"^[0-9a-f]{40}$"
+        )
+
     def _round_trip(self, codec: str, max_error: float, **options):
         root = Path(__file__).resolve().parents[1]
         schema = json.loads(
@@ -50,7 +71,7 @@ class CompressionArtifactTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = Path(temp_dir)
             source = temp / "source.ply"
-            archive = temp / f"scene.{codec}.zip"
+            archive = temp / ("scene.spz" if codec == "spz" else f"scene.{codec}.zip")
             decoded = temp / "decoded.ply"
             manifest_path = temp / "manifest.json"
             expected = _write_test_ply(source)
@@ -74,6 +95,7 @@ class CompressionArtifactTest(unittest.TestCase):
             self.assertEqual(manifest["compressed_artifact"]["sha256"], manifest["decode"]["artifact_sha256"])
             self.assertGreater(manifest["timings_ms"]["encode"], 0)
             self.assertGreater(manifest["timings_ms"]["decode_validation"], 0)
+            return manifest
 
 
 if __name__ == "__main__":

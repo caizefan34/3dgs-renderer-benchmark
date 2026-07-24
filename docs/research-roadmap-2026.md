@@ -49,7 +49,7 @@ row enters the common suite.
 | Fast Gaussian Rasterization | CUDA sort plus OpenGL raster | global CUDA sort | framebuffer plus GL | separate EGL track | high | medium |
 | FlashGS | redundancy elimination and pipeline scheduling | hierarchical scheduling | compressed/reordered | adapter required | high | high |
 | GEMM-GS | matrix blending and double buffering | tile grouping | Tensor Core tiles | adapter required | high | high |
-| Local-GS / TiCoGS | tile-local warp-coherent blend | local ordering | shared tile state | adapter required | medium-high | high |
+| Local-GS / TiCoGS | proposed tile-local warp-coherent blend | local ordering | shared tile state | unverified source; no adapter | unknown | high |
 | StopThePop | view-consistent hierarchical sorting | hierarchical visibility | model-dependent | retrained/native track | medium-high | high |
 | TensorGS | tensorized appearance/render path | method-specific | method-specific | paper/native track | unknown | high |
 | Mip-Splatting | anti-aliasing and scale filtering | standard sort | extra filtering state | quality track | medium | medium |
@@ -65,6 +65,12 @@ The pinned implementation in the gsplat source uses a persistent
 `InferenceRenderState`. It packs means as `[3,N]`, quaternion/scale/opacity as
 `[N,8]` half, and colors as SH or pre-activated RGB. Projection writes reusable
 2-D means, depths, conics, and a bitset of visible Gaussians.
+
+The inference contract is enforced in source, not inferred only from timing:
+`gsplat/experimental/render/_common.py` rejects grad-enabled calls, the native
+operator's Autograd dispatch is explicitly registered as fallthrough because
+there is no backward kernel, and the packed scene mutation guard requires
+rebuilding when Gaussian count changes.
 
 The intersection path groups work into fused macro tiles. Each macro tile first
 enumerates Gaussian intersections, then performs a segmented depth sort. The
@@ -102,17 +108,21 @@ rebuild and backward costs.
 
 | Variant | Algorithm | Complexity / VRAM | Expected gain | Effort / novelty |
 | --- | --- | --- | --- | --- |
-| Lazy-Rebuild | keep a stable superset; rebuild only every K optimizer steps | O(N) stale mask, +5-15% VRAM | 1.1-1.5x training | medium / medium |
+| Lazy-Rebuild | keep a stable superset; rebuild every K steps, with a new backward or reference-rasterizer recompute | O(N) stale mask, +5-15% VRAM | unknown until backward exists | medium-high / medium |
 | Differentiable | save compact visibility and tile order; custom backward blend | O(intersections), +20-60% VRAM | 1.2-2.0x if backward dominates | very high / high |
-| Late-Stage | use standard gsplat until densification ends, then switch HiGS | one rebuild, low extra VRAM | 1.3-2.0x late iterations | low / low |
+| Frozen-Topology | stop densification, rebuild once, then add custom/recomputed backward | one rebuild, low topology overhead | removes rebuild cost only; total gain unknown | medium / low |
 | Incremental Hierarchy | local insert/delete updates to macro-tile offsets | O(changed Gaussians), fragmentation risk | 1.2-1.8x | high / high |
 | Train-Time Sparse | visibility-driven sparse optimizer with periodic exact refresh | sparse state, quality risk | 1.5-3.0x | high / high |
 
-The first experiment should be Late-Stage HiGS because it is easy to validate
-and cannot corrupt early densification. Each variant needs loss parity,
-checkpoint hashes, iteration-time breakdown, rebuild frequency, peak VRAM, and
-final PSNR/SSIM/LPIPS. No variant should be promoted until it beats standard
-gsplat on a fixed training budget and final quality gate.
+The first experiment should freeze topology late in training and measure a
+custom autograd prototype that recomputes standard gsplat intermediates during
+backward. This isolates the missing-gradient problem without hierarchy rebuilds,
+but it is a correctness experiment rather than an assumed speedup. A true speed
+path needs HiGS-native backward kernels and compact saved visibility/order.
+Each variant needs gradient parity, loss parity, checkpoint hashes,
+iteration-time breakdown, rebuild frequency, peak VRAM, and final
+PSNR/SSIM/LPIPS. No variant should be promoted until it beats standard gsplat
+on a fixed training budget and final quality gate.
 
 ## 6. Acceleration taxonomy
 
@@ -135,7 +145,7 @@ ranges for an ablation, not measured results.
 | ---: | --- | --- | --- | --- | --- | --- |
 | 1 | HiGS + calibrated tile selector | low | direct | +5-20% | low / neutral | replaces count heuristic with occupancy calibration |
 | 2 | HiGS + visibility cache | medium | direct inference | +10-35% sequences | stale-set artifacts / +5% | reuses stable macro-tile masks |
-| 3 | HiGS + Local-GS blend | high | kernel-level | +10-30% | low / +5-15% | reduces warp divergence in active tiles |
+| 3 | HiGS + exact fine-tile localization | medium | direct kernel change | +10-30% | low / neutral | rejects conic/tile false positives before SH and color loads |
 | 4 | HiGS + dynamic SH degree | medium | direct | +5-20% | view-dependent / lower | spend SH only where it affects pixels |
 | 5 | HiGS + FlashGS scheduling | high | representation audit | +10-30% | mapping risk | pipeline and redundancy removal |
 | 6 | HiGS + GEMM-GS | high | alpha path only | +15-40% | FP16 quality / workspace | complementary blend acceleration |
@@ -144,8 +154,21 @@ ranges for an ablation, not measured results.
 | 9 | HiGS + learned visibility | very high | new model track | +20-50% | false negatives / model VRAM | predicts work from camera and scene |
 | 10 | HiGS + StopThePop | very high | retrained track | unknown | quality and format risk | view-consistent ordering may conflict with cache |
 
-Easiest win is the tile selector; most publishable is incremental/differentiable
-HiGS; highest risk/reward is learned visibility plus temporal reprojection.
+The strongest concrete fusion hypothesis is exact conic-versus-fine-tile
+localization inside HiGS macro-tile mask construction, followed by a
+density-adaptive blend: retain the existing warp path for sparse masks and
+dispatch dense batches to a GEMM/Tensor-Core path. FlashGS and Speedy-Splat
+motivate reducing emitted intersections; GEMM-GS/TC-GS motivate the dense
+blend path. These are design hypotheses, not measured gains. The currently
+indexed Local-GS repository contains placeholder publication/repository fields,
+so its performance claims must not be treated as verified evidence.
+
+Verified implementation sources used for this design comparison are
+[FlashGS](https://github.com/InternLandMark/FlashGS),
+[Speedy-Splat](https://github.com/j-alex-hanson/speedy-splat),
+[GEMM-GS](https://github.com/shieldforever/GEMM-GS), and
+[3DGSTensorCore](https://github.com/DeepLink-org/3DGSTensorCore). Their pinned
+commits remain recorded in `benchmark/renderers.json`.
 
 ## 8. Thirty renderer research ideas
 
@@ -203,15 +226,25 @@ compression and tile-codebook measured 3.840x. These rows are deliberately
 `artifact_ready`: decoded-render FPS, quality deltas, and visual audit are still
 required before either codec can be called near-lossless.
 
+The decoded-render SPZ qualification is published in
+[`reports/epic05-spz-qualification-2026-07-24.md`](../reports/epic05-spz-qualification-2026-07-24.md).
+SPZ v4 with 8/8-bit SH measured 5.732x aggregate compression across all five
+cases. Worst deltas were PSNR `-0.01455 dB`, SSIM `-0.000217`, and LPIPS
+`+0.000666`; all five 100-frame visual audits passed. It is therefore the
+current same-checkpoint near-lossless recommendation.
+
 | Method / format | Main idea | Typical evidence | Rendering compatibility | Track |
 | --- | --- | --- | --- | --- |
 | PLY | raw float attributes | C baseline | universal | common reference |
 | SPLAT | viewer-oriented binary packing | C/B | broad viewers | format row |
 | compressed SPLAT | quantized packed attributes | C/B | viewer-dependent | format row |
+| SPZ v4 | fixed/quantized independent attribute streams plus Zstd | official public codec; typically about 10x smaller | decodes to standard PLY | same-checkpoint format row |
+| GSICO | sort attributes into parameter images and JPEG XL code them | post-training; no training images or fine-tuning | decoder required | same-checkpoint research row |
 | LightGaussian | pruning plus quantization/distillation | C | often retrained | native track |
 | Compact3DGS | compact representation and pruning | C | method-specific | native track |
 | HAC | hash-grid / entropy-style learned coding | C | decoder required | compression track |
 | HAC++ | improved learned anchors and entropy coding | C | decoder required | compression track |
+| HEMGS | learned entropy model and compact representation | survey rate-quality frontier | decoder and retraining required | native compression track |
 | VecTree Quantization | tree/vector quantization | C | decoder required | compression track |
 | Codebook compression | shared attribute dictionaries | C | simple decoder possible | common-compatible candidate |
 | Neural Gaussian compression | learned rate-distortion decoder | C | decoder and runtime cost | native track |
@@ -219,9 +252,20 @@ required before either codec can be called near-lossless.
 | SpeedyGS | content-aware two-stage optimization | C, arXiv:2607.12656 | likely retrained/native | native track |
 | QIRF | function-space compression | C, arXiv:2607.18067 | decoder required | research track |
 
-The July 2026 arXiv search also exposes SPARE-GS, CoSAG, and packet-loss
-robust Gaussian packaging. They are discovery leads, not measured results.
-The repository should record submission date and revision when adding them.
+For a same trained checkpoint with no images or fine-tuning, SPZ is the first
+production candidate because it is public, simple, and broadly consumable;
+GSICO is the stronger research candidate when decoder complexity is acceptable.
+The benchmark uses SPZ SH precision 8/8 rather than the official 5/4 defaults,
+then applies the same PSNR/SSIM/LPIPS and visual gates as every other artifact.
+For methods allowed to retrain or change representation, the 3DGS.zip survey's
+high-rate HAC++ and HEMGS points are stronger rate-quality candidates, but they
+are not comparable to a same-checkpoint file-format conversion.
+
+Primary external references for this split are the
+[3DGS.zip survey](https://w-m.github.io/3dgs-compression-survey/),
+[NianticLabs SPZ](https://github.com/NianticLabs/spz), and
+[GSICO](https://arxiv.org/abs/2501.08973). External tables remain literature
+evidence until reproduced on EPIC-05.
 
 For a 100 MB PLY scene, planning ranges (not measurements) are: conservative
 80-95 MB with less than 0.05 dB expected loss; realistic 35-70 MB with
