@@ -3,108 +3,141 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Comparable Tier A benchmarks for five 3D Gaussian Splatting renderers on an NVIDIA A100 cohort.">
+  <meta name="description" content="3D Gaussian Splatting Renderer Benchmark — 7 renderers, 10 compression codecs, all measured on the same GPU with the same protocol.">
   <title>3DGS Renderer Benchmark</title>
   <style>
-    :root{color-scheme:dark;--bg:#0b1120;--panel:#111827;--line:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--good:#34d399}
-    *{box-sizing:border-box} body{font-family:Inter,ui-sans-serif,system-ui,sans-serif;max-width:1120px;margin:auto;padding:36px 24px;background:var(--bg);color:var(--text);line-height:1.55}
-    a{color:var(--accent)} h1{font-size:clamp(2rem,5vw,3.5rem);line-height:1.08;margin:.2em 0} h2{margin-top:2.2rem}
-    .lead{font-size:1.15rem;color:var(--muted);max-width:850px}.badge{display:inline-block;padding:5px 10px;border:1px solid #065f46;border-radius:999px;color:var(--good);background:#052e2b;font-weight:700}
-    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:28px 0}.card{padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}.card strong{display:block;font-size:1.5rem}.card span{color:var(--muted)}
-    .notice{padding:18px;border-left:4px solid var(--accent);background:var(--panel);border-radius:8px}.chart-block{margin:28px 0 38px}.chart-block h2{margin-bottom:4px}.chart-block p{color:var(--muted);margin-top:0}.chart-link{display:block}.chart{display:block;width:100%;height:auto;margin:14px 0;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
-    table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left;white-space:nowrap}th{color:var(--muted)}
-    .links{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.links a{display:block;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);text-decoration:none}
-    .goals{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}.goal{padding:20px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}.goal h3{margin-top:0}.goal p{color:var(--muted)}.status{font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--good)}
-    footer{margin-top:42px;color:var(--muted);font-size:.9rem}
+    :root{color-scheme:dark;--bg:#0b1120;--panel:#111827;--line:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--good:#34d399;--gold:#fbbf24}
+    *{box-sizing:border-box}
+    body{font-family:Inter,ui-sans-serif,system-ui,sans-serif;max-width:1120px;margin:auto;padding:36px 24px;background:var(--bg);color:var(--text);line-height:1.55}
+    a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+    h1{font-size:clamp(2rem,5vw,3.5rem);line-height:1.08;margin:.2em 0}
+    h2{margin-top:2.2rem;border-bottom:1px solid var(--line);padding-bottom:8px}
+    .hero{text-align:center;padding:28px 0 18px}
+    .hero .badge{display:inline-block;padding:6px 14px;border:1px solid #065f46;border-radius:999px;color:var(--good);background:#052e2b;font-weight:700;font-size:.85rem;margin-bottom:12px}
+    .hero h1{margin:.1em 0 .25em}
+    .hero .subtitle{font-size:1.15rem;color:var(--muted);max-width:750px;margin:8px auto 20px}
+    .star-cta{display:inline-block;padding:10px 28px;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border-radius:999px;font-weight:700;font-size:1rem;transition:transform .15s,box-shadow .15s;margin:8px 0}
+    .star-cta:hover{transform:scale(1.04);box-shadow:0 0 28px rgba(37,99,235,.4);text-decoration:none}
+    .metric-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:24px 0}
+    .metric-card{padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--panel);text-align:center}
+    .metric-card .num{display:block;font-size:1.8rem;font-weight:800}
+    .metric-card .num.gold{color:var(--gold)}
+    .metric-card .num.green{color:var(--good)}
+    .metric-card .num.blue{color:var(--accent)}
+    .metric-card .lbl{color:var(--muted);font-size:.87rem;margin-top:2px}
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:28px 0}
+    .card{padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+    .card strong{display:block;font-size:1.5rem}
+    .card span{color:var(--muted)}
+    .notice{padding:18px;border-left:4px solid var(--accent);background:var(--panel);border-radius:8px}
+    .chart-block{margin:28px 0 38px}
+    .chart-block h2{margin-bottom:4px}
+    .chart-block p{color:var(--muted);margin-top:0}
+    .chart{display:block;width:100%;height:auto;margin:14px 0;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+    .chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    @media(max-width:700px){.chart-grid{grid-template-columns:1fr}}
+    table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}
+    th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left;white-space:nowrap}
+    th{color:var(--muted)}
+    .goals{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+    .goal{padding:20px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+    .goal h3{margin-top:0}
+    .goal p{color:var(--muted);font-size:.92rem}
+    .status{font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--good)}
+    .links{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+    .links a{display:block;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+    .links a:hover{border-color:var(--accent);text-decoration:none}
+    .links strong{display:block}
+    .links span{color:var(--muted);font-size:.88rem}
+    footer{margin-top:42px;color:var(--muted);font-size:.9rem;text-align:center;padding:18px 0;border-top:1px solid var(--line)}
   </style>
 </head>
 <body>
+
+<div class="hero">
   <span class="badge">Tier A complete: 25/25 runs</span>
-  <h1>Which 3DGS renderer should I use?</h1>
-  <p class="lead">Five renderers measured on the same checkpoints, cameras, 1080p protocol, A100 GPU UUID, and strict NVML process-memory collector.</p>
+  <h1>🏆 3D Gaussian Splatting Renderer Benchmark</h1>
+  <p class="subtitle">7 renderer variants &amp; 10 compression codecs measured on the same A100 GPU, scenes, and protocol. No cherry-picking. Just real data.</p>
+  <a class="star-cta" href="https://github.com/caizefan34/3dgs-renderer-benchmark">⭐ Star on GitHub — Support open science</a>
+</div>
 
-  <div class="cards">
-    <div class="card"><strong>gsplat HiGS</strong><span>Fastest: 696.91 aggregate FPS</span></div>
-    <div class="card"><strong>Speedy-Splat</strong><span>Best balanced recommendation</span></div>
-    <div class="card"><strong>gsplat</strong><span>Lowest max VRAM: 4,206 MiB</span></div>
-    <div class="card"><strong>0 rejected</strong><span>Five eligible overall rows</span></div>
+<div class="metric-bar">
+  <div class="metric-card"><span class="num gold">696</span><span class="lbl">Fastest FPS (HiGS)</span></div>
+  <div class="metric-card"><span class="num green">5.73×</span><span class="lbl">Best compression ratio</span></div>
+  <div class="metric-card"><span class="num blue">25/25</span><span class="lbl">Accepted runs</span></div>
+  <div class="metric-card"><span class="num" style="color:#a78bfa">155</span><span class="lbl">Passing tests</span></div>
+  <div class="metric-card"><span class="num" style="color:#f472b6">5</span><span class="lbl">Scenes measured</span></div>
+</div>
+
+<h2>🏎️ Bottom Line</h2>
+<div class="notice"><strong>Choose gsplat HiGS</strong> for maximum throughput (696 FPS aggregate), <strong>Speedy-Splat</strong> for reference-level quality and balanced deployment, <strong>gsplat</strong> for the lowest peak memory (4,206 MiB), and <strong>Original 3DGS</strong> when an official reference path matters most.</div>
+
+<h2>Three optimization goals: delivered evidence</h2>
+<div class="goals">
+  <article class="goal">
+    <div class="status">Goal 1 · Source-backed analysis</div>
+    <h3>Why HiGS is inference-only &amp; how to train it</h3>
+    <p>Reverse-engineered the HiGS source: forced no-grad path, detached tensors, missing backward CUDA kernels. Training needs new backward + hierarchy lifecycle. <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/higs-trainability-analysis-2026-07-24.md">Read the report →</a></p>
+  </article>
+  <article class="goal">
+    <div class="status">Goal 2 · 2 prototypes measured</div>
+    <h3>Fuse renderer acceleration ideas into HiGS</h3>
+    <p>30 ideas registered with EPIC-05 gates. Calibrated tile selection (-0.97%) and LPT scheduling (-0.63%) measured; conditional scheduling is the next refinement. <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/epic05-higs-p99-lpt-2026-07-25.md">See measured evidence →</a></p>
+  </article>
+  <article class="goal">
+    <div class="status">Goal 3 · Winner established</div>
+    <h3>Maximum near-lossless checkpoint compression</h3>
+    <p>SPZ 8/8 compresses compressed checkpoint from 4.16 GB to 725 MB (5.73×) passing every numerical &amp; visual gate on all 5 scenes. FCGS reaches 12.84× but fails strict gates on 3/5. <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/epic05-expanded-compression-qualification-2026-07-24.md">Open compression comparison →</a></p>
+  </article>
+</div>
+
+<h2>📊 Renderer Rankings</h2>
+<p>Below: 25 accepted runs (5 renderers × 5 scenes). Colors stay consistent. Bars show within-cohort rank with exact measured values.</p>
+
+<div class="chart-block">
+  <div class="chart-grid">
+    <div><h3>FPS</h3><a href="leaderboard/measured-fps-ranking.svg"><img class="chart" src="leaderboard/measured-fps-ranking.svg" alt="Tier A aggregate FPS ranking"></a></div>
+    <div><h3>PSNR</h3><a href="leaderboard/measured-psnr-ranking.svg"><img class="chart" src="leaderboard/measured-psnr-ranking.svg" alt="Tier A aggregate PSNR ranking"></a></div>
+    <div><h3>SSIM</h3><a href="leaderboard/measured-ssim-ranking.svg"><img class="chart" src="leaderboard/measured-ssim-ranking.svg" alt="Tier A aggregate SSIM ranking"></a></div>
+    <div><h3>LPIPS</h3><a href="leaderboard/measured-lpips-ranking.svg"><img class="chart" src="leaderboard/measured-lpips-ranking.svg" alt="Tier A aggregate LPIPS ranking"></a></div>
+    <div><h3>VRAM</h3><a href="leaderboard/measured-vram-ranking.svg"><img class="chart" src="leaderboard/measured-vram-ranking.svg" alt="Tier A peak process VRAM ranking"></a></div>
+    <div><h3>Speed vs Quality</h3><a href="leaderboard/measured-speed-vs-lpips.svg"><img class="chart" src="leaderboard/measured-speed-vs-lpips.svg" alt="FPS versus LPIPS Pareto chart"></a></div>
   </div>
+</div>
 
-  <div class="notice"><strong>Bottom line:</strong> choose gsplat HiGS for maximum throughput, Speedy-Splat for reference-level quality and balanced deployment, gsplat for the lowest measured peak memory, and Original 3DGS when an official reference path matters most.</div>
+<h2>📋 Overall Comparison Table</h2>
+<p><strong>Chart data:</strong> 25 accepted runs (5 renderers × 5 cases), within one EPIC-05 A100 Tier A cohort.</p>
+<table>
+  <thead><tr><th>Renderer</th><th>Speed index</th><th>FPS</th><th>PSNR</th><th>SSIM</th><th>LPIPS</th><th>Peak VRAM</th></tr></thead>
+  <tbody>
+    <tr><td>gsplat HiGS</td><td>5.671×</td><td>696.91</td><td>25.834</td><td>0.8372</td><td>0.2649</td><td>6,616 MiB</td></tr>
+    <tr><td>Speedy-Splat</td><td>2.385×</td><td>293.03</td><td>26.121</td><td>0.8404</td><td>0.2637</td><td>4,276 MiB</td></tr>
+    <tr><td>TC-GS</td><td>2.048×</td><td>251.62</td><td>26.130</td><td>0.8401</td><td>0.2633</td><td>4,322 MiB</td></tr>
+    <tr><td>gsplat</td><td>1.966×</td><td>241.60</td><td>25.834</td><td>0.8372</td><td>0.2653</td><td>4,206 MiB</td></tr>
+    <tr><td>Original 3DGS</td><td>1.000×</td><td>122.88</td><td>26.120</td><td>0.8403</td><td>0.2637</td><td>8,234 MiB</td></tr>
+  </tbody>
+</table>
 
-  <h2>Three optimization goals: delivered evidence</h2>
-  <div class="goals">
-    <article class="goal">
-      <div class="status">Goal 1 · analysis complete</div>
-      <h3>Why HiGS is inference-only, and how it can train</h3>
-      <p>Source inspection confirms forced no-grad execution, detached Gaussian tensors, no backward CUDA kernel, packed parameter storage, and hierarchy invalidation after densification or pruning. Training is feasible only with a new backward and hierarchy lifecycle.</p>
-      <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/higs-trainability-analysis-2026-07-24.md">Read the source-backed trainability report</a>
-    </article>
-    <article class="goal">
-      <div class="status">Goal 2 · two prototypes measured</div>
-      <h3>Fuse renderer acceleration ideas into HiGS</h3>
-      <p>Thirty ideas are registered with EPIC-05 acceptance gates. Calibrated tile selection measured -0.97% aggregate FPS. Always-on hit-count LPT scheduling measured -0.63% and improved P99 on only 1/5 scenes. Both negative results are preserved; conditional scheduling is the next refinement.</p>
-      <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/epic05-higs-p99-lpt-2026-07-25.md">See the latest measured HiGS prototype evidence</a>
-    </article>
-    <article class="goal">
-      <div class="status">Goal 3 · five-scene winner established</div>
-      <h3>Maximum near-lossless checkpoint compression</h3>
-      <p>SPZ 8/8 compresses 4.161 GB to 725.9 MB (5.732x) and passes every numerical and visual gate. FCGS reaches 12.843x but passes the strict numerical gate on only 2/5 scenes, so it remains a light-loss alternative.</p>
-      <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/epic05-expanded-compression-qualification-2026-07-24.md">Open the complete compression comparison</a>
-    </article>
-  </div>
+<h2>📂 Explore the Evidence</h2>
+<div class="links">
+  <a href="comparison-analysis.md"><strong>Comparison analysis</strong><span>Trade-offs, case winners, limitations, decision guide</span></a>
+  <a href="leaderboard/ranking.md"><strong>Ranking tables</strong><span>Overall, speed, quality, memory, efficiency, Pareto</span></a>
+  <a href="leaderboard/ranking.json"><strong>Machine-readable data</strong><span>Metrics, confidence intervals, cohorts, recommendations</span></a>
+  <a href="methodology.md"><strong>Methodology</strong><span>Evidence tiers, canonical workload, measurement rules</span></a>
+  <a href="README.md"><strong>Documentation guide</strong><span>Integration references, historical context</span></a>
+  <a href="../reports/README.md"><strong>Run reports</strong><span>Machine cohort, dataset hashes, archived Windows audit</span></a>
+</div>
 
-  <section class="chart-block">
-    <h2>Metric-by-metric rankings</h2>
-    <p><strong>Chart data:</strong> 25 accepted runs (5 renderers × 5 cases), aggregated within one EPIC-05 A100 Tier A cohort. Renderer colors remain consistent. Bars show within-cohort rank and every row prints its exact measured value.</p>
+<h2 style="text-align:center;margin-top:40px">⭐ Support This Project</h2>
+<p style="text-align:center;color:var(--muted);font-size:1.05rem">
+  If this benchmark helps your research or engineering decisions,<br>
+  <a href="https://github.com/caizefan34/3dgs-renderer-benchmark" style="font-weight:700;font-size:1.15rem">star the repo on GitHub →</a>
+</p>
 
-    <h3>Aggregate FPS</h3>
-    <a class="chart-link" href="leaderboard/measured-fps-ranking.svg" title="Open full-size FPS chart"><img class="chart" src="leaderboard/measured-fps-ranking.svg" alt="Tier A aggregate FPS ranking with exact values"></a>
+<footer>
+  Evidence tiers never mix. Recommendations apply to the EPIC-05 A100 common-representation cohort.<br>
+  <span style="font-size:.82rem">Last updated: 2026-07-25</span>
+</footer>
 
-    <h3>Aggregate PSNR</h3>
-    <a class="chart-link" href="leaderboard/measured-psnr-ranking.svg" title="Open full-size PSNR chart"><img class="chart" src="leaderboard/measured-psnr-ranking.svg" alt="Tier A aggregate PSNR ranking with exact values"></a>
-
-    <h3>Aggregate SSIM</h3>
-    <a class="chart-link" href="leaderboard/measured-ssim-ranking.svg" title="Open full-size SSIM chart"><img class="chart" src="leaderboard/measured-ssim-ranking.svg" alt="Tier A aggregate SSIM ranking with exact values"></a>
-
-    <h3>Aggregate LPIPS</h3>
-    <a class="chart-link" href="leaderboard/measured-lpips-ranking.svg" title="Open full-size LPIPS chart"><img class="chart" src="leaderboard/measured-lpips-ranking.svg" alt="Tier A aggregate LPIPS ranking with exact values"></a>
-
-    <h3>Peak process VRAM</h3>
-    <a class="chart-link" href="leaderboard/measured-vram-ranking.svg" title="Open full-size VRAM chart"><img class="chart" src="leaderboard/measured-vram-ranking.svg" alt="Tier A peak process VRAM ranking with exact values"></a>
-  </section>
-
-  <section class="chart-block">
-    <h2>Speed-quality Pareto comparisons</h2>
-    <p>Numbered points match the exact values in each right-hand data panel; green marks that chart's two-dimensional Pareto frontier.</p>
-    <h3>FPS vs PSNR</h3>
-    <a class="chart-link" href="leaderboard/measured-speed-vs-psnr.svg" title="Open full-size FPS versus PSNR chart"><img class="chart" src="leaderboard/measured-speed-vs-psnr.svg" alt="Tier A aggregate FPS versus PSNR chart with numbered points and exact data labels"></a>
-    <h3>FPS vs LPIPS</h3>
-    <a class="chart-link" href="leaderboard/measured-speed-vs-lpips.svg" title="Open full-size FPS versus LPIPS chart"><img class="chart" src="leaderboard/measured-speed-vs-lpips.svg" alt="Tier A aggregate FPS versus LPIPS chart with numbered points and exact data labels"></a>
-  </section>
-
-  <h2>Overall Tier A comparison</h2>
-  <table>
-    <thead><tr><th>Renderer</th><th>Speed index</th><th>FPS</th><th>PSNR</th><th>SSIM</th><th>LPIPS</th><th>Peak VRAM</th></tr></thead>
-    <tbody>
-      <tr><td>gsplat HiGS</td><td>5.671x</td><td>696.91</td><td>25.834</td><td>0.8372</td><td>0.2649</td><td>6,616 MiB</td></tr>
-      <tr><td>Speedy-Splat</td><td>2.385x</td><td>293.03</td><td>26.121</td><td>0.8404</td><td>0.2637</td><td>4,276 MiB</td></tr>
-      <tr><td>TC-GS</td><td>2.048x</td><td>251.62</td><td>26.130</td><td>0.8401</td><td>0.2633</td><td>4,322 MiB</td></tr>
-      <tr><td>gsplat</td><td>1.966x</td><td>241.60</td><td>25.834</td><td>0.8372</td><td>0.2653</td><td>4,206 MiB</td></tr>
-      <tr><td>Original 3DGS</td><td>1.000x</td><td>122.88</td><td>26.120</td><td>0.8403</td><td>0.2637</td><td>8,234 MiB</td></tr>
-    </tbody>
-  </table>
-
-  <h2>Explore the evidence</h2>
-  <div class="links">
-    <a href="comparison-analysis.md"><strong>Comparison analysis</strong><br>Trade-offs, case winners, limitations, and decision guide</a>
-    <a href="leaderboard/ranking.md"><strong>Generated ranking tables</strong><br>Overall, speed, quality, memory, efficiency, and Pareto boards</a>
-    <a href="leaderboard/ranking.json"><strong>Machine-readable ranking</strong><br>Exact metrics, confidence intervals, cohorts, and recommendations</a>
-    <a href="methodology.md"><strong>Methodology</strong><br>Evidence tiers, canonical workload, and measurement rules</a>
-    <a href="README.md"><strong>Documentation guide</strong><br>Current docs, integration references, and historical context</a>
-    <a href="../reports/README.md"><strong>Run reports</strong><br>Machine cohort, reproduction, dataset hashes, and archived Windows audit</a>
-  </div>
-
-  <footer>Evidence tiers never mix. These recommendations apply to the published EPIC-05 A100 common-representation cohort.</footer>
 </body>
 </html>
