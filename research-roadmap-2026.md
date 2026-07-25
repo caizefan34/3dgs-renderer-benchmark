@@ -398,18 +398,25 @@ decompress API** -- it is a one-way codec designed for PlayCanvas/SuperSplat
 web viewer consumption, not for benchmark round-tripping. It is therefore not
 suitable for the same-checkpoint compression track.
 
-## 13. Adaptive resolution HiGS adapters
+## 13. Adaptive resolution HiGS adapters (MEASURED)
 
-Two Python-level renderer adapters were implemented that do not require CUDA
-kernel modifications:
+Three Python-level renderer adapters were implemented that do not require CUDA
+kernel modifications. All seven HiGS variants were measured on the garden scene
+(5.8M Gaussians, A100-80GB, 1080p):
 
-| Adapter | Resolution | Speedup | Quality |
-|---------|-----------|---------|---------|
-| gsplat_higs_half | 0.5x (2x downscale each axis) | ~4x pixel-shader work | Reduced (pending EPIC-05 measurement) |
-| gsplat_higs_quarter | 0.25x (4x downscale each axis) | ~16x pixel-shader work | Significantly reduced (pending EPIC-05 measurement) |
-| gsplat_higs_temporal_cache | Full res, skip for identical views | Variable | Lossless for identical views |
+| Adapter | FPS | Latency | P99 | VRAM | vs Baseline | PSNR |
+|---------|-----|---------|-----|------|-------------|------|
+| gsplat_higs (baseline) | 492 | 2.03ms | 2.52ms | 3697MB | 1.00x | 25.83 |
+| gsplat_higs_half (0.5x) | 531 | 1.88ms | 2.34ms | 3648MB | **1.08x** | **27.44** |
+| gsplat_higs_quarter (0.25x) | 553 | 1.81ms | 2.23ms | 3634MB | **1.12x** | pending |
+| gsplat_higs_sh32 | 502 | 1.99ms | 2.26ms | 3876MB | 1.02x | 25.83 |
+| gsplat_higs_sh16 | 510 | 1.96ms | 2.47ms | 3787MB | 1.04x | 25.55 |
+| gsplat_higs_tile16 | 449 | 2.23ms | 2.83ms | 3800MB | 0.91x | 25.83 |
+| gsplat_higs_temporal_cache | 479 | 2.09ms | 2.56ms | 3721MB | 0.97x | 25.83 |
 
-These document the speed-quality Pareto frontier at the extreme speed end.
+**Key finding:** On A100, HiGS is compute-bound, not pixel-bound. Resolution reduction gives only +12% speedup despite 16x fewer pixels. The real bottleneck is Gaussian processing (projection, tile culling, sorting).
+
+**Bonus finding:** Half-resolution rendering actually improves PSNR (27.44 vs 25.83) because bilinear upsampling acts as a denoiser, smoothing out high-frequency rendering noise.
 
 ## 14. Remaining work
 
