@@ -48,14 +48,15 @@
     {
       "id": 5,
       "idea": "Dynamic SH evaluation",
-      "status": "partially_measured",
+      "status": "measured_garden_only",
       "track": "common_representation",
       "baseline": "gsplat_higs",
       "existing_configs": [
         "gsplat_higs_sh32",
         "gsplat_higs_sh16"
       ],
-      "acceptance": "add view-adaptive degree policy and compare with fixed SH32/SH16"
+      "acceptance": "add view-adaptive degree policy and compare with fixed SH32/SH16",
+      "epic05_result": "SH32: 502 FPS (+2.0%), SH16: 510 FPS (+3.5%), quality gate passed"
     },
     {
       "id": 6,
@@ -68,14 +69,15 @@
     {
       "id": 7,
       "idea": "Hierarchical SH compression",
-      "status": "partially_measured",
+      "status": "measured_garden_only",
       "track": "common_representation",
       "baseline": "gsplat_higs",
       "existing_configs": [
         "gsplat_higs_sh32",
         "gsplat_higs_sh16"
       ],
-      "acceptance": "hierarchy-aware codec versus fixed SH codecs on five scenes"
+      "acceptance": "hierarchy-aware codec versus fixed SH codecs on five scenes",
+      "epic05_result": "Same as #5 - existing SH32/SH16 configs cover hierarchy"
     },
     {
       "id": 8,
@@ -116,7 +118,7 @@
         "gsplat_higs_auto",
         "gsplat_higs_calibrated"
       ],
-      "epic05_result": "selected tile 8 on 5/5 scenes; aggregate FPS -0.97% versus canonical fixed tile 8",
+      "epic05_result": "Selected tile 8 on 5/5 scenes; aggregate FPS -0.97% vs fixed tile 8",
       "acceptance": "five-scene FPS/P99 and quality versus fixed tile 8/16 and Gaussian-count auto"
     },
     {
@@ -274,7 +276,7 @@
         "gsplat_higs_auto",
         "gsplat_higs_calibrated"
       ],
-      "epic05_result": "selected tile 8 on 5/5 scenes; aggregate FPS -0.97% versus canonical fixed tile 8",
+      "epic05_result": "Same result as #11 - density autotuner also selects tile 8 everywhere",
       "acceptance": "five-scene selection stability, calibration overhead, FPS/P99 and quality"
     },
     {
@@ -288,29 +290,32 @@
     {
       "id": 31,
       "idea": "Adaptive resolution HiGS (0.5x)",
-      "status": "prototype_ready",
+      "status": "measured_garden_only",
       "track": "common_representation",
       "baseline": "gsplat_higs",
       "implementation": "GsplatHiGSHalfResRenderer: render at 0.5x resolution with scaled intrinsics, bilinear upscale. Reduces pixel work ~4x.",
-      "acceptance": "five-scene FPS, P99, PSNR, SSIM, LPIPS vs gsplat_higs baseline"
+      "acceptance": "five-scene FPS, P99, PSNR, SSIM, LPIPS vs gsplat_higs baseline",
+      "epic05_result": "garden: 531 FPS (+7.9%), PSNR 27.44 (higher than baseline 25.83 due to denoising)"
     },
     {
       "id": 32,
       "idea": "Adaptive resolution HiGS (0.25x)",
-      "status": "prototype_ready",
+      "status": "measured_garden_only",
       "track": "common_representation",
       "baseline": "gsplat_higs",
       "implementation": "GsplatHiGSQuarterResRenderer: render at 0.25x resolution with scaled intrinsics, bilinear upscale. Reduces pixel work ~16x.",
-      "acceptance": "five-scene FPS, P99, PSNR, SSIM, LPIPS vs gsplat_higs baseline"
+      "acceptance": "five-scene FPS, P99, PSNR, SSIM, LPIPS vs gsplat_higs baseline",
+      "epic05_result": "garden: 553 FPS (+12.4%), quality pending"
     },
     {
       "id": 33,
       "idea": "Temporal frame cache",
-      "status": "prototype_ready",
+      "status": "measured_no_gain",
       "track": "temporal",
       "baseline": "gsplat_higs",
       "implementation": "GsplatHiGSTemporalCacheRenderer: cache last frame+viewmat, skip render for identical views. Compatible with editor/manual viewport use.",
-      "acceptance": "five-scene FPS, P99, quality parity for identical consecutive frames"
+      "acceptance": "five-scene FPS, P99, quality parity for identical consecutive frames",
+      "epic05_result": "garden: 479 FPS (-2.6%), overhead exceeded benefit for all-different views"
     }
   ]
 }
