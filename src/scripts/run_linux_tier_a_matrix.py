@@ -80,6 +80,7 @@ PROFILE_RENDERERS = {
     "higs-ablation": HIGS_ABLATION_CONFIGS,
     "higs-calibrated": ("gsplat_higs_calibrated",),
     "higs-p99-lpt": ("gsplat_higs_p99_lpt",),
+    "higs-resolution-ablation": ("gsplat_higs_half", "gsplat_higs_quarter", "gsplat_higs_temporal_cache"),
     "candidate-renderers": CANDIDATE_CONFIGS,
 }
 ENV_BY_RENDERER = {
@@ -95,6 +96,9 @@ ENV_BY_RENDERER = {
     "gsplat_higs_auto": "gsplat",
     "gsplat_higs_calibrated": "gsplat",
     "gsplat_higs_p99_lpt": "gsplat",
+    "gsplat_higs_half": "gsplat",
+    "gsplat_higs_quarter": "gsplat",
+    "gsplat_higs_temporal_cache": "gsplat",
     "speedy_splat": "speedy",
     "tcgs": "tcgs",
     "flashgs": "flashgs",

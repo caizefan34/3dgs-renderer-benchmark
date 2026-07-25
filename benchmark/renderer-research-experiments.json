@@ -3,39 +3,314 @@
   "authority_host": "EPIC-05",
   "policy": "An idea is measured only when all five canonical cases have committed metrics from one immutable EPIC-05 cohort. Design estimates are not results.",
   "required_metrics": [
-    "fps", "frame_time_ms", "p95_frame_time_ms", "p99_frame_time_ms",
-    "peak_vram_mb", "psnr_db", "ssim", "lpips"
+    "fps",
+    "frame_time_ms",
+    "p95_frame_time_ms",
+    "p99_frame_time_ms",
+    "peak_vram_mb",
+    "psnr_db",
+    "ssim",
+    "lpips"
   ],
   "experiments": [
-    {"id": 1, "idea": "Temporal visibility cache", "status": "prototype_required", "track": "temporal", "baseline": "gsplat_higs", "acceptance": "five scenes, ordered cameras, cache-hit rate, temporal error, FPS and P99"},
-    {"id": 2, "idea": "Learned Gaussian scheduler", "status": "implementation_required", "track": "native", "baseline": "gsplat_higs", "acceptance": "scheduler recall, false-negative rate, training cost and five-scene quality"},
-    {"id": 3, "idea": "Learned tile scheduler", "status": "implementation_required", "track": "native", "baseline": "gsplat_higs", "acceptance": "tile recall, emitted work, FPS, P99 and quality"},
-    {"id": 4, "idea": "Neural visibility predictor", "status": "implementation_required", "track": "native", "baseline": "gsplat_higs", "acceptance": "visibility recall, model overhead, FPS and quality"},
-    {"id": 5, "idea": "Dynamic SH evaluation", "status": "partially_measured", "track": "common_representation", "baseline": "gsplat_higs", "existing_configs": ["gsplat_higs_sh32", "gsplat_higs_sh16"], "acceptance": "add view-adaptive degree policy and compare with fixed SH32/SH16"},
-    {"id": 6, "idea": "Camera-aware Gaussian clustering", "status": "implementation_required", "track": "common_representation", "baseline": "gsplat_higs", "acceptance": "cluster build time, emitted intersections, FPS and quality"},
-    {"id": 7, "idea": "Hierarchical SH compression", "status": "partially_measured", "track": "common_representation", "baseline": "gsplat_higs", "existing_configs": ["gsplat_higs_sh32", "gsplat_higs_sh16"], "acceptance": "hierarchy-aware codec versus fixed SH codecs on five scenes"},
-    {"id": 8, "idea": "Reprojection-assisted rendering", "status": "prototype_required", "track": "temporal", "baseline": "gsplat_higs", "acceptance": "disocclusion mask, temporal LPIPS, sequence FPS and P99"},
-    {"id": 9, "idea": "Persistent visible-set cache", "status": "prototype_required", "track": "temporal", "baseline": "gsplat_higs", "acceptance": "cache reuse, invalidation rate, temporal quality and speed"},
-    {"id": 10, "idea": "Tensor-Core-centric renderer", "status": "partially_measured", "track": "common_representation", "baseline": "gsplat_higs", "existing_configs": ["tcgs"], "acceptance": "implement HiGS dense-tile Tensor Core fusion and compare to standalone TC-GS"},
-    {"id": 11, "idea": "Macro-tile occupancy autotuner", "status": "measured_no_gain", "track": "common_representation", "baseline": "gsplat_higs", "existing_configs": ["gsplat_higs", "gsplat_higs_tile16", "gsplat_higs_auto", "gsplat_higs_calibrated"], "epic05_result": "selected tile 8 on 5/5 scenes; aggregate FPS -0.97% versus canonical fixed tile 8", "acceptance": "five-scene FPS/P99 and quality versus fixed tile 8/16 and Gaussian-count auto"},
-    {"id": 12, "idea": "P99-aware work stealing", "status": "measured_no_gain", "track": "common_representation", "baseline": "gsplat_higs", "existing_configs": ["gsplat_higs", "gsplat_higs_p99_lpt"], "mechanism": "sort each 32-tile macro batch by actual Gaussian hit count before dynamic warp assignment", "epic05_result": "aggregate FPS -0.63%; P99 improved on 1/5, equal on 1/5, regressed on 3/5; quality parity 5/5", "next_hypothesis": "condition sorting on a cheap hit-count dispersion threshold", "acceptance": "five-scene FPS/P95/P99, VRAM and quality versus fixed tile-8 HiGS"},
-    {"id": 13, "idea": "Asynchronous hierarchy rebuild", "status": "implementation_required", "track": "training", "baseline": "gsplat", "acceptance": "rebuild overlap, iteration time, gradient parity and final quality"},
-    {"id": 14, "idea": "Multi-resolution Gaussian cache", "status": "implementation_required", "track": "native", "baseline": "gsplat_higs", "acceptance": "level selection, memory, FPS and quality by distance"},
-    {"id": 15, "idea": "Foveated Gaussian budgets", "status": "implementation_required", "track": "native", "baseline": "gsplat_higs", "acceptance": "foveal/peripheral quality, FPS and gaze-transition stability"},
-    {"id": 16, "idea": "View-space error culling", "status": "implementation_required", "track": "common_representation", "baseline": "gsplat_higs", "acceptance": "culling recall, work reduction and quality"},
-    {"id": 17, "idea": "Opacity-aware sort truncation", "status": "implementation_required", "track": "common_representation", "baseline": "gsplat_higs", "acceptance": "truncated pairs, transmittance error, FPS and quality"},
-    {"id": 18, "idea": "Warp-specialized SH decode", "status": "implementation_required", "track": "common_representation", "baseline": "gsplat_higs_sh32", "acceptance": "SH decode kernel time, occupancy, FPS and quality"},
-    {"id": 19, "idea": "CUDA graph camera batches", "status": "implementation_required", "track": "common_representation", "baseline": "gsplat_higs", "acceptance": "launch overhead, batch latency, FPS and memory"},
-    {"id": 20, "idea": "Cooperative-group segmented sort", "status": "implementation_required", "track": "common_representation", "baseline": "gsplat_higs", "acceptance": "sort time, temporary bytes, FPS and P99"},
-    {"id": 21, "idea": "Tile-local quantized conics", "status": "implementation_required", "track": "common_representation", "baseline": "gsplat_higs", "acceptance": "conic error, bandwidth, FPS and quality"},
-    {"id": 22, "idea": "Learned radius clipping", "status": "implementation_required", "track": "native", "baseline": "gsplat_higs", "acceptance": "radius recall, overdraw reduction, FPS and quality"},
-    {"id": 23, "idea": "Surface-aware Gaussian ordering", "status": "implementation_required", "track": "native", "baseline": "gsplat_higs", "acceptance": "ordering cost, popping metrics, FPS and quality"},
-    {"id": 24, "idea": "Persistent multi-camera batching", "status": "implementation_required", "track": "common_representation", "baseline": "gsplat_higs", "acceptance": "batch scaling, latency, VRAM and throughput"},
-    {"id": 25, "idea": "Render-time adaptive background", "status": "implementation_required", "track": "quality", "baseline": "gsplat_higs", "acceptance": "background overhead and alpha-edge quality"},
-    {"id": 26, "idea": "Visibility confidence maps", "status": "implementation_required", "track": "native", "baseline": "gsplat_higs", "acceptance": "confidence calibration, fallback rate, FPS and quality"},
-    {"id": 27, "idea": "Hybrid exact/approximate sorting", "status": "implementation_required", "track": "common_representation", "baseline": "gsplat_higs", "acceptance": "exact fallback rate, sort time, popping and quality"},
-    {"id": 28, "idea": "Shared scene preprocessing service", "status": "partially_measured", "track": "startup", "baseline": "gsplat_higs", "acceptance": "shared versus isolated startup, memory and concurrent throughput"},
-    {"id": 29, "idea": "Kernel autotuning by Gaussian density", "status": "measured_no_gain", "track": "common_representation", "baseline": "gsplat_higs", "existing_configs": ["gsplat_higs", "gsplat_higs_tile16", "gsplat_higs_auto", "gsplat_higs_calibrated"], "epic05_result": "selected tile 8 on 5/5 scenes; aggregate FPS -0.97% versus canonical fixed tile 8", "acceptance": "five-scene selection stability, calibration overhead, FPS/P99 and quality"},
-    {"id": 30, "idea": "Multi-GPU macro-tile partitioning", "status": "implementation_required", "track": "multi_gpu", "baseline": "gsplat_higs", "acceptance": "1/2/4 GPU scaling, transfer cost, load balance and quality"}
+    {
+      "id": 1,
+      "idea": "Temporal visibility cache",
+      "status": "prototype_required",
+      "track": "temporal",
+      "baseline": "gsplat_higs",
+      "acceptance": "five scenes, ordered cameras, cache-hit rate, temporal error, FPS and P99"
+    },
+    {
+      "id": 2,
+      "idea": "Learned Gaussian scheduler",
+      "status": "implementation_required",
+      "track": "native",
+      "baseline": "gsplat_higs",
+      "acceptance": "scheduler recall, false-negative rate, training cost and five-scene quality"
+    },
+    {
+      "id": 3,
+      "idea": "Learned tile scheduler",
+      "status": "implementation_required",
+      "track": "native",
+      "baseline": "gsplat_higs",
+      "acceptance": "tile recall, emitted work, FPS, P99 and quality"
+    },
+    {
+      "id": 4,
+      "idea": "Neural visibility predictor",
+      "status": "implementation_required",
+      "track": "native",
+      "baseline": "gsplat_higs",
+      "acceptance": "visibility recall, model overhead, FPS and quality"
+    },
+    {
+      "id": 5,
+      "idea": "Dynamic SH evaluation",
+      "status": "partially_measured",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "existing_configs": [
+        "gsplat_higs_sh32",
+        "gsplat_higs_sh16"
+      ],
+      "acceptance": "add view-adaptive degree policy and compare with fixed SH32/SH16"
+    },
+    {
+      "id": 6,
+      "idea": "Camera-aware Gaussian clustering",
+      "status": "implementation_required",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "acceptance": "cluster build time, emitted intersections, FPS and quality"
+    },
+    {
+      "id": 7,
+      "idea": "Hierarchical SH compression",
+      "status": "partially_measured",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "existing_configs": [
+        "gsplat_higs_sh32",
+        "gsplat_higs_sh16"
+      ],
+      "acceptance": "hierarchy-aware codec versus fixed SH codecs on five scenes"
+    },
+    {
+      "id": 8,
+      "idea": "Reprojection-assisted rendering",
+      "status": "prototype_required",
+      "track": "temporal",
+      "baseline": "gsplat_higs",
+      "acceptance": "disocclusion mask, temporal LPIPS, sequence FPS and P99"
+    },
+    {
+      "id": 9,
+      "idea": "Persistent visible-set cache",
+      "status": "prototype_required",
+      "track": "temporal",
+      "baseline": "gsplat_higs",
+      "acceptance": "cache reuse, invalidation rate, temporal quality and speed"
+    },
+    {
+      "id": 10,
+      "idea": "Tensor-Core-centric renderer",
+      "status": "partially_measured",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "existing_configs": [
+        "tcgs"
+      ],
+      "acceptance": "implement HiGS dense-tile Tensor Core fusion and compare to standalone TC-GS"
+    },
+    {
+      "id": 11,
+      "idea": "Macro-tile occupancy autotuner",
+      "status": "measured_no_gain",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "existing_configs": [
+        "gsplat_higs",
+        "gsplat_higs_tile16",
+        "gsplat_higs_auto",
+        "gsplat_higs_calibrated"
+      ],
+      "epic05_result": "selected tile 8 on 5/5 scenes; aggregate FPS -0.97% versus canonical fixed tile 8",
+      "acceptance": "five-scene FPS/P99 and quality versus fixed tile 8/16 and Gaussian-count auto"
+    },
+    {
+      "id": 12,
+      "idea": "P99-aware work stealing",
+      "status": "measured_no_gain",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "existing_configs": [
+        "gsplat_higs",
+        "gsplat_higs_p99_lpt"
+      ],
+      "mechanism": "sort each 32-tile macro batch by actual Gaussian hit count before dynamic warp assignment",
+      "epic05_result": "aggregate FPS -0.63%; P99 improved on 1/5, equal on 1/5, regressed on 3/5; quality parity 5/5",
+      "next_hypothesis": "condition sorting on a cheap hit-count dispersion threshold",
+      "acceptance": "five-scene FPS/P95/P99, VRAM and quality versus fixed tile-8 HiGS"
+    },
+    {
+      "id": 13,
+      "idea": "Asynchronous hierarchy rebuild",
+      "status": "implementation_required",
+      "track": "training",
+      "baseline": "gsplat",
+      "acceptance": "rebuild overlap, iteration time, gradient parity and final quality"
+    },
+    {
+      "id": 14,
+      "idea": "Multi-resolution Gaussian cache",
+      "status": "implementation_required",
+      "track": "native",
+      "baseline": "gsplat_higs",
+      "acceptance": "level selection, memory, FPS and quality by distance"
+    },
+    {
+      "id": 15,
+      "idea": "Foveated Gaussian budgets",
+      "status": "implementation_required",
+      "track": "native",
+      "baseline": "gsplat_higs",
+      "acceptance": "foveal/peripheral quality, FPS and gaze-transition stability"
+    },
+    {
+      "id": 16,
+      "idea": "View-space error culling",
+      "status": "implementation_required",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "acceptance": "culling recall, work reduction and quality"
+    },
+    {
+      "id": 17,
+      "idea": "Opacity-aware sort truncation",
+      "status": "implementation_required",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "acceptance": "truncated pairs, transmittance error, FPS and quality"
+    },
+    {
+      "id": 18,
+      "idea": "Warp-specialized SH decode",
+      "status": "implementation_required",
+      "track": "common_representation",
+      "baseline": "gsplat_higs_sh32",
+      "acceptance": "SH decode kernel time, occupancy, FPS and quality"
+    },
+    {
+      "id": 19,
+      "idea": "CUDA graph camera batches",
+      "status": "implementation_required",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "acceptance": "launch overhead, batch latency, FPS and memory"
+    },
+    {
+      "id": 20,
+      "idea": "Cooperative-group segmented sort",
+      "status": "implementation_required",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "acceptance": "sort time, temporary bytes, FPS and P99"
+    },
+    {
+      "id": 21,
+      "idea": "Tile-local quantized conics",
+      "status": "implementation_required",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "acceptance": "conic error, bandwidth, FPS and quality"
+    },
+    {
+      "id": 22,
+      "idea": "Learned radius clipping",
+      "status": "implementation_required",
+      "track": "native",
+      "baseline": "gsplat_higs",
+      "acceptance": "radius recall, overdraw reduction, FPS and quality"
+    },
+    {
+      "id": 23,
+      "idea": "Surface-aware Gaussian ordering",
+      "status": "implementation_required",
+      "track": "native",
+      "baseline": "gsplat_higs",
+      "acceptance": "ordering cost, popping metrics, FPS and quality"
+    },
+    {
+      "id": 24,
+      "idea": "Persistent multi-camera batching",
+      "status": "implementation_required",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "acceptance": "batch scaling, latency, VRAM and throughput"
+    },
+    {
+      "id": 25,
+      "idea": "Render-time adaptive background",
+      "status": "implementation_required",
+      "track": "quality",
+      "baseline": "gsplat_higs",
+      "acceptance": "background overhead and alpha-edge quality"
+    },
+    {
+      "id": 26,
+      "idea": "Visibility confidence maps",
+      "status": "implementation_required",
+      "track": "native",
+      "baseline": "gsplat_higs",
+      "acceptance": "confidence calibration, fallback rate, FPS and quality"
+    },
+    {
+      "id": 27,
+      "idea": "Hybrid exact/approximate sorting",
+      "status": "implementation_required",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "acceptance": "exact fallback rate, sort time, popping and quality"
+    },
+    {
+      "id": 28,
+      "idea": "Shared scene preprocessing service",
+      "status": "partially_measured",
+      "track": "startup",
+      "baseline": "gsplat_higs",
+      "acceptance": "shared versus isolated startup, memory and concurrent throughput"
+    },
+    {
+      "id": 29,
+      "idea": "Kernel autotuning by Gaussian density",
+      "status": "measured_no_gain",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "existing_configs": [
+        "gsplat_higs",
+        "gsplat_higs_tile16",
+        "gsplat_higs_auto",
+        "gsplat_higs_calibrated"
+      ],
+      "epic05_result": "selected tile 8 on 5/5 scenes; aggregate FPS -0.97% versus canonical fixed tile 8",
+      "acceptance": "five-scene selection stability, calibration overhead, FPS/P99 and quality"
+    },
+    {
+      "id": 30,
+      "idea": "Multi-GPU macro-tile partitioning",
+      "status": "implementation_required",
+      "track": "multi_gpu",
+      "baseline": "gsplat_higs",
+      "acceptance": "1/2/4 GPU scaling, transfer cost, load balance and quality"
+    },
+    {
+      "id": 31,
+      "idea": "Adaptive resolution HiGS (0.5x)",
+      "status": "prototype_ready",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "implementation": "GsplatHiGSHalfResRenderer: render at 0.5x resolution with scaled intrinsics, bilinear upscale. Reduces pixel work ~4x.",
+      "acceptance": "five-scene FPS, P99, PSNR, SSIM, LPIPS vs gsplat_higs baseline"
+    },
+    {
+      "id": 32,
+      "idea": "Adaptive resolution HiGS (0.25x)",
+      "status": "prototype_ready",
+      "track": "common_representation",
+      "baseline": "gsplat_higs",
+      "implementation": "GsplatHiGSQuarterResRenderer: render at 0.25x resolution with scaled intrinsics, bilinear upscale. Reduces pixel work ~16x.",
+      "acceptance": "five-scene FPS, P99, PSNR, SSIM, LPIPS vs gsplat_higs baseline"
+    },
+    {
+      "id": 33,
+      "idea": "Temporal frame cache",
+      "status": "prototype_ready",
+      "track": "temporal",
+      "baseline": "gsplat_higs",
+      "implementation": "GsplatHiGSTemporalCacheRenderer: cache last frame+viewmat, skip render for identical views. Compatible with editor/manual viewport use.",
+      "acceptance": "five-scene FPS, P99, quality parity for identical consecutive frames"
+    }
   ]
 }
