@@ -387,3 +387,37 @@ iterations. It records wall time, throughput, peak process VRAM, final PLY
 identity and Gaussian count, and common-gsplat evaluation quality. These rows
 remain a separate native-training cohort because Local-GS changes pruning and
 model structure.
+
+## 12. SOGS compression evaluation
+
+**SOGS** (Self-Organizing Gaussians, vincentwoo/SOGS v1.0.0) was installed and
+tested on EPIC-05. It encodes PLY checkpoint data into a set of WebP images
+(means_l, means_u, opacities, quats, scales, sh0) achieving approximately 21x
+compression ratio (295 MB bonsai -> 14 MB). However, SOGS has **no decode or
+decompress API** -- it is a one-way codec designed for PlayCanvas/SuperSplat
+web viewer consumption, not for benchmark round-tripping. It is therefore not
+suitable for the same-checkpoint compression track.
+
+## 13. Adaptive resolution HiGS adapters
+
+Two Python-level renderer adapters were implemented that do not require CUDA
+kernel modifications:
+
+| Adapter | Resolution | Speedup | Quality |
+|---------|-----------|---------|---------|
+| gsplat_higs_half | 0.5x (2x downscale each axis) | ~4x pixel-shader work | Reduced (pending EPIC-05 measurement) |
+| gsplat_higs_quarter | 0.25x (4x downscale each axis) | ~16x pixel-shader work | Significantly reduced (pending EPIC-05 measurement) |
+| gsplat_higs_temporal_cache | Full res, skip for identical views | Variable | Lossless for identical views |
+
+These document the speed-quality Pareto frontier at the extreme speed end.
+
+## 14. Remaining work
+
+- **GSICO** (pedrogcmartin/GSICO): integration pending. Uses attribute graph +
+  JPEG XL compression. Requires container build.
+- **HAC / HAC++**: training-integrated compression from Yihang Chen. Requires
+  full 3DGS training pipeline integration.
+- **CUDA kernel fusion**: Ideas #2-4, #6, #13-16, #18, #20-27, #30 require
+  CUDA kernel changes and remain unimplemented.
+- **Multi-GPU partitioning**: Idea #30 could be prototyped on EPIC-05's
+  5x A100-80GB hardware.
