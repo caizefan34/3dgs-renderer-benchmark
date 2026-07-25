@@ -38,6 +38,7 @@
 
 </div>
 
+[>> Read the comprehensive Final Conclusions report with all data, analysis, and future directions <<](reports/final-conclusions.md)
 
 ## 🎯 What This Project Does
 
