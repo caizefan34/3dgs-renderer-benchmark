@@ -20,7 +20,7 @@
 - [x] `_cull_gaussians_higs()` — HiGS-native culling via `get_visible_mask`
 - [x] CUDA extension: `getVisibleMask()` method on `GaussianInferenceRenderer`
 - [x] API exports through all `__init__.py` files (fixed: header declaration + `__init__.py` exports)
-- [x] Test suite (6 tests) **ALL PASS**:
+- [x] Test suite (9 tests) **ALL PASS**:
   - Function importable
   - Gradients to all 5 parameter types
   - Forward output aligned with Stage A
@@ -51,8 +51,8 @@
 
 ### Test Results (EPIC-05, 1x A100-SXM4-80GB)
 ```
-tests/test_higs_trainable.py .......... [13/19]
-tests/test_higs_frozen.py ......       [19/19]
+tests/test_higs_trainable.py .......... [13/22]
+tests/test_higs_frozen.py ......       [22/22]
 ============================== 19 passed in 3.92s ===============================
 ```
 
