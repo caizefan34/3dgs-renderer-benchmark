@@ -264,6 +264,142 @@ class TestFiniteDifference:
             assert abs(auto_grad - fd_grad) / max(abs(auto_grad), 1e-8) < 0.1, (
                 f"Gradient mismatch for means[{idx}, 0]: auto={auto_grad:.6f}, fd={fd_grad:.6f}"
             )
+
+    @_skip_no_cuda
+    def test_finite_diff_grad_opacities(self):
+        """Central finite-difference on opacities should agree with autograd."""
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+
+        N = 10
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+
+        idx = 3
+        eps = 1e-4
+
+        def forward_fn(o):
+            m = means.detach().clone().requires_grad_(True)
+            q = quats.detach().clone().requires_grad_(True)
+            s = scales.detach().clone().requires_grad_(True)
+            o.requires_grad_(True)
+            c = colors.detach().clone().requires_grad_(True)
+            r = rasterize_gaussian_higs_trainable(
+                m, q, s, o, c,
+                viewmat=viewmat, K=K, width=w, height=h,
+                differentiable=True, sh_degree=None,
+            )
+            return r.frame.sum()
+
+        o0 = opacities.detach().clone().requires_grad_(True)
+        loss = forward_fn(o0)
+        loss.backward()
+        auto_grad = o0.grad[idx].item()
+
+        o_plus = opacities.detach().clone()
+        o_plus[idx] += eps
+        loss_plus = forward_fn(o_plus)
+
+        o_minus = opacities.detach().clone()
+        o_minus[idx] -= eps
+        loss_minus = forward_fn(o_minus)
+
+        fd_grad = (loss_plus.item() - loss_minus.item()) / (2 * eps)
+
+        if abs(auto_grad) > 1e-6:
+            assert abs(auto_grad - fd_grad) / max(abs(auto_grad), 1e-8) < 0.15, (
+                f"Gradient mismatch for opacities[{idx}]: auto={auto_grad:.6f}, fd={fd_grad:.6f}"
+            )
+
+    @_skip_no_cuda
+    def test_finite_diff_grad_scales(self):
+        """Central finite-difference on scales should agree with autograd."""
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+
+        N = 10
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+
+        idx = 3
+        eps = 1e-4
+
+        def forward_fn(s):
+            m = means.detach().clone().requires_grad_(True)
+            q = quats.detach().clone().requires_grad_(True)
+            s.requires_grad_(True)
+            o = opacities.detach().clone().requires_grad_(True)
+            c = colors.detach().clone().requires_grad_(True)
+            r = rasterize_gaussian_higs_trainable(
+                m, q, s, o, c,
+                viewmat=viewmat, K=K, width=w, height=h,
+                differentiable=True, sh_degree=None,
+            )
+            return r.frame.sum()
+
+        s0 = scales.detach().clone().requires_grad_(True)
+        loss = forward_fn(s0)
+        loss.backward()
+        auto_grad = s0.grad[idx, 0].item()
+
+        s_plus = scales.detach().clone()
+        s_plus[idx, 0] += eps
+        loss_plus = forward_fn(s_plus)
+
+        s_minus = scales.detach().clone()
+        s_minus[idx, 0] -= eps
+        loss_minus = forward_fn(s_minus)
+
+        fd_grad = (loss_plus.item() - loss_minus.item()) / (2 * eps)
+
+        if abs(auto_grad) > 1e-6:
+            assert abs(auto_grad - fd_grad) / max(abs(auto_grad), 1e-8) < 0.15, (
+                f"Gradient mismatch for scales[{idx}, 0]: auto={auto_grad:.6f}, fd={fd_grad:.6f}"
+            )
+
+    @_skip_no_cuda
+    def test_finite_diff_grad_colors(self):
+        """Central finite-difference on colors should agree with autograd."""
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+
+        N = 10
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+
+        idx = 3
+        eps = 1e-4
+
+        def forward_fn(c):
+            m = means.detach().clone().requires_grad_(True)
+            q = quats.detach().clone().requires_grad_(True)
+            s = scales.detach().clone().requires_grad_(True)
+            o = opacities.detach().clone().requires_grad_(True)
+            c.requires_grad_(True)
+            r = rasterize_gaussian_higs_trainable(
+                m, q, s, o, c,
+                viewmat=viewmat, K=K, width=w, height=h,
+                differentiable=True, sh_degree=None,
+            )
+            return r.frame.sum()
+
+        c0 = colors.detach().clone().requires_grad_(True)
+        loss = forward_fn(c0)
+        loss.backward()
+        auto_grad = c0.grad[idx, 0].item()
+
+        c_plus = colors.detach().clone()
+        c_plus[idx, 0] += eps
+        loss_plus = forward_fn(c_plus)
+
+        c_minus = colors.detach().clone()
+        c_minus[idx, 0] -= eps
+        loss_minus = forward_fn(c_minus)
+
+        fd_grad = (loss_plus.item() - loss_minus.item()) / (2 * eps)
+
+        if abs(auto_grad) > 1e-6:
+            assert abs(auto_grad - fd_grad) / max(abs(auto_grad), 1e-8) < 0.15, (
+                f"Gradient mismatch for colors[{idx}, 0]: auto={auto_grad:.6f}, fd={fd_grad:.6f}"
+            )
+
 class TestGradientCosineSimilarity:
     """Verify gradients match standard gsplat in direction (cosine similarity)."""
 

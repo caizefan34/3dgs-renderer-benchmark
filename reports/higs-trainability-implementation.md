@@ -6,11 +6,11 @@
 - [x] `check_trainable_grad_mode()` in `_common.py`
 - [x] `rasterize_gaussian_higs_trainable()` with `differentiable=True/False`
 - [x] API exports through `__init__.py` chain
-- [x] Test suite (10 tests) **ALL PASS**
+- [x] Test suite (13 tests) **ALL PASS**
   - API imports (2 tests)
   - Grad mode guards (3 tests)
   - Gradient flow + finite diff (2 tests)
-  - Finite-difference gradient check (means, 1 test)
+  - Finite-difference gradient check (means, opacities, scales, colors, 4 tests)
   - Gradient cosine similarity vs standard gsplat (1 test)
   - End-to-end training smoke test (1 test)
 
@@ -51,9 +51,9 @@
 
 ### Test Results (EPIC-05, 1x A100-SXM4-80GB)
 ```
-tests/test_higs_trainable.py .......... [10/16]
-tests/test_higs_frozen.py ......       [16/16]
-============================== 16 passed in 3.52s ===============================
+tests/test_higs_trainable.py .......... [13/19]
+tests/test_higs_frozen.py ......       [19/19]
+============================== 19 passed in 3.92s ===============================
 ```
 
 ### Test Commands
@@ -95,3 +95,4 @@ python3 -m pytest tests/test_higs_trainable.py tests/test_higs_frozen.py -v
 
 ### Patch
 A unified diff patch is available at `patches/higs-differentiable.patch` (run `cd artifacts/renderer-sources/gsplat && git apply ../../../../patches/higs-differentiable.patch` to apply).
+
