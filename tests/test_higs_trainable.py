@@ -264,3 +264,104 @@ class TestFiniteDifference:
             assert abs(auto_grad - fd_grad) / max(abs(auto_grad), 1e-8) < 0.1, (
                 f"Gradient mismatch for means[{idx}, 0]: auto={auto_grad:.6f}, fd={fd_grad:.6f}"
             )
+class TestGradientCosineSimilarity:
+    """Verify gradients match standard gsplat in direction (cosine similarity)."""
+
+    @_skip_no_cuda
+    def test_gradient_cosine_similarity_all_params(self):
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+        from gsplat.rendering import rasterization
+
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        def _compute(use_trainable):
+            m = means.detach().clone().requires_grad_(True)
+            q = quats.detach().clone().requires_grad_(True)
+            s = scales.detach().clone().requires_grad_(True)
+            o = opacities.detach().clone().requires_grad_(True)
+            c = colors.detach().clone().requires_grad_(True)
+            if use_trainable:
+                result = rasterize_gaussian_higs_trainable(
+                    m, q, s, o, c, viewmats=viewmats, Ks=Ks,
+                    width=w, height=h, differentiable=True, sh_degree=None,
+                )
+                result.frame.sum().backward()
+            else:
+                mb = m.unsqueeze(0); qb = q.unsqueeze(0); sb = s.unsqueeze(0)
+                ob = o.unsqueeze(0); cb = c.unsqueeze(0)
+                renders, _, _ = rasterization(
+                    means=mb, quats=qb, scales=sb, opacities=ob, colors=cb,
+                    viewmats=viewmats, Ks=Ks, width=w, height=h, packed=True,
+                )
+                renders.sum().backward()
+            return {k: v.grad for k, v in [("means", m), ("quats", q), ("scales", s),
+                                            ("opacities", o), ("colors", c)]}
+
+        grads_t = _compute(True)
+        grads_s = _compute(False)
+
+        for name in ["means", "quats", "scales", "opacities", "colors"]:
+            cos = torch.nn.functional.cosine_similarity(
+                grads_t[name].flatten().unsqueeze(0),
+                grads_s[name].flatten().unsqueeze(0),
+            ).item()
+            assert cos > 0.95, f"{name} cosine similarity {cos:.6f} < 0.95"
+class TestTrainingSmoke:
+    """End-to-end training loop smoke test."""
+
+    @_skip_no_cuda
+    def test_loss_decreases_over_steps(self):
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+        from gsplat.rendering import rasterization
+
+        N = 200
+        torch.manual_seed(42)
+        means = torch.randn(N, 3, device=device); means[:, 2] = means[:, 2].abs() + 3.0
+        quats = torch.randn(N, 4, device=device)
+        quats = quats / quats.norm(dim=-1, keepdim=True)
+        scales = torch.rand(N, 3, device=device) * 0.15 + 0.01
+        opacities = torch.rand(N, device=device) * 0.9 + 0.05
+        colors = torch.sigmoid(torch.randn(N, 3, device=device))
+
+        viewmats = torch.eye(4, device=device).unsqueeze(0).unsqueeze(0)
+        Ks = torch.tensor([[256., 0., 128.], [0., 256., 96.], [0., 0., 1.]], device=device).unsqueeze(0).unsqueeze(0)
+        W, H = 256, 192
+
+        # Target image
+        with torch.no_grad():
+            target, _, _ = rasterization(
+                means=means.unsqueeze(0), quats=quats.unsqueeze(0),
+                scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
+                colors=colors.unsqueeze(0), viewmats=viewmats, Ks=Ks,
+                width=W, height=H, packed=True,
+            )
+        target_img = target.squeeze(0).squeeze(0)
+
+        # Optimize
+        m = torch.randn(N, 3, device=device).requires_grad_(True)
+        q = torch.randn(N, 4, device=device)
+        q.data /= q.data.norm(dim=-1, keepdim=True); q.requires_grad_(True)
+        s = (torch.rand(N, 3, device=device) * 0.1 + 0.01).requires_grad_(True)
+        o = (torch.rand(N, device=device) * 0.5 + 0.25).requires_grad_(True)
+        c = torch.sigmoid(torch.randn(N, 3, device=device)).requires_grad_(True)
+
+        optim = torch.optim.Adam([m, q, s, o, c], lr=0.01)
+        losses = []
+        for _ in range(20):
+            optim.zero_grad()
+            result = rasterize_gaussian_higs_trainable(
+                m, q, s, o, c, viewmats=viewmats, Ks=Ks,
+                width=W, height=H, differentiable=True, sh_degree=None,
+            )
+            loss = torch.nn.functional.mse_loss(result.frame, target_img[None])
+            loss.backward()
+            optim.step()
+            losses.append(loss.item())
+
+        assert losses[-1] < losses[0], (
+            f"Loss did not decrease: {losses[0]:.6f} -> {losses[-1]:.6f}"
+        )
