@@ -1,0 +1,266 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for the trainable HiGS rendering path (Stage A).
+
+Usage:
+    pytest tests/experimental/render/test_trainable.py -s
+"""
+
+import pytest
+import torch
+
+device = torch.device("cuda:0")
+
+_skip_no_cuda = pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="No CUDA device"
+)
+
+
+def _make_gaussians(N, device, sh_degree=None, seed=42):
+    """Create random Gaussian parameters for testing (activated values)."""
+    torch.manual_seed(seed)
+    means = torch.randn(N, 3, device=device)
+    means[:, 2] = means[:, 2].abs() + 2.0  # place in front of camera
+    quats = torch.randn(N, 4, device=device)
+    quats = quats / quats.norm(dim=-1, keepdim=True)
+    scales = torch.rand(N, 3, device=device) * 0.1 + 0.01  # activated (positive)
+    opacities = torch.rand(N, device=device) * 0.8 + 0.1  # activated [0.1, 0.9]
+
+    if sh_degree is not None:
+        K = (sh_degree + 1) ** 2
+        colors = torch.randn(N, K, 3, device=device) * 0.1
+    else:
+        colors = torch.sigmoid(torch.randn(N, 3, device=device))
+
+    return means, quats, scales, opacities, colors
+
+
+def _make_camera(device, width=128, height=96):
+    """Create a simple pinhole camera looking down +z."""
+    focal = 128.0
+    K = torch.tensor(
+        [
+            [focal, 0.0, width / 2.0],
+            [0.0, focal, height / 2.0],
+            [0.0, 0.0, 1.0],
+        ],
+        device=device,
+    )
+    viewmat = torch.eye(4, device=device)
+    return viewmat, K, width, height
+
+
+# ---------------------------------------------------------------------------
+# Stage A: Correctness Baseline / Re-computation Proxy
+# ---------------------------------------------------------------------------
+
+
+class TestAPIImports:
+    """Verify the Stage A API surface exists."""
+
+    @_skip_no_cuda
+    def test_trainable_function_importable(self):
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+
+        assert callable(rasterize_gaussian_higs_trainable)
+
+    @_skip_no_cuda
+    def test_trainable_function_in_render(self):
+        from gsplat.experimental.render import rasterize_gaussian_higs_trainable
+
+        assert callable(rasterize_gaussian_higs_trainable)
+
+
+class TestGradModeGuards:
+    """Verify that grad-mode guards work correctly."""
+
+    @_skip_no_cuda
+    def test_differentiable_false_requires_no_grad(self):
+        """differentiable=False should raise if grad is enabled."""
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+
+        means, quats, scales, opacities, colors = _make_gaussians(10, device)
+        viewmat, K, w, h = _make_camera(device)
+
+        with pytest.raises(RuntimeError, match="torch.inference_mode|torch.no_grad"):
+            rasterize_gaussian_higs_trainable(
+                means, quats, scales, opacities, colors,
+                viewmat=viewmat, K=K, width=w, height=h,
+                differentiable=False,
+            )
+
+    @_skip_no_cuda
+    def test_differentiable_true_allows_grad(self):
+        """differentiable=True should not raise when grad is enabled."""
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+
+        means, quats, scales, opacities, colors = _make_gaussians(10, device)
+        viewmat, K, w, h = _make_camera(device)
+
+        # Should not raise RuntimeError about grad mode
+        result = rasterize_gaussian_higs_trainable(
+            means, quats, scales, opacities, colors,
+            viewmat=viewmat, K=K, width=w, height=h,
+            differentiable=True,
+            sh_degree=None,
+        )
+        assert result.frame is not None
+        assert result.frame.shape == (1, h, w, 3)
+
+    @_skip_no_cuda
+    def test_differentiable_true_rejects_inference_mode(self):
+        """differentiable=True should raise if inference mode is active."""
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+
+        means, quats, scales, opacities, colors = _make_gaussians(10, device)
+        viewmat, K, w, h = _make_camera(device)
+
+        with torch.inference_mode():
+            with pytest.raises(RuntimeError, match="inference mode"):
+                rasterize_gaussian_higs_trainable(
+                    means, quats, scales, opacities, colors,
+                    viewmat=viewmat, K=K, width=w, height=h,
+                    differentiable=True,
+                )
+
+
+class TestGradientFlow:
+    """Verify gradients flow to all five parameter types."""
+
+    @_skip_no_cuda
+    def test_gradients_exist_for_all_params(self):
+        """loss.backward() should produce finite, non-empty gradients on all params."""
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+
+        means.requires_grad_(True)
+        quats.requires_grad_(True)
+        scales.requires_grad_(True)
+        opacities.requires_grad_(True)
+        colors.requires_grad_(True)
+
+        result = rasterize_gaussian_higs_trainable(
+            means, quats, scales, opacities, colors,
+            viewmat=viewmat, K=K, width=w, height=h,
+            differentiable=True,
+            sh_degree=None,
+        )
+
+        loss = result.frame.sum()
+        loss.backward()
+
+        param_names = ["means", "quats", "scales", "opacities", "colors"]
+        grads = [means.grad, quats.grad, scales.grad, opacities.grad, colors.grad]
+
+        for name, grad in zip(param_names, grads):
+            assert grad is not None, f"{name}.grad is None"
+            assert grad.isfinite().all(), f"{name}.grad contains non-finite values"
+            assert grad.abs().sum() > 0, f"{name}.grad is all zeros"
+
+    @_skip_no_cuda
+    def test_forward_output_aligns_with_standard_gsplat(self):
+        """RGB/alpha outputs should approximately align with standard gsplat."""
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+        from gsplat.rendering import rasterization
+
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+
+        # Run our trainable path
+        result = rasterize_gaussian_higs_trainable(
+            means, quats, scales, opacities, colors,
+            viewmat=viewmat, K=K, width=w, height=h,
+            differentiable=True,
+            sh_degree=None,
+        )
+
+        # Run standard gsplat (with batch dims)
+        means_b = means.unsqueeze(0)
+        quats_b = quats.unsqueeze(0)
+        scales_b = scales.unsqueeze(0)
+        opacities_b = opacities.unsqueeze(0)
+        colors_b = colors.unsqueeze(0)
+        viewmats = viewmat.unsqueeze(0)  # [1, 4, 4]
+        Ks = K.unsqueeze(0)  # [1, 3, 3]
+
+        std_colors, std_alphas, _ = rasterization(
+            means=means_b, quats=quats_b, scales=scales_b,
+            opacities=opacities_b, colors=colors_b,
+            viewmats=viewmats, Ks=Ks, width=w, height=h,
+            packed=True,
+        )
+
+        # Compare
+        torch.testing.assert_close(
+            result.frame, std_colors.squeeze(0), atol=1e-3, rtol=1e-3
+        )
+
+
+class TestFiniteDifference:
+    """Simple finite-difference gradient check on a few elements."""
+
+    @_skip_no_cuda
+    def test_finite_diff_grad_means(self):
+        """Central finite-difference on means should agree with autograd."""
+        from gsplat.experimental import rasterize_gaussian_higs_trainable
+
+        N = 10
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+
+        # Pick one Gaussian to perturb
+        idx = 3
+        eps = 1e-4
+
+        def forward_fn(m):
+            m.requires_grad_(True)
+            q = quats.detach().clone().requires_grad_(True)
+            s = scales.detach().clone().requires_grad_(True)
+            o = opacities.detach().clone().requires_grad_(True)
+            c = colors.detach().clone().requires_grad_(True)
+            r = rasterize_gaussian_higs_trainable(
+                m, q, s, o, c,
+                viewmat=viewmat, K=K, width=w, height=h,
+                differentiable=True, sh_degree=None,
+            )
+            return r.frame.sum()
+
+        # Autograd gradient
+        m0 = means.detach().clone().requires_grad_(True)
+        loss = forward_fn(m0)
+        loss.backward()
+        auto_grad = m0.grad[idx, 0].item()
+
+        # Finite difference
+        m_plus = means.detach().clone()
+        m_plus[idx, 0] += eps
+        loss_plus = forward_fn(m_plus)
+
+        m_minus = means.detach().clone()
+        m_minus[idx, 0] -= eps
+        loss_minus = forward_fn(m_minus)
+
+        fd_grad = (loss_plus.item() - loss_minus.item()) / (2 * eps)
+
+        # Relative tolerance: finite diff is noisy, use 10%
+        if abs(auto_grad) > 1e-6:
+            assert abs(auto_grad - fd_grad) / max(abs(auto_grad), 1e-8) < 0.1, (
+                f"Gradient mismatch for means[{idx}, 0]: auto={auto_grad:.6f}, fd={fd_grad:.6f}"
+            )

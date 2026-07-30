@@ -1,0 +1,336 @@
+﻿diff --git a/gsplat/experimental/__init__.py b/gsplat/experimental/__init__.py
+index 7d12bf6..c4b483d 100644
+--- a/gsplat/experimental/__init__.py
++++ b/gsplat/experimental/__init__.py
+@@ -19,6 +19,7 @@ __all__ = [
+     "GaussianInferenceScene",
+     "RenderReturn",
+     "rasterize_gaussian_inference_scene",
++    "rasterize_gaussian_higs_trainable",
+     "render_scene",
+ ]
+ 
+@@ -32,7 +33,7 @@ def __getattr__(name):
+         from .render.components import GaussianInferenceRenderer
+ 
+         return GaussianInferenceRenderer
+-    if name in {"RenderReturn", "rasterize_gaussian_inference_scene", "render_scene"}:
++    if name in {"RenderReturn", "rasterize_gaussian_inference_scene", "rasterize_gaussian_higs_trainable", "render_scene"}:
+         from . import render
+ 
+         return getattr(render, name)
+diff --git a/gsplat/experimental/render/__init__.py b/gsplat/experimental/render/__init__.py
+index ddce75d..53c53eb 100644
+--- a/gsplat/experimental/render/__init__.py
++++ b/gsplat/experimental/render/__init__.py
+@@ -18,6 +18,7 @@ __all__ = [
+     "GaussianInferenceRenderer",
+     "RenderReturn",
+     "rasterize_gaussian_inference_scene",
++    "rasterize_gaussian_higs_trainable",
+     "render_scene",
+ ]
+ 
+@@ -35,6 +36,10 @@ def __getattr__(name):
+         from .functional.gaussian_inference import rasterize_gaussian_inference_scene
+ 
+         return rasterize_gaussian_inference_scene
++    if name == "rasterize_gaussian_higs_trainable":
++        from .functional.gaussian_inference import rasterize_gaussian_higs_trainable
++
++        return rasterize_gaussian_higs_trainable
+     if name == "render_scene":
+         from .functional.render_scene import render_scene
+ 
+diff --git a/gsplat/experimental/render/_common.py b/gsplat/experimental/render/_common.py
+index d0cbba6..337c6a2 100644
+--- a/gsplat/experimental/render/_common.py
++++ b/gsplat/experimental/render/_common.py
+@@ -30,4 +30,25 @@ def check_inference_grad_mode() -> None:
+         )
+ 
+ 
+-__all__ = ["check_inference_grad_mode"]
++def check_trainable_grad_mode(differentiable: bool = False) -> None:
++    """Raise if grad mode is incompatible with the requested mode.
++
++    - When ``differentiable=False``: behaves like :func:`check_inference_grad_mode`.
++    - When ``differentiable=True``: requires autograd enabled and inference mode OFF.
++    """
++    if not differentiable:
++        check_inference_grad_mode()
++    else:
++        if torch.is_inference_mode_enabled():
++            raise RuntimeError(
++                "rasterize_gaussian_higs_trainable(differentiable=True) requires "
++                "autograd to be enabled, but inference mode is active."
++            )
++        if not torch.is_grad_enabled():
++            raise RuntimeError(
++                "rasterize_gaussian_higs_trainable(differentiable=True) requires "
++                "grad to be enabled."
++            )
++
++
++__all__ = ["check_inference_grad_mode", "check_trainable_grad_mode"]
+diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
+index b6c1b13..3a3e594 100644
+--- a/gsplat/experimental/render/functional/gaussian_inference.py
++++ b/gsplat/experimental/render/functional/gaussian_inference.py
+@@ -25,7 +25,7 @@ from torch import Tensor
+ 
+ from gsplat.scene import GaussianInferenceScene
+ 
+-from .._common import check_inference_grad_mode
++from .._common import check_inference_grad_mode, check_trainable_grad_mode
+ from ..kernels.gaussian_inference_ops import (
+     gaussian_render_inference_only,
+ )
+@@ -385,3 +385,247 @@ def rasterize_gaussian_inference_scene(
+ 
+ 
+ __all__ = ["rasterize_gaussian_inference_scene"]
++
++# ---------------------------------------------------------------------------
++# rasterize_gaussian_higs_trainable  (trainable entry point, Stage A proxy)
++# ---------------------------------------------------------------------------
++
++_TRAINABLE_ACCEPTED_KWARGS = frozenset({
++    "viewmat", "viewmats", "K", "Ks",
++    "width", "height",
++    "tile_size", "near_plane", "far_plane", "radius_clip", "eps2d",
++    "background", "render_mode", "camera_model",
++})
++
++
++def _normalize_cameras_trainable(
++    kwargs: dict[str, Any],
++) -> tuple[Tensor, Tensor, dict[str, Any]]:
++    """Normalize viewmat/K from request kwargs for the trainable path.
++
++    Returns ``(viewmats, Ks, cleaned_kwargs)`` where both have a leading
++    batch dim ``[1, ...]`` suitable for :func:`gsplat.rasterization`.
++    """
++    viewmat_val = kwargs.pop("viewmat", None)
++    viewmats_val = kwargs.pop("viewmats", None)
++    K_val = kwargs.pop("K", None)
++    Ks_val = kwargs.pop("Ks", None)
++
++    if viewmat_val is not None and viewmats_val is not None:
++        raise RuntimeError("pass exactly one of viewmat or viewmats, not both")
++    if viewmat_val is None and viewmats_val is None:
++        raise RuntimeError("pass exactly one of viewmat or viewmats")
++
++    if viewmats_val is not None:
++        viewmats = viewmats_val  # keep as-is (may already have batch dim)
++    else:
++        viewmats = viewmat_val.unsqueeze(0)  # [4,4] -> [1,4,4]
++
++    if K_val is not None and Ks_val is not None:
++        raise RuntimeError("pass exactly one of K or Ks, not both")
++    if K_val is None and Ks_val is None:
++        raise RuntimeError("pass exactly one of K or Ks")
++
++    if Ks_val is not None:
++        Ks = Ks_val
++    else:
++        Ks = K_val.unsqueeze(0)
++
++    return viewmats, Ks, kwargs
++
++
++def _validate_trainable_request(request: dict[str, Any]) -> dict[str, Any]:
++    """Validate and extract kwargs for the trainable path."""
++    # Reject known-unsupported inference features
++    for key in _INFERENCE_UNSUPPORTED_FEATURES:
++        if key in request:
++            raise TypeError(f"Trainable path does not support {key}")
++
++    for key in request:
++        if key not in _TRAINABLE_ACCEPTED_KWARGS:
++            raise TypeError(
++                f"rasterize_gaussian_higs_trainable got unexpected keyword "
++                f"argument '{key}'"
++            )
++
++    return {
++        "width": request.get("width"),
++        "height": request.get("height"),
++        "tile_size": request.get("tile_size", 16),
++        "near_plane": request.get("near_plane", 0.01),
++        "far_plane": request.get("far_plane", 1e10),
++        "radius_clip": request.get("radius_clip", 0.0),
++        "eps2d": request.get("eps2d", 0.3),
++        "background": request.get("background"),
++        "render_mode": request.get("render_mode", "RGB"),
++        "camera_model": request.get("camera_model", "pinhole"),
++    }
++
++
++def rasterize_gaussian_higs_trainable(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    out: Optional[RenderReturn] = None,
++    sh_degree: Optional[int] = None,
++    differentiable: bool = False,
++    **request: Any,
++) -> RenderReturn:
++    """Render Gaussians with an optional HiGS preview and a differentiable path.
++
++    This is the trainable entry point for the HiGS renderer.
++
++    When ``differentiable=False`` (default): delegates to
++    :func:`rasterize_gaussian_inference_scene` for inference-only rendering.
++    Requires ``torch.inference_mode()`` or ``torch.no_grad()``.
++
++    When ``differentiable=True``:
++    - Skips the inference-only grad guard.
++    - Runs the standard differentiable gsplat rasterization pipeline, which
++      supports autograd and gradient flow to all Gaussian parameters.
++    - Optionally (if the HiGS backend is available) runs the HiGS inference
++      path under ``torch.no_grad()`` for preview / forward comparison.
++    - The HiGS result, if available, is stored in ``metadata["higs_preview"]``.
++
++    .. note::
++        Stage A uses the standard gsplat rasterization for the backward pass.
++        The HiGS path is used only for forward preview. No training speed
++        improvement is expected from Stage A.
++
++    Args:
++        means: Gaussian means. [N, 3] float32 CUDA.
++        quats: Quaternions (normalized). [N, 4] float32 CUDA.
++        scales: Scales (activated, positive). [N, 3] float32 CUDA.
++        opacities: Opacities (activated, in [0,1]). [N] float32 CUDA.
++        colors: Colors or SH coefficients. If ``sh_degree`` is None, expected
++            shape [N, D] (post-activation RGB). If ``sh_degree`` is set,
++            expected shape [N, K, D] (SH coefficients).
++        out: Optional output buffer (:class:`RenderReturn`). If provided, the
++            result is written in-place.
++        sh_degree: SH degree. If set, ``colors`` are SH coefficients shared
++            across cameras.
++        differentiable: If True, enables gradient flow through rendering.
++        **request: Camera parameters and rendering options. See
++            :func:`rasterize_gaussian_inference_scene` for details.
++
++    Returns:
++        :class:`RenderReturn` with ``frame`` [1, H, W, 3] and alpha in
++        ``metadata["alpha"]``. When ``differentiable=True`` and HiGS backend
++        is available, ``metadata["higs_preview"]`` contains the HiGS forward
++        result.
++    """
++    check_trainable_grad_mode(differentiable)
++
++    if not isinstance(means, Tensor) or means.device.type != "cuda":
++        raise RuntimeError("All tensors must be CUDA tensors")
++
++    if not differentiable:
++        # --- Delegate to the existing HiGS inference path ---
++        from gsplat.scene import GaussianInferenceScene
++
++        scene = GaussianInferenceScene.from_gaussian_tensors(
++            means, quats, scales, opacities, colors,
++            sh_degree=sh_degree,
++            id="trainable_fallback",
++        )
++        return rasterize_gaussian_inference_scene(
++            scene, out=out, **request,
++        )
++
++    # --- Differentiable path: use standard gsplat rasterization ---
++    from gsplat.rendering import rasterization
++
++    validated = _validate_trainable_request(request)
++    viewmats, Ks, rest = _normalize_cameras_trainable(validated)
++
++    width = rest["width"]
++    height = rest["height"]
++    if not isinstance(width, int) or width <= 0:
++        raise ValueError(f"width must be a positive integer, got {width!r}")
++    if not isinstance(height, int) or height <= 0:
++        raise ValueError(f"height must be a positive integer, got {height!r}")
++
++    bg = rest.get("background")
++
++    # Expand dims for the standard rasterization API
++    # means: [N,3] -> [1, N, 3], etc. (add batch dim)
++    means_b = means.unsqueeze(0)
++    quats_b = quats.unsqueeze(0)
++    scales_b = scales.unsqueeze(0)
++    opacities_b = opacities.unsqueeze(0)
++    if colors.dim() == 2:
++        colors_b = colors.unsqueeze(0)  # [N, D] -> [1, N, D] for pre-activated
++    else:
++        colors_b = colors  # [N, K, D] shared across batch/cameras
++
++    # Background: expand for batch/camera dims
++    backgrounds = None
++    if bg is not None:
++        backgrounds = bg.unsqueeze(0).unsqueeze(0)  # [D] -> [1, 1, D]
++
++    # Run standard differentiable rasterization
++    render_colors, render_alphas, meta = rasterization(
++        means=means_b,
++        quats=quats_b,
++        scales=scales_b,
++        opacities=opacities_b,
++        colors=colors_b,
++        viewmats=viewmats,
++        Ks=Ks,
++        width=width,
++        height=height,
++        sh_degree=sh_degree,
++        backgrounds=backgrounds,
++        packed=True,
++        tile_size=rest.get("tile_size", 16),
++        near_plane=rest.get("near_plane", 0.01),
++        far_plane=rest.get("far_plane", 1e10),
++        radius_clip=rest.get("radius_clip", 0.0),
++        eps2d=rest.get("eps2d", 0.3),
++        camera_model=rest.get("camera_model", "pinhole"),
++        render_mode=rest.get("render_mode", "RGB"),
++    )
++
++    # Squeeze batch/camera dims for RenderReturn [1, H, W, 3]
++    frame = render_colors.squeeze(0).squeeze(0)  # [1, 1, H, W, 3] -> [H, W, 3]
++    alpha = render_alphas.squeeze(0).squeeze(0)  # [1, 1, H, W, 1] -> [H, W, 1]
++
++    metadata: dict[str, Any] = {"alpha": alpha[None]}  # [1, H, W, 1]
++
++    # Optional: run HiGS for preview under no_grad
++    try:
++        from gsplat.scene import GaussianInferenceScene
++
++        with torch.no_grad():
++            scene = GaussianInferenceScene.from_gaussian_tensors(
++                means, quats, scales, opacities, colors,
++                sh_degree=sh_degree,
++                id="trainable_preview",
++            )
++            higs_result = rasterize_gaussian_inference_scene(
++                scene, **request,
++            )
++            metadata["higs_preview"] = higs_result.frame  # [1, H, W, 3]
++    except Exception:
++        # HiGS preview is optional; silently skip if unavailable
++        pass
++
++    if out is not None:
++        out.metadata.clear()
++        out.metadata.update(metadata)
++        out.frame = frame[None]  # [1, H, W, 3]
++        return out
++
++    return RenderReturn(
++        frame=frame[None],  # [1, H, W, 3]
++        metadata=metadata,
++    )
++
++
++__all__ = [
++    "rasterize_gaussian_inference_scene",
++    "rasterize_gaussian_higs_trainable",
++]
