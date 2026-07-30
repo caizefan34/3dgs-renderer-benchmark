@@ -1,52 +1,72 @@
-﻿diff --git a/gsplat/experimental/__init__.py b/gsplat/experimental/__init__.py
-index 7d12bf6..c4b483d 100644
+diff --git a/gsplat/experimental/__init__.py b/gsplat/experimental/__init__.py
+index 7d12bf68..24bfc475 100644
 --- a/gsplat/experimental/__init__.py
 +++ b/gsplat/experimental/__init__.py
-@@ -19,6 +19,7 @@ __all__ = [
+@@ -19,21 +19,17 @@ __all__ = [
      "GaussianInferenceScene",
      "RenderReturn",
      "rasterize_gaussian_inference_scene",
 +    "rasterize_gaussian_higs_trainable",
++    "rasterize_gaussian_higs_frozen",
      "render_scene",
  ]
  
-@@ -32,7 +33,7 @@ def __getattr__(name):
-         from .render.components import GaussianInferenceRenderer
  
+ def __getattr__(name):
+-    if name == "GaussianInferenceScene":
+-        from gsplat.scene import GaussianInferenceScene
+-
+-        return GaussianInferenceScene
+     if name == "GaussianInferenceRenderer":
+         from .render.components import GaussianInferenceRenderer
+-
          return GaussianInferenceRenderer
 -    if name in {"RenderReturn", "rasterize_gaussian_inference_scene", "render_scene"}:
-+    if name in {"RenderReturn", "rasterize_gaussian_inference_scene", "rasterize_gaussian_higs_trainable", "render_scene"}:
++    if name in {"RenderReturn", "rasterize_gaussian_inference_scene", "rasterize_gaussian_higs_trainable", "rasterize_gaussian_higs_frozen", "render_scene"}:
          from . import render
- 
+-
          return getattr(render, name)
+     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 diff --git a/gsplat/experimental/render/__init__.py b/gsplat/experimental/render/__init__.py
-index ddce75d..53c53eb 100644
+index ddce75d5..d037510c 100644
 --- a/gsplat/experimental/render/__init__.py
 +++ b/gsplat/experimental/render/__init__.py
-@@ -18,6 +18,7 @@ __all__ = [
+@@ -18,6 +18,8 @@ __all__ = [
      "GaussianInferenceRenderer",
      "RenderReturn",
      "rasterize_gaussian_inference_scene",
 +    "rasterize_gaussian_higs_trainable",
++    "rasterize_gaussian_higs_frozen",
      "render_scene",
  ]
  
-@@ -35,6 +36,10 @@ def __getattr__(name):
-         from .functional.gaussian_inference import rasterize_gaussian_inference_scene
- 
-         return rasterize_gaussian_inference_scene
-+    if name == "rasterize_gaussian_higs_trainable":
-+        from .functional.gaussian_inference import rasterize_gaussian_higs_trainable
-+
-+        return rasterize_gaussian_higs_trainable
-     if name == "render_scene":
-         from .functional.render_scene import render_scene
- 
+@@ -25,18 +27,8 @@ __all__ = [
+ def __getattr__(name):
+     if name == "GaussianInferenceRenderer":
+         from .components import GaussianInferenceRenderer
+-
+         return GaussianInferenceRenderer
+-    if name == "RenderReturn":
+-        from .types import RenderReturn
+-
+-        return RenderReturn
+-    if name == "rasterize_gaussian_inference_scene":
+-        from .functional.gaussian_inference import rasterize_gaussian_inference_scene
+-
+-        return rasterize_gaussian_inference_scene
+-    if name == "render_scene":
+-        from .functional.render_scene import render_scene
+-
+-        return render_scene
++    if name in {"RenderReturn", "rasterize_gaussian_inference_scene", "rasterize_gaussian_higs_trainable", "rasterize_gaussian_higs_frozen", "render_scene"}:
++        from . import functional
++        return getattr(functional, name)
+     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 diff --git a/gsplat/experimental/render/_common.py b/gsplat/experimental/render/_common.py
-index d0cbba6..337c6a2 100644
+index d0cbba64..87270f59 100644
 --- a/gsplat/experimental/render/_common.py
 +++ b/gsplat/experimental/render/_common.py
-@@ -30,4 +30,25 @@ def check_inference_grad_mode() -> None:
+@@ -30,4 +30,26 @@ def check_inference_grad_mode() -> None:
          )
  
  
@@ -73,8 +93,37 @@ index d0cbba6..337c6a2 100644
 +
 +
 +__all__ = ["check_inference_grad_mode", "check_trainable_grad_mode"]
++
+diff --git a/gsplat/experimental/render/functional/__init__.py b/gsplat/experimental/render/functional/__init__.py
+index 18161be0..ef5e684a 100644
+--- a/gsplat/experimental/render/functional/__init__.py
++++ b/gsplat/experimental/render/functional/__init__.py
+@@ -14,7 +14,7 @@
+ # limitations under the License.
+ 
+ 
+-__all__ = ["RenderReturn", "rasterize_gaussian_inference_scene", "render_scene"]
++__all__ = ["RenderReturn", "rasterize_gaussian_inference_scene", "rasterize_gaussian_higs_trainable", "rasterize_gaussian_higs_frozen", "render_scene"]
+ 
+ 
+ def __getattr__(name):
+@@ -26,6 +26,14 @@ def __getattr__(name):
+         from .gaussian_inference import rasterize_gaussian_inference_scene
+ 
+         return rasterize_gaussian_inference_scene
++    if name == "rasterize_gaussian_higs_trainable":
++        from .gaussian_inference import rasterize_gaussian_higs_trainable
++
++        return rasterize_gaussian_higs_trainable
++    if name == "rasterize_gaussian_higs_frozen":
++        from .gaussian_inference import rasterize_gaussian_higs_frozen
++
++        return rasterize_gaussian_higs_frozen
+     if name == "render_scene":
+         from .render_scene import render_scene
+ 
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..3a3e594 100644
+index b6c1b132..da7dce5b 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -25,7 +25,7 @@ from torch import Tensor
@@ -86,7 +135,7 @@ index b6c1b13..3a3e594 100644
  from ..kernels.gaussian_inference_ops import (
      gaussian_render_inference_only,
  )
-@@ -385,3 +385,247 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +385,312 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -124,7 +173,7 @@ index b6c1b13..3a3e594 100644
 +    if viewmats_val is not None:
 +        viewmats = viewmats_val  # keep as-is (may already have batch dim)
 +    else:
-+        viewmats = viewmat_val.unsqueeze(0)  # [4,4] -> [1,4,4]
++        viewmats = viewmat_val.unsqueeze(0).unsqueeze(0)  # [4,4] -> [1,1,4,4]
 +
 +    if K_val is not None and Ks_val is not None:
 +        raise RuntimeError("pass exactly one of K or Ks, not both")
@@ -134,7 +183,7 @@ index b6c1b13..3a3e594 100644
 +    if Ks_val is not None:
 +        Ks = Ks_val
 +    else:
-+        Ks = K_val.unsqueeze(0)
++        Ks = K_val.unsqueeze(0).unsqueeze(0)  # [3,3] -> [1,1,3,3]
 +
 +    return viewmats, Ks, kwargs
 +
@@ -152,19 +201,17 @@ index b6c1b13..3a3e594 100644
 +                f"rasterize_gaussian_higs_trainable got unexpected keyword "
 +                f"argument '{key}'"
 +            )
-+
-+    return {
-+        "width": request.get("width"),
-+        "height": request.get("height"),
-+        "tile_size": request.get("tile_size", 16),
-+        "near_plane": request.get("near_plane", 0.01),
-+        "far_plane": request.get("far_plane", 1e10),
-+        "radius_clip": request.get("radius_clip", 0.0),
-+        "eps2d": request.get("eps2d", 0.3),
-+        "background": request.get("background"),
-+        "render_mode": request.get("render_mode", "RGB"),
-+        "camera_model": request.get("camera_model", "pinhole"),
-+    }
++    # Return all validated kwargs with defaults for optional fields
++    result = dict(request)
++    result.setdefault("tile_size", 16)
++    result.setdefault("near_plane", 0.01)
++    result.setdefault("far_plane", 1e10)
++    result.setdefault("radius_clip", 0.0)
++    result.setdefault("eps2d", 0.3)
++    result.setdefault("background", None)
++    result.setdefault("render_mode", "RGB")
++    result.setdefault("camera_model", "pinhole")
++    return result
 +
 +
 +def rasterize_gaussian_higs_trainable(
@@ -330,7 +377,670 @@ index b6c1b13..3a3e594 100644
 +    )
 +
 +
++
++import torch
++from torch import Tensor
++from typing import Any, Optional, Callable
++
++
++
++def _higs_frozen_forward(means, quats, scales, opacities, colors, viewmats, Ks, width, height, sh_degree, bg, tile_size, near_plane, far_plane, radius_clip, eps2d, camera_model, render_mode):
++    '''Forward pass for frozen-topology differentiable rendering.
++    
++    Calls the standard gsplat rasterization which already has full autograd support.
++    In Stage C, this would use HiGS-native culling + scatter-add backward.
++    '''
++    from gsplat.rendering import rasterization
++    means_b = means.unsqueeze(0)
++    quats_b = quats.unsqueeze(0)
++    scales_b = scales.unsqueeze(0)
++    opacities_b = opacities.unsqueeze(0)
++    colors_b = colors.unsqueeze(0) if colors.dim() == 2 else colors
++    backgrounds = bg.unsqueeze(0).unsqueeze(0) if bg is not None else None
++    render_colors, render_alphas, meta = rasterization(
++        means=means_b, quats=quats_b, scales=scales_b,
++        opacities=opacities_b, colors=colors_b,
++        viewmats=viewmats, Ks=Ks,
++        width=width, height=height,
++        sh_degree=sh_degree, backgrounds=backgrounds,
++        packed=True, tile_size=tile_size,
++        near_plane=near_plane, far_plane=far_plane,
++        radius_clip=radius_clip, eps2d=eps2d,
++        camera_model=camera_model, render_mode=render_mode,
++    )
++    frame = render_colors.squeeze(0).squeeze(0)
++    alpha = render_alphas.squeeze(0).squeeze(0)
++    return frame[None], alpha[None]
++
++def rasterize_gaussian_higs_frozen(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    sh_degree: Optional[int] = None,
++    viewmats: Tensor,
++    Ks: Tensor,
++    width: int,
++    height: int,
++    tile_size: int = 16,
++    near_plane: float = 0.01,
++    far_plane: float = 1e10,
++    radius_clip: float = 0.0,
++    eps2d: float = 0.3,
++    background: Optional[Tensor] = None,
++    render_mode: str = "RGB",
++    camera_model: str = "pinhole",
++    cached_higs_renderer: Optional[Any] = None,
++) -> dict:
++    """Differentiable HiGS rendering with frozen-topology support (Stage B)."""
++    frame, alpha = _higs_frozen_forward(
++        means, quats, scales, opacities, colors,
++        viewmats, Ks, width, height, sh_degree,
++        background, tile_size, near_plane, far_plane,
++        radius_clip, eps2d, camera_model, render_mode,
++    )
++    return {"frame": frame, "alpha": alpha, "metadata": {}}
++
 +__all__ = [
 +    "rasterize_gaussian_inference_scene",
 +    "rasterize_gaussian_higs_trainable",
++    "rasterize_gaussian_higs_frozen",
 +]
+\ No newline at end of file
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
+index c01a046d..ee95a44d 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
+@@ -1,212 +1,212 @@
+-/*
+- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+- * SPDX-License-Identifier: Apache-2.0
+- *
+- * Licensed under the Apache License, Version 2.0 (the "License");
+- * you may not use this file except in compliance with the License.
+- * You may obtain a copy of the License at
+- *
+- * http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+-
+-#pragma once
+-
+-#include <ATen/core/Tensor.h>
+-#include <cstdint>
+-#include <memory>
+-#include <tuple>
+-
+-class IntersectMTFused;
+-
+-namespace higs
+-{
+-struct SHDecodeParams;
+-} // namespace higs
+-
+-namespace gsplat
+-{
+-namespace gaussian_render_inference_scene
+-{
+-    // ---------------------------------------------------------------------------
+-    // InferenceRenderScene — non-owning view of packed scene tensors
+-    // ---------------------------------------------------------------------------
+-    struct InferenceRenderScene
+-    {
+-        at::Tensor means_planar;     // [3, N] float32
+-        at::Tensor qso_packed;       // [N, 8] half
+-        at::Tensor colors_packed;    // [N, K, 3] half/float (SH) or [N, 4] half (pre-activated)
+-        int64_t sh_degree;           // maximum SH degree (-1 for pre-activated RGB)
+-        int64_t sh_compression_mode; // 0=NONE, 1=COMPRESS_32B, 2=COMPRESS_16B
+-    };
+-
+-    // ---------------------------------------------------------------------------
+-    // InferenceRenderState — owns render-cache buffers
+-    // Not thread-safe: shared buffers assume single-stream, single-thread usage.
+-    // ---------------------------------------------------------------------------
+-    struct InferenceRenderState
+-    {
+-        ~InferenceRenderState();
+-        InferenceRenderState()                                   = default;
+-        InferenceRenderState(InferenceRenderState &&)            = default;
+-        InferenceRenderState &operator=(InferenceRenderState &&) = default;
+-
+-        // Scene metadata (derived at creation)
+-        uint32_t num_gaussians         = 0; // total number of gaussians in the scene
+-        uint32_t maxShDegree           = 0; // maximum SH degree from scene data
+-        uint32_t sh_coeffs_per_channel = 0; // number of SH coefficients per color channel (K)
+-
+-        // SH compression product selected at creation time for K==16.
+-        int64_t shCompressionMode = 0;
+-        at::Tensor shCompressed;
+-        std::unique_ptr<higs::SHDecodeParams> shDecodeParams;
+-
+-        // Per-frame intermediates (persistent, sized once at creation)
+-        at::Tensor colors;  // [N, 4] half
+-        at::Tensor visible; // [(N+31)/32] int32
+-        at::Tensor means2d; // [1, 1, N, 2] float
+-        at::Tensor depths;  // [1, 1, N] float
+-        at::Tensor conics;  // [1, 1, N, 4] half
+-
+-        // Intersection stage (fused macro-tile)
+-        std::unique_ptr<IntersectMTFused> isect;
+-
+-        // Cached background buffer.
+-        at::Tensor background; // [1, 4] half
+-        bool backgroundIsDefault = true;
+-    };
+-
+-    // ---------------------------------------------------------------------------
+-    // Free functions
+-    // ---------------------------------------------------------------------------
+-
+-    /// Allocate and initialise an InferenceRenderState from the given scene.
+-    /// @param sh_compression_mode  Controls eager SH precomputation for K==16 scenes:
+-    ///   - 0 (NONE):         skip SH precomputation entirely.
+-    ///   - 1 (COMPRESS_32B): precompute only the 32-byte codec.
+-    ///   - 2 (COMPRESS_16B): precompute only the 16-byte codec.
+-    ///   When a mode is requested the call includes a host-GPU sync.
+-    std::unique_ptr<InferenceRenderState> create_gaussian_render_inference_scene_state(
+-        const InferenceRenderScene &scene, int64_t sh_compression_mode = 0
+-    );
+-
+-    /// Release all GPU resources held by the state (reset tensors/ptrs, set num_gaussians=0).
+-    void release_gaussian_render_inference_scene_state(InferenceRenderState &state);
+-
+-    /// Core render function.  Scene tensors are read from `scene`; cached
+-    /// intermediates live in `state`.  Writes into `out_rgbt` when provided and
+-    /// returns [1,H,W,4] float16 RGBT.
+-    at::Tensor render_gaussian_inference_scene(
+-        InferenceRenderState &state,
+-        const InferenceRenderScene &scene,
+-        const at::Tensor &viewmat,
+-        const at::Tensor &K,
+-        int64_t width,
+-        int64_t height,
+-        int64_t tile_size,
+-        double near_plane,
+-        double far_plane,
+-        double radius_clip,
+-        double eps2d,
+-        int64_t sh_degree,
+-        int64_t sh_compression_mode,
+-        const at::optional<at::Tensor> &background,
+-        const at::optional<at::Tensor> &out_rgbt
+-    );
+-
+-    // ---------------------------------------------------------------------------
+-    // GaussianInferenceRenderer — pybind wrapper around state + free functions
+-    // ---------------------------------------------------------------------------
+-    class GaussianInferenceRenderer
+-    {
+-    public:
+-        /// Construct from pre-packed scene tensors.  Creates internal
+-        /// InferenceRenderScene, calls create_gaussian_render_inference_scene_state, stores result.
+-        GaussianInferenceRenderer(
+-            const at::Tensor &means_planar,
+-            const at::Tensor &qso_packed,
+-            const at::Tensor &colors_packed,
+-            int64_t sh_degree,
+-            int64_t sh_compression_mode
+-        );
+-
+-        ~GaussianInferenceRenderer();
+-
+-        // Non-copyable, non-movable
+-        GaussianInferenceRenderer(const GaussianInferenceRenderer &)            = delete;
+-        GaussianInferenceRenderer &operator=(const GaussianInferenceRenderer &) = delete;
+-        GaussianInferenceRenderer(GaussianInferenceRenderer &&)                 = delete;
+-        GaussianInferenceRenderer &operator=(GaussianInferenceRenderer &&)      = delete;
+-
+-        /// Render a frame.  Scene tensors are passed per-call (NOT stored).
+-        at::Tensor render(
+-            const at::Tensor &means_planar,
+-            const at::Tensor &qso_packed,
+-            const at::Tensor &colors_packed,
+-            const at::Tensor &viewmat,
+-            const at::Tensor &K,
+-            int64_t width,
+-            int64_t height,
+-            int64_t tile_size,
+-            double near_plane,
+-            double far_plane,
+-            double radius_clip,
+-            double eps2d,
+-            int64_t sh_degree,
+-            int64_t sh_compression_mode,
+-            const at::optional<at::Tensor> &background,
+-            const at::optional<at::Tensor> &out_rgbt
+-        );
+-
+-        /// Release all GPU resources.
+-        void release();
+-
+-        /// Number of gaussians in the loaded scene (0 after release).
+-        uint32_t numGaussians() const
+-        {
+-            return state_ ? state_->num_gaussians : 0;
+-        }
+-
+-        /// Whether release() has been called.
+-        bool isReleased() const
+-        {
+-            return !state_ || state_->num_gaussians == 0;
+-        }
+-
+-    private:
+-        std::unique_ptr<InferenceRenderState> state_;
+-        at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
+-    };
+-
+-    // ---------------------------------------------------------------------------
+-    // Stateless compatibility wrapper (torch.ops)
+-    // ---------------------------------------------------------------------------
+-
+-    /// C++ compatibility wrapper for torch.ops.experimental.gaussian_render_inference_only.
+-    /// Keeps the EXACT same signature as the original GaussianRenderInferenceSceneViewer implementation.
+-    std::tuple<at::Tensor, at::Tensor> gaussian_render_inference_only(
+-        const at::Tensor &means_planar,
+-        const at::Tensor &qso_packed,
+-        const at::Tensor &colors_packed,
+-        const at::Tensor &viewmat,
+-        const at::Tensor &K,
+-        int64_t width,
+-        int64_t height,
+-        int64_t sh_degree,
+-        int64_t tile_size,
+-        double near_plane,
+-        double far_plane,
+-        double radius_clip,
+-        double eps2d,
+-        int64_t sh_compression_mode,
+-        const at::optional<at::Tensor> &background,
+-        const at::optional<at::Tensor> &out_renders,
+-        const at::optional<at::Tensor> &out_alphas
+-    );
+-} // namespace gaussian_render_inference_scene
+-} // namespace gsplat
++﻿/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#pragma once
++
++#include <ATen/core/Tensor.h>
++#include <cstdint>
++#include <memory>
++#include <tuple>
++
++class IntersectMTFused;
++
++namespace higs
++{
++struct SHDecodeParams;
++} // namespace higs
++
++namespace gsplat
++{
++namespace gaussian_render_inference_scene
++{
++    // ---------------------------------------------------------------------------
++    // InferenceRenderScene — non-owning view of packed scene tensors
++    // ---------------------------------------------------------------------------
++    struct InferenceRenderScene
++    {
++        at::Tensor means_planar;     // [3, N] float32
++        at::Tensor qso_packed;       // [N, 8] half
++        at::Tensor colors_packed;    // [N, K, 3] half/float (SH) or [N, 4] half (pre-activated)
++        int64_t sh_degree;           // maximum SH degree (-1 for pre-activated RGB)
++        int64_t sh_compression_mode; // 0=NONE, 1=COMPRESS_32B, 2=COMPRESS_16B
++    };
++
++    // ---------------------------------------------------------------------------
++    // InferenceRenderState — owns render-cache buffers
++    // Not thread-safe: shared buffers assume single-stream, single-thread usage.
++    // ---------------------------------------------------------------------------
++    struct InferenceRenderState
++    {
++        ~InferenceRenderState();
++        InferenceRenderState()                                   = default;
++        InferenceRenderState(InferenceRenderState &&)            = default;
++        InferenceRenderState &operator=(InferenceRenderState &&) = default;
++
++        // Scene metadata (derived at creation)
++        uint32_t num_gaussians         = 0; // total number of gaussians in the scene
++        uint32_t maxShDegree           = 0; // maximum SH degree from scene data
++        uint32_t sh_coeffs_per_channel = 0; // number of SH coefficients per color channel (K)
++
++        // SH compression product selected at creation time for K==16.
++        int64_t shCompressionMode = 0;
++        at::Tensor shCompressed;
++        std::unique_ptr<higs::SHDecodeParams> shDecodeParams;
++
++        // Per-frame intermediates (persistent, sized once at creation)
++        at::Tensor colors;  // [N, 4] half
++        at::Tensor visible; // [(N+31)/32] int32
++        at::Tensor means2d; // [1, 1, N, 2] float
++        at::Tensor depths;  // [1, 1, N] float
++        at::Tensor conics;  // [1, 1, N, 4] half
++
++        // Intersection stage (fused macro-tile)
++        std::unique_ptr<IntersectMTFused> isect;
++
++        // Cached background buffer.
++        at::Tensor background; // [1, 4] half
++        bool backgroundIsDefault = true;
++    };
++
++    // ---------------------------------------------------------------------------
++    // Free functions
++    // ---------------------------------------------------------------------------
++
++    /// Allocate and initialise an InferenceRenderState from the given scene.
++    /// @param sh_compression_mode  Controls eager SH precomputation for K==16 scenes:
++    ///   - 0 (NONE):         skip SH precomputation entirely.
++    ///   - 1 (COMPRESS_32B): precompute only the 32-byte codec.
++    ///   - 2 (COMPRESS_16B): precompute only the 16-byte codec.
++    ///   When a mode is requested the call includes a host-GPU sync.
++    std::unique_ptr<InferenceRenderState> create_gaussian_render_inference_scene_state(
++        const InferenceRenderScene &scene, int64_t sh_compression_mode = 0
++    );
++
++    /// Release all GPU resources held by the state (reset tensors/ptrs, set num_gaussians=0).
++    void release_gaussian_render_inference_scene_state(InferenceRenderState &state);
++
++    /// Core render function.  Scene tensors are read from `scene`; cached
++    /// intermediates live in `state`.  Writes into `out_rgbt` when provided and
++    /// returns [1,H,W,4] float16 RGBT.
++    at::Tensor render_gaussian_inference_scene(
++        InferenceRenderState &state,
++        const InferenceRenderScene &scene,
++        const at::Tensor &viewmat,
++        const at::Tensor &K,
++        int64_t width,
++        int64_t height,
++        int64_t tile_size,
++        double near_plane,
++        double far_plane,
++        double radius_clip,
++        double eps2d,
++        int64_t sh_degree,
++        int64_t sh_compression_mode,
++        const at::optional<at::Tensor> &background,
++        const at::optional<at::Tensor> &out_rgbt
++    );
++
++    // ---------------------------------------------------------------------------
++    // GaussianInferenceRenderer — pybind wrapper around state + free functions
++    // ---------------------------------------------------------------------------
++    class GaussianInferenceRenderer
++    {
++    public:
++        /// Construct from pre-packed scene tensors.  Creates internal
++        /// InferenceRenderScene, calls create_gaussian_render_inference_scene_state, stores result.
++        GaussianInferenceRenderer(
++            const at::Tensor &means_planar,
++            const at::Tensor &qso_packed,
++            const at::Tensor &colors_packed,
++            int64_t sh_degree,
++            int64_t sh_compression_mode
++        );
++
++        ~GaussianInferenceRenderer();
++
++        // Non-copyable, non-movable
++        GaussianInferenceRenderer(const GaussianInferenceRenderer &)            = delete;
++        GaussianInferenceRenderer &operator=(const GaussianInferenceRenderer &) = delete;
++        GaussianInferenceRenderer(GaussianInferenceRenderer &&)                 = delete;
++        GaussianInferenceRenderer &operator=(GaussianInferenceRenderer &&)      = delete;
++
++        /// Render a frame.  Scene tensors are passed per-call (NOT stored).
++        at::Tensor render(
++            const at::Tensor &means_planar,
++            const at::Tensor &qso_packed,
++            const at::Tensor &colors_packed,
++            const at::Tensor &viewmat,
++            const at::Tensor &K,
++            int64_t width,
++            int64_t height,
++            int64_t tile_size,
++            double near_plane,
++            double far_plane,
++            double radius_clip,
++            double eps2d,
++            int64_t sh_degree,
++            int64_t sh_compression_mode,
++            const at::optional<at::Tensor> &background,
++            const at::optional<at::Tensor> &out_rgbt
++        );
++
++        /// Release all GPU resources.
++        void release();
++
++        /// Number of gaussians in the loaded scene (0 after release).
++        uint32_t numGaussians() const
++        {
++            return state_ ? state_->num_gaussians : 0;
++        }
++
++        /// Whether release() has been called.
++        bool isReleased() const
++        {
++            return !state_ || state_->num_gaussians == 0;
++        }
++
++    private:
++        std::unique_ptr<InferenceRenderState> state_;
++        at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
++    };
++
++    // ---------------------------------------------------------------------------
++    // Stateless compatibility wrapper (torch.ops)
++    // ---------------------------------------------------------------------------
++
++    /// C++ compatibility wrapper for torch.ops.experimental.gaussian_render_inference_only.
++    /// Keeps the EXACT same signature as the original GaussianRenderInferenceSceneViewer implementation.
++    std::tuple<at::Tensor, at::Tensor> gaussian_render_inference_only(
++        const at::Tensor &means_planar,
++        const at::Tensor &qso_packed,
++        const at::Tensor &colors_packed,
++        const at::Tensor &viewmat,
++        const at::Tensor &K,
++        int64_t width,
++        int64_t height,
++        int64_t sh_degree,
++        int64_t tile_size,
++        double near_plane,
++        double far_plane,
++        double radius_clip,
++        double eps2d,
++        int64_t sh_compression_mode,
++        const at::optional<at::Tensor> &background,
++        const at::optional<at::Tensor> &out_renders,
++        const at::optional<at::Tensor> &out_alphas
++    );
++} // namespace gaussian_render_inference_scene
++} // namespace gsplat
+diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
+index 2eb26d11..6c6e66b5 100644
+--- a/gsplat/experimental/render/kernels/cuda/ext.cpp
++++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
+@@ -1,80 +1,81 @@
+-/*
+- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+- * SPDX-License-Identifier: Apache-2.0
+- *
+- * Licensed under the Apache License, Version 2.0 (the "License");
+- * you may not use this file except in compliance with the License.
+- * You may obtain a copy of the License at
+- *
+- * http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+-
+-#include <torch/extension.h>
+-
+-#include "csrc/gaussian_inference/GaussianRenderInferenceScene.h"
+-
+-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+-{
+-    py::class_<gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer>(m, "GaussianInferenceRenderer")
+-        .def(
+-            py::init<const at::Tensor &, const at::Tensor &, const at::Tensor &, int64_t, int64_t>(),
+-            py::arg("means_planar"),
+-            py::arg("qso_packed"),
+-            py::arg("colors_packed"),
+-            py::arg("sh_degree"),
+-            py::arg("sh_compression_mode")
+-        )
+-        .def(
+-            "render",
+-            &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::render,
+-            py::arg("means_planar"),
+-            py::arg("qso_packed"),
+-            py::arg("colors_packed"),
+-            py::arg("viewmat"),
+-            py::arg("K"),
+-            py::arg("width"),
+-            py::arg("height"),
+-            py::arg("tile_size"),
+-            py::arg("near_plane"),
+-            py::arg("far_plane"),
+-            py::arg("radius_clip"),
+-            py::arg("eps2d"),
+-            py::arg("sh_degree"),
+-            py::arg("sh_compression_mode"),
+-            py::arg("background"),
+-            py::arg("out_rgbt")
+-        )
+-        .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
+-        .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
+-        .def("is_released", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::isReleased);
+-}
+-
+-TORCH_LIBRARY(experimental, m)
+-{
+-    m.def(
+-        "gaussian_render_inference_only(Tensor means_planar, Tensor qso_packed, Tensor colors_packed, Tensor viewmat, "
+-        "Tensor K, int width, int height, int sh_degree, int tile_size, float near_plane, float far_plane, float "
+-        "radius_clip, float eps2d, int sh_compression_mode, Tensor? background, *, Tensor(a!)? out_renders=None, "
+-        "Tensor(b!)? out_alphas=None) -> (Tensor renders, Tensor alphas)"
+-    );
+-}
+-
+-TORCH_LIBRARY_IMPL(experimental, CUDA, m)
+-{
+-    m.impl("gaussian_render_inference_only", &gsplat::gaussian_render_inference_scene::gaussian_render_inference_only);
+-}
+-
+-// Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is
+-// inference-only and has no backward kernel. Without this, PyTorch ≥ 2.x
+-// auto-registers an AutogradCUDA entry that wraps outputs in a grad_fn even
+-// when no backward is available, which confuses callers that check grad_fn is None.
+-TORCH_LIBRARY_IMPL(experimental, Autograd, m)
+-{
+-    m.impl("gaussian_render_inference_only", torch::CppFunction::makeFallthrough());
+-}
++/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#include <torch/extension.h>
++
++#include "csrc/gaussian_inference/GaussianRenderInferenceScene.h"
++
++PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
++{
++    py::class_<gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer>(m, "GaussianInferenceRenderer")
++        .def(
++            py::init<const at::Tensor &, const at::Tensor &, const at::Tensor &, int64_t, int64_t>(),
++            py::arg("means_planar"),
++            py::arg("qso_packed"),
++            py::arg("colors_packed"),
++            py::arg("sh_degree"),
++            py::arg("sh_compression_mode")
++        )
++        .def(
++            "render",
++            &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::render,
++            py::arg("means_planar"),
++            py::arg("qso_packed"),
++            py::arg("colors_packed"),
++            py::arg("viewmat"),
++            py::arg("K"),
++            py::arg("width"),
++            py::arg("height"),
++            py::arg("tile_size"),
++            py::arg("near_plane"),
++            py::arg("far_plane"),
++            py::arg("radius_clip"),
++            py::arg("eps2d"),
++            py::arg("sh_degree"),
++            py::arg("sh_compression_mode"),
++            py::arg("background"),
++            py::arg("out_rgbt")
++        )
++        .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
++        .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
++        .def("is_released", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::isReleased)
++        .def("get_visible_mask", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::getVisibleMask);
++}
++
++TORCH_LIBRARY(experimental, m)
++{
++    m.def(
++        "gaussian_render_inference_only(Tensor means_planar, Tensor qso_packed, Tensor colors_packed, Tensor viewmat, "
++        "Tensor K, int width, int height, int sh_degree, int tile_size, float near_plane, float far_plane, float "
++        "radius_clip, float eps2d, int sh_compression_mode, Tensor? background, *, Tensor(a!)? out_renders=None, "
++        "Tensor(b!)? out_alphas=None) -> (Tensor renders, Tensor alphas)"
++    );
++}
++
++TORCH_LIBRARY_IMPL(experimental, CUDA, m)
++{
++    m.impl("gaussian_render_inference_only", &gsplat::gaussian_render_inference_scene::gaussian_render_inference_only);
++}
++
++// Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is
++// inference-only and has no backward kernel. Without this, PyTorch ≥ 2.x
++// auto-registers an AutogradCUDA entry that wraps outputs in a grad_fn even
++// when no backward is available, which confuses callers that check grad_fn is None.
++TORCH_LIBRARY_IMPL(experimental, Autograd, m)
++{
++    m.impl("gaussian_render_inference_only", torch::CppFunction::makeFallthrough());
++}

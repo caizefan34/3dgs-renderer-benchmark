@@ -197,8 +197,8 @@ class TestGradientFlow:
         scales_b = scales.unsqueeze(0)
         opacities_b = opacities.unsqueeze(0)
         colors_b = colors.unsqueeze(0)
-        viewmats = viewmat.unsqueeze(0)  # [1, 4, 4]
-        Ks = K.unsqueeze(0)  # [1, 3, 3]
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)  # [1, 1, 4, 4]
+        Ks = K.unsqueeze(0).unsqueeze(0)  # [1, 1, 3, 3]
 
         std_colors, std_alphas, _ = rasterization(
             means=means_b, quats=quats_b, scales=scales_b,
