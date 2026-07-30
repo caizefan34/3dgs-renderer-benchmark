@@ -209,3 +209,130 @@ class TestHiGSCulling:
         )
         assert ratio > 0.1
         assert ratio < 1.0
+
+
+class TestHigsAutogradFunction:
+    """Direct tests for the _HigsAutogradFunction autograd Function."""
+
+    @_skip_no_cuda
+    def test_autograd_function_importable(self):
+        """_HigsAutogradFunction can be imported and is callable."""
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HigsAutogradFunction,
+        )
+        assert callable(_HigsAutogradFunction)
+        assert _HigsAutogradFunction is not None
+
+    @_skip_no_cuda
+    def test_autograd_function_forward_shapes(self):
+        """Forward returns correctly shaped outputs."""
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HigsAutogradFunction,
+        )
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        frame, alpha = _HigsAutogradFunction.apply(
+            means, quats, scales, opacities, colors,
+            viewmats, Ks, w, h, None, 16,
+            0.01, 1e10, 0.0, 0.3, None,
+            "RGB", "pinhole",
+            True, False,
+        )
+        assert frame.dim() == 4
+        assert frame.shape == (1, h, w, 3)
+        assert alpha.dim() == 4
+        assert alpha.shape == (1, h, w, 1)
+        assert frame.isfinite().all()
+        assert alpha.isfinite().all()
+
+    @_skip_no_cuda
+    def test_autograd_function_backward_all_params(self):
+        """Backward computes gradients for all 5 master parameters."""
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HigsAutogradFunction,
+        )
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        frame, alpha = _HigsAutogradFunction.apply(
+            means, quats, scales, opacities, colors,
+            viewmats, Ks, w, h, None, 16,
+            0.01, 1e10, 0.0, 0.3, None,
+            "RGB", "pinhole",
+            True, False,
+        )
+        frame.sum().backward()
+
+        for name, t in [("means", means), ("quats", quats), ("scales", scales),
+                         ("opacities", opacities), ("colors", colors)]:
+            assert t.grad is not None, f"{name}.grad is None"
+            assert t.grad.isfinite().all(), f"{name}.grad has non-finite values"
+            assert t.grad.abs().sum() > 0, f"{name}.grad is all zeros"
+
+    @_skip_no_cuda
+    def test_autograd_function_no_culling(self):
+        """Works without culling."""
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HigsAutogradFunction,
+        )
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        frame, alpha = _HigsAutogradFunction.apply(
+            means, quats, scales, opacities, colors,
+            viewmats, Ks, w, h, None, 16,
+            0.01, 1e10, 0.0, 0.3, None,
+            "RGB", "pinhole",
+            False, False,
+        )
+        frame.sum().backward()
+
+        for name, t in [("means", means), ("quats", quats), ("scales", scales),
+                         ("opacities", opacities), ("colors", colors)]:
+            assert t.grad is not None
+            assert t.grad.isfinite().all()
+            assert t.grad.abs().sum() > 0
+
+    @_skip_no_cuda
+    def test_autograd_function_forward_aligned_with_frozen(self):
+        """_HigsAutogradFunction forward matches frozen API output."""
+        from gsplat.experimental import rasterize_gaussian_higs_frozen
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HigsAutogradFunction,
+        )
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        frame_fn, alpha_fn = _HigsAutogradFunction.apply(
+            means, quats, scales, opacities, colors,
+            viewmats, Ks, w, h, None, 16,
+            0.01, 1e10, 0.0, 0.3, None,
+            "RGB", "pinhole",
+            True, False,
+        )
+
+        result = rasterize_gaussian_higs_frozen(
+            means, quats, scales, opacities, colors,
+            viewmats=viewmats, Ks=Ks, width=w, height=h,
+        )
+
+        torch.testing.assert_close(frame_fn, result["frame"], atol=1e-5, rtol=1e-5)
+        torch.testing.assert_close(alpha_fn, result["alpha"], atol=1e-5, rtol=1e-5)
+
