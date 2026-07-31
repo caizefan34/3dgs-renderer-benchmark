@@ -1,121 +1,226 @@
-﻿# HiGS Trainability Implementation Report
+# HiGS Trainability Implementation Report
 
-## Status: Stage A + Stage B + Stage C (Dynamic topology native differentiable path + HiGS culling) — FULLY FULLY VERIFIED on EPIC-05 (A100)
+## Status: Native differentiable training path (HiGS forward + HiGS native CUDA backward) — VERIFIED on EPIC-05 (A100)
 
-### Stage A: Correctness Baseline / Re-computation Proxy (COMPLETE ✅)
-- [x] `check_trainable_grad_mode()` in `_common.py`
-- [x] `rasterize_gaussian_higs_trainable()` with `differentiable=True/False`
-- [x] API exports through `__init__.py` chain
-- [x] Test suite (13 tests) **ALL PASS**
-  - API imports (2 tests)
-  - Grad mode guards (3 tests)
-  - Gradient flow + finite diff (2 tests)
-  - Finite-difference gradient check (means, opacities, scales, colors, 4 tests)
-  - Gradient cosine similarity vs standard gsplat (1 test)
-  - End-to-end training smoke test (1 test)
+This report documents the real, verifiable differentiable training path for HiGS:
+**HiGS forward + HiGS native backward**, with the standard gsplat recomputation
+kept only as an explicit, metadata-tagged fallback
+(`backward_backend="gsplat_recompute"`).
 
-### Stage B: Frozen-topology HiGS native differentiable path (COMPLETE ✅)
-- [x] `rasterize_gaussian_higs_frozen()` — differentiable rendering entry point
-- [x] `_cull_gaussians()` — projection-based culling helper
-- [x] `_cull_gaussians_higs()` — HiGS-native culling via `get_visible_mask`
-- [x] CUDA extension: `getVisibleMask()` method on `GaussianInferenceRenderer`
-- [x] API exports through all `__init__.py` files (fixed: header declaration + `__init__.py` exports)
-- [x] Test suite (14 tests) **ALL PASS**:
-  - Function importable
-  - Gradients to all 5 parameter types
-  - Forward output aligned with Stage A
-  - HiGS culling function importable
-  - HiGS culling differentiable pipeline (visible subset gradients, non-visible = 0)
-  - HiGS culling ratio reported (10-100%)
+Three backward paths exist today:
 
-### ### Stage C: Dynamic topology with densify/prune (COMPLETE ✅)
-- [x] `_HigsDynamicScene` — versioned scene tracker with dirty flag and monotonic `scene_version`
-- [x] `_densify_gaussians()` — duplicate high-gradient Gaussians with noise perturbation
-- [x] `_prune_gaussians()` — remove low-opacity Gaussians
-- [x] `_higs_dynamic_forward()` — forward pass validating topology changes via `_HigsDynamicScene`
-- [x] `rasterize_gaussian_higs_dynamic()` — public API (default-differentiable, topology-mutation-safe)
-- [x] API exports through all `__init__.py` files
-- [x] Test suite (11 tests) **ALL PASS**:
-  - TestDensifyPrune (4 tests): densify basic, high threshold, prune basic, no removal
-  - TestDynamicAPI (4 tests): function importable, forward shapes, gradients all params, aligned with Stage B
-  - TestTopologyMutation (3 tests): densify between steps, prune between steps, multi-step training smoke
+| Path | Entry point | `backward_backend` metadata | What runs in backward |
+|------|-------------|-----------------------------|-----------------------|
+| Frozen-topology native | `rasterize_gaussian_higs_frozen(..., backward_mode="higs_native")` | `higs_native` | Native CUDA kernels from forward-captured state (blend VJP + projection VJP + SH VJP); no recomputation |
+| Dynamic-topology native | `rasterize_gaussian_higs_dynamic(..., backward_mode="higs_native")` | `higs_native` | Same native kernels + densify/prune with Adam-state sync |
+| gsplat recomputation fallback | `backward_mode="gsplat_recompute"` | `gsplat_recompute` | Standard gsplat `rasterization()` re-run under autograd on the visible subset |
 
-### Parameters / Modes Covered
-| Parameter | Stage A | Stage B | Stage C |
-|-----------|---------|---------|---------|
-| means (FP32) | ✅ (std gsplat) | ✅ (std gsplat culling) | ✅ (dynamic topology) |
-| quats (FP32) | ✅ | ✅ | ✅ |
-| scales (FP32) | ✅ | ✅ | ✅ |
-| opacities (FP32) | ✅ | ✅ | ✅ |
-| colors/SH (FP32) | ✅ | ✅ | ✅ |
-| Pre-activated RGB | ✅ | ✅ | ✅ |
-| SH coefficients | ✅ | ✅ | ✅ |
-| SH compression | ⚠️ (default disabled) | ⚠️ | ⚠️ |
-| freeze_topology | N/A | ✅ | N/A |
-| dynamic topology | N/A | N/A | ✅ |
+The native backward NEVER re-runs the rasterization pipeline. It consumes the
+forward-captured state (means2d / conics / evaluated colors / opacities /
+per-tile sorted intersection ids / render alphas / last ids / radii) so the
+backward is bound to the exact scene / hierarchy / order / visibility version
+of the forward.
 
-### Test Results (EPIC-05, 1x A100-SXM4-80GB)
+## Stage A/B/C API (preserved, not renamed)
+
+- `rasterize_gaussian_higs_trainable()` — Stage A correctness baseline (unchanged API).
+- `rasterize_gaussian_higs_frozen()` — Stage B; now defaults to `backward_mode="higs_native"`.
+- `rasterize_gaussian_higs_dynamic()` — Stage C; now defaults to `backward_mode="higs_native"`.
+
+New additions (no existing API removed):
+- `create_higs_renderer()` / `HigsRendererHandle` — explicit versioned scene handle
+  owning the packed FP16 scene + pybind renderer; binds forward/backward to one
+  `scene_version` and raises on topology mutation while a backward is pending.
+- `sync_optimizer_state_for_topology_change()` — Adam-state sync for densify/prune
+  (copy duplicated rows, zero new rows, drop pruned rows).
+
+## Native CUDA backward (new)
+
+`gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu`
+implements three kernel stages, mirroring gsplat's own fused kernels:
+
+1. **Pixel-blend backward** (`higs_blend_bwd_kernel`) — one thread per pixel,
+   shared-memory batched traversal of the per-tile sorted intersection lists
+   (back-to-front), warp-reduced `rasterize_to_pixels_3dgs_blend_bwd` from
+   `RasterizeToPixels3DGSDevice.cuh`, atomic scatter to flat `[I*N, ...]`
+   gradients. Background gradient `d(render)/d(background) = T_final` per pixel.
+2. **Projection VJP** (`higs_projection_bwd_kernel`) — one thread per `(image, gaussian)`
+   pair, warp-reduced by Gaussian id, computing
+   `persp_proj_vjp -> posW2C_VJP + covarW2C_VJP -> quat_scale_to_covar_vjp`
+   with `eps2d` implicitly captured in the forward conics; FP32 master accumulators.
+3. **SH VJP** (`higs_sh_vjp_kernel`) — degree 0..3 port of gsplat's
+   `sh_coeffs_to_color_fast_vjp`, chained through the forward activation
+   `colors_eval = clamp_min(sph + 0.5, 0)` (mask from forward `colors_eval > 0`),
+   plus the view-direction contribution to `v_means`.
+
+Host launcher `higs_rasterize_backward(...)` returns FP32 tuple
+`(v_means, v_quats, v_scales, v_opacities, v_colors_master, v_backgrounds)`.
+
+## Python autograd layer
+
+- `_HigsAutogradFunction` captures the full forward state in ONE pass
+  (`_native_forward_capture`: `fully_fused_projection -> isect_tiles ->
+  isect_offset_encode -> _maybe_evaluate_sh -> rasterize_to_pixels_3dgs`).
+- `ctx` saves all 23 inputs; non-None `background` is saved and used (never just
+  `background_was_none`).
+- Single- and multi-camera batches supported (no `viewmats[0,0]` hardcoding).
+- `grad_frame` / `grad_alpha` None or empty handled explicitly.
+- Invisible Gaussians receive exactly zero gradient (stop-gradient visibility;
+  the mask is never differentiated).
+- FP32 master tensors are the optimization variables; FP16 packed buffers are
+  used only for the HiGS culling scene (`packed_dtype` in metadata).
+- Lossy SH compression is rejected in the training path with a clear error.
+
+## Discrete culling semantics
+
+- Visibility mask is computed under `no_grad` and is a plain boolean index;
+  it is never a continuous differentiable variable.
+- Visible Gaussians get gradients through the native chain; invisible get zero.
+- Culling ratio and `n_visible` are computed from the actual visible subset
+  (no hardcoded values), reported in metadata.
+
+## Dynamic topology
+
+- `_HigsDynamicScene` + `HigsRendererHandle` replace the old singleton-only
+  pattern with an explicit, versioned handle that can be passed via `scene=`.
+- Every forward/backward is bound to a unique `scene_version`; the autograd
+  context keeps the handle (and its packed buffers) alive until backward.
+- `mark_dirty()` raises while a backward is pending (mutation mid-graph is
+  impossible), and the version is validated again in backward.
+- densify/prune run only after backward; optimizer param groups + Adam state
+  are rewritten by `sync_optimizer_state_for_topology_change`.
+
+## Error handling / observability
+
+- The extension-unavailable / input-error / topology-version / kernel-error
+  cases are distinguished (RuntimeError with actionable messages vs fallback).
+- Metadata keys: `backward_backend`, `scene_version`, `n_gaussians`,
+  `n_visible`, `culling_ratio`, `topology_rebuilt`, `packed_dtype`.
+
+## Test suites
+
+- `tests/test_higs_trainable.py` — Stage A (unchanged).
+- `tests/test_higs_frozen.py` — Stage B (unchanged).
+- `tests/test_higs_dynamic.py` — Stage C (unchanged).
+- `tests/test_higs_native_backward.py` — new native-backward suite:
+  forward RGB/SH/background parity vs standard gsplat; gradients on
+  means/quats/scales/opacities/RGB/SH (finite difference); `torch.autograd.gradcheck`;
+  background forward+backward; single + multi camera; empty / all / partial
+  visible sets; invisible -> zero grad; alpha-only backward; mixed precision
+  (`packed_dtype == "torch.float16"`); SH degrees 0..3; SH compression
+  rejection; native vs recompute gradient agreement (RGB + SH incl. clamp
+  activation); explicit fallback when the extension is unavailable; pending-
+  backward mutation raises; densify/prune optimizer-state sync;
+  culling-boundary FD (near plane, far plane, radius clip, projection edge);
+  no-CUDA static/API surface (imports, signature defaults, backend probe,
+  metadata key contract, handle/scene API).
+
+## Test results (EPIC-05, A100)
 ```
-tests/test_higs_trainable.py .......... 13/13 [100%]
-tests/test_higs_frozen.py .............. 14/14 [100%]
-tests/test_higs_dynamic.py ............ 11/11 [100%]
-============================== 38 passed in 5.53s ===============================
+tests/test_higs_trainable.py ............... 13/13 [100%]
+tests/test_higs_frozen.py ................... 14/14 [100%]
+tests/test_higs_dynamic.py ................. 11/11 [100%]
+tests/test_higs_native_backward.py ......... 40/40 [100%]
+============================== 78 passed in 12.65s ===============================
 ```
+Native-backward coverage: forward RGB/SH/background parity vs standard gsplat;
+finite-difference gradients on means/quats/scales/opacities/RGB/SH;
+`torch.autograd.gradcheck`; non-empty background; single + multi camera;
+empty / all / partial visible sets; invisible Gaussians get exactly zero
+gradient; alpha-only backward; mixed precision (`packed_dtype="torch.float16"`);
+SH degrees 0..3; SH compression rejection in the training path;
+native-vs-recompute gradient agreement (RGB + SH incl. clamp activation);
+explicit fallback when the CUDA extension is unavailable; pending-backward
+topology mutation raises; densify/prune optimizer-state sync; culling-boundary
+FD at the near/far planes, radius-clip threshold and projection (image) edge;
+5 no-CUDA static/API tests that still run when no CUDA device is present.
 
-### Test Commands
+## Test commands
+
 ```bash
-# On EPIC-05 (or any CUDA Linux machine):
-export CUDA_HOME=/usr/local/cuda
-export PATH=$CUDA_HOME/bin:$PATH
-BUILD_EXPERIMENTAL=1 pip install -e artifacts/renderer-sources/gsplat --no-build-isolation
-python3 -m pytest tests/test_higs_trainable.py tests/test_higs_frozen.py tests/test_higs_dynamic.py -v
+export CUDA_HOME=/usr/local/cuda-12.8
+export TORCH_CUDA_ARCH_LIST=8.0
+BUILD_EXPERIMENTAL=1 MAX_JOBS=64 pip install -e artifacts/renderer-sources/gsplat --no-build-isolation
+CUDA_VISIBLE_DEVICES=7 ~/miniforge3/envs/gsplat/bin/python -m pytest \
+  tests/test_higs_trainable.py tests/test_higs_frozen.py tests/test_higs_dynamic.py \
+  tests/test_higs_native_backward.py -v
 ```
 
-### Environment
-- **GPU**: NVIDIA A100-SXM4-80GB (8x)
-- **CUDA**: 12.9 (nvcc) + 13.0 (PyTorch runtime)
-- **PyTorch**: 2.13.0+cu130
-- **gsplat**: 1.5.3 (editable install with BUILD_EXPERIMENTAL=1)
+## Training benchmark
 
-### Training Benchmark (A100-SXM4-80GB, 200 GS ? 500 GS target, 128?128, 50 steps Adam)
-```
-Metric                  Standard GS    Stage B Frozen
-Iteration time (ms)     2.3            4.6
-Peak VRAM (GB)          0.002          0.002
-Final PSNR (dB)         34.1           34.1
-Loss reduction          0.0076?0.0004  0.0076?0.0004
-```
-- Stage B + Stage C produce **identical training dynamics** to Standard GS (loss curve matches exactly, cosine_sim=1.0)
-- Gradient cosine similarity ? **1.000000** for all 5 parameter types
-- Stage B is ~2? slower at this scale due to culling overhead; would break even at larger scenes
-- Peak VRAM is identical (culling happens on the fly without persistent storage)
+`benchmark/run_higs_train_benchmark.py` runs, per scene (small + large) and per
+backend (`std`, `higs_recompute`, `higs_native`, `higs_dynamic`), a fixed Adam
+schedule fitting the scene's own reference renders, and reports forward /
+backward / total iteration latency, peak VRAM, culling ratio,
+PSNR / SSIM / LPIPS on held-out cameras, and a native-vs-recompute gradient
+cosine probe.
 
-### Known Limitations
+Measured on EPIC-05 (1x A100-SXM4-80GB, CUDA 12.8, torch 2.9.1+cu128), 960x540,
+4 train + 3 eval cameras, 20 Adam steps, densify/prune every 5 steps.
+Full JSON: `results/higs-train-benchmark-2026-07-31.json`.
 
-1. All stages (A/B/C) use standard gsplat `rasterization()` for the backward pass — no HiGS-native gradient computation yet.
-2. The culling uses standard projection (not HiGS-specific), making it compatible with any gsplat build.
-3. HiGS forward preview is available via `return_higs_preview=True` in `rasterize_gaussian_higs_frozen()`.
-4. No training speed improvement is expected from Stage A (by design).
-5. SH compression is disabled in the differentiable path by default.
-6. Python-side bitmask decode in `_cull_gaussians_higs()` is inefficient for large N; a CUDA kernel could convert the bitmask to indices directly.
-7. `_HIGS_DYNAMIC_SCENE` is a module-level singleton that must be reset (`_HIGS_DYNAMIC_SCENE.reset()`) between test runs to avoid cross-test interference.
-8. HiGS culling ratio is 0% for typical training scenes with all Gaussians in view → utility is limited outside very large scenes.
+### tanks_and_temples/train (N=1,026,508, low-N scene)
 
-### Bug Fixes Applied
-1. `_higs_frozen_forward` ? removed dead `return visible_ids` line after function body
-2. `GaussianRenderInferenceScene.h` — added missing `getVisibleMask()` method declaration (required for successful compilation of ext.cpp)
-2. `render/__init__.py` — added `rasterize_gaussian_higs_frozen` and `rasterize_gaussian_higs_dynamic` to `__all__` and `__getattr__`
-3. `experimental/__init__.py` — added `rasterize_gaussian_higs_frozen` and `rasterize_gaussian_higs_dynamic` to `__all__`
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 8.26 | 13.92 | 22.46 | 3.22 GB | 0.0% | 19.24 | 0.6762 | 0.2967 | 1,026,508 |
+| higs_recompute | 13.06 | 24.18 | 37.43 | 4.04 GB | 22.7% | 19.27 | 0.6763 | 0.2964 | 1,026,508 |
+| higs_native | 12.03 | 13.75 | 25.96 | 3.27 GB | 22.7% | 19.27 | 0.6765 | 0.2967 | 1,026,508 |
+| higs_dynamic | 10.93 | 12.50 | 23.61 | 3.70 GB | 17.6% | 20.20 | 0.7038 | 0.2792 | 731,427 |
 
-### Modified Files (gsplat source)
-1. `gsplat/experimental/render/_common.py` — added `check_trainable_grad_mode()`
-2. `gsplat/experimental/render/functional/gaussian_inference.py` — Stage A + Stage B + Stage C functions
-3. `gsplat/experimental/render/__init__.py` — exports (trainable + frozen + dynamic)
-4. `gsplat/experimental/__init__.py` — exports (trainable + frozen + dynamic)
-5. `gsplat/experimental/render/kernels/cuda/ext.cpp` — added `get_visible_mask` binding
-6. `gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h` — added `getVisibleMask()` declaration
-7. `gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu` — added `getVisibleMask()` implementation
+### mipnerf360/bicycle (N=6,131,954, high-N scene)
 
-### Patch
-A unified diff patch is available at `patches/higs-differentiable.patch` (run `cd artifacts/renderer-sources/gsplat && git apply ../../../../patches/higs-differentiable.patch` to apply). Regenerated to include all Stage C additions (8 files, +1490 lines).
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 17.84 | 32.87 | 50.93 | 10.39 GB | 0.0% | 17.28 | 0.4479 | 0.4289 | 6,131,954 |
+| higs_recompute | 29.91 | 58.98 | 89.09 | 12.81 GB | 65.8% | 17.28 | 0.4482 | 0.4286 | 6,131,954 |
+| higs_native | 28.29 | 30.53 | 59.02 | 11.37 GB | 65.8% | 17.28 | 0.4480 | 0.4288 | 6,131,954 |
+| higs_dynamic | 23.50 | 25.98 | 49.68 | 14.28 GB | 65.8% | 18.20 | 0.4741 | 0.3801 | 4,159,012 |
 
+Native-vs-recompute probe: gradient cosine 0.999996 (train) / 0.999997
+(bicycle); forward parity PSNR 21.17 dB / 18.98 dB.
+
+**Interpretation**
+
+- The native backward is ~1.8–1.9× faster than the `gsplat_recompute`
+  fallback (bwd 13.75 vs 24.18 ms; 30.53 vs 58.98 ms) because it never
+  re-runs the rasterization pipeline.
+- Forward/quality parity with std gsplat holds (PSNR 19.27 vs 19.24;
+  17.28 vs 17.28; SSIM/LPIPS within 0.001) — small differences come from
+  HiGS culling of 22.7% / 65.8% invisible Gaussians.
+- Total iteration time is NOT yet faster than std gsplat (25.96 vs 22.46 ms;
+  59.02 vs 50.93 ms): the native kernels are a correctness-first port and the
+  differentiable forward still runs the standard gsplat projection/tile/blend
+  kernels on the visible subset. No end-to-end speedup is claimed; the
+  measured benefit today is the backward speedup over the recompute fallback.
+- Dynamic topology (densify+prune) improves held-out quality (PSNR 20.20 /
+  18.20) while pruning ~29% / ~32% of Gaussians.
+
+## Known limitations
+
+1. The native backward currently supports `render_mode="RGB"` and pinhole only;
+   other render modes / camera models raise with a clear message (use the
+   recompute fallback).
+2. The HiGS culling scene (packed FP16 buffers + renderer) is rebuilt only on
+   topology change / explicit `mark_dirty()`; between rebuilds the visibility
+   mask reflects the last packed parameter snapshot (culling is a discrete
+   approximation, valid for small per-step parameter drift).
+3. Lossy SH compression has no backward implementation yet and is rejected in
+   the training path; `sh_compression_mode="none"` is the supported mode.
+4. The native blend/projection/SH kernels are a correctness-first port; no
+   end-to-end speedup claim is made. The 2026-07-31 benchmark shows the native
+   backward is ~1.9x faster than the recompute fallback, but the total
+   iteration is still slower than std gsplat at 960x540 (see benchmark table).
+5. `_densify_gaussians` clamps RGB colors to [0,1]; SH coefficient tensors
+   ([N, K, C]) are intentionally not clamped.
+
+## Modified files (gsplat source tree)
+
+- `gsplat/experimental/render/functional/gaussian_inference.py` — native forward
+  capture, native/recompute backward, `HigsRendererHandle`, `create_higs_renderer`,
+  `sync_optimizer_state_for_topology_change`, dynamic-scene handle ownership.
+- `gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.{cu,h}` — new.
+- `gsplat/experimental/render/kernels/cuda/build.py` — include `HigsNativeBackward.cu`.
+- `gsplat/experimental/render/kernels/cuda/ext.cpp` — `higs_rasterize_backward` binding.
+- `tests/test_higs_native_backward.py` — new native-backward test suite.
+- `benchmark/run_higs_train_benchmark.py` — new training benchmark.
