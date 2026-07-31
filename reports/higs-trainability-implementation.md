@@ -105,7 +105,7 @@ Loss reduction          0.0076?0.0004  0.0076?0.0004
 1. `_higs_frozen_forward` ? removed dead `return visible_ids` line after function body
 2. `GaussianRenderInferenceScene.h` — added missing `getVisibleMask()` method declaration (required for successful compilation of ext.cpp)
 2. `render/__init__.py` — added `rasterize_gaussian_higs_frozen` and `rasterize_gaussian_higs_dynamic` to `__all__` and `__getattr__`
-3. `experimental/__init__.py` — added `rasterize_gaussian_higs_frozen` to `__all__`
+3. `experimental/__init__.py` — added `rasterize_gaussian_higs_frozen` and `rasterize_gaussian_higs_dynamic` to `__all__`
 
 ### Modified Files (gsplat source)
 1. `gsplat/experimental/render/_common.py` — added `check_trainable_grad_mode()`
