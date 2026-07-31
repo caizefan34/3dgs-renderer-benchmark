@@ -1,0 +1,1603 @@
+diff --git a/gsplat/experimental/__init__.py b/gsplat/experimental/__init__.py
+index 7d12bf6..be7042a 100644
+--- a/gsplat/experimental/__init__.py
++++ b/gsplat/experimental/__init__.py
+@@ -19,6 +19,8 @@ __all__ = [
+     "GaussianInferenceScene",
+     "RenderReturn",
+     "rasterize_gaussian_inference_scene",
++    "rasterize_gaussian_higs_trainable", "rasterize_gaussian_higs_frozen", "rasterize_gaussian_higs_dynamic",
++    "rasterize_gaussian_higs_frozen",
+     "render_scene",
+ ]
+ 
+@@ -32,7 +34,7 @@ def __getattr__(name):
+         from .render.components import GaussianInferenceRenderer
+ 
+         return GaussianInferenceRenderer
+-    if name in {"RenderReturn", "rasterize_gaussian_inference_scene", "render_scene"}:
++    if name in {"RenderReturn", "rasterize_gaussian_inference_scene", "rasterize_gaussian_higs_trainable", "rasterize_gaussian_higs_frozen", "rasterize_gaussian_higs_dynamic", "render_scene"}:
+         from . import render
+ 
+         return getattr(render, name)
+diff --git a/gsplat/experimental/render/__init__.py b/gsplat/experimental/render/__init__.py
+index ddce75d..70aede3 100644
+--- a/gsplat/experimental/render/__init__.py
++++ b/gsplat/experimental/render/__init__.py
+@@ -18,6 +18,9 @@ __all__ = [
+     "GaussianInferenceRenderer",
+     "RenderReturn",
+     "rasterize_gaussian_inference_scene",
++    "rasterize_gaussian_higs_trainable",
++    "rasterize_gaussian_higs_frozen",
++    "rasterize_gaussian_higs_dynamic",
+     "render_scene",
+ ]
+ 
+@@ -35,6 +38,19 @@ def __getattr__(name):
+         from .functional.gaussian_inference import rasterize_gaussian_inference_scene
+ 
+         return rasterize_gaussian_inference_scene
++    if name == "rasterize_gaussian_higs_trainable":
++        from .functional.gaussian_inference import rasterize_gaussian_higs_trainable
++
++        return rasterize_gaussian_higs_trainable
++    if name == "rasterize_gaussian_higs_frozen":
++        from .functional.gaussian_inference import rasterize_gaussian_higs_frozen
++
++        return rasterize_gaussian_higs_frozen
++
++    if name == "rasterize_gaussian_higs_dynamic":
++        from .functional.gaussian_inference import rasterize_gaussian_higs_dynamic
++
++        return rasterize_gaussian_higs_dynamic
+     if name == "render_scene":
+         from .functional.render_scene import render_scene
+ 
+diff --git a/gsplat/experimental/render/_common.py b/gsplat/experimental/render/_common.py
+index d0cbba6..337c6a2 100644
+--- a/gsplat/experimental/render/_common.py
++++ b/gsplat/experimental/render/_common.py
+@@ -30,4 +30,25 @@ def check_inference_grad_mode() -> None:
+         )
+ 
+ 
+-__all__ = ["check_inference_grad_mode"]
++def check_trainable_grad_mode(differentiable: bool = False) -> None:
++    """Raise if grad mode is incompatible with the requested mode.
++
++    - When ``differentiable=False``: behaves like :func:`check_inference_grad_mode`.
++    - When ``differentiable=True``: requires autograd enabled and inference mode OFF.
++    """
++    if not differentiable:
++        check_inference_grad_mode()
++    else:
++        if torch.is_inference_mode_enabled():
++            raise RuntimeError(
++                "rasterize_gaussian_higs_trainable(differentiable=True) requires "
++                "autograd to be enabled, but inference mode is active."
++            )
++        if not torch.is_grad_enabled():
++            raise RuntimeError(
++                "rasterize_gaussian_higs_trainable(differentiable=True) requires "
++                "grad to be enabled."
++            )
++
++
++__all__ = ["check_inference_grad_mode", "check_trainable_grad_mode"]
+diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
+index b6c1b13..c6472a6 100644
+--- a/gsplat/experimental/render/functional/gaussian_inference.py
++++ b/gsplat/experimental/render/functional/gaussian_inference.py
+@@ -25,7 +25,7 @@ from torch import Tensor
+ 
+ from gsplat.scene import GaussianInferenceScene
+ 
+-from .._common import check_inference_grad_mode
++from .._common import check_inference_grad_mode, check_trainable_grad_mode
+ from ..kernels.gaussian_inference_ops import (
+     gaussian_render_inference_only,
+ )
+@@ -385,3 +385,925 @@ def rasterize_gaussian_inference_scene(
+ 
+ 
+ __all__ = ["rasterize_gaussian_inference_scene"]
++
++# ---------------------------------------------------------------------------
++# rasterize_gaussian_higs_trainable  (trainable entry point, Stage A proxy)
++# ---------------------------------------------------------------------------
++
++_TRAINABLE_ACCEPTED_KWARGS = frozenset({
++    "viewmat", "viewmats", "K", "Ks",
++    "width", "height",
++    "tile_size", "near_plane", "far_plane", "radius_clip", "eps2d",
++    "background", "render_mode", "camera_model",
++})
++
++
++def _normalize_cameras_trainable(
++    kwargs: dict[str, Any],
++) -> tuple[Tensor, Tensor, dict[str, Any]]:
++    """Normalize viewmat/K from request kwargs for the trainable path.
++
++    Returns ``(viewmats, Ks, cleaned_kwargs)`` where both have a leading
++    batch dim ``[1, ...]`` suitable for :func:`gsplat.rasterization`.
++    """
++    viewmat_val = kwargs.pop("viewmat", None)
++    viewmats_val = kwargs.pop("viewmats", None)
++    K_val = kwargs.pop("K", None)
++    Ks_val = kwargs.pop("Ks", None)
++
++    if viewmat_val is not None and viewmats_val is not None:
++        raise RuntimeError("pass exactly one of viewmat or viewmats, not both")
++    if viewmat_val is None and viewmats_val is None:
++        raise RuntimeError("pass exactly one of viewmat or viewmats")
++
++    if viewmats_val is not None:
++        viewmats = viewmats_val  # keep as-is (may already have batch dim)
++    else:
++        viewmats = viewmat_val.unsqueeze(0).unsqueeze(0)  # [4,4] -> [1,1,4,4]
++
++    if K_val is not None and Ks_val is not None:
++        raise RuntimeError("pass exactly one of K or Ks, not both")
++    if K_val is None and Ks_val is None:
++        raise RuntimeError("pass exactly one of K or Ks")
++
++    if Ks_val is not None:
++        Ks = Ks_val
++    else:
++        Ks = K_val.unsqueeze(0).unsqueeze(0)  # [3,3] -> [1,1,3,3]
++
++    return viewmats, Ks, kwargs
++
++
++def _validate_trainable_request(request: dict[str, Any]) -> dict[str, Any]:
++    """Validate and extract kwargs for the trainable path."""
++    # Reject known-unsupported inference features
++    for key in _INFERENCE_UNSUPPORTED_FEATURES:
++        if key in request:
++            raise TypeError(f"Trainable path does not support {key}")
++
++    for key in request:
++        if key not in _TRAINABLE_ACCEPTED_KWARGS:
++            raise TypeError(
++                f"rasterize_gaussian_higs_trainable got unexpected keyword "
++                f"argument '{key}'"
++            )
++    # Return all validated kwargs with defaults for optional fields
++    result = dict(request)
++    result.setdefault("tile_size", 16)
++    result.setdefault("near_plane", 0.01)
++    result.setdefault("far_plane", 1e10)
++    result.setdefault("radius_clip", 0.0)
++    result.setdefault("eps2d", 0.3)
++    result.setdefault("background", None)
++    result.setdefault("render_mode", "RGB")
++    result.setdefault("camera_model", "pinhole")
++    return result
++
++
++def rasterize_gaussian_higs_trainable(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    out: Optional[RenderReturn] = None,
++    sh_degree: Optional[int] = None,
++    differentiable: bool = False,
++    **request: Any,
++) -> RenderReturn:
++    """Render Gaussians with an optional HiGS preview and a differentiable path.
++
++    This is the trainable entry point for the HiGS renderer.
++
++    When ``differentiable=False`` (default): delegates to
++    :func:`rasterize_gaussian_inference_scene` for inference-only rendering.
++    Requires ``torch.inference_mode()`` or ``torch.no_grad()``.
++
++    When ``differentiable=True``:
++    - Skips the inference-only grad guard.
++    - Runs the standard differentiable gsplat rasterization pipeline, which
++      supports autograd and gradient flow to all Gaussian parameters.
++    - Optionally (if the HiGS backend is available) runs the HiGS inference
++      path under ``torch.no_grad()`` for preview / forward comparison.
++    - The HiGS result, if available, is stored in ``metadata["higs_preview"]``.
++
++    .. note::
++        Stage A uses the standard gsplat rasterization for the backward pass.
++        The HiGS path is used only for forward preview. No training speed
++        improvement is expected from Stage A.
++
++    Args:
++        means: Gaussian means. [N, 3] float32 CUDA.
++        quats: Quaternions (normalized). [N, 4] float32 CUDA.
++        scales: Scales (activated, positive). [N, 3] float32 CUDA.
++        opacities: Opacities (activated, in [0,1]). [N] float32 CUDA.
++        colors: Colors or SH coefficients. If ``sh_degree`` is None, expected
++            shape [N, D] (post-activation RGB). If ``sh_degree`` is set,
++            expected shape [N, K, D] (SH coefficients).
++        out: Optional output buffer (:class:`RenderReturn`). If provided, the
++            result is written in-place.
++        sh_degree: SH degree. If set, ``colors`` are SH coefficients shared
++            across cameras.
++        differentiable: If True, enables gradient flow through rendering.
++        **request: Camera parameters and rendering options. See
++            :func:`rasterize_gaussian_inference_scene` for details.
++
++    Returns:
++        :class:`RenderReturn` with ``frame`` [1, H, W, 3] and alpha in
++        ``metadata["alpha"]``. When ``differentiable=True`` and HiGS backend
++        is available, ``metadata["higs_preview"]`` contains the HiGS forward
++        result.
++    """
++    check_trainable_grad_mode(differentiable)
++
++    if not isinstance(means, Tensor) or means.device.type != "cuda":
++        raise RuntimeError("All tensors must be CUDA tensors")
++
++    if not differentiable:
++        # --- Delegate to the existing HiGS inference path ---
++        from gsplat.scene import GaussianInferenceScene
++
++        scene = GaussianInferenceScene.from_gaussian_tensors(
++            means, quats, scales, opacities, colors,
++            sh_degree=sh_degree,
++            id="trainable_fallback",
++        )
++        return rasterize_gaussian_inference_scene(
++            scene, out=out, **request,
++        )
++
++    # --- Differentiable path: use standard gsplat rasterization ---
++    from gsplat.rendering import rasterization
++
++    validated = _validate_trainable_request(request)
++    viewmats, Ks, rest = _normalize_cameras_trainable(validated)
++
++    width = rest["width"]
++    height = rest["height"]
++    if not isinstance(width, int) or width <= 0:
++        raise ValueError(f"width must be a positive integer, got {width!r}")
++    if not isinstance(height, int) or height <= 0:
++        raise ValueError(f"height must be a positive integer, got {height!r}")
++
++    bg = rest.get("background")
++
++    # Expand dims for the standard rasterization API
++    # means: [N,3] -> [1, N, 3], etc. (add batch dim)
++    means_b = means.unsqueeze(0)
++    quats_b = quats.unsqueeze(0)
++    scales_b = scales.unsqueeze(0)
++    opacities_b = opacities.unsqueeze(0)
++    if colors.dim() == 2:
++        colors_b = colors.unsqueeze(0)  # [N, D] -> [1, N, D] for pre-activated
++    else:
++        colors_b = colors  # [N, K, D] shared across batch/cameras
++
++    # Background: expand for batch/camera dims
++    backgrounds = None
++    if bg is not None:
++        backgrounds = bg.unsqueeze(0).unsqueeze(0)  # [D] -> [1, 1, D]
++
++    # Run standard differentiable rasterization
++    render_colors, render_alphas, meta = rasterization(
++        means=means_b,
++        quats=quats_b,
++        scales=scales_b,
++        opacities=opacities_b,
++        colors=colors_b,
++        viewmats=viewmats,
++        Ks=Ks,
++        width=width,
++        height=height,
++        sh_degree=sh_degree,
++        backgrounds=backgrounds,
++        packed=True,
++        tile_size=rest.get("tile_size", 16),
++        near_plane=rest.get("near_plane", 0.01),
++        far_plane=rest.get("far_plane", 1e10),
++        radius_clip=rest.get("radius_clip", 0.0),
++        eps2d=rest.get("eps2d", 0.3),
++        camera_model=rest.get("camera_model", "pinhole"),
++        render_mode=rest.get("render_mode", "RGB"),
++    )
++
++    # Squeeze batch/camera dims for RenderReturn [1, H, W, 3]
++    frame = render_colors.squeeze(0).squeeze(0)  # [1, 1, H, W, 3] -> [H, W, 3]
++    alpha = render_alphas.squeeze(0).squeeze(0)  # [1, 1, H, W, 1] -> [H, W, 1]
++
++    metadata: dict[str, Any] = {"alpha": alpha[None]}  # [1, H, W, 1]
++
++    # Optional: run HiGS for preview under no_grad
++    try:
++        from gsplat.scene import GaussianInferenceScene
++
++        with torch.no_grad():
++            scene = GaussianInferenceScene.from_gaussian_tensors(
++                means, quats, scales, opacities, colors,
++                sh_degree=sh_degree,
++                id="trainable_preview",
++            )
++            higs_result = rasterize_gaussian_inference_scene(
++                scene, **request,
++            )
++            metadata["higs_preview"] = higs_result.frame  # [1, H, W, 3]
++    except Exception:
++        # HiGS preview is optional; silently skip if unavailable
++        pass
++
++    if out is not None:
++        out.metadata.clear()
++        out.metadata.update(metadata)
++        out.frame = frame[None]  # [1, H, W, 3]
++        return out
++
++    return RenderReturn(
++        frame=frame[None],  # [1, H, W, 3]
++        metadata=metadata,
++    )
++
++
++
++def _cull_gaussians(means, quats, scales, viewmats, Ks, width, height, eps2d=0.3):
++    """Determine visible Gaussians via projection culling.
++    
++    Uses fully_fused_projection (under no_grad) to compute per-Gaussian
++    2D radii. Gaussians with both radius components > 0 are visible.
++    
++    Returns:
++        visible_ids: 1D int64 tensor of visible Gaussian indices.
++        visible_mask: bool tensor [N] where True means visible.
++    """
++    from gsplat.cuda._wrapper import fully_fused_projection
++    with torch.no_grad():
++        radii, _, _, _, _ = fully_fused_projection(
++            means=means.unsqueeze(0).contiguous(),
++            covars=None,
++            quats=quats.unsqueeze(0).contiguous(),
++            scales=scales.unsqueeze(0).contiguous(),
++            viewmats=viewmats.contiguous(),
++            Ks=Ks.contiguous(),
++            width=width, height=height, eps2d=eps2d,
++            packed=False,
++        )
++    r = radii.squeeze()  # [N] or [N, 2]
++    visible_mask = (r > 0).all(dim=-1) if r.dim() > 1 else (r > 0)
++    visible_ids = torch.where(visible_mask)[0]
++    return visible_ids, visible_mask
++
++def _cull_gaussians_higs(
++    means, quats, scales, opacities, colors,
++    viewmat, K, width, height, sh_degree,
++    tile_size=16, near_plane=0.01, far_plane=1e10,
++    radius_clip=0.0, eps2d=0.3, sh_compression_mode=0, background=None,
++):
++    """Determine visible Gaussian IDs using HiGS-native culling (get_visible_mask).
++    
++    Calls the HiGS renderer under no_grad to populate the visibility bitmask,
++    which reflects exactly which Gaussians the HiGS tile-intersect stage
++    considers visible.
++    
++    Returns:
++        visible_ids: 1-D int64 tensor of visible Gaussian indices.
++        visible_mask: bool tensor [N] where True means visible.
++        culling_ratio: float fraction of culled (invisible) Gaussians.
++    """
++    from ..kernels.gaussian_inference_ops import (
++        create_native_gaussian_inference_renderer,
++    )
++    from gsplat.scene.kernels.gaussian_inference_ops import (
++        pack_gaussian_inference_scene,
++    )
++    from gsplat.scene.components.gaussian_inference_scene import SHCompressionMode
++    
++    with torch.no_grad():
++        # Pack FP32 tensors into FP16
++        sh_deg_i = -1 if sh_degree is None else sh_degree
++        
++        try:
++            means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
++                means, quats, scales, opacities, colors,
++                sh_deg_i, SHCompressionMode.NONE,
++            )
++        except Exception:
++            return None, None, 0.0
++        
++        renderer = create_native_gaussian_inference_renderer(
++            means_planar, qso_packed, colors_packed,
++            sh_deg_i, 0,
++        )
++        
++        _ = renderer.render(
++            means_planar, qso_packed, colors_packed,
++            viewmat, K, width, height, tile_size,
++            near_plane, far_plane, radius_clip, eps2d,
++            sh_deg_i, 0, background, None,
++        )
++        
++        # Decode bitmask
++        mask_bits = renderer.get_visible_mask()
++        N = means.shape[0]
++        visible_mask = torch.zeros(N, dtype=torch.bool, device=means.device)
++        for i in range(mask_bits.shape[0]):
++            word = mask_bits[i].item()
++            base = i * 32
++            for j in range(32):
++                idx = base + j
++                if idx >= N:
++                    break
++                if (word >> j) & 1:
++                    visible_mask[idx] = True
++        
++        renderer.release()
++    
++    visible_ids = torch.where(visible_mask)[0]
++    culling_ratio = 1.0 - (visible_ids.numel() / max(N, 1))
++    return visible_ids, visible_mask, culling_ratio
++
++
++class _FrozenSceneTracker:
++    """Tracks Gaussian count across renderer calls for freeze_topology validation."""
++    def __init__(self) -> None:
++        self._n_gaussians = None
++        self._render_count = 0
++
++    @property
++    def render_count(self) -> int:
++        return self._render_count
++
++    def validate(self, n_gaussians: int, freeze_topology: bool) -> None:
++        if not freeze_topology:
++            self._n_gaussians = None
++            self._render_count = 0
++            return
++        if self._n_gaussians is None:
++            self._n_gaussians = n_gaussians
++        elif self._n_gaussians != n_gaussians:
++            raise RuntimeError(
++                "freeze_topology=True but Gaussian count changed: "
++                f"{self._n_gaussians} -> {n_gaussians}. "
++                "Densification or pruning is not allowed in frozen-topology mode."
++            )
++        self._render_count += 1
++
++    def reset(self) -> None:
++        self._n_gaussians = None
++        self._render_count = 0
++
++
++_HIGS_FROZEN_TRACKER = _FrozenSceneTracker()
++class _HigsDynamicScene:
++    """Tracks scene version and topology state for dynamic-topology training (Stage C).
++
++    Provides:
++    - Monotonically increasing scene_version for each forward call.
++    - dirty flag to signal that master tensors were mutated (densify/prune).
++    - Validation that backward accesses the correct version of metadata.
++    """
++
++    def __init__(self) -> None:
++        self._scene_version: int = 0
++        self._n_gaussians: int | None = None
++        self._dirty: bool = False
++        self._forward_version: int = 0
++
++    @property
++    def scene_version(self) -> int:
++        return self._scene_version
++
++    @property
++    def dirty(self) -> bool:
++        return self._dirty
++
++    def mark_dirty(self) -> None:
++        """Call after densify/prune/clone to signal master-tensor mutation."""
++        self._dirty = True
++
++    def mark_clean(self) -> None:
++        self._dirty = False
++
++
++    def reset(self) -> None:
++        """Reset scene version and dirty state."""
++        self._scene_version = 0
++        self._n_gaussians = None
++        self._dirty = False
++        self._forward_version = 0
++    def next_version(self, n_gaussians: int) -> int:
++        """Advance to the next scene version for a new forward pass."""
++        self._scene_version += 1
++        self._n_gaussians = n_gaussians
++        self._dirty = False
++        self._forward_version = self._scene_version
++        return self._scene_version
++
++    def validate_count(self, n_gaussians: int) -> None:
++        """Validate that a topology change is expected (scene was marked dirty)."""
++        if self._n_gaussians is not None and self._n_gaussians != n_gaussians:
++            if not self._dirty:
++                raise RuntimeError(
++                    "Gaussian count changed without mark_dirty(). "
++                    "Call mark_dirty() after densify/prune before the next forward."
++                )
++        self._n_gaussians = n_gaussians
++
++
++_HIGS_DYNAMIC_SCENE = _HigsDynamicScene()
++
++
++def _densify_gaussians(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    grads: Tensor | None = None,
++    threshold: float = 0.0002,
++    noise_scale: float = 0.01,
++) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
++    """Duplicate Gaussians with large position gradients (densification)."""
++    N = means.shape[0]
++    if grads is not None:
++        grad_norm = grads.norm(dim=-1)
++        mask = grad_norm > threshold
++    else:
++        mask = torch.rand(N, device=means.device) < 0.05
++
++    n_new = mask.sum().item()
++    if n_new == 0:
++        return means, quats, scales, opacities, colors
++
++    noise = torch.randn_like(means[mask]) * noise_scale
++    new_means = torch.cat([means, means[mask] + noise])
++    new_quats = torch.cat([quats, quats[mask]])
++    new_scales = torch.cat([scales, scales[mask]])
++    new_opacities = torch.cat([opacities, opacities[mask]]).clamp(0.0, 1.0)
++    new_colors = torch.cat([colors, colors[mask]]).clamp(0.0, 1.0)
++    return new_means, new_quats, new_scales, new_opacities, new_colors
++
++
++def _prune_gaussians(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    opacity_threshold: float = 0.01,
++) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
++    """Remove Gaussians with very low opacity (pruning)."""
++    mask = opacities > opacity_threshold
++    if mask.all():
++        return means, quats, scales, opacities, colors
++
++    return (
++        means[mask],
++        quats[mask],
++        scales[mask],
++        opacities[mask],
++        colors[mask],
++    )
++
++
++class _HigsAutogradFunction(torch.autograd.Function):
++    """autograd Function wrapping HiGS culling + diff. rasterization (Stage B).
++
++    Forward: culls invisible Gaussians under no_grad, indexes visible subset
++    (autograd-tracked for scatter-add), then rasterizes via standard gsplat.
++
++    Backward: re-runs forward on detach+requires_grad copies of master params
++    (means, quats, scales, opacities, colors) and uses torch.autograd.grad().
++    """
++
++    @staticmethod
++    def forward(
++        ctx,
++        means, quats, scales, opacities, colors,
++        viewmats, Ks,
++        width, height, sh_degree, tile_size,
++        near_plane, far_plane, radius_clip, eps2d, background,
++        render_mode, camera_model,
++        enable_culling, use_higs_culling,
++    ):
++        from gsplat.rendering import rasterization
++
++        N_total = means.shape[0]
++        visible_ids = None
++
++        with torch.no_grad():
++            if enable_culling:
++                if use_higs_culling:
++                    viewmat_single = viewmats[0, 0] if viewmats.dim() > 2 else viewmats
++                    K_single = Ks[0, 0] if Ks.dim() > 2 else Ks
++                    try:
++                        vis_result = _cull_gaussians_higs(
++                            means, quats, scales, opacities, colors,
++                            viewmat_single, K_single, width, height, sh_degree,
++                            eps2d=eps2d,
++                        )
++                        if vis_result[0] is not None:
++                            visible_ids, _, _ = vis_result
++                        else:
++                            visible_ids, _ = _cull_gaussians(
++                                means, quats, scales, viewmats, Ks, width, height, eps2d,
++                            )
++                    except Exception:
++                        visible_ids, _ = _cull_gaussians(
++                            means, quats, scales, viewmats, Ks, width, height, eps2d,
++                        )
++                else:
++                    visible_ids, _ = _cull_gaussians(
++                        means, quats, scales, viewmats, Ks, width, height, eps2d,
++                    )
++
++        if visible_ids is not None:
++            N_visible = len(visible_ids)
++            v_means = means[visible_ids]
++            v_quats = quats[visible_ids]
++            v_scales = scales[visible_ids]
++            v_opacities = opacities[visible_ids]
++            v_colors = colors[visible_ids] if colors.dim() == 2 else colors[visible_ids]
++        else:
++            N_visible = N_total
++            v_means = means
++            v_quats = quats
++            v_scales = scales
++            v_opacities = opacities
++            v_colors = colors
++
++        ctx.save_for_backward(
++            means, quats, scales, opacities, colors,
++            viewmats, Ks,
++            visible_ids if visible_ids is not None
++            else torch.tensor([], dtype=torch.long, device=means.device),
++        )
++        ctx.N_total = N_total
++        ctx.N_visible = N_visible
++        ctx.width = width
++        ctx.height = height
++        ctx.sh_degree = sh_degree
++        ctx.tile_size = tile_size
++        ctx.near_plane = near_plane
++        ctx.far_plane = far_plane
++        ctx.radius_clip = radius_clip
++        ctx.eps2d = eps2d
++        ctx.render_mode = render_mode
++        ctx.camera_model = camera_model
++        ctx.background_was_none = background is None
++
++        v_means_b = v_means.unsqueeze(0)
++        v_quats_b = v_quats.unsqueeze(0)
++        v_scales_b = v_scales.unsqueeze(0)
++        v_opacities_b = v_opacities.unsqueeze(0)
++        v_colors_input = v_colors.unsqueeze(0) if v_colors.dim() == 2 else v_colors
++        backgrounds = background.unsqueeze(0).unsqueeze(0) if background is not None else None
++
++        render_colors, render_alphas, _ = rasterization(
++            means=v_means_b, quats=v_quats_b, scales=v_scales_b,
++            opacities=v_opacities_b, colors=v_colors_input,
++            viewmats=viewmats, Ks=Ks, width=width, height=height,
++            sh_degree=sh_degree, backgrounds=backgrounds,
++            packed=True, tile_size=tile_size,
++            near_plane=near_plane, far_plane=far_plane,
++            radius_clip=radius_clip, eps2d=eps2d,
++            camera_model=camera_model, render_mode=render_mode,
++        )
++
++        frame = render_colors.squeeze(0).squeeze(0)
++        alpha_ch = render_alphas.squeeze(0).squeeze(0)
++        return frame[None], alpha_ch[None]
++
++    @staticmethod
++    def backward(ctx, grad_frame, grad_alpha):
++        from gsplat.rendering import rasterization
++
++        (means, quats, scales, opacities, colors, viewmats, Ks, visible_ids) = ctx.saved_tensors
++
++        with torch.enable_grad():
++            means_r = means.detach().requires_grad_(True)
++            quats_r = quats.detach().requires_grad_(True)
++            scales_r = scales.detach().requires_grad_(True)
++            opacities_r = opacities.detach().requires_grad_(True)
++            colors_r = colors.detach().requires_grad_(True)
++
++            if visible_ids.numel() > 0:
++                v_means = means_r[visible_ids]
++                v_quats = quats_r[visible_ids]
++                v_scales = scales_r[visible_ids]
++                v_opacities = opacities_r[visible_ids]
++                v_colors = colors_r[visible_ids] if colors_r.dim() == 2 else colors_r[visible_ids]
++            else:
++                v_means = means_r
++                v_quats = quats_r
++                v_scales = scales_r
++                v_opacities = opacities_r
++                v_colors = colors_r
++
++            v_means_b = v_means.unsqueeze(0)
++            v_quats_b = v_quats.unsqueeze(0)
++            v_scales_b = v_scales.unsqueeze(0)
++            v_opacities_b = v_opacities.unsqueeze(0)
++            v_colors_input = v_colors.unsqueeze(0) if v_colors.dim() == 2 else v_colors
++            backgrounds = None
++
++            render_colors, render_alphas, _ = rasterization(
++                means=v_means_b, quats=v_quats_b, scales=v_scales_b,
++                opacities=v_opacities_b, colors=v_colors_input,
++                viewmats=viewmats, Ks=Ks,
++                width=ctx.width, height=ctx.height,
++                sh_degree=ctx.sh_degree, backgrounds=backgrounds,
++                packed=True, tile_size=ctx.tile_size,
++                near_plane=ctx.near_plane, far_plane=ctx.far_plane,
++                radius_clip=ctx.radius_clip, eps2d=ctx.eps2d,
++                camera_model=ctx.camera_model, render_mode=ctx.render_mode,
++            )
++
++            frame = render_colors.squeeze(0).squeeze(0)
++            alpha_ch = render_alphas.squeeze(0).squeeze(0)
++
++            grads = torch.autograd.grad(
++                outputs=(frame[None], alpha_ch[None]),
++                inputs=(means_r, quats_r, scales_r, opacities_r, colors_r),
++                grad_outputs=(grad_frame, grad_alpha),
++            )
++
++            return (
++            grads[0], grads[1], grads[2], grads[3], grads[4],
++            None, None,
++            None, None, None, None,
++            None, None, None, None,
++            None,
++            None, None,
++            None, None,
++            )
++
++
++def _higs_frozen_forward(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    viewmats: Tensor,
++    Ks: Tensor,
++    width: int,
++    height: int,
++    sh_degree=None,
++    tile_size: int = 16,
++    near_plane: float = 0.01,
++    far_plane: float = 1e10,
++    radius_clip: float = 0.0,
++    eps2d: float = 0.3,
++    background=None,
++    render_mode: str = "RGB",
++    camera_model: str = "pinhole",
++    enable_culling: bool = True,
++    use_higs_culling: bool = False,
++    return_higs_preview: bool = False,
++    freeze_topology: bool = True,
++) -> dict:
++    """Forward pass for frozen-topology HiGS diff. path (Stage B).
++
++    Delegates to _HigsAutogradFunction which handles culling + diff.
++    rasterization. Handles HiGS preview and metadata outside the autograd
++    Function.
++    """
++
++    _HIGS_FROZEN_TRACKER.validate(means.shape[0], freeze_topology)
++
++    frame, alpha = _HigsAutogradFunction.apply(
++        means, quats, scales, opacities, colors,
++        viewmats, Ks,
++        width, height, sh_degree, tile_size,
++        near_plane, far_plane, radius_clip, eps2d, background,
++        render_mode, camera_model,
++        enable_culling, use_higs_culling,
++    )
++    N_visible_data = means.shape[0]
++    N_total = means.shape[0]
++
++
++    higs_preview = None
++    if return_higs_preview:
++        try:
++            from gsplat.scene import GaussianInferenceScene
++            with torch.no_grad():
++                scene = GaussianInferenceScene.from_gaussian_tensors(
++                    means, quats, scales, opacities, colors,
++                    sh_degree=sh_degree,
++                    sh_compression="none",
++                    id="frozen_preview",
++                )
++                req = dict(
++                    viewmat=viewmats[0, 0] if viewmats.dim() > 2 else viewmats,
++                    K=Ks[0, 0] if Ks.dim() > 2 else Ks,
++                    width=width, height=height,
++                    tile_size=tile_size, near_plane=near_plane,
++                    far_plane=far_plane, radius_clip=radius_clip,
++                    eps2d=eps2d, render_mode=render_mode,
++                    camera_model=camera_model,
++                )
++                if background is not None:
++                    req["background"] = background
++                higs_result = rasterize_gaussian_inference_scene(scene, **req)
++                higs_preview = higs_result.frame
++        except Exception:
++            pass
++
++    return {
++        "frame": frame,
++        "alpha": alpha,
++        "metadata": {
++            "n_gaussians": N_total,
++            "n_visible": N_total,
++            "culling_ratio": 0.0,
++            "use_higs_culling": use_higs_culling,
++            "higs_preview": higs_preview,
++            "freeze_topology": freeze_topology,
++            "render_count": _HIGS_FROZEN_TRACKER.render_count,
++        },
++    }
++
++def rasterize_gaussian_higs_frozen(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    sh_degree = None,
++    viewmats: Tensor,
++    Ks: Tensor,
++    width: int,
++    height: int,
++    tile_size: int = 16,
++    near_plane: float = 0.01,
++    far_plane: float = 1e10,
++    radius_clip: float = 0.0,
++    eps2d: float = 0.3,
++    background = None,
++    render_mode: str = "RGB",
++    camera_model: str = "pinhole",
++    enable_culling: bool = True,
++    use_higs_culling: bool = False,
++    return_higs_preview: bool = False,
++    freeze_topology: bool = True,
++) -> dict:
++    """Differentiable HiGS rendering with per-frame visibility culling (Stage B).
++
++    Stage B improves on Stage A by culling invisible Gaussians before
++    the differentiable rendering pass. Only visible Gaussians participate
++    in the autograd computation.
++
++    When ``freeze_topology=True`` (default), the Gaussian count is validated
++    across renderer calls. If the count changes, RuntimeError is raised.
++
++    Args:
++        enable_culling: If True, cull invisible Gaussians via projection.
++        freeze_topology: If True, validate Gaussian count consistency.
++        use_higs_culling: If True, use HiGS-native culling.
++        return_higs_preview: If True, include HiGS inference output.
++
++    Returns:
++        dict with keys: frame, alpha, metadata
++    """
++    return _higs_frozen_forward(
++        means, quats, scales, opacities, colors,
++        viewmats=viewmats, Ks=Ks, width=width, height=height,
++        sh_degree=sh_degree, tile_size=tile_size,
++        near_plane=near_plane, far_plane=far_plane,
++        radius_clip=radius_clip, eps2d=eps2d,
++        background=background, render_mode=render_mode,
++        camera_model=camera_model, enable_culling=enable_culling,
++        use_higs_culling=use_higs_culling,
++        return_higs_preview=return_higs_preview,
++        freeze_topology=freeze_topology,
++    )
++
++
++
++def _higs_dynamic_forward(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    viewmats: Tensor,
++    Ks: Tensor,
++    width: int,
++    height: int,
++    sh_degree=None,
++    tile_size: int = 16,
++    near_plane: float = 0.01,
++    far_plane: float = 1e10,
++    radius_clip: float = 0.0,
++    eps2d: float = 0.3,
++    background=None,
++    render_mode: str = "RGB",
++    camera_model: str = "pinhole",
++    enable_culling: bool = True,
++    use_higs_culling: bool = False,
++    return_higs_preview: bool = False,
++) -> dict:
++    """Forward pass for dynamic-topology HiGS diff. path (Stage C).
++
++    Unlike _higs_frozen_forward, this function does NOT enforce a fixed
++    Gaussian count. It uses _HigsDynamicScene to track versions and
++    validate that topology mutations (densify/prune) happen at the right time.
++    """
++
++    _HIGS_DYNAMIC_SCENE.validate_count(means.shape[0])
++
++    frame, alpha = _HigsAutogradFunction.apply(
++        means, quats, scales, opacities, colors,
++        viewmats, Ks,
++        width, height, sh_degree, tile_size,
++        near_plane, far_plane, radius_clip, eps2d, background,
++        render_mode, camera_model,
++        enable_culling, use_higs_culling,
++    )
++
++    scene_version = _HIGS_DYNAMIC_SCENE.next_version(means.shape[0])
++    N_total = means.shape[0]
++
++    higs_preview = None
++    if return_higs_preview:
++        try:
++            from gsplat.scene import GaussianInferenceScene
++            with torch.no_grad():
++                scene = GaussianInferenceScene.from_gaussian_tensors(
++                    means, quats, scales, opacities, colors,
++                    sh_degree=sh_degree, sh_compression="none", id="dynamic_preview",
++                )
++                req = dict(
++                    viewmat=viewmats[0, 0] if viewmats.dim() > 2 else viewmats,
++                    K=Ks[0, 0] if Ks.dim() > 2 else Ks,
++                    width=width, height=height, tile_size=tile_size,
++                    near_plane=near_plane, far_plane=far_plane,
++                    radius_clip=radius_clip, eps2d=eps2d,
++                    render_mode=render_mode, camera_model=camera_model,
++                )
++                if background is not None:
++                    req["background"] = background
++                higs_result = rasterize_gaussian_inference_scene(scene, **req)
++                higs_preview = higs_result.frame
++        except Exception:
++            pass
++
++    return {
++        "frame": frame,
++        "alpha": alpha,
++        "metadata": {
++            "n_gaussians": N_total,
++            "scene_version": scene_version,
++            "use_higs_culling": use_higs_culling,
++            "higs_preview": higs_preview,
++        },
++    }
++
++
++def rasterize_gaussian_higs_dynamic(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    sh_degree=None,
++    viewmats: Tensor,
++    Ks: Tensor,
++    width: int,
++    height: int,
++    tile_size: int = 16,
++    near_plane: float = 0.01,
++    far_plane: float = 1e10,
++    radius_clip: float = 0.0,
++    eps2d: float = 0.3,
++    background=None,
++    render_mode: str = "RGB",
++    camera_model: str = "pinhole",
++    enable_culling: bool = True,
++    use_higs_culling: bool = False,
++    return_higs_preview: bool = False,
++) -> dict:
++    """Differentiable HiGS rendering with dynamic-topology support (Stage C).
++
++    This is the Stage C entry point. Removes the freeze_topology restriction
++    present in rasterize_gaussian_higs_frozen. Gaussian count may change
++    between forward calls via _densify_gaussians / _prune_gaussians.
++
++    Before the next forward after a topology mutation, call
++    _HIGS_DYNAMIC_SCENE.mark_dirty() to indicate the change.
++    """
++    return _higs_dynamic_forward(
++        means, quats, scales, opacities, colors,
++        viewmats=viewmats, Ks=Ks, width=width, height=height,
++        sh_degree=sh_degree, tile_size=tile_size,
++        near_plane=near_plane, far_plane=far_plane,
++        radius_clip=radius_clip, eps2d=eps2d,
++        background=background, render_mode=render_mode,
++        camera_model=camera_model, enable_culling=enable_culling,
++        use_higs_culling=use_higs_culling,
++        return_higs_preview=return_higs_preview,
++    )
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
+index 15a4650..e61bbac 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
+@@ -1,4 +1,4 @@
+-/*
++﻿/*
+  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  * SPDX-License-Identifier: Apache-2.0
+  *
+@@ -517,7 +517,20 @@ namespace gaussian_render_inference_scene
+     // ==========================================================================
+     // gaussian_render_inference_only — torch.ops compatibility wrapper
+     // ==========================================================================
+-    std::tuple<at::Tensor, at::Tensor> gaussian_render_inference_only(
++    // ---------------------------------------------------------------------------
++// GaussianInferenceRenderer::getVisibleMask
++// ---------------------------------------------------------------------------
++at::Tensor GaussianInferenceRenderer::getVisibleMask() const
++{
++    if (!state_ || state_->num_gaussians == 0) {
++        return at::empty({0});
++    }
++    // The visible tensor is a bitmask stored as int32 [(N+31)/32]
++    // We return it as-is for Python-side conversion to indices.
++    return state_->visible;
++}
++
++std::tuple<at::Tensor, at::Tensor> gaussian_render_inference_only(
+         const at::Tensor &means_planar,
+         const at::Tensor &qso_packed,
+         const at::Tensor &colors_packed,
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
+index c01a046..523e681 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
+@@ -1,4 +1,4 @@
+-/*
++﻿/*
+  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  * SPDX-License-Identifier: Apache-2.0
+  *
+@@ -178,6 +178,11 @@ namespace gaussian_render_inference_scene
+             return !state_ || state_->num_gaussians == 0;
+         }
+ 
++        /// Get bitmask of visible Gaussians from last render.
++        /// Returns int32 tensor of shape [(N+31)/32] where bit j of word i
++        /// indicates Gaussian (i*32 + j) was visible in the last render.
++        at::Tensor getVisibleMask() const;
++
+     private:
+         std::unique_ptr<InferenceRenderState> state_;
+         at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
+diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
+index 2eb26d1..7723c01 100644
+--- a/gsplat/experimental/render/kernels/cuda/ext.cpp
++++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
+@@ -52,7 +52,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+         )
+         .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
+         .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
+-        .def("is_released", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::isReleased);
++        .def("is_released", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::isReleased)
++        .def("get_visible_mask", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::getVisibleMask);
+ }
+ 
+ TORCH_LIBRARY(experimental, m)
+diff --git a/tests/experimental/render/test_trainable.py b/tests/experimental/render/test_trainable.py
+new file mode 100644
+index 0000000..5d8d595
+--- /dev/null
++++ b/tests/experimental/render/test_trainable.py
+@@ -0,0 +1,503 @@
++# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++# SPDX-License-Identifier: Apache-2.0
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++# http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Tests for the trainable HiGS rendering path (Stage A).
++
++Usage:
++    pytest tests/experimental/render/test_trainable.py -s
++"""
++
++import pytest
++import torch
++
++device = torch.device("cuda:0")
++
++_skip_no_cuda = pytest.mark.skipif(
++    not torch.cuda.is_available(), reason="No CUDA device"
++)
++
++
++def _make_gaussians(N, device, sh_degree=None, seed=42):
++    """Create random Gaussian parameters for testing (activated values)."""
++    torch.manual_seed(seed)
++    means = torch.randn(N, 3, device=device)
++    means[:, 2] = means[:, 2].abs() + 2.0  # place in front of camera
++    quats = torch.randn(N, 4, device=device)
++    quats = quats / quats.norm(dim=-1, keepdim=True)
++    scales = torch.rand(N, 3, device=device) * 0.1 + 0.01  # activated (positive)
++    opacities = torch.rand(N, device=device) * 0.8 + 0.1  # activated [0.1, 0.9]
++
++    if sh_degree is not None:
++        K = (sh_degree + 1) ** 2
++        colors = torch.randn(N, K, 3, device=device) * 0.1
++    else:
++        colors = torch.sigmoid(torch.randn(N, 3, device=device))
++
++    return means, quats, scales, opacities, colors
++
++
++def _make_camera(device, width=128, height=96):
++    """Create a simple pinhole camera looking down +z."""
++    focal = 128.0
++    K = torch.tensor(
++        [
++            [focal, 0.0, width / 2.0],
++            [0.0, focal, height / 2.0],
++            [0.0, 0.0, 1.0],
++        ],
++        device=device,
++    )
++    viewmat = torch.eye(4, device=device)
++    return viewmat, K, width, height
++
++
++# ---------------------------------------------------------------------------
++# Stage A: Correctness Baseline / Re-computation Proxy
++# ---------------------------------------------------------------------------
++
++
++class TestAPIImports:
++    """Verify the Stage A API surface exists."""
++
++    @_skip_no_cuda
++    def test_trainable_function_importable(self):
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++
++        assert callable(rasterize_gaussian_higs_trainable)
++
++    @_skip_no_cuda
++    def test_trainable_function_in_render(self):
++        from gsplat.experimental.render import rasterize_gaussian_higs_trainable
++
++        assert callable(rasterize_gaussian_higs_trainable)
++
++
++class TestGradModeGuards:
++    """Verify that grad-mode guards work correctly."""
++
++    @_skip_no_cuda
++    def test_differentiable_false_requires_no_grad(self):
++        """differentiable=False should raise if grad is enabled."""
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++
++        means, quats, scales, opacities, colors = _make_gaussians(10, device)
++        viewmat, K, w, h = _make_camera(device)
++
++        with pytest.raises(RuntimeError, match="torch.inference_mode|torch.no_grad"):
++            rasterize_gaussian_higs_trainable(
++                means, quats, scales, opacities, colors,
++                viewmat=viewmat, K=K, width=w, height=h,
++                differentiable=False,
++            )
++
++    @_skip_no_cuda
++    def test_differentiable_true_allows_grad(self):
++        """differentiable=True should not raise when grad is enabled."""
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++
++        means, quats, scales, opacities, colors = _make_gaussians(10, device)
++        viewmat, K, w, h = _make_camera(device)
++
++        # Should not raise RuntimeError about grad mode
++        result = rasterize_gaussian_higs_trainable(
++            means, quats, scales, opacities, colors,
++            viewmat=viewmat, K=K, width=w, height=h,
++            differentiable=True,
++            sh_degree=None,
++        )
++        assert result.frame is not None
++        assert result.frame.shape == (1, h, w, 3)
++
++    @_skip_no_cuda
++    def test_differentiable_true_rejects_inference_mode(self):
++        """differentiable=True should raise if inference mode is active."""
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++
++        means, quats, scales, opacities, colors = _make_gaussians(10, device)
++        viewmat, K, w, h = _make_camera(device)
++
++        with torch.inference_mode():
++            with pytest.raises(RuntimeError, match="inference mode"):
++                rasterize_gaussian_higs_trainable(
++                    means, quats, scales, opacities, colors,
++                    viewmat=viewmat, K=K, width=w, height=h,
++                    differentiable=True,
++                )
++
++
++class TestGradientFlow:
++    """Verify gradients flow to all five parameter types."""
++
++    @_skip_no_cuda
++    def test_gradients_exist_for_all_params(self):
++        """loss.backward() should produce finite, non-empty gradients on all params."""
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++
++        N = 50
++        means, quats, scales, opacities, colors = _make_gaussians(N, device)
++        viewmat, K, w, h = _make_camera(device)
++
++        means.requires_grad_(True)
++        quats.requires_grad_(True)
++        scales.requires_grad_(True)
++        opacities.requires_grad_(True)
++        colors.requires_grad_(True)
++
++        result = rasterize_gaussian_higs_trainable(
++            means, quats, scales, opacities, colors,
++            viewmat=viewmat, K=K, width=w, height=h,
++            differentiable=True,
++            sh_degree=None,
++        )
++
++        loss = result.frame.sum()
++        loss.backward()
++
++        param_names = ["means", "quats", "scales", "opacities", "colors"]
++        grads = [means.grad, quats.grad, scales.grad, opacities.grad, colors.grad]
++
++        for name, grad in zip(param_names, grads):
++            assert grad is not None, f"{name}.grad is None"
++            assert grad.isfinite().all(), f"{name}.grad contains non-finite values"
++            assert grad.abs().sum() > 0, f"{name}.grad is all zeros"
++
++    @_skip_no_cuda
++    def test_forward_output_aligns_with_standard_gsplat(self):
++        """RGB/alpha outputs should approximately align with standard gsplat."""
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++        from gsplat.rendering import rasterization
++
++        N = 50
++        means, quats, scales, opacities, colors = _make_gaussians(N, device)
++        viewmat, K, w, h = _make_camera(device)
++
++        # Run our trainable path
++        result = rasterize_gaussian_higs_trainable(
++            means, quats, scales, opacities, colors,
++            viewmat=viewmat, K=K, width=w, height=h,
++            differentiable=True,
++            sh_degree=None,
++        )
++
++        # Run standard gsplat (with batch dims)
++        means_b = means.unsqueeze(0)
++        quats_b = quats.unsqueeze(0)
++        scales_b = scales.unsqueeze(0)
++        opacities_b = opacities.unsqueeze(0)
++        colors_b = colors.unsqueeze(0)
++        viewmats = viewmat.unsqueeze(0).unsqueeze(0)  # [1, 1, 4, 4]
++        Ks = K.unsqueeze(0).unsqueeze(0)  # [1, 1, 3, 3]
++
++        std_colors, std_alphas, _ = rasterization(
++            means=means_b, quats=quats_b, scales=scales_b,
++            opacities=opacities_b, colors=colors_b,
++            viewmats=viewmats, Ks=Ks, width=w, height=h,
++            packed=True,
++        )
++
++        # Compare
++        torch.testing.assert_close(
++            result.frame, std_colors.squeeze(0), atol=1e-3, rtol=1e-3
++        )
++
++
++class TestFiniteDifference:
++    """Simple finite-difference gradient check on a few elements."""
++
++    @_skip_no_cuda
++    def test_finite_diff_grad_means(self):
++        """Central finite-difference on means should agree with autograd."""
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++
++        N = 10
++        means, quats, scales, opacities, colors = _make_gaussians(N, device)
++        viewmat, K, w, h = _make_camera(device)
++
++        # Pick one Gaussian to perturb
++        idx = 3
++        eps = 1e-4
++
++        def forward_fn(m):
++            m.requires_grad_(True)
++            q = quats.detach().clone().requires_grad_(True)
++            s = scales.detach().clone().requires_grad_(True)
++            o = opacities.detach().clone().requires_grad_(True)
++            c = colors.detach().clone().requires_grad_(True)
++            r = rasterize_gaussian_higs_trainable(
++                m, q, s, o, c,
++                viewmat=viewmat, K=K, width=w, height=h,
++                differentiable=True, sh_degree=None,
++            )
++            return r.frame.sum()
++
++        # Autograd gradient
++        m0 = means.detach().clone().requires_grad_(True)
++        loss = forward_fn(m0)
++        loss.backward()
++        auto_grad = m0.grad[idx, 0].item()
++
++        # Finite difference
++        m_plus = means.detach().clone()
++        m_plus[idx, 0] += eps
++        loss_plus = forward_fn(m_plus)
++
++        m_minus = means.detach().clone()
++        m_minus[idx, 0] -= eps
++        loss_minus = forward_fn(m_minus)
++
++        fd_grad = (loss_plus.item() - loss_minus.item()) / (2 * eps)
++
++        # Relative tolerance: finite diff is noisy, use 10%
++        if abs(auto_grad) > 1e-6:
++            assert abs(auto_grad - fd_grad) / max(abs(auto_grad), 1e-8) < 0.1, (
++                f"Gradient mismatch for means[{idx}, 0]: auto={auto_grad:.6f}, fd={fd_grad:.6f}"
++            )
++
++    @_skip_no_cuda
++    def test_finite_diff_grad_opacities(self):
++        """Central finite-difference on opacities should agree with autograd."""
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++
++        N = 10
++        means, quats, scales, opacities, colors = _make_gaussians(N, device)
++        viewmat, K, w, h = _make_camera(device)
++
++        idx = 3
++        eps = 1e-4
++
++        def forward_fn(o):
++            m = means.detach().clone().requires_grad_(True)
++            q = quats.detach().clone().requires_grad_(True)
++            s = scales.detach().clone().requires_grad_(True)
++            o.requires_grad_(True)
++            c = colors.detach().clone().requires_grad_(True)
++            r = rasterize_gaussian_higs_trainable(
++                m, q, s, o, c,
++                viewmat=viewmat, K=K, width=w, height=h,
++                differentiable=True, sh_degree=None,
++            )
++            return r.frame.sum()
++
++        o0 = opacities.detach().clone().requires_grad_(True)
++        loss = forward_fn(o0)
++        loss.backward()
++        auto_grad = o0.grad[idx].item()
++
++        o_plus = opacities.detach().clone()
++        o_plus[idx] += eps
++        loss_plus = forward_fn(o_plus)
++
++        o_minus = opacities.detach().clone()
++        o_minus[idx] -= eps
++        loss_minus = forward_fn(o_minus)
++
++        fd_grad = (loss_plus.item() - loss_minus.item()) / (2 * eps)
++
++        if abs(auto_grad) > 1e-6:
++            assert abs(auto_grad - fd_grad) / max(abs(auto_grad), 1e-8) < 0.15, (
++                f"Gradient mismatch for opacities[{idx}]: auto={auto_grad:.6f}, fd={fd_grad:.6f}"
++            )
++
++    @_skip_no_cuda
++    def test_finite_diff_grad_scales(self):
++        """Central finite-difference on scales should agree with autograd."""
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++
++        N = 10
++        means, quats, scales, opacities, colors = _make_gaussians(N, device)
++        viewmat, K, w, h = _make_camera(device)
++
++        idx = 3
++        eps = 1e-4
++
++        def forward_fn(s):
++            m = means.detach().clone().requires_grad_(True)
++            q = quats.detach().clone().requires_grad_(True)
++            s.requires_grad_(True)
++            o = opacities.detach().clone().requires_grad_(True)
++            c = colors.detach().clone().requires_grad_(True)
++            r = rasterize_gaussian_higs_trainable(
++                m, q, s, o, c,
++                viewmat=viewmat, K=K, width=w, height=h,
++                differentiable=True, sh_degree=None,
++            )
++            return r.frame.sum()
++
++        s0 = scales.detach().clone().requires_grad_(True)
++        loss = forward_fn(s0)
++        loss.backward()
++        auto_grad = s0.grad[idx, 0].item()
++
++        s_plus = scales.detach().clone()
++        s_plus[idx, 0] += eps
++        loss_plus = forward_fn(s_plus)
++
++        s_minus = scales.detach().clone()
++        s_minus[idx, 0] -= eps
++        loss_minus = forward_fn(s_minus)
++
++        fd_grad = (loss_plus.item() - loss_minus.item()) / (2 * eps)
++
++        if abs(auto_grad) > 1e-6:
++            assert abs(auto_grad - fd_grad) / max(abs(auto_grad), 1e-8) < 0.15, (
++                f"Gradient mismatch for scales[{idx}, 0]: auto={auto_grad:.6f}, fd={fd_grad:.6f}"
++            )
++
++    @_skip_no_cuda
++    def test_finite_diff_grad_colors(self):
++        """Central finite-difference on colors should agree with autograd."""
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++
++        N = 10
++        means, quats, scales, opacities, colors = _make_gaussians(N, device)
++        viewmat, K, w, h = _make_camera(device)
++
++        idx = 3
++        eps = 1e-4
++
++        def forward_fn(c):
++            m = means.detach().clone().requires_grad_(True)
++            q = quats.detach().clone().requires_grad_(True)
++            s = scales.detach().clone().requires_grad_(True)
++            o = opacities.detach().clone().requires_grad_(True)
++            c.requires_grad_(True)
++            r = rasterize_gaussian_higs_trainable(
++                m, q, s, o, c,
++                viewmat=viewmat, K=K, width=w, height=h,
++                differentiable=True, sh_degree=None,
++            )
++            return r.frame.sum()
++
++        c0 = colors.detach().clone().requires_grad_(True)
++        loss = forward_fn(c0)
++        loss.backward()
++        auto_grad = c0.grad[idx, 0].item()
++
++        c_plus = colors.detach().clone()
++        c_plus[idx, 0] += eps
++        loss_plus = forward_fn(c_plus)
++
++        c_minus = colors.detach().clone()
++        c_minus[idx, 0] -= eps
++        loss_minus = forward_fn(c_minus)
++
++        fd_grad = (loss_plus.item() - loss_minus.item()) / (2 * eps)
++
++        if abs(auto_grad) > 1e-6:
++            assert abs(auto_grad - fd_grad) / max(abs(auto_grad), 1e-8) < 0.15, (
++                f"Gradient mismatch for colors[{idx}, 0]: auto={auto_grad:.6f}, fd={fd_grad:.6f}"
++            )
++
++class TestGradientCosineSimilarity:
++    """Verify gradients match standard gsplat in direction (cosine similarity)."""
++
++    @_skip_no_cuda
++    def test_gradient_cosine_similarity_all_params(self):
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++        from gsplat.rendering import rasterization
++
++        N = 50
++        means, quats, scales, opacities, colors = _make_gaussians(N, device)
++        viewmat, K, w, h = _make_camera(device)
++        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
++        Ks = K.unsqueeze(0).unsqueeze(0)
++
++        def _compute(use_trainable):
++            m = means.detach().clone().requires_grad_(True)
++            q = quats.detach().clone().requires_grad_(True)
++            s = scales.detach().clone().requires_grad_(True)
++            o = opacities.detach().clone().requires_grad_(True)
++            c = colors.detach().clone().requires_grad_(True)
++            if use_trainable:
++                result = rasterize_gaussian_higs_trainable(
++                    m, q, s, o, c, viewmats=viewmats, Ks=Ks,
++                    width=w, height=h, differentiable=True, sh_degree=None,
++                )
++                result.frame.sum().backward()
++            else:
++                mb = m.unsqueeze(0); qb = q.unsqueeze(0); sb = s.unsqueeze(0)
++                ob = o.unsqueeze(0); cb = c.unsqueeze(0)
++                renders, _, _ = rasterization(
++                    means=mb, quats=qb, scales=sb, opacities=ob, colors=cb,
++                    viewmats=viewmats, Ks=Ks, width=w, height=h, packed=True,
++                )
++                renders.sum().backward()
++            return {k: v.grad for k, v in [("means", m), ("quats", q), ("scales", s),
++                                            ("opacities", o), ("colors", c)]}
++
++        grads_t = _compute(True)
++        grads_s = _compute(False)
++
++        for name in ["means", "quats", "scales", "opacities", "colors"]:
++            cos = torch.nn.functional.cosine_similarity(
++                grads_t[name].flatten().unsqueeze(0),
++                grads_s[name].flatten().unsqueeze(0),
++            ).item()
++            assert cos > 0.95, f"{name} cosine similarity {cos:.6f} < 0.95"
++class TestTrainingSmoke:
++    """End-to-end training loop smoke test."""
++
++    @_skip_no_cuda
++    def test_loss_decreases_over_steps(self):
++        from gsplat.experimental import rasterize_gaussian_higs_trainable
++        from gsplat.rendering import rasterization
++
++        N = 200
++        torch.manual_seed(42)
++        means = torch.randn(N, 3, device=device); means[:, 2] = means[:, 2].abs() + 3.0
++        quats = torch.randn(N, 4, device=device)
++        quats = quats / quats.norm(dim=-1, keepdim=True)
++        scales = torch.rand(N, 3, device=device) * 0.15 + 0.01
++        opacities = torch.rand(N, device=device) * 0.9 + 0.05
++        colors = torch.sigmoid(torch.randn(N, 3, device=device))
++
++        viewmats = torch.eye(4, device=device).unsqueeze(0).unsqueeze(0)
++        Ks = torch.tensor([[256., 0., 128.], [0., 256., 96.], [0., 0., 1.]], device=device).unsqueeze(0).unsqueeze(0)
++        W, H = 256, 192
++
++        # Target image
++        with torch.no_grad():
++            target, _, _ = rasterization(
++                means=means.unsqueeze(0), quats=quats.unsqueeze(0),
++                scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
++                colors=colors.unsqueeze(0), viewmats=viewmats, Ks=Ks,
++                width=W, height=H, packed=True,
++            )
++        target_img = target.squeeze(0).squeeze(0)
++
++        # Optimize
++        m = torch.randn(N, 3, device=device).requires_grad_(True)
++        q = torch.randn(N, 4, device=device)
++        q.data /= q.data.norm(dim=-1, keepdim=True); q.requires_grad_(True)
++        s = (torch.rand(N, 3, device=device) * 0.1 + 0.01).requires_grad_(True)
++        o = (torch.rand(N, device=device) * 0.5 + 0.25).requires_grad_(True)
++        c = torch.sigmoid(torch.randn(N, 3, device=device)).requires_grad_(True)
++
++        optim = torch.optim.Adam([m, q, s, o, c], lr=0.01)
++        losses = []
++        for _ in range(20):
++            optim.zero_grad()
++            result = rasterize_gaussian_higs_trainable(
++                m, q, s, o, c, viewmats=viewmats, Ks=Ks,
++                width=W, height=H, differentiable=True, sh_degree=None,
++            )
++            loss = torch.nn.functional.mse_loss(result.frame, target_img[None])
++            loss.backward()
++            optim.step()
++            losses.append(loss.item())
++
++        assert losses[-1] < losses[0], (
++            f"Loss did not decrease: {losses[0]:.6f} -> {losses[-1]:.6f}"
++        )
