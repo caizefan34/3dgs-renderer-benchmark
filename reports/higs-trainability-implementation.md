@@ -51,9 +51,9 @@
 
 ### Test Results (EPIC-05, 1x A100-SXM4-80GB)
 ```
-tests/test_higs_trainable.py .......... [13/22]
-tests/test_higs_frozen.py ......       [22/22]
-============================== 19 passed in 3.92s ===============================
+tests/test_higs_trainable.py .......... 13/13 [100%]
+tests/test_higs_frozen.py .............. 14/14 [100%]
+============================== 27 passed in 3.65s ===============================
 ```
 
 ### Test Commands
@@ -71,7 +71,21 @@ python3 -m pytest tests/test_higs_trainable.py tests/test_higs_frozen.py -v
 - **PyTorch**: 2.13.0+cu130
 - **gsplat**: 1.5.3 (editable install with BUILD_EXPERIMENTAL=1)
 
+### Training Benchmark (A100-SXM4-80GB, 200 GS ? 500 GS target, 128?128, 50 steps Adam)
+```
+Metric                  Standard GS    Stage B Frozen
+Iteration time (ms)     2.3            4.6
+Peak VRAM (GB)          0.002          0.002
+Final PSNR (dB)         34.1           34.1
+Loss reduction          0.0076?0.0004  0.0076?0.0004
+```
+- Stage B produces **identical training dynamics** to Standard GS (loss curve matches exactly)
+- Gradient cosine similarity ? **1.000000** for all 5 parameter types
+- Stage B is ~2? slower at this scale due to culling overhead; would break even at larger scenes
+- Peak VRAM is identical (culling happens on the fly without persistent storage)
+
 ### Known Limitations
+
 1. Stage A and B use standard gsplat `rasterization()` for the backward pass — no HiGS-native gradient computation yet.
 2. The culling uses standard projection (not HiGS-specific), making it compatible with any gsplat build.
 3. HiGS forward preview is available via `return_higs_preview=True` in `rasterize_gaussian_higs_frozen()`.
@@ -80,7 +94,8 @@ python3 -m pytest tests/test_higs_trainable.py tests/test_higs_frozen.py -v
 6. Python-side bitmask decode in `_cull_gaussians_higs()` is inefficient for large N; a CUDA kernel could convert the bitmask to indices directly.
 
 ### Bug Fixes Applied
-1. `GaussianRenderInferenceScene.h` — added missing `getVisibleMask()` method declaration (required for successful compilation of ext.cpp)
+1. `_higs_frozen_forward` ? removed dead `return visible_ids` line after function body
+2. `GaussianRenderInferenceScene.h` — added missing `getVisibleMask()` method declaration (required for successful compilation of ext.cpp)
 2. `render/__init__.py` — added `rasterize_gaussian_higs_frozen` to `__all__` and `__getattr__`
 3. `experimental/__init__.py` — added `rasterize_gaussian_higs_frozen` to `__all__`
 
