@@ -781,6 +781,246 @@ class TestCameraModelBackward:
             )
 
 
+class TestDepthRenderModes:
+    """Native forward/backward for depth render modes.
+
+    Covers the depth-channel compositing chain (D/ED/RGB+D/RGB+ED):
+    forward parity vs standard gsplat, native-vs-recompute gradient
+    parity (including the expected-depth alpha normalization), finite
+    differences, multi-camera batches, background gradients and the
+    rejection of the eval3d-only hit-distance modes.
+    """
+
+    MODES = ["D", "ED", "RGB+D", "RGB+ED"]
+
+    @staticmethod
+    def _nch(render_mode):
+        return 1 if render_mode in ("D", "ED") else 4
+
+    @_skip_no_cuda
+    @pytest.mark.parametrize("render_mode", MODES)
+    def test_forward_matches_standard_gsplat(self, render_mode):
+        _require_ext()
+        from gsplat.rendering import rasterization
+
+        N = 48
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device, seed=7)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        res = _run_frozen(
+            (means, quats, scales, opacities, colors),
+            viewmats, Ks, w, h,
+            render_mode=render_mode, backward_mode="higs_native",
+            enable_culling=False,
+        )
+        assert res["metadata"]["render_mode"] == render_mode
+        ref, ref_alpha, _ = rasterization(
+            means=means.unsqueeze(0), quats=quats.unsqueeze(0),
+            scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
+            colors=colors.unsqueeze(0),
+            viewmats=viewmats, Ks=Ks, width=w, height=h,
+            render_mode=render_mode, packed=True,
+        )
+        torch.testing.assert_close(res["frame"][0], ref[0][0], atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(res["alpha"][0], ref_alpha[0][0], atol=1e-4, rtol=1e-4)
+
+    @_skip_no_cuda
+    @pytest.mark.parametrize("render_mode", MODES)
+    def test_native_vs_recompute_gradients_agree(self, render_mode):
+        _require_ext()
+        N = 48
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device, seed=7)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        target = torch.rand(1, h, w, self._nch(render_mode), device=device)
+
+        def grads(mode):
+            for t in [means, quats, scales, opacities, colors]:
+                t.grad = None
+            res = _run_frozen(
+                (means, quats, scales, opacities, colors),
+                viewmats, Ks, w, h,
+                render_mode=render_mode, backward_mode=mode,
+                enable_culling=False,
+            )
+            loss = (res["frame"] - target).pow(2).mean()
+            loss.backward()
+            return [t.grad.clone() for t in [means, quats, scales, opacities, colors]]
+
+        g_native = grads("higs_native")
+        g_recomp = grads("gsplat_recompute")
+        for name, a, b in zip(
+            ["means", "quats", "scales", "opacities", "colors"], g_native, g_recomp
+        ):
+            torch.testing.assert_close(a, b, atol=1e-3, rtol=1e-3)
+
+    @_skip_no_cuda
+    @pytest.mark.parametrize("render_mode", ["D"])
+    def test_depth_finite_difference(self, render_mode):
+        _require_ext()
+        N = 24
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device, seed=9)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        def loss_fn():
+            res = _run_frozen(
+                (means, quats, scales, opacities, colors),
+                viewmats, Ks, w, h,
+                render_mode=render_mode, backward_mode="higs_native",
+                enable_culling=False,
+            )
+            return res["frame"].sum()
+
+        loss = loss_fn()
+        loss.backward()
+
+        eps = 1e-3
+        tol = 2e-2
+
+        def fd_check(param, grad, idx):
+            flat = param.detach().clone().flatten()
+            flat[idx] += eps
+            with torch.no_grad():
+                param.copy_(flat.view_as(param))
+            up = loss_fn().item()
+            flat[idx] -= 2 * eps
+            with torch.no_grad():
+                param.copy_(flat.view_as(param))
+            down = loss_fn().item()
+            flat[idx] += eps
+            with torch.no_grad():
+                param.copy_(flat.view_as(param))
+            numeric = (up - down) / (2 * eps)
+            analytic = grad.flatten()[idx].item()
+            assert abs(numeric - analytic) <= tol * max(1.0, abs(numeric)), (
+                f"{render_mode} idx {idx}: numeric={numeric} analytic={analytic}"
+            )
+
+        for t, g in [(means, means.grad), (opacities, opacities.grad)]:
+            for idx in [0, 1, t.numel() // 2, t.numel() - 1]:
+                if g.flatten()[idx].abs().item() < 1e-8:
+                    continue
+                fd_check(t, g, idx)
+
+    @_skip_no_cuda
+    def test_rgb_d_background_forward_and_grad(self):
+        _require_ext()
+        from gsplat.rendering import rasterization
+
+        N = 48
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device, seed=11)
+        bg = torch.tensor([0.1, 0.2, 0.3], device=device, requires_grad=True)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        res = _run_frozen(
+            (means, quats, scales, opacities, colors),
+            viewmats, Ks, w, h,
+            render_mode="RGB+D", background=bg, backward_mode="higs_native",
+            enable_culling=False,
+        )
+        ref, ref_alpha, _ = rasterization(
+            means=means.unsqueeze(0), quats=quats.unsqueeze(0),
+            scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
+            colors=colors.unsqueeze(0),
+            viewmats=viewmats, Ks=Ks, width=w, height=h,
+            render_mode="RGB+D",
+            backgrounds=bg.detach().unsqueeze(0).unsqueeze(0), packed=True,
+        )
+        torch.testing.assert_close(res["frame"][0], ref[0][0], atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(res["alpha"][0], ref_alpha[0][0], atol=1e-4, rtol=1e-4)
+
+        target = torch.rand(1, h, w, 4, device=device)
+        loss = (res["frame"] - target).pow(2).mean()
+        loss.backward()
+        assert bg.grad is not None and bg.grad.shape == (3,)
+        assert bg.grad.abs().sum() > 0
+        assert colors.grad is not None and colors.grad.abs().sum() > 0
+
+    @_skip_no_cuda
+    def test_depth_multi_camera_gradients_agree(self):
+        _require_ext()
+        N = 32
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device, seed=13)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = torch.stack([viewmat, viewmat.clone()], dim=0).unsqueeze(0)
+        Ks = torch.stack([K, K.clone()], dim=0).unsqueeze(0)
+        target = torch.rand(1, 2, h, w, 1, device=device)
+
+        def grads(mode):
+            for t in [means, quats, scales, opacities, colors]:
+                t.grad = None
+            res = _run_frozen(
+                (means, quats, scales, opacities, colors),
+                viewmats, Ks, w, h,
+                render_mode="D", backward_mode=mode, enable_culling=False,
+            )
+            loss = (res["frame"] - target).pow(2).mean()
+            loss.backward()
+            return [t.grad.clone() for t in [means, quats, scales, opacities, colors]]
+
+        g_native = grads("higs_native")
+        g_recomp = grads("gsplat_recompute")
+        for name, a, b in zip(
+            ["means", "quats", "scales", "opacities", "colors"], g_native, g_recomp
+        ):
+            torch.testing.assert_close(a, b, atol=1e-3, rtol=1e-3)
+
+    @_skip_no_cuda
+    def test_depth_only_sh_colors_gradient_zero(self):
+        _require_ext()
+        N = 24
+        means, quats, scales, opacities, _ = _make_smooth_scene(N, device, seed=17)
+        torch.manual_seed(3)
+        sh = (torch.randn(N, 4, 3, device=device) * 0.3).contiguous()
+        sh.requires_grad_(True)
+        for t in [means, quats, scales, opacities]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        res = _run_frozen(
+            (means, quats, scales, opacities, sh),
+            viewmats, Ks, w, h,
+            render_mode="D", sh_degree=1, backward_mode="higs_native",
+            enable_culling=False,
+        )
+        res["frame"].sum().backward()
+        assert sh.grad is not None and sh.grad.abs().sum() == 0
+        assert means.grad is not None and means.grad.abs().sum() > 0
+
+    @_skip_no_cuda
+    def test_native_rejects_hit_distance_modes(self):
+        _require_ext()
+        N = 16
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device, seed=5)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        for mode in ("d", "Ed", "RGB-d", "RGB-Ed"):
+            with pytest.raises(ValueError, match="render_mode"):
+                _run_frozen(
+                    (means, quats, scales, opacities, colors),
+                    viewmats, Ks, w, h,
+                    render_mode=mode, backward_mode="higs_native",
+                )
+
+
 class TestFallbackAndErrors:
     @_skip_no_cuda
     def test_fallback_when_extension_unavailable(self, monkeypatch):
@@ -833,22 +1073,6 @@ class TestFallbackAndErrors:
                 (means, quats, scales, opacities, colors),
                 viewmats, Ks, w, h, backward_mode="bogus",
             )
-
-    @_skip_no_cuda
-    def test_native_rejects_non_rgb(self):
-        _require_ext()
-        N = 16
-        means, quats, scales, opacities, colors = _make_gaussians(N, 3, device)
-        viewmat, K, w, h = _full_view_camera(device)
-        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
-        Ks = K.unsqueeze(0).unsqueeze(0)
-        with pytest.raises(ValueError, match="RGB"):
-            _run_frozen(
-                (means, quats, scales, opacities, colors),
-                viewmats, Ks, w, h, backward_mode="higs_native",
-                render_mode="RGB+D",
-            )
-
 
 class TestDynamicTopology:
     @_skip_no_cuda

@@ -99,7 +99,7 @@ Host launcher `higs_rasterize_backward(...)` returns FP32 tuple
 - The extension-unavailable / input-error / topology-version / kernel-error
   cases are distinguished (RuntimeError with actionable messages vs fallback).
 - Metadata keys: `backward_backend`, `scene_version`, `n_gaussians`,
-  `n_visible`, `culling_ratio`, `topology_rebuilt`, `packed_dtype`.
+  `n_visible`, `culling_ratio`, `topology_rebuilt`, `packed_dtype`, `render_mode`.
 
 ## Test suites
 
@@ -116,16 +116,19 @@ Host launcher `higs_rasterize_backward(...)` returns FP32 tuple
   activation); explicit fallback when the extension is unavailable; pending-
   backward mutation raises; densify/prune optimizer-state sync;
   culling-boundary FD (near plane, far plane, radius clip, projection edge);
-  no-CUDA static/API surface (imports, signature defaults, backend probe,
-  metadata key contract, handle/scene API).
+  depth render modes `D`/`ED`/`RGB+D`/`RGB+ED` (forward parity, native vs
+  recompute gradients incl. expected-depth normalization, finite differences,
+  multi-camera, background gradients, SH-input zero-gradient, hit-distance
+  rejection); no-CUDA static/API surface (imports, signature defaults, backend
+  probe, metadata key contract, handle/scene API).
 
 ## Test results (EPIC-05, A100)
 ```
 tests/test_higs_trainable.py ............... 13/13 [100%]
 tests/test_higs_frozen.py ................... 14/14 [100%]
 tests/test_higs_dynamic.py ................. 11/11 [100%]
-tests/test_higs_native_backward.py ......... 46/46 [100%]
-============================== 87 passed in 13.09s ===============================
+tests/test_higs_native_backward.py ......... 58/58 [100%]
+============================== 99 passed in 19.91s ===============================
 ```
 Native-backward coverage: forward RGB/SH/background parity vs standard gsplat;
 finite-difference gradients on means/quats/scales/opacities/RGB/SH;
@@ -137,7 +140,9 @@ native-vs-recompute gradient agreement (RGB + SH incl. clamp activation);
 explicit fallback when the CUDA extension is unavailable; pending-backward
 topology mutation raises; densify/prune optimizer-state sync; culling-boundary
 FD at the near/far planes, radius-clip threshold and projection (image) edge;
-5 no-CUDA static/API tests that still run when no CUDA device is present.
+depth render modes `D`/`ED`/`RGB+D`/`RGB+ED` (native vs recompute gradient
+parity incl. expected-depth normalization); 6 no-CUDA tests that still run
+when no CUDA device is present.
 
 ## Test commands
 
@@ -202,10 +207,13 @@ Native-vs-recompute probe: gradient cosine 0.999996 (train) / 0.999997
 
 ## Known limitations
 
-1. The native backward supports `render_mode="RGB"` only. Camera models
-   pinhole, ortho and fisheye are fully supported (projection VJP switched on
-   `CameraModelType`); ftheta/lidar and non-RGB render modes (depth,
-   hit-distance, ...) raise with a clear message (use the recompute fallback).
+1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
+   (depth composited as a channel with camera-space `z`; expected modes chain
+   through the `depth_acc / alpha` normalization). Camera models pinhole, ortho
+   and fisheye are fully supported (projection VJP switched on `CameraModelType`).
+   ftheta/lidar cameras and the eval3d-only hit-distance modes
+   (`d`/`Ed`/`RGB-d`/`RGB-Ed`) still raise with a clear message (use the
+   recompute fallback).
 2. Culling is a discrete approximation: the HiGS scene (packed FP16 buffers +
    renderer) is rebuilt on topology change, explicit `mark_dirty()`, or
    automatic FP32 parameter-drift detection (`HigsRendererHandle.params_changed`,
