@@ -134,7 +134,7 @@ index 18161be0..6022ae3c 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b132..3fa284d8 100644
+index b6c1b132..240e8871 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -184,7 +184,7 @@ index b6c1b132..3fa284d8 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +409,1742 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +409,1811 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -519,7 +519,7 @@ index b6c1b132..3fa284d8 100644
 +                    "mark_dirty(); call renderer_handle.mark_dirty() after "
 +                    "densify/prune before the next forward."
 +                )
-+            if handle.dirty or handle.n_gaussians != N:
++            if handle.dirty or handle.n_gaussians != N or (not handle.pending_backward and handle.params_changed(means, quats, scales, opacities, colors)):
 +                means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
 +                    means, quats, scales, opacities, colors, sh_deg_i, comp,
 +                )
@@ -531,6 +531,8 @@ index b6c1b132..3fa284d8 100644
 +                handle.rebuild(
 +                    means_planar, qso_packed, colors_packed, N,
 +                    packed_dtype=str(qso_packed.dtype), renderer=renderer,
++                    means=means, quats=quats, scales=scales,
++                    opacities=opacities, colors=colors,
 +                )
 +
 +        _ = handle.renderer.render(
@@ -580,6 +582,20 @@ index b6c1b132..3fa284d8 100644
 +        f"got {type(mode).__name__}"
 +    )
 +
++def _ste_sh_quantize(colors: Tensor) -> Tensor:
++    """Differentiable FP16 quantization of SH coefficients (straight-through).
++
++    ``sh_compression_mode="packed_16b"/"packed_32b"`` store SH3 coefficients
++    as FP16; the lossy step is the FP16 cast (the layout flatten is
++    inference-scene-only). PyTorch dtype casts are differentiable with an
++    identity-style gradient, so this is the standard straight-through
++    estimator: the forward render sees the quantized coefficients while the
++    gradient flows through the cast back to the FP32 master tensors.
++    """
++    if colors is None or colors.dtype == torch.float16:
++        return colors
++    return colors.half().float()
++
 +
 +class HigsRendererHandle:
 +    """Explicit handle owning a packed HiGS scene and its pybind renderer.
@@ -604,6 +620,11 @@ index b6c1b132..3fa284d8 100644
 +        packed_dtype: str,
 +        n_gaussians: int,
 +        sh_degree: int,
++        means=None,
++        quats=None,
++        scales=None,
++        opacities=None,
++        colors=None,
 +    ) -> None:
 +        self.means_planar = means_planar
 +        self.qso_packed = qso_packed
@@ -616,6 +637,12 @@ index b6c1b132..3fa284d8 100644
 +        self._dirty: bool = False
 +        self._topology_rebuilt: bool = False
 +        self._pending_backward: bool = False
++        if means is not None:
++            self._param_versions = self._capture_param_versions(
++                (means, quats, scales, opacities, colors)
++            )
++        else:
++            self._param_versions = None
 +
 +    # -- read-only state ---------------------------------------------------
 +    @property
@@ -651,7 +678,7 @@ index b6c1b132..3fa284d8 100644
 +        self._dirty = True
 +        self._topology_rebuilt = False
 +
-+    def rebuild(self, means_planar, qso_packed, colors_packed, n_gaussians: int, packed_dtype: str, renderer=None) -> None:
++    def rebuild(self, means_planar, qso_packed, colors_packed, n_gaussians: int, packed_dtype: str, renderer=None, means=None, quats=None, scales=None, opacities=None, colors=None) -> None:
 +        """Replace the packed buffers + renderer after a topology change."""
 +        self.means_planar = means_planar
 +        self.qso_packed = qso_packed
@@ -663,6 +690,29 @@ index b6c1b132..3fa284d8 100644
 +        self._dirty = False
 +        self._topology_rebuilt = True
 +        self._version += 1
++        if means is not None:
++            self._param_versions = self._capture_param_versions(
++                (means, quats, scales, opacities, colors)
++            )
++
++    def _capture_param_versions(self, tensors) -> tuple | None:
++        """Snapshot master-tensor in-place mutation versions (optimizer.step)."""
++        try:
++            return tuple(t._version for t in tensors)
++        except AttributeError:
++            return None
++
++    def params_changed(self, means, quats, scales, opacities, colors) -> bool:
++        """True when the FP32 master tensors changed since the last rebuild.
++
++        Uses ``torch.Tensor._version`` (incremented by in-place ops such as
++        ``optimizer.step()``), so the culling hierarchy is refreshed exactly
++        when the parameters drift, without a heuristic threshold.
++        """
++        if self._param_versions is None:
++            return False
++        current = self._capture_param_versions((means, quats, scales, opacities, colors))
++        return current != self._param_versions
 +
 +    def _begin_forward(self) -> None:
 +        self._pending_backward = True
@@ -731,6 +781,8 @@ index b6c1b132..3fa284d8 100644
 +        packed_dtype=str(qso_packed.dtype),
 +        n_gaussians=means.shape[0],
 +        sh_degree=sh_deg_i,
++        means=means, quats=quats, scales=scales,
++        opacities=opacities, colors=colors,
 +    )
 +
 +class _FrozenSceneTracker:
@@ -855,6 +907,7 @@ index b6c1b132..3fa284d8 100644
 +    grads: Tensor | None = None,
 +    threshold: float = 0.0002,
 +    noise_scale: float = 0.01,
++    color_clamp: tuple | None = (0.0, 1.0),
 +) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
 +    """Duplicate Gaussians with large position gradients (densification)."""
 +    N = means.shape[0]
@@ -874,10 +927,11 @@ index b6c1b132..3fa284d8 100644
 +    new_scales = torch.cat([scales, scales[mask]])
 +    new_opacities = torch.cat([opacities, opacities[mask]]).clamp(0.0, 1.0)
 +    new_colors = torch.cat([colors, colors[mask]])
-+    if colors.dim() == 2:
-+        # RGB pre-activated colors are bounded to [0, 1]; SH coefficient
-+        # tensors ([N, K, C]) are unbounded and must NOT be clamped.
-+        new_colors = new_colors.clamp(0.0, 1.0)
++    if colors.dim() == 2 and color_clamp is not None:
++        # RGB pre-activated colors are bounded to [0, 1] by default; pass
++        # color_clamp=None to keep the raw (possibly unbounded) values. SH
++        # coefficient tensors ([N, K, C]) are never clamped.
++        new_colors = new_colors.clamp(color_clamp[0], color_clamp[1])
 +    return new_means, new_quats, new_scales, new_opacities, new_colors
 +
 +
@@ -998,9 +1052,6 @@ index b6c1b132..3fa284d8 100644
 +                f"got {backward_mode!r}"
 +            )
 +
-+        # Reject lossy SH compression in the training path: we do not yet have
-+        # a backward through the SH compression/decompression, so accepting it
-+        # silently would produce wrong gradients.
 +        # NOTE: torch.autograd.Function.forward always runs with grad disabled,
 +        # so ``torch.is_grad_enabled()`` cannot be used here. Any input that
 +        # requires grad means a backward is expected for this call.
@@ -1008,13 +1059,18 @@ index b6c1b132..3fa284d8 100644
 +            t is not None and t.requires_grad
 +            for t in (means, quats, scales, opacities, colors)
 +        )
-+        if _normalize_sh_compression_mode(sh_compression_mode) != _get_sh_compression_none() and training:
-+            raise ValueError(
-+                "SH compression modes other than 'none' are not supported in "
-+                "the differentiable HiGS training path (no backward through the "
-+                "lossy SH compression is implemented). Pass "
-+                "sh_compression_mode='none' to train."
-+            )
++        comp = _normalize_sh_compression_mode(sh_compression_mode)
++        ctx.sh_compression_mode = comp.name.lower()
++        if comp != _get_sh_compression_none() and training:
++            # PACKED_16B/32B quantize SH3 coefficients to FP16. The cast is
++            # applied with a straight-through estimator (see _ste_sh_quantize),
++            # so gradients flow back to the FP32 master SH tensors.
++            if colors.dim() != 3:
++                raise ValueError(
++                    f"sh_compression_mode={comp.name} requires SH3 colors "
++                    f"([N, K, 3]); got colors.dim()={colors.dim()}. Pass "
++                    "sh_compression_mode='none' with RGB colors."
++                )
 +
 +        native = backward_mode == "higs_native" and _higs_backend_available()
 +        ctx.native = native
@@ -1028,11 +1084,11 @@ index b6c1b132..3fa284d8 100644
 +                    f"got {render_mode!r}. Use backward_mode='gsplat_recompute' "
 +                    "for other render modes."
 +                )
-+            if camera_model != "pinhole":
++            if camera_model not in ("pinhole", "ortho", "fisheye"):
 +                raise ValueError(
-+                    f"higs_native backward supports camera_model='pinhole' only, "
-+                    f"got {camera_model!r}. Use backward_mode='gsplat_recompute' "
-+                    "for other camera models."
++                    "higs_native backward supports camera_model in "
++                    f"('pinhole', 'ortho', 'fisheye'), got {camera_model!r}. "
++                    "Use backward_mode='gsplat_recompute' for ftheta/lidar."
 +                )
 +            if background is not None and background.dim() != 1:
 +                raise ValueError(
@@ -1168,6 +1224,7 @@ index b6c1b132..3fa284d8 100644
 +                "culling_ratio": 1.0,
 +                "topology_rebuilt": ctx.topology_rebuilt,
 +                "packed_dtype": ctx.packed_dtype,
++                "sh_compression_mode": getattr(ctx, "sh_compression_mode", "none"),
 +                "scene_version": ctx.scene_version,
 +            }
 +            if C == 1:
@@ -1175,6 +1232,8 @@ index b6c1b132..3fa284d8 100644
 +            return frame[None], alpha_ch[None]  # [1,C,H,W,3], [1,C,H,W,1]
 +
 +        # -- differentiable forward on the visible subset -------------------
++        if sh_degree is not None and getattr(ctx, "sh_compression_mode", "none") != "none":
++            v_colors = _ste_sh_quantize(v_colors)
 +        v_means_b = v_means.unsqueeze(0)  # [1, N, 3]
 +        v_quats_b = v_quats.unsqueeze(0)
 +        v_scales_b = v_scales.unsqueeze(0)
@@ -1187,7 +1246,7 @@ index b6c1b132..3fa284d8 100644
 +                    ctx, v_means_b, v_quats_b, v_scales_b, v_opacities_b,
 +                    v_colors_input, viewmats, Ks, width, height, sh_degree,
 +                    tile_size, near_plane, far_plane, radius_clip, eps2d,
-+                    backgrounds_b,
++                    backgrounds_b, camera_model,
 +                )
 +            )
 +        else:
@@ -1242,6 +1301,7 @@ index b6c1b132..3fa284d8 100644
 +            "culling_ratio": ctx.culling_ratio,
 +            "topology_rebuilt": ctx.topology_rebuilt,
 +            "packed_dtype": ctx.packed_dtype,
++            "sh_compression_mode": getattr(ctx, "sh_compression_mode", "none"),
 +            "scene_version": ctx.scene_version,
 +        }
 +        return frame[None], alpha_ch[None]
@@ -1252,7 +1312,7 @@ index b6c1b132..3fa284d8 100644
 +        means_b, quats_b, scales_b, opacities_b, colors_input,
 +        viewmats, Ks, width, height, sh_degree,
 +        tile_size, near_plane, far_plane, radius_clip, eps2d,
-+        backgrounds_b,
++        backgrounds_b, camera_model,
 +    ):
 +        """Run the standard gsplat CUDA forward on the visible subset and
 +        capture every tensor the native backward consumes, in ONE pass."""
@@ -1285,7 +1345,7 @@ index b6c1b132..3fa284d8 100644
 +                radius_clip=radius_clip,
 +                packed=False,
 +                calc_compensations=False,
-+                camera_model="pinhole",
++                camera_model=camera_model,
 +            )
 +            opacities_bc = torch.broadcast_to(
 +                opacities_b[..., None, :], (1, C, N)
@@ -1438,7 +1498,11 @@ index b6c1b132..3fa284d8 100644
 +            height=ctx.height,
 +            tile_size=ctx.tile_size,
 +            eps2d=ctx.eps2d,
-+            camera_model=0,  # CameraModelType.PINHOLE
++            camera_model=(
++                0 if ctx.camera_model == "pinhole"
++                else 1 if ctx.camera_model == "ortho"
++                else 2  # CameraModelType: PINHOLE=0, ORTHO=1, FISHEYE=2
++            ),
 +            v_render_colors=v_render_colors,
 +            v_render_alphas=v_render_alphas,
 +            sh_coeffs=sh_coeffs,
@@ -1637,8 +1701,9 @@ index b6c1b132..3fa284d8 100644
 +        backward_mode: "higs_native" (default, native CUDA backward) or
 +            "gsplat_recompute" (explicit standard-gsplat recomputation
 +            fallback; metadata then reports ``backward_backend="gsplat_recompute"``).
-+        sh_compression_mode: must be "none" for training (lossy SH compression
-+            is rejected explicitly).
++        sh_compression_mode: "none" (default) or a PACKED_16B/PACKED_32B mode;
++            lossy SH quantization is applied with a straight-through estimator
++            in the training path.
 +        scene: optional :class:`HigsRendererHandle` reused across calls so the
 +            packed FP16 buffers and renderer are not rebuilt per frame.
 +    """
@@ -1697,6 +1762,7 @@ index b6c1b132..3fa284d8 100644
 +            "scene_version": fwd_meta["scene_version"],
 +            "topology_rebuilt": fwd_meta["topology_rebuilt"],
 +            "packed_dtype": fwd_meta["packed_dtype"],
++            "sh_compression_mode": fwd_meta.get("sh_compression_mode"),
 +            "use_higs_culling": use_higs_culling,
 +            "higs_preview": higs_preview,
 +            "freeze_topology": freeze_topology,
@@ -1747,7 +1813,8 @@ index b6c1b132..3fa284d8 100644
 +        use_higs_culling: If True, use HiGS-native culling.
 +        return_higs_preview: If True, include HiGS inference output.
 +        backward_mode: "higs_native" (default) or "gsplat_recompute".
-+        sh_compression_mode: must be "none" in the training path.
++        sh_compression_mode: "none" (default); PACKED_16B/32B modes are
++            supported via a straight-through FP16 quantization in training.
 +        scene: optional :class:`HigsRendererHandle` for renderer reuse.
 +
 +    Returns:
@@ -1864,6 +1931,7 @@ index b6c1b132..3fa284d8 100644
 +            "culling_ratio": fwd_meta["culling_ratio"],
 +            "topology_rebuilt": fwd_meta["topology_rebuilt"],
 +            "packed_dtype": fwd_meta["packed_dtype"],
++            "sh_compression_mode": fwd_meta.get("sh_compression_mode"),
 +            "use_higs_culling": use_higs_culling,
 +            "higs_preview": higs_preview,
 +        },
@@ -1909,7 +1977,8 @@ index b6c1b132..3fa284d8 100644
 +
 +    Args:
 +        backward_mode: "higs_native" (default) or "gsplat_recompute".
-+        sh_compression_mode: must be "none" in the training path.
++        sh_compression_mode: "none" (default); PACKED_16B/32B modes are
++            supported via a straight-through FP16 quantization in training.
 +        scene: optional :class:`HigsRendererHandle`; when omitted, the
 +            module-level :class:`_HigsDynamicScene` singleton owns one.
 +    """
@@ -1996,10 +2065,10 @@ index c01a046d..4cb3d7f2 100644
          at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 new file mode 100644
-index 00000000..549f598e
+index 00000000..60f3f750
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
-@@ -0,0 +1,993 @@
+@@ -0,0 +1,1035 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -2312,6 +2381,7 @@ index 00000000..549f598e
 +    const float *__restrict__ scales,   // [N, 3]
 +    const float *__restrict__ viewmats, // [1, C, 4, 4]
 +    const float *__restrict__ Ks,       // [1, C, 3, 3]
++    const int64_t camera_model,
 +    const uint32_t image_width,
 +    const uint32_t image_height,
 +    // forward outputs
@@ -2372,24 +2442,61 @@ index 00000000..549f598e
 +    mat3 covar_c;
 +    covarW2C(R, covar, covar_c);
 +
-+    // vjp: perspective projection (classic pinhole)
++    // vjp: camera projection (pinhole / ortho / fisheye, matching the forward)
 +    const float fx = K_ptr[0], cx = K_ptr[2], fy = K_ptr[4], cy = K_ptr[5];
 +    mat3 v_covar_c(0.f);
 +    vec3 v_mean_c(0.f);
-+    persp_proj_vjp(
-+        mean_c,
-+        covar_c,
-+        fx,
-+        fy,
-+        cx,
-+        cy,
-+        image_width,
-+        image_height,
-+        v_covar2d,
-+        v_means2d[idx],
-+        v_mean_c,
-+        v_covar_c
-+    );
++    if(camera_model == static_cast<int64_t>(CameraModelType::ORTHO))
++    {
++        ortho_proj_vjp(
++            mean_c,
++            covar_c,
++            fx,
++            fy,
++            cx,
++            cy,
++            image_width,
++            image_height,
++            v_covar2d,
++            v_means2d[idx],
++            v_mean_c,
++            v_covar_c
++        );
++    }
++    else if(camera_model == static_cast<int64_t>(CameraModelType::FISHEYE))
++    {
++        fisheye_proj_vjp(
++            mean_c,
++            covar_c,
++            fx,
++            fy,
++            cx,
++            cy,
++            image_width,
++            image_height,
++            v_covar2d,
++            v_means2d[idx],
++            v_mean_c,
++            v_covar_c
++        );
++    }
++    else
++    {
++        persp_proj_vjp(
++            mean_c,
++            covar_c,
++            fx,
++            fy,
++            cx,
++            cy,
++            image_width,
++            image_height,
++            v_covar2d,
++            v_means2d[idx],
++            v_mean_c,
++            v_covar_c
++        );
++    }
 +
 +    // (no depth-gradient term: the classic RGB blend does not depend on depth)
 +
@@ -2806,8 +2913,11 @@ index 00000000..549f598e
 +    );
 +    TORCH_CHECK(colors_eval.size(-1) == kHigsColorDim, "higs_native backward only supports RGB (3 channels)");
 +    TORCH_CHECK(
-+        camera_model == static_cast<int64_t>(CameraModelType::PINHOLE),
-+        "higs_native backward only supports pinhole camera model"
++        camera_model == static_cast<int64_t>(CameraModelType::PINHOLE)
++            || camera_model == static_cast<int64_t>(CameraModelType::ORTHO)
++            || camera_model == static_cast<int64_t>(CameraModelType::FISHEYE),
++        "higs_native backward supports pinhole/ortho/fisheye camera models, got ",
++        camera_model
 +    );
 +    TORCH_CHECK(v_render_colors.size(-1) == kHigsColorDim, "bad v_render_colors channel count");
 +    if(sh_coeffs.has_value())
@@ -2911,6 +3021,7 @@ index 00000000..549f598e
 +            scales.const_data_ptr<float>(),
 +            viewmats.const_data_ptr<float>(),
 +            Ks.const_data_ptr<float>(),
++            camera_model,
 +            static_cast<uint32_t>(width),
 +            static_cast<uint32_t>(height),
 +            radii.const_data_ptr<int32_t>(),
