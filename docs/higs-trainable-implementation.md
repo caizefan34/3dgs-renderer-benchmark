@@ -3,7 +3,7 @@
 > **STATUS: SUPERSEDED (2026-07-31).** Stages A/B/C were superseded by the HiGS
 > **native CUDA backward** implementation — see [implementation report](../reports/higs-trainability-implementation.md)
 > and README. The differentiable HiGS path now uses `backward_backend="higs_native"` by default
-> (78 tests passing on EPIC-05, 12.65s), with gsplat recomputation kept only as an explicit
+> (87 tests passing on EPIC-05, 13.09s), with gsplat recomputation kept only as an explicit
 > `backward_backend="gsplat_recompute"` fallback. This page is kept for historical reference.
 
 **Status: DELIVERED — 38 tests passing on EPIC-05 (A100-80GB, 5.53s)**
@@ -31,7 +31,9 @@ HiGS was inference-only for three reasons:
 
 - Gradients flow to **all 5 parameter types** (means, quats, scales, opacities, colors/SH) — finite-difference verified.
 - Training dynamics are **identical to standard gsplat**: gradient cosine similarity = 1.000000, loss/PSNR curves match, forward+backward aligned at atol=1e-5.
-- All 5 params remain **FP32 master tensors**; SH compression disabled by default in the differentiable path.
+- All 5 params remain **FP32 master tensors**; lossy SH compression is
+  trainable via a straight-through estimator (FP16 cast); the native backward
+  supports pinhole/ortho/fisheye camera models.
 
 ## Reproduce
 
