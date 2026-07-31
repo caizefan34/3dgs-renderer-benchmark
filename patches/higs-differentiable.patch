@@ -1,5 +1,5 @@
 diff --git a/gsplat/experimental/__init__.py b/gsplat/experimental/__init__.py
-index 7d12bf68..44df9d54 100644
+index 7d12bf6..be7042a 100644
 --- a/gsplat/experimental/__init__.py
 +++ b/gsplat/experimental/__init__.py
 @@ -19,6 +19,8 @@ __all__ = [
@@ -21,7 +21,7 @@ index 7d12bf68..44df9d54 100644
  
          return getattr(render, name)
 diff --git a/gsplat/experimental/render/__init__.py b/gsplat/experimental/render/__init__.py
-index ddce75d5..0dcb6547 100644
+index ddce75d..70aede3 100644
 --- a/gsplat/experimental/render/__init__.py
 +++ b/gsplat/experimental/render/__init__.py
 @@ -18,6 +18,9 @@ __all__ = [
@@ -55,7 +55,7 @@ index ddce75d5..0dcb6547 100644
          from .functional.render_scene import render_scene
  
 diff --git a/gsplat/experimental/render/_common.py b/gsplat/experimental/render/_common.py
-index d0cbba64..86b06ed6 100644
+index d0cbba6..337c6a2 100644
 --- a/gsplat/experimental/render/_common.py
 +++ b/gsplat/experimental/render/_common.py
 @@ -30,4 +30,25 @@ def check_inference_grad_mode() -> None:
@@ -86,7 +86,7 @@ index d0cbba64..86b06ed6 100644
 +
 +__all__ = ["check_inference_grad_mode", "check_trainable_grad_mode"]
 diff --git a/gsplat/experimental/render/functional/__init__.py b/gsplat/experimental/render/functional/__init__.py
-index 18161be0..6022ae3c 100644
+index 18161be..54c9f2e 100644
 --- a/gsplat/experimental/render/functional/__init__.py
 +++ b/gsplat/experimental/render/functional/__init__.py
 @@ -14,7 +14,7 @@
@@ -134,7 +134,7 @@ index 18161be0..6022ae3c 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b132..240e8871 100644
+index b6c1b13..20a6f2f 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -155,7 +155,7 @@ index b6c1b132..240e8871 100644
  from ..kernels.gaussian_inference_ops import (
      gaussian_render_inference_only,
  )
-@@ -84,6 +86,28 @@ _INFERENCE_ACCEPTED_KWARGS = frozenset(
+@@ -84,6 +86,45 @@ _INFERENCE_ACCEPTED_KWARGS = frozenset(
  )
  
  
@@ -181,10 +181,27 @@ index b6c1b132..240e8871 100644
 +        bg = bg.unsqueeze(0)
 +    return bg.contiguous()
 +
++def _render_mode_color_channels(render_mode: str) -> int:
++    """Number of color channels produced by a render mode (0 for depth-only)."""
++    return 3 if render_mode in ("RGB", "RGB+D", "RGB+ED") else 0
++
++
++def _render_mode_has_depth(render_mode: str) -> bool:
++    """Whether the render mode composites a depth channel."""
++    return render_mode in ("D", "ED", "RGB+D", "RGB+ED")
++
++
++def _render_mode_channel_count(render_mode: str) -> int:
++    """Total output channels (color + optional depth)."""
++    return _render_mode_color_channels(render_mode) + (
++        1 if _render_mode_has_depth(render_mode) else 0
++    )
++
++
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +409,1811 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,1905 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -1078,11 +1095,12 @@ index b6c1b132..240e8871 100644
 +        ctx.native_available = _higs_backend_available()
 +
 +        if native:
-+            if render_mode != "RGB":
++            if render_mode not in ("RGB", "D", "ED", "RGB+D", "RGB+ED"):
 +                raise ValueError(
-+                    f"higs_native backward supports render_mode='RGB' only, "
-+                    f"got {render_mode!r}. Use backward_mode='gsplat_recompute' "
-+                    "for other render modes."
++                    "higs_native backward supports render_mode in "
++                    f"('RGB', 'D', 'ED', 'RGB+D', 'RGB+ED'), got {render_mode!r}. "
++                    "Hit-distance modes (d/Ed/RGB-d/RGB-Ed) require the ray-based "
++                    "eval3d path; use backward_mode='gsplat_recompute'."
 +                )
 +            if camera_model not in ("pinhole", "ortho", "fisheye"):
 +                raise ValueError(
@@ -1183,12 +1201,16 @@ index b6c1b132..240e8871 100644
 +
 +        if N_visible == 0:
 +            # Pure-background image; every Gaussian is invisible -> zero grads.
++            nch = _render_mode_channel_count(render_mode)
 +            with torch.no_grad():
 +                frame = torch.zeros(
-+                    (C, height, width, 3), device=means.device, dtype=means.dtype
++                    (C, height, width, nch), device=means.device, dtype=means.dtype
 +                )
-+                if backgrounds_b is not None:
-+                    frame = frame + backgrounds_b.reshape(C, 1, 1, 3)
++                if backgrounds_b is not None and nch >= 3:
++                    bg = backgrounds_b.reshape(C, 3)
++                    if nch == 4:
++                        bg = torch.cat([bg, bg.new_zeros((C, 1))], dim=-1)
++                    frame = frame + bg.reshape(C, 1, 1, nch)
 +                alpha_ch = torch.zeros(
 +                    (C, height, width, 1), device=means.device, dtype=means.dtype
 +                )
@@ -1196,7 +1218,7 @@ index b6c1b132..240e8871 100644
 +                means, quats, scales, opacities, colors,
 +                viewmats, Ks,
 +                torch.empty(0, dtype=torch.long, device=means.device),
-+                None, None, None, None, None, None, None, None, None,
++                None, None, None, None, None, None, None, None, None, None,
 +                v_means, v_quats, v_scales, v_opacities,
 +                (v_colors if sh_degree is not None else None),
 +                backgrounds_b,
@@ -1225,6 +1247,7 @@ index b6c1b132..240e8871 100644
 +                "topology_rebuilt": ctx.topology_rebuilt,
 +                "packed_dtype": ctx.packed_dtype,
 +                "sh_compression_mode": getattr(ctx, "sh_compression_mode", "none"),
++                "render_mode": render_mode,
 +                "scene_version": ctx.scene_version,
 +            }
 +            if C == 1:
@@ -1246,7 +1269,7 @@ index b6c1b132..240e8871 100644
 +                    ctx, v_means_b, v_quats_b, v_scales_b, v_opacities_b,
 +                    v_colors_input, viewmats, Ks, width, height, sh_degree,
 +                    tile_size, near_plane, far_plane, radius_clip, eps2d,
-+                    backgrounds_b, camera_model,
++                    backgrounds_b, camera_model, render_mode,
 +                )
 +            )
 +        else:
@@ -1273,7 +1296,7 @@ index b6c1b132..240e8871 100644
 +            viewmats, Ks,
 +            visible_ids if visible_ids is not None
 +            else torch.arange(N_total, device=means.device),
-+            *(captured if captured is not None else (None,) * 9),
++            *(captured if captured is not None else (None,) * 10),
 +            v_means, v_quats, v_scales, v_opacities,
 +            v_colors if sh_degree is not None else None,
 +            backgrounds_b,
@@ -1302,6 +1325,7 @@ index b6c1b132..240e8871 100644
 +            "topology_rebuilt": ctx.topology_rebuilt,
 +            "packed_dtype": ctx.packed_dtype,
 +            "sh_compression_mode": getattr(ctx, "sh_compression_mode", "none"),
++            "render_mode": render_mode,
 +            "scene_version": ctx.scene_version,
 +        }
 +        return frame[None], alpha_ch[None]
@@ -1312,7 +1336,7 @@ index b6c1b132..240e8871 100644
 +        means_b, quats_b, scales_b, opacities_b, colors_input,
 +        viewmats, Ks, width, height, sh_degree,
 +        tile_size, near_plane, far_plane, radius_clip, eps2d,
-+        backgrounds_b, camera_model,
++        backgrounds_b, camera_model, render_mode,
 +    ):
 +        """Run the standard gsplat CUDA forward on the visible subset and
 +        capture every tensor the native backward consumes, in ONE pass."""
@@ -1367,19 +1391,49 @@ index b6c1b132..240e8871 100644
 +            isect_offsets = isect_offset_encode(
 +                isect_ids, C, tile_width, tile_height
 +            ).reshape((1, C, tile_height, tile_width))
-+            colors_eval = _maybe_evaluate_sh(
-+                sh_degree, colors_input, means_b, radii, viewmats,
-+                (1,), C, N, True,
-+            )
++            has_color = render_mode in ("RGB", "RGB+D", "RGB+ED")
++            has_depth = _render_mode_has_depth(render_mode)
++            is_expected = render_mode in ("ED", "RGB+ED")
++            if has_color:
++                colors_eval = _maybe_evaluate_sh(
++                    sh_degree, colors_input, means_b, radii, viewmats,
++                    (1,), C, N, True,
++                )
++                colors_eval = colors_eval.contiguous()  # [1, C, N, 3]
++            else:
++                # depth-only modes ignore the color input entirely.
++                colors_eval = torch.empty(
++                    (1, C, N, 0), device=means_b.device, dtype=means_b.dtype
++                )
++            if has_depth:
++                # projection depth (camera-space z) is composited like a color
++                # channel; the native backward chains its gradient to v_means.
++                colors_eval = torch.cat(
++                    [colors_eval, depths[..., None]], dim=-1
++                )  # [1, C, N, D]
 +            colors_eval = colors_eval.contiguous()
++            if backgrounds_b is not None:
++                if has_color:
++                    bg_kernel = backgrounds_b.reshape(1, C, 3)
++                    if has_depth:
++                        # depth channel has a zero background (not an input).
++                        bg_kernel = torch.cat(
++                            [bg_kernel, bg_kernel.new_zeros((1, C, 1))], dim=-1
++                        )
++                else:
++                    # depth-only modes ignore the RGB background input and
++                    # use a zero background, matching standard gsplat.
++                    bg_kernel = backgrounds_b.new_zeros((1, C, 1))
++                bg_kernel = bg_kernel.contiguous()
++            else:
++                bg_kernel = None
 +            render_colors, render_alphas, _absgrad, last_ids = (
 +                _make_lazy_cuda_func("rasterize_to_pixels_3dgs")(
 +                    means2d.contiguous(),
 +                    conics.contiguous(),
 +                    colors_eval.contiguous(),
 +                    opacities_bc.contiguous(),
-+                    (backgrounds_b.reshape(1, C, 3).contiguous()
-+                     if backgrounds_b is not None else None),
++                    bg_kernel,
 +                    None,
 +                    width,
 +                    height,
@@ -1390,17 +1444,34 @@ index b6c1b132..240e8871 100644
 +                    False,
 +                )
 +            )
++        D = colors_eval.shape[-1]
++        if is_expected:
++            # expected depth: render_depth = acc_depth / alpha (same as the
++            # standard gsplat post-processing). Keep the raw accumulation for
++            # the backward chain through the normalization.
++            depth_acc = render_colors[..., -1:]  # [1, C, H, W, 1]
++            render_depth = depth_acc / render_alphas.clamp(min=1e-10)
++            if has_color:
++                render_colors = torch.cat(
++                    [render_colors[..., :3], render_depth], dim=-1
++                )
++            else:
++                render_colors = render_depth
++        else:
++            depth_acc = None
 +
 +        captured = (
 +            means2d.reshape(-1, 2).contiguous(),              # [I*N, 2]
 +            conics.reshape(-1, 3).contiguous(),               # [I*N, 3]
-+            colors_eval.reshape(-1, 3).contiguous(),          # [I*N, 3]
++            colors_eval.reshape(-1, D).contiguous(),          # [I*N, D]
 +            opacities_bc.reshape(-1).contiguous(),            # [I*N]
 +            isect_offsets.reshape(C, tile_height, tile_width).contiguous(),  # [I, th, tw]
 +            flatten_ids.contiguous(),                          # [n_isects]
 +            render_alphas.reshape(C, height, width).contiguous(),  # [I, H, W]
 +            last_ids.contiguous(),                             # [I, H, W]
 +            radii.reshape(C, N, 2).contiguous(),               # [I, N, 2]
++            (depth_acc.reshape(C, height, width).contiguous()
++             if depth_acc is not None else None),              # [I, H, W] or None
 +        )
 +        return render_colors, render_alphas, captured
 +
@@ -1438,7 +1509,7 @@ index b6c1b132..240e8871 100644
 +            means, quats, scales, opacities, colors, viewmats, Ks, visible_ids,
 +            means2d_f, conics_f, colors_eval_f, opacities_f,
 +            tile_offsets_f, flatten_ids_f, render_alphas_f, last_ids_f,
-+            radii_f,
++            radii_f, depth_acc,
 +            v_means, v_quats, v_scales, v_opacities,
 +            sh_coeffs, backgrounds_b,
 +        ) = saved
@@ -1446,15 +1517,31 @@ index b6c1b132..240e8871 100644
 +        I = ctx.C
 +        H, W = ctx.height, ctx.width
 +        device = means.device
++        nch = _render_mode_channel_count(ctx.render_mode)
 +
 +        if grad_frame is None:
-+            v_render_colors = torch.zeros((I, H, W, 3), device=device)
++            v_render_colors = torch.zeros((I, H, W, nch), device=device)
 +        else:
-+            v_render_colors = grad_frame.reshape(I, H, W, 3).contiguous()
++            v_render_colors = grad_frame.reshape(I, H, W, nch).contiguous()
 +        if grad_alpha is None:
 +            v_render_alphas = torch.zeros((I, H, W), device=device)
 +        else:
 +            v_render_alphas = grad_alpha.reshape(I, H, W).contiguous()
++
++        if depth_acc is not None:
++            # Expected-depth modes: render_depth = depth_acc / alpha_safe
++            # is a post-rasterization normalization. Chain the depth-channel
++            # gradient back to the raw accumulation and to the render alphas.
++            g_depth = v_render_colors[..., -1].contiguous()  # [I, H, W]
++            alpha_safe = render_alphas_f.clamp(min=1e-10)
++            v_acc = g_depth / alpha_safe
++            v_alpha_from_depth = -g_depth * depth_acc / alpha_safe.square()
++            # clamp backward: d(alpha_safe)/d(alpha) = 1 where alpha >= 1e-10
++            v_alpha_from_depth = v_alpha_from_depth * (render_alphas_f >= 1e-10)
++            v_render_colors = torch.cat(
++                [v_render_colors[..., : nch - 1], v_acc[..., None]], dim=-1
++            ).contiguous()
++            v_render_alphas = v_render_alphas + v_alpha_from_depth
 +
 +        if ctx.N_visible == 0:
 +            # All Gaussians invisible -> zero gradients, background still gets
@@ -1465,18 +1552,30 @@ index b6c1b132..240e8871 100644
 +            grad_opacities = torch.zeros_like(opacities)
 +            grad_colors = torch.zeros_like(colors)
 +            grad_background = None
-+            if ctx.needs_input_grad[15] and backgrounds_b is not None:
-+                grad_background = v_render_colors.sum(dim=(0, 1, 2))
++            if (
++                ctx.needs_input_grad[15]
++                and backgrounds_b is not None
++                and nch >= 3
++            ):
++                grad_background = v_render_colors[..., :3].sum(dim=(0, 1, 2))
 +            return _HigsAutogradFunction._assemble_grads(
 +                ctx, grad_means, grad_quats, grad_scales, grad_opacities,
 +                grad_colors, grad_background,
 +            )
 +
-+        bg_kernel = (
-+            backgrounds_b.reshape(I, 3).contiguous()
-+            if backgrounds_b is not None
-+            else None
-+        )
++        bg_kernel = None
++        if backgrounds_b is not None:
++            if _render_mode_color_channels(ctx.render_mode) > 0:
++                bg_kernel = backgrounds_b.reshape(I, 3).contiguous()
++                if nch == 4:
++                    # depth channel has a zero background (not an input).
++                    bg_kernel = torch.cat(
++                        [bg_kernel, bg_kernel.new_zeros((I, 1))], dim=-1
++                    )
++            else:
++                # depth-only modes: zero background, matching the forward.
++                bg_kernel = backgrounds_b.new_zeros((I, 1))
++            bg_kernel = bg_kernel.contiguous()
 +
 +        out = backend.higs_rasterize_backward(
 +            means2d=means2d_f,
@@ -1523,11 +1622,14 @@ index b6c1b132..240e8871 100644
 +            grad_quats.index_add_(0, visible_ids, v_quats_g)
 +            grad_scales.index_add_(0, visible_ids, v_scales_g)
 +            grad_opacities.index_add_(0, visible_ids, v_opacities_g)
-+            grad_colors.index_add_(0, visible_ids, v_colors_master_g)
++            if _render_mode_color_channels(ctx.render_mode) > 0:
++                grad_colors.index_add_(0, visible_ids, v_colors_master_g)
 +
 +        grad_background = None
-+        if ctx.needs_input_grad[15] and backgrounds_b is not None:
-+            grad_background = v_backgrounds_g
++        if ctx.needs_input_grad[15] and backgrounds_b is not None and nch >= 3:
++            # the kernel accumulates a depth-channel background gradient too;
++            # the RGB background input only receives the color-channel part.
++            grad_background = v_backgrounds_g if nch == 3 else v_backgrounds_g[..., :3]
 +
 +        return _HigsAutogradFunction._assemble_grads(
 +            ctx, grad_means, grad_quats, grad_scales, grad_opacities,
@@ -1542,21 +1644,22 @@ index b6c1b132..240e8871 100644
 +        saved = ctx.saved_tensors
 +        (
 +            means, quats, scales, opacities, colors, viewmats, Ks, visible_ids,
-+            _m2d, _con, _ce, _opa, _to, _fi, _ra, _li, _rad,
++            _m2d, _con, _ce, _opa, _to, _fi, _ra, _li, _rad, _depth_acc,
 +            _v_m, _v_q, _v_s, _v_o, _sh, backgrounds_b,
 +        ) = saved
 +
 +        I = ctx.C
 +        H, W = ctx.width, ctx.height
 +        device = means.device
++        nch = _render_mode_channel_count(ctx.render_mode)
 +        # Gradients reshaped to the exact output shapes of forward().
 +        if ctx.C == 1:
-+            gf_out = grad_frame if grad_frame is not None else torch.zeros((1, H, W, 3), device=device)
++            gf_out = grad_frame if grad_frame is not None else torch.zeros((1, H, W, nch), device=device)
 +            ga_out = grad_alpha if grad_alpha is not None else torch.zeros((1, H, W, 1), device=device)
 +        else:
-+            gf_out = grad_frame if grad_frame is not None else torch.zeros((1, I, H, W, 3), device=device)
++            gf_out = grad_frame if grad_frame is not None else torch.zeros((1, I, H, W, nch), device=device)
 +            ga_out = grad_alpha if grad_alpha is not None else torch.zeros((1, I, H, W, 1), device=device)
-+        gf = gf_out.reshape(I, H, W, 3)
++        gf = gf_out.reshape(I, H, W, nch)
 +        ga = ga_out.reshape(I, H, W)
 +
 +        with torch.enable_grad():
@@ -1627,14 +1730,20 @@ index b6c1b132..240e8871 100644
 +        grad_colors = grads.get("colors")
 +
 +        grad_background = None
-+        if ctx.needs_input_grad[15] and backgrounds_b is not None and grad_frame is not None:
++        if (
++            ctx.needs_input_grad[15]
++            and backgrounds_b is not None
++            and grad_frame is not None
++            and nch >= 3
++        ):
 +            # dL/dbg = sum_pixels v_render_colors * (1 - render_alpha)
 +            with torch.no_grad():
 +                if alpha_final is not None:
 +                    alpha_im = alpha_final.reshape(I, H, W)
 +                else:
 +                    alpha_im = torch.zeros((I, H, W), device=device)
-+                grad_background = (gf * (1.0 - alpha_im[..., None])).sum(dim=(0, 1, 2))
++                gb = (gf * (1.0 - alpha_im[..., None])).sum(dim=(0, 1, 2))
++                grad_background = gb if nch == 3 else gb[..., :3]
 +
 +        return _HigsAutogradFunction._assemble_grads(
 +            ctx, grad_means, grad_quats, grad_scales, grad_opacities,
@@ -1763,6 +1872,7 @@ index b6c1b132..240e8871 100644
 +            "topology_rebuilt": fwd_meta["topology_rebuilt"],
 +            "packed_dtype": fwd_meta["packed_dtype"],
 +            "sh_compression_mode": fwd_meta.get("sh_compression_mode"),
++            "render_mode": render_mode,
 +            "use_higs_culling": use_higs_culling,
 +            "higs_preview": higs_preview,
 +            "freeze_topology": freeze_topology,
@@ -1932,6 +2042,7 @@ index b6c1b132..240e8871 100644
 +            "topology_rebuilt": fwd_meta["topology_rebuilt"],
 +            "packed_dtype": fwd_meta["packed_dtype"],
 +            "sh_compression_mode": fwd_meta.get("sh_compression_mode"),
++            "render_mode": render_mode,
 +            "use_higs_culling": use_higs_culling,
 +            "higs_preview": higs_preview,
 +        },
@@ -1998,7 +2109,7 @@ index b6c1b132..240e8871 100644
 +    )
 \ No newline at end of file
 diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py
-index 50f357f2..3525e1ef 100644
+index 50f357f..eb94958 100644
 --- a/gsplat/experimental/render/kernels/cuda/build.py
 +++ b/gsplat/experimental/render/kernels/cuda/build.py
 @@ -101,6 +101,7 @@ def get_build_parameters():
@@ -2010,7 +2121,7 @@ index 50f357f2..3525e1ef 100644
                  "IntersectMTFused.cu",
                  "MacroTileIntersect.cu",
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
-index 15a46507..1d9cf116 100644
+index 15a4650..e61bbac 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
 @@ -1,4 +1,4 @@
@@ -2042,7 +2153,7 @@ index 15a46507..1d9cf116 100644
          const at::Tensor &qso_packed,
          const at::Tensor &colors_packed,
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
-index c01a046d..4cb3d7f2 100644
+index c01a046..523e681 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
 @@ -1,4 +1,4 @@
@@ -2065,10 +2176,10 @@ index c01a046d..4cb3d7f2 100644
          at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 new file mode 100644
-index 00000000..60f3f750
+index 0000000..9426432
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
-@@ -0,0 +1,1035 @@
+@@ -0,0 +1,1087 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -2120,7 +2231,7 @@ index 00000000..60f3f750
 +
 +namespace
 +{
-+constexpr uint32_t kHigsColorDim = 3; // RGB only for the HiGS trainable path
++constexpr uint32_t kHigsColorDim = 3; // RGB channels (depth modes use 1 or 4)
 +
 +// ============================================================================
 +// Stage 1: pixel-blend backward (per-tile, warp-reduced, atomicAdd scatter)
@@ -2350,9 +2461,10 @@ index 00000000..60f3f750
 +// ============================================================================
 +__global__ void higs_background_bwd_kernel(
 +    const uint32_t n_pixels,
++    const uint32_t color_dim,
 +    const float *__restrict__ render_alphas,   // [I, H, W]
-+    const float *__restrict__ v_render_colors, // [I, H, W, 3]
-+    float *__restrict__ v_backgrounds          // [3]
++    const float *__restrict__ v_render_colors, // [I, H, W, color_dim]
++    float *__restrict__ v_backgrounds          // [color_dim]
 +)
 +{
 +    const uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -2362,9 +2474,9 @@ index 00000000..60f3f750
 +    }
 +    const float T_final = 1.0f - render_alphas[idx];
 +#pragma unroll
-+    for(uint32_t k = 0; k < 3; ++k)
++    for(uint32_t k = 0; k < color_dim; ++k)
 +    {
-+        atomicAdd_system(v_backgrounds + k, T_final * v_render_colors[idx * 3 + k]);
++        atomicAdd_system(v_backgrounds + k, T_final * v_render_colors[idx * color_dim + k]);
 +    }
 +}
 +
@@ -2390,6 +2502,10 @@ index 00000000..60f3f750
 +    // gradient outputs (per camera)
 +    const vec2 *__restrict__ v_means2d, // [I * N, 2]
 +    const vec3 *__restrict__ v_conics,  // [I * N, 3]
++    // depth-channel gradient (optional): d(depth)/d(means) chain
++    const float *__restrict__ v_colors_flat, // [I * N, color_dim]
++    const int32_t color_dim,
++    const int32_t depth_channel,             // -1 when no depth channel
 +    // gradient inputs (FP32 master accumulators)
 +    float *__restrict__ v_means,  // [N, 3]
 +    float *__restrict__ v_quats,  // [N, 4]
@@ -2498,7 +2614,13 @@ index 00000000..60f3f750
 +        );
 +    }
 +
-+    // (no depth-gradient term: the classic RGB blend does not depend on depth)
++    // depth channel VJP: depth = camera-space z of the Gaussian center
++    // (projection depth from fully_fused_projection), so the blend-scaled
++    // depth gradient chains into v_mean_c.z before posW2C_VJP.
++    if(depth_channel >= 0)
++    {
++        v_mean_c.z += v_colors_flat[(int64_t)idx * color_dim + depth_channel];
++    }
 +
 +    // vjp: transform Gaussian covariance to camera space
 +    vec3 v_mean(0.f);
@@ -2741,6 +2863,7 @@ index 00000000..60f3f750
 +    const uint32_t degree,
 +    const uint32_t K,
 +    const uint32_t D,
++    const uint32_t stride,                    // colors_eval row stride (== D for RGB)
 +    const float *__restrict__ means,          // [N, 3]
 +    const float *__restrict__ viewmats,       // [1, C, 4, 4]
 +    const int32_t *__restrict__ radii,        // [I, N, 2]
@@ -2779,8 +2902,8 @@ index 00000000..60f3f750
 +
 +    vec3 v_dir(0.f);
 +    const float *coeff_ptr     = coeffs + (int64_t)g * K * D;
-+    const float *col_eval_ptr  = colors_eval + (int64_t)idx * D;
-+    const float *v_col_ptr     = v_colors_eval + (int64_t)idx * D;
++    const float *col_eval_ptr  = colors_eval + (int64_t)idx * stride;
++    const float *v_col_ptr     = v_colors_eval + (int64_t)idx * stride;
 +    float *v_coeff_ptr         = v_coeffs + (int64_t)g * K * D;
 +    for(uint32_t c = 0; c < D; ++c)
 +    {
@@ -2803,7 +2926,8 @@ index 00000000..60f3f750
 +    const uint32_t I,
 +    const uint32_t N,
 +    const uint32_t D,
-+    const float *__restrict__ v_flat, // [I * N, D]
++    const uint32_t stride,            // v_flat row stride (== color_dim)
++    const float *__restrict__ v_flat, // [I * N, stride]
 +    float *__restrict__ v_master      // [N, D]
 +)
 +{
@@ -2818,7 +2942,7 @@ index 00000000..60f3f750
 +    float acc        = 0.f;
 +    for(uint32_t i = 0; i < I; ++i)
 +    {
-+        acc += v_flat[((int64_t)i * N + g) * D + d];
++        acc += v_flat[((int64_t)i * N + g) * stride + d];
 +    }
 +    v_master[idx] = acc;
 +}
@@ -2911,7 +3035,13 @@ index 00000000..60f3f750
 +        radii.dim() == 3 && radii.size(0) == I && radii.size(1) == N && radii.size(2) == 2,
 +        "bad radii shape"
 +    );
-+    TORCH_CHECK(colors_eval.size(-1) == kHigsColorDim, "higs_native backward only supports RGB (3 channels)");
++    const int64_t color_dim = colors_eval.size(-1);
++    TORCH_CHECK(
++        color_dim == 1 || color_dim == 3 || color_dim == 4,
++        "higs_native backward supports 1 (depth-only), 3 (RGB) or 4 (RGB+depth) "
++        "channels, got ",
++        color_dim
++    );
 +    TORCH_CHECK(
 +        camera_model == static_cast<int64_t>(CameraModelType::PINHOLE)
 +            || camera_model == static_cast<int64_t>(CameraModelType::ORTHO)
@@ -2919,7 +3049,13 @@ index 00000000..60f3f750
 +        "higs_native backward supports pinhole/ortho/fisheye camera models, got ",
 +        camera_model
 +    );
-+    TORCH_CHECK(v_render_colors.size(-1) == kHigsColorDim, "bad v_render_colors channel count");
++    TORCH_CHECK(
++        v_render_colors.size(-1) == color_dim,
++        "bad v_render_colors channel count: ",
++        v_render_colors.size(-1),
++        " != colors_eval ",
++        color_dim
++    );
 +    if(sh_coeffs.has_value())
 +    {
 +        TORCH_CHECK(
@@ -2938,15 +3074,18 @@ index 00000000..60f3f750
 +    at::Tensor v_quats       = at::zeros({N, 4}, opts);
 +    at::Tensor v_scales      = at::zeros({N, 3}, opts);
 +    at::Tensor v_opacities   = at::zeros({N}, opts);
-+    at::Tensor v_backgrounds = at::zeros({3}, opts);
++    at::Tensor v_backgrounds = at::zeros({color_dim}, opts);
 +    at::Tensor v_means2d     = at::zeros({I * N, 2}, opts);
 +    at::Tensor v_conics_out  = at::zeros({I * N, 3}, opts);
-+    at::Tensor v_colors_flat = at::zeros({I * N, kHigsColorDim}, opts);
++    at::Tensor v_colors_flat = at::zeros({I * N, color_dim}, opts);
 +    at::Tensor v_opacities_flat = at::zeros({I * N}, opts);
 +
 +    const int64_t tile_h   = tile_offsets.size(-2);
 +    const int64_t tile_w   = tile_offsets.size(-1);
 +    const int64_t n_isects = flatten_ids.size(0);
++    // Channel layout of the captured colors_eval: 1 = depth-only, 3 = RGB,
++    // 4 = RGB + depth (depth is the LAST channel). -1 means no depth channel.
++    const int32_t depth_channel = (color_dim == 4) ? 3 : (color_dim == 1) ? 0 : -1;
 +
 +    // ---- Stage 1: pixel-blend backward ----
 +    if(n_isects > 0)
@@ -2958,39 +3097,54 @@ index 00000000..60f3f750
 +            static_cast<uint32_t>(tile_h),
 +            static_cast<uint32_t>(tile_w)
 +        );
-+        const int64_t shmem_size
-+            = tile_size * tile_size
-+              * (sizeof(int32_t) + sizeof(vec3) + sizeof(vec3) + sizeof(float) * kHigsColorDim);
-+        C10_CUDA_CHECK(cudaFuncSetAttribute(
-+            higs_blend_bwd_kernel<kHigsColorDim>,
-+            cudaFuncAttributeMaxDynamicSharedMemorySize,
-+            static_cast<int>(shmem_size)
-+        ));
-+        higs_blend_bwd_kernel<kHigsColorDim><<<grid, threads, static_cast<size_t>(shmem_size), stream>>>(
-+            static_cast<uint32_t>(I),
-+            static_cast<uint32_t>(N),
-+            static_cast<uint32_t>(n_isects),
-+            reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),
-+            reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),
-+            colors_eval.const_data_ptr<float>(),
-+            opacities.const_data_ptr<float>(),
-+            backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,
-+            static_cast<uint32_t>(width),
-+            static_cast<uint32_t>(height),
-+            static_cast<uint32_t>(tile_size),
-+            tile_offsets.const_data_ptr<int32_t>(),
-+            flatten_ids.const_data_ptr<int32_t>(),
-+            render_alphas.const_data_ptr<float>(),
-+            last_ids.const_data_ptr<int32_t>(),
-+            v_render_colors.const_data_ptr<float>(),
-+            v_render_alphas.const_data_ptr<float>(),
-+            reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),
-+            reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),
-+            v_colors_flat.data_ptr<float>(),
-+            v_opacities_flat.data_ptr<float>(),
-+            v_backgrounds.data_ptr<float>()
-+        );
-+        C10_CUDA_KERNEL_LAUNCH_CHECK();
++#define LAUNCH_BLEND_BWD(CDIM)                                                                     \
++    {                                                                                              \
++        const int64_t shmem_size = tile_size * tile_size                                          \
++            * (sizeof(int32_t) + sizeof(vec3) + sizeof(vec3) + sizeof(float) * (CDIM));            \
++        C10_CUDA_CHECK(cudaFuncSetAttribute(                                                       \
++            higs_blend_bwd_kernel<(CDIM)>,                                                         \
++            cudaFuncAttributeMaxDynamicSharedMemorySize,                                           \
++            static_cast<int>(shmem_size)                                                           \
++        ));                                                                                        \
++        higs_blend_bwd_kernel<(CDIM)><<<grid, threads, static_cast<size_t>(shmem_size), stream>>>( \
++            static_cast<uint32_t>(I),                                                              \
++            static_cast<uint32_t>(N),                                                              \
++            static_cast<uint32_t>(n_isects),                                                       \
++            reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                       \
++            reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                        \
++            colors_eval.const_data_ptr<float>(),                                                   \
++            opacities.const_data_ptr<float>(),                                                     \
++            backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,       \
++            static_cast<uint32_t>(width),                                                          \
++            static_cast<uint32_t>(height),                                                         \
++            static_cast<uint32_t>(tile_size),                                                      \
++            tile_offsets.const_data_ptr<int32_t>(),                                                \
++            flatten_ids.const_data_ptr<int32_t>(),                                                 \
++            render_alphas.const_data_ptr<float>(),                                                 \
++            last_ids.const_data_ptr<int32_t>(),                                                    \
++            v_render_colors.const_data_ptr<float>(),                                               \
++            v_render_alphas.const_data_ptr<float>(),                                               \
++            reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                                 \
++            reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                              \
++            v_colors_flat.data_ptr<float>(),                                                       \
++            v_opacities_flat.data_ptr<float>(),                                                    \
++            v_backgrounds.data_ptr<float>()                                                        \
++        );                                                                                         \
++        C10_CUDA_KERNEL_LAUNCH_CHECK();                                                            \
++    }
++        switch(color_dim)
++        {
++        case 1:
++            LAUNCH_BLEND_BWD(1);
++            break;
++        case 3:
++            LAUNCH_BLEND_BWD(3);
++            break;
++        default: // 4
++            LAUNCH_BLEND_BWD(4);
++            break;
++        }
++#undef LAUNCH_BLEND_BWD
 +    }
 +    else if(backgrounds.has_value())
 +    {
@@ -3000,6 +3154,7 @@ index 00000000..60f3f750
 +        const uint32_t grid    = static_cast<uint32_t>((n_pixels + threads - 1) / threads);
 +        higs_background_bwd_kernel<<<grid, threads, 0, stream>>>(
 +            static_cast<uint32_t>(n_pixels),
++            static_cast<uint32_t>(color_dim),
 +            render_alphas.const_data_ptr<float>(),
 +            v_render_colors.const_data_ptr<float>(),
 +            v_backgrounds.data_ptr<float>()
@@ -3028,6 +3183,9 @@ index 00000000..60f3f750
 +            reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),
 +            reinterpret_cast<const vec2 *>(v_means2d.const_data_ptr<float>()),
 +            reinterpret_cast<const vec3 *>(v_conics_out.const_data_ptr<float>()),
++            v_colors_flat.const_data_ptr<float>(),
++            static_cast<int32_t>(color_dim),
++            depth_channel,
 +            v_means.data_ptr<float>(),
 +            v_quats.data_ptr<float>(),
 +            v_scales.data_ptr<float>()
@@ -3036,9 +3194,10 @@ index 00000000..60f3f750
 +    }
 +
 +    at::Tensor v_colors_master;
-+    if(sh_coeffs.has_value())
++    if(sh_coeffs.has_value() && color_dim >= 3)
 +    {
-+        // ---- Stage 3a: SH VJP ----
++        // ---- Stage 3a: SH VJP (depth-only modes have no color channels;
++        // their SH/color input gradients are identically zero) ----
 +        const int64_t K = sh_coeffs.value().size(-2);
 +        const int64_t D = sh_coeffs.value().size(-1);
 +        v_colors_master = at::zeros({N, K, D}, opts);
@@ -3053,6 +3212,7 @@ index 00000000..60f3f750
 +                static_cast<uint32_t>(sh_degree),
 +                static_cast<uint32_t>(K),
 +                static_cast<uint32_t>(D),
++                static_cast<uint32_t>(color_dim),
 +                means.const_data_ptr<float>(),
 +                viewmats.const_data_ptr<float>(),
 +                radii.const_data_ptr<int32_t>(),
@@ -3069,6 +3229,7 @@ index 00000000..60f3f750
 +    {
 +        // ---- Stage 3b: RGB mode - reduce evaluated-color grads over views ----
 +        v_colors_master = at::zeros({N, kHigsColorDim}, opts);
++        if(color_dim >= 3)
 +        {
 +            const int64_t total    = N * kHigsColorDim;
 +            const uint32_t threads = 256;
@@ -3077,6 +3238,7 @@ index 00000000..60f3f750
 +                static_cast<uint32_t>(I),
 +                static_cast<uint32_t>(N),
 +                kHigsColorDim,
++                static_cast<uint32_t>(color_dim),
 +                v_colors_flat.const_data_ptr<float>(),
 +                v_colors_master.data_ptr<float>()
 +            );
@@ -3093,6 +3255,7 @@ index 00000000..60f3f750
 +            static_cast<uint32_t>(I),
 +            static_cast<uint32_t>(N),
 +            1,
++            1, // stride
 +            v_opacities_flat.const_data_ptr<float>(),
 +            v_opacities.data_ptr<float>()
 +        );
@@ -3106,7 +3269,7 @@ index 00000000..60f3f750
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
 new file mode 100644
-index 00000000..a5bc4aeb
+index 0000000..b2d243c
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
 @@ -0,0 +1,87 @@
@@ -3198,7 +3361,7 @@ index 00000000..a5bc4aeb
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d11..1ee9fdf1 100644
+index 2eb26d1..ee8d2c0 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
 @@ -18,6 +18,7 @@
@@ -3255,7 +3418,7 @@ index 2eb26d11..1ee9fdf1 100644
      m.def(
 diff --git a/tests/experimental/render/test_trainable.py b/tests/experimental/render/test_trainable.py
 new file mode 100644
-index 00000000..f3a9f290
+index 0000000..5d8d595
 --- /dev/null
 +++ b/tests/experimental/render/test_trainable.py
 @@ -0,0 +1,503 @@
