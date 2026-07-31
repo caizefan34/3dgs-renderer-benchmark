@@ -91,14 +91,22 @@ This is the **first comprehensive, reproducible benchmark** for 3D Gaussian Spla
 
 **Compression Pareto frontier:** XZ (1.17x, bit-exact) -> Tile-codebook (3.84x, near-perfect) -> **SPZ 8/8 (5.73x, WINNER)** -> SPZ 6/6 (7.62x, fails Bonsai) -> FCGS (12.84x, fails 3/5)
 
-### 3. HiGS Trainability (Source-Backed)
+### 3. HiGS Trainability — Differentiable Training Path DELIVERED ✅
 
-Why is HiGS inference-only? We **reverse-engineered the source**:
-- Forced no-grad execution path, detached Gaussian tensors, no backward CUDA kernel
-- Scene mutation methods exist (on_duplicate, on_split) — design supports training
-- Missing: backward CUDA kernel + hierarchy lifecycle management
+HiGS was inference-only. We made it **trainable end-to-end** with three staged implementations, **38 tests passing** on EPIC-05 (A100-80GB, 5.53s):
 
-[Read the full trainability analysis](reports/higs-trainability-analysis-2026-07-24.md)
+| Stage | API | What it adds | Tests |
+|---|---|---|---|
+| **A. Correctness baseline** | `rasterize_gaussian_higs_trainable()` | `differentiable=True/False`; standard gsplat backward as recomputation proxy; no detach / no grad guard | 13 |
+| **B. Frozen topology** | `rasterize_gaussian_higs_frozen()` | `freeze_topology=True/False`; `_HigsAutogradFunction` native autograd backward; HiGS-native culling via `get_visible_mask`; scatter-add grad (packed→original IDs) | 14 |
+| **C. Dynamic topology** | `rasterize_gaussian_higs_dynamic()` | Versioned scene buffers (`_HigsDynamicScene`); `_densify_gaussians()` / `_prune_gaussians()` between steps; multi-step training smoke test | 11 |
+
+**Key results:**
+- Gradients flow to **all 5 parameter types** (means, quats, scales, opacities, colors/SH) — finite-difference verified
+- Training dynamics **identical to standard gsplat** (gradient cosine similarity = 1.000000, PSNR/loss curves match, forward+backward aligned at atol=1e-5)
+- All 5 params stay **FP32 master tensors**; SH compression disabled by default in the differentiable path
+
+[Implementation report →](reports/higs-trainability-implementation.md) · [Trainability source analysis →](reports/higs-trainability-analysis-2026-07-24.md) · [PR #9 →](https://github.com/caizefan34/3dgs-renderer-benchmark/pull/9)
 
 ---
 
