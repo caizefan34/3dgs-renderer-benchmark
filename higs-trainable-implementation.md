@@ -3,7 +3,7 @@
 > **STATUS: SUPERSEDED (2026-07-31).** Stages A/B/C were superseded by the HiGS
 > **native CUDA backward** implementation — see [implementation report](../reports/higs-trainability-implementation.md)
 > and README. The differentiable HiGS path now uses `backward_backend="higs_native"` by default
-> (87 tests passing on EPIC-05, 13.09s), with gsplat recomputation kept only as an explicit
+> (99 tests passing on EPIC-05, 19.91s), with gsplat recomputation kept only as an explicit
 > `backward_backend="gsplat_recompute"` fallback. This page is kept for historical reference.
 
 **Status: DELIVERED — 38 tests passing on EPIC-05 (A100-80GB, 5.53s)**
