@@ -93,18 +93,20 @@ This is the **first comprehensive, reproducible benchmark** for 3D Gaussian Spla
 
 ### 3. HiGS Trainability — Differentiable Training Path DELIVERED ✅
 
-HiGS was inference-only. We made it **trainable end-to-end** with three staged implementations, **38 tests passing** on EPIC-05 (A100-80GB, 5.53s):
+HiGS was inference-only. We made it **trainable end-to-end** with three staged implementations plus a **native HiGS CUDA backward**, **78 tests passing** on EPIC-05 (A100-80GB, 12.65s):
 
 | Stage | API | What it adds | Tests |
 |---|---|---|---|
 | **A. Correctness baseline** | `rasterize_gaussian_higs_trainable()` | `differentiable=True/False`; standard gsplat backward as recomputation proxy; no detach / no grad guard | 13 |
-| **B. Frozen topology** | `rasterize_gaussian_higs_frozen()` | `freeze_topology=True/False`; `_HigsAutogradFunction` native autograd backward; HiGS-native culling via `get_visible_mask`; scatter-add grad (packed→original IDs) | 14 |
-| **C. Dynamic topology** | `rasterize_gaussian_higs_dynamic()` | Versioned scene buffers (`_HigsDynamicScene`); `_densify_gaussians()` / `_prune_gaussians()` between steps; multi-step training smoke test | 11 |
+| **B. Frozen topology native** | `rasterize_gaussian_higs_frozen(backward_mode="higs_native")` | Native CUDA backward from forward-captured state (blend VJP + projection VJP + SH VJP); HiGS-native culling via `get_visible_mask`; explicit `gsplat_recompute` fallback | 14 |
+| **C. Dynamic topology native** | `rasterize_gaussian_higs_dynamic(backward_mode="higs_native")` | Same native backward + versioned scene handle (`HigsRendererHandle`); densify/prune with Adam-state sync; mutation while a backward is pending is rejected | 11 |
+| **Native backward suite** | `tests/test_higs_native_backward.py` | FD gradients for means/quats/scales/opacities/RGB/SH; `gradcheck`; multi-camera + non-empty background; empty/all/partial visibility; SH degree 0..3; mixed precision; compression rejection; CUDA-absent fallback; culling-boundary FD (near/far/radius/projection); no-CUDA static/API surface | 40 |
 
 **Key results:**
-- Gradients flow to **all 5 parameter types** (means, quats, scales, opacities, colors/SH) — finite-difference verified
-- Training dynamics **identical to standard gsplat** (gradient cosine similarity = 1.000000, PSNR/loss curves match, forward+backward aligned at atol=1e-5)
-- All 5 params stay **FP32 master tensors**; SH compression disabled by default in the differentiable path
+- **Native backward** (`higs_native`): gradients to all 5 parameter types via native CUDA blend/projection/SH VJP kernels — finite-difference + `gradcheck` verified; `n_visible` / `culling_ratio` measured per forward
+- **Correctness vs standard gsplat**: gradient cosine 0.999996–0.999997 (native vs recompute); forward PSNR parity on real scenes (19.27 vs 19.24 dB; 17.28 vs 17.28 dB)
+- **Measured on EPIC-05 (A100)**: native backward is ~1.9× faster than the `gsplat_recompute` fallback (30.5 vs 59.0 ms on the 6.1M-Gaussian bicycle scene); total iteration is correctness-first and not yet faster than std gsplat — no end-to-end speedup claim
+- All 5 params stay **FP32 master tensors**; FP16 packed buffers are forward/culling-only; SH compression rejected in the training path
 
 [Implementation report →](reports/higs-trainability-implementation.md) · [Trainability source analysis →](reports/higs-trainability-analysis-2026-07-24.md) · [PR #9 →](https://github.com/caizefan34/3dgs-renderer-benchmark/pull/9)
 

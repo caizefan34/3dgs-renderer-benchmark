@@ -1,5 +1,10 @@
 # gsplat HiGS trainability analysis
 
+> **STATUS: SUPERSEDED (2026-07-31).** This analysis describes the inference-only state.
+> HiGS is now trainable end-to-end with a native CUDA backward (`backward_backend="higs_native"`),
+> implemented and benchmarked on EPIC-05 — see [implementation report](higs-trainability-implementation.md)
+> and README. gsplat recomputation remains only as an explicit fallback.
+
 Pinned source: gsplat `77ab983ffe43420b2131669cb35776b883ca4c3c`.
 
 ## Why the current implementation is inference-only
