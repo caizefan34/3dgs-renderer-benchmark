@@ -9,7 +9,7 @@ Covers:
 - empty / all / partial visible sets + zero gradient for invisible Gaussians;
 - mixed precision (FP32 master -> FP16 packed buffers);
 - SH degrees 0..3 and pre-activated RGB;
-- SH compression rejection in the training path;
+- SH compression via straight-through FP16 quantization (PACKED_16B/32B);
 - native vs gsplat_recompute gradient comparison;
 - explicit fallback when the CUDA extension is unavailable;
 - pending-backward topology mutation raises;
@@ -569,7 +569,37 @@ class TestSHAndCompression:
             )
 
     @_skip_no_cuda
-    def test_sh_compression_rejected_in_training(self):
+    def test_sh_compression_trainable_via_ste(self):
+        """PACKED_16B/32B SH compression trains via straight-through FP16 cast.
+
+        The lossy step of the codec is the FP16 cast of SH3 coefficients; the
+        cast is differentiable (identity-style gradient), so gradients must
+        flow to the FP32 master SH tensors and metadata records the mode.
+        """
+        _require_ext()
+        N = 16
+        means, quats, scales, opacities, colors = _make_gaussians(N, 48, device)
+        colors = colors.view(N, 16, 3)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        out = _run_frozen(
+            (means, quats, scales, opacities, colors),
+            viewmats, Ks, w, h,
+            backward_mode="higs_native",
+            sh_degree=3,
+            sh_compression_mode="packed_32b",
+        )
+        out["frame"].sum().backward()
+        assert colors.grad is not None and colors.grad.abs().sum() > 0
+        assert out["metadata"]["sh_compression_mode"] == "packed_32b"
+
+    @_skip_no_cuda
+    def test_sh_compression_requires_sh3(self):
+        """RGB colors with a non-NONE compression mode must raise clearly."""
         _require_ext()
         N = 16
         means, quats, scales, opacities, colors = _make_gaussians(N, 3, device)
@@ -579,7 +609,7 @@ class TestSHAndCompression:
         viewmats = viewmat.unsqueeze(0).unsqueeze(0)
         Ks = K.unsqueeze(0).unsqueeze(0)
 
-        with pytest.raises(ValueError, match="SH compression"):
+        with pytest.raises(ValueError, match="requires SH3"):
             _run_frozen(
                 (means, quats, scales, opacities, colors),
                 viewmats, Ks, w, h,
@@ -618,6 +648,137 @@ class TestNativeVsRecompute:
             ["means", "quats", "scales", "opacities", "colors"], g_native, g_recomp
         ):
             torch.testing.assert_close(a, b, atol=1e-3, rtol=1e-3)
+
+class TestCameraModelBackward:
+    """Native backward must match the forward's projection for ortho/fisheye."""
+
+    @_skip_no_cuda
+    @pytest.mark.parametrize("camera_model", ["ortho", "fisheye"])
+    def test_forward_matches_standard_gsplat(self, camera_model):
+        _require_ext()
+        from gsplat.rendering import rasterization
+
+        N = 48
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device, seed=7)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        res = _run_frozen(
+            (means, quats, scales, opacities, colors),
+            viewmats, Ks, w, h,
+            camera_model=camera_model, backward_mode="higs_native",
+            enable_culling=False,
+        )
+        ref, ref_alpha, _ = rasterization(
+            means=means.unsqueeze(0), quats=quats.unsqueeze(0),
+            scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
+            colors=colors.unsqueeze(0),
+            viewmats=viewmats, Ks=Ks, width=w, height=h,
+            camera_model=camera_model, packed=True,
+        )
+        torch.testing.assert_close(res["frame"][0], ref[0][0], atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(res["alpha"][0], ref_alpha[0][0], atol=1e-4, rtol=1e-4)
+
+    @_skip_no_cuda
+    @pytest.mark.parametrize("camera_model", ["ortho", "fisheye"])
+    def test_native_vs_recompute_gradients_agree(self, camera_model):
+        _require_ext()
+        N = 48
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device, seed=7)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        target = torch.rand(1, h, w, 3, device=device) * 0.5
+
+        def grads(mode):
+            for t in [means, quats, scales, opacities, colors]:
+                t.grad = None
+            res = _run_frozen(
+                (means, quats, scales, opacities, colors),
+                viewmats, Ks, w, h,
+                camera_model=camera_model, backward_mode=mode,
+            )
+            loss = (res["frame"] - target).pow(2).mean()
+            loss.backward()
+            return [t.grad.clone() for t in [means, quats, scales, opacities, colors]]
+
+        g_native = grads("higs_native")
+        g_recomp = grads("gsplat_recompute")
+        for name, a, b in zip(
+            ["means", "quats", "scales", "opacities", "colors"], g_native, g_recomp
+        ):
+            torch.testing.assert_close(a, b, atol=1e-3, rtol=1e-3)
+
+    @_skip_no_cuda
+    def test_ortho_finite_difference(self):
+        _require_ext()
+        N = 24
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device, seed=9)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        def loss_fn():
+            res = _run_frozen(
+                (means, quats, scales, opacities, colors),
+                viewmats, Ks, w, h,
+                camera_model="ortho", backward_mode="higs_native",
+                enable_culling=False,
+            )
+            return res["frame"].sum()
+
+        loss = loss_fn()
+        loss.backward()
+
+        eps = 1e-3
+        tol = 2e-2
+
+        def fd_check(param, grad, idx):
+            flat = param.detach().clone().flatten()
+            flat[idx] += eps
+            with torch.no_grad():
+                param.copy_(flat.view_as(param))
+            up = loss_fn().item()
+            flat[idx] -= 2 * eps
+            with torch.no_grad():
+                param.copy_(flat.view_as(param))
+            down = loss_fn().item()
+            flat[idx] += eps
+            with torch.no_grad():
+                param.copy_(flat.view_as(param))
+            numeric = (up - down) / (2 * eps)
+            analytic = grad.flatten()[idx].item()
+            assert abs(numeric - analytic) <= tol * max(1.0, abs(numeric)), (
+                f"idx {idx}: numeric={numeric} analytic={analytic}"
+            )
+
+        for name, t, g in [("means", means, means.grad), ("quats", quats, quats.grad),
+                           ("scales", scales, scales.grad), ("opacities", opacities, opacities.grad),
+                           ("colors", colors, colors.grad)]:
+            for idx in [0, 1, t.numel() // 2, t.numel() - 1]:
+                if g.flatten()[idx].abs().item() < 1e-8:
+                    continue
+                fd_check(t, g, idx)
+
+    @_skip_no_cuda
+    def test_native_rejects_unsupported_camera_model(self):
+        _require_ext()
+        N = 16
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device, seed=5)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        with pytest.raises(ValueError, match="camera_model"):
+            _run_frozen(
+                (means, quats, scales, opacities, colors),
+                viewmats, Ks, w, h,
+                camera_model="ftheta", backward_mode="higs_native",
+            )
 
 
 class TestFallbackAndErrors:
@@ -1137,4 +1298,67 @@ class TestCullingBoundaryFD:
         )
         res2["frame"].sum().backward()
         assert means.grad[ioff].abs().sum() > 0
+
+class TestCullingRefreshAndClamp:
+    @_skip_no_cuda
+    def test_handle_culling_refreshes_on_param_change(self):
+        """The packed culling scene rebuilds when FP32 master params change.
+
+        ``optimizer.step()`` mutates the master tensors in place; the handle
+        must detect the drift via tensor versions and rebuild the packed
+        hierarchy so the visibility mask never lags behind the parameters.
+        """
+        _require_ext()
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _cull_gaussians_higs,
+            create_higs_renderer,
+        )
+        N = 32
+        means, quats, scales, opacities, colors = _make_gaussians(N, 3, device)
+        viewmat, K, w, h = _full_view_camera(device)
+        handle = create_higs_renderer(
+            means, quats, scales, opacities, colors, sh_degree=None,
+        )
+        try:
+            _, mask0, _ = _cull_gaussians_higs(
+                means, quats, scales, opacities, colors,
+                viewmat, K, w, h, None, renderer_handle=handle,
+            )
+            v0 = handle.version
+            # in-place drift, exactly what optimizer.step() does
+            with torch.no_grad():
+                means.add_(100.0)
+            _, mask1, _ = _cull_gaussians_higs(
+                means, quats, scales, opacities, colors,
+                viewmat, K, w, h, None, renderer_handle=handle,
+            )
+            assert handle.version > v0, "culling scene should rebuild on drift"
+            assert mask0.any(), "sanity: initial scene is partially visible"
+            assert not mask1.any(), "shifted scene should be fully culled"
+        finally:
+            handle.release()
+
+    def test_densify_color_clamp_configurable(self):
+        """densify clamps RGB to [0,1] by default; color_clamp=None disables."""
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _densify_gaussians,
+        )
+        N = 8
+        means = torch.randn(N, 3)
+        quats = torch.randn(N, 4)
+        quats /= quats.norm(dim=-1, keepdim=True)
+        scales = torch.rand(N, 3)
+        opacities = torch.rand(N)
+        colors = torch.rand(N, 3) * 2.0  # out of [0, 1]
+        grads = torch.full((N, 3), 1e9)
+
+        _, _, _, _, c1 = _densify_gaussians(
+            means, quats, scales, opacities, colors, grads, threshold=0.5,
+        )
+        assert c1.max() <= 1.0, "default densify clamps RGB to [0, 1]"
+        _, _, _, _, c2 = _densify_gaussians(
+            means, quats, scales, opacities, colors, grads,
+            threshold=0.5, color_clamp=None,
+        )
+        assert c2.max() > 1.0, "color_clamp=None keeps raw values"
 

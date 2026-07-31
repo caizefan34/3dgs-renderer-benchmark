@@ -46,7 +46,8 @@ implements three kernel stages, mirroring gsplat's own fused kernels:
    gradients. Background gradient `d(render)/d(background) = T_final` per pixel.
 2. **Projection VJP** (`higs_projection_bwd_kernel`) — one thread per `(image, gaussian)`
    pair, warp-reduced by Gaussian id, computing
-   `persp_proj_vjp -> posW2C_VJP + covarW2C_VJP -> quat_scale_to_covar_vjp`
+   camera-model projection VJP (`persp_proj_vjp` / `ortho_proj_vjp` /
+   `fisheye_proj_vjp`) -> posW2C_VJP + covarW2C_VJP -> quat_scale_to_covar_vjp
    with `eps2d` implicitly captured in the forward conics; FP32 master accumulators.
 3. **SH VJP** (`higs_sh_vjp_kernel`) — degree 0..3 port of gsplat's
    `sh_coeffs_to_color_fast_vjp`, chained through the forward activation
@@ -69,7 +70,10 @@ Host launcher `higs_rasterize_backward(...)` returns FP32 tuple
   the mask is never differentiated).
 - FP32 master tensors are the optimization variables; FP16 packed buffers are
   used only for the HiGS culling scene (`packed_dtype` in metadata).
-- Lossy SH compression is rejected in the training path with a clear error.
+- Lossy SH compression (PACKED_16B/32B) is trainable via a straight-through
+  FP16 quantization (STE); culling auto-refreshes when the FP32 master
+  parameters drift (`params_changed`); densify RGB clamping is configurable
+  via `color_clamp`.
 
 ## Discrete culling semantics
 
@@ -107,8 +111,8 @@ Host launcher `higs_rasterize_backward(...)` returns FP32 tuple
   means/quats/scales/opacities/RGB/SH (finite difference); `torch.autograd.gradcheck`;
   background forward+backward; single + multi camera; empty / all / partial
   visible sets; invisible -> zero grad; alpha-only backward; mixed precision
-  (`packed_dtype == "torch.float16"`); SH degrees 0..3; SH compression
-  rejection; native vs recompute gradient agreement (RGB + SH incl. clamp
+  (`packed_dtype == "torch.float16"`); SH degrees 0..3; SH compression via
+  straight-through estimator (trainable); native vs recompute gradient agreement (RGB + SH incl. clamp
   activation); explicit fallback when the extension is unavailable; pending-
   backward mutation raises; densify/prune optimizer-state sync;
   culling-boundary FD (near plane, far plane, radius clip, projection edge);
@@ -120,15 +124,15 @@ Host launcher `higs_rasterize_backward(...)` returns FP32 tuple
 tests/test_higs_trainable.py ............... 13/13 [100%]
 tests/test_higs_frozen.py ................... 14/14 [100%]
 tests/test_higs_dynamic.py ................. 11/11 [100%]
-tests/test_higs_native_backward.py ......... 40/40 [100%]
-============================== 78 passed in 12.65s ===============================
+tests/test_higs_native_backward.py ......... 46/46 [100%]
+============================== 87 passed in 13.09s ===============================
 ```
 Native-backward coverage: forward RGB/SH/background parity vs standard gsplat;
 finite-difference gradients on means/quats/scales/opacities/RGB/SH;
 `torch.autograd.gradcheck`; non-empty background; single + multi camera;
 empty / all / partial visible sets; invisible Gaussians get exactly zero
 gradient; alpha-only backward; mixed precision (`packed_dtype="torch.float16"`);
-SH degrees 0..3; SH compression rejection in the training path;
+SH degrees 0..3; SH compression via straight-through estimator;
 native-vs-recompute gradient agreement (RGB + SH incl. clamp activation);
 explicit fallback when the CUDA extension is unavailable; pending-backward
 topology mutation raises; densify/prune optimizer-state sync; culling-boundary
@@ -198,21 +202,26 @@ Native-vs-recompute probe: gradient cosine 0.999996 (train) / 0.999997
 
 ## Known limitations
 
-1. The native backward currently supports `render_mode="RGB"` and pinhole only;
-   other render modes / camera models raise with a clear message (use the
-   recompute fallback).
-2. The HiGS culling scene (packed FP16 buffers + renderer) is rebuilt only on
-   topology change / explicit `mark_dirty()`; between rebuilds the visibility
-   mask reflects the last packed parameter snapshot (culling is a discrete
-   approximation, valid for small per-step parameter drift).
-3. Lossy SH compression has no backward implementation yet and is rejected in
-   the training path; `sh_compression_mode="none"` is the supported mode.
+1. The native backward supports `render_mode="RGB"` only. Camera models
+   pinhole, ortho and fisheye are fully supported (projection VJP switched on
+   `CameraModelType`); ftheta/lidar and non-RGB render modes (depth,
+   hit-distance, ...) raise with a clear message (use the recompute fallback).
+2. Culling is a discrete approximation: the HiGS scene (packed FP16 buffers +
+   renderer) is rebuilt on topology change, explicit `mark_dirty()`, or
+   automatic FP32 parameter-drift detection (`HigsRendererHandle.params_changed`,
+   tensor `_version` based, e.g. after `optimizer.step()`); between rebuilds the
+   visibility mask reflects the last packed parameter snapshot.
+3. Lossy SH compression (PACKED_16B/32B) is trainable via a straight-through
+   estimator: the forward quantizes SH3 coefficients to FP16, the backward
+   passes gradients through unchanged (STE). This is an approximate, non-zero
+   gradient; `sh_compression_mode="none"` remains the exact path.
 4. The native blend/projection/SH kernels are a correctness-first port; no
    end-to-end speedup claim is made. The 2026-07-31 benchmark shows the native
    backward is ~1.9x faster than the recompute fallback, but the total
    iteration is still slower than std gsplat at 960x540 (see benchmark table).
-5. `_densify_gaussians` clamps RGB colors to [0,1]; SH coefficient tensors
-   ([N, K, C]) are intentionally not clamped.
+5. `_densify_gaussians` clamps RGB colors to [0,1] by default;
+   `color_clamp=None` disables the clamp. SH coefficient tensors ([N, K, C])
+   are intentionally not clamped.
 
 ## Modified files (gsplat source tree)
 
