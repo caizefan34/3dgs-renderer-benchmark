@@ -1,0 +1,199 @@
+﻿import pytest
+import torch
+
+device = torch.device("cuda:0")
+_skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+
+def _make_gaussians(N, device, seed=42):
+    torch.manual_seed(seed)
+    means = torch.randn(N, 3, device=device)
+    means[:, 2] = means[:, 2].abs() + 2.0
+    quats = torch.randn(N, 4, device=device)
+    quats = quats / quats.norm(dim=-1, keepdim=True)
+    scales = torch.rand(N, 3, device=device) * 0.1 + 0.01
+    opacities = torch.rand(N, device=device) * 0.8 + 0.1
+    colors = torch.sigmoid(torch.randn(N, 3, device=device))
+    return means, quats, scales, opacities, colors
+
+def _make_camera(device, width=128, height=96):
+    K = torch.tensor([[128.0, 0.0, width/2.0], [0.0, 128.0, height/2.0], [0.0, 0.0, 1.0]], device=device)
+    viewmat = torch.eye(4, device=device)
+    return viewmat, K, width, height
+
+class TestDensifyPrune:
+    @_skip_no_cuda
+    def test_densify_basic(self):
+        from gsplat.experimental.render.functional.gaussian_inference import _densify_gaussians
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        grads = torch.randn(N, 3, device=device) * 0.001
+        new_m, new_q, new_s, new_o, new_c = _densify_gaussians(means, quats, scales, opacities, colors, grads, threshold=0.0005)
+        assert new_m.shape[0] >= N
+        assert new_m.shape[1] == 3
+
+    @_skip_no_cuda
+    def test_densify_high_threshold(self):
+        from gsplat.experimental.render.functional.gaussian_inference import _densify_gaussians
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        grads = torch.zeros(N, 3, device=device)
+        new_m, _, _, _, _ = _densify_gaussians(means, quats, scales, opacities, colors, grads, threshold=1.0)
+        assert new_m.shape[0] == N
+
+    @_skip_no_cuda
+    def test_prune_basic(self):
+        from gsplat.experimental.render.functional.gaussian_inference import _prune_gaussians
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        opacities[:10] = 0.001
+        new_m, _, _, _, _ = _prune_gaussians(means, quats, scales, opacities, colors, opacity_threshold=0.01)
+        assert new_m.shape[0] == 40
+
+    @_skip_no_cuda
+    def test_prune_no_removal(self):
+        from gsplat.experimental.render.functional.gaussian_inference import _prune_gaussians
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        new_m, _, _, _, _ = _prune_gaussians(means, quats, scales, opacities, colors, opacity_threshold=0.001)
+        assert new_m.shape[0] == N
+
+class TestDynamicAPI:
+    @_skip_no_cuda
+    def test_dynamic_function_importable(self):
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        assert callable(rasterize_gaussian_higs_dynamic)
+
+    @_skip_no_cuda
+    def test_dynamic_forward_shapes(self):
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import _HIGS_DYNAMIC_SCENE
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        result = rasterize_gaussian_higs_dynamic(means, quats, scales, opacities, colors, viewmats=viewmats, Ks=Ks, width=w, height=h)
+        assert result["frame"].shape == (1, h, w, 3)
+        assert result["alpha"].shape == (1, h, w, 1)
+        assert "scene_version" in result["metadata"]
+
+    @_skip_no_cuda
+    def test_dynamic_gradients_all_params(self):
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import _HIGS_DYNAMIC_SCENE
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        result = rasterize_gaussian_higs_dynamic(means, quats, scales, opacities, colors, viewmats=viewmats, Ks=Ks, width=w, height=h)
+        result["frame"].sum().backward()
+        for name, t in [("means", means), ("quats", quats), ("scales", scales), ("opacities", opacities), ("colors", colors)]:
+            assert t.grad is not None
+            assert t.grad.isfinite().all()
+            assert t.grad.abs().sum() > 0
+
+    @_skip_no_cuda
+    def test_dynamic_forward_aligned_with_stage_b(self):
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic, rasterize_gaussian_higs_frozen
+        from gsplat.experimental.render.functional.gaussian_inference import _HIGS_DYNAMIC_SCENE
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        r_dyn = rasterize_gaussian_higs_dynamic(means, quats, scales, opacities, colors, viewmats=viewmats, Ks=Ks, width=w, height=h)
+        r_frozen = rasterize_gaussian_higs_frozen(means, quats, scales, opacities, colors, viewmats=viewmats, Ks=Ks, width=w, height=h)
+        torch.testing.assert_close(r_dyn["frame"], r_frozen["frame"], atol=1e-5, rtol=1e-5)
+        torch.testing.assert_close(r_dyn["alpha"], r_frozen["alpha"], atol=1e-5, rtol=1e-5)
+
+class TestTopologyMutation:
+    @_skip_no_cuda
+    def test_densify_between_steps(self):
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import _densify_gaussians, _HIGS_DYNAMIC_SCENE
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        r1 = rasterize_gaussian_higs_dynamic(means, quats, scales, opacities, colors, viewmats=viewmats, Ks=Ks, width=w, height=h)
+        r1["frame"].sum().backward()
+        with torch.no_grad():
+            new_m, new_q, new_s, new_o, new_c = _densify_gaussians(means, quats, scales, opacities, colors, means.grad, threshold=0.0001)
+        _HIGS_DYNAMIC_SCENE.mark_dirty()
+        for t in [new_m, new_q, new_s, new_o, new_c]:
+            t.requires_grad_(True)
+        r2 = rasterize_gaussian_higs_dynamic(new_m, new_q, new_s, new_o, new_c, viewmats=viewmats, Ks=Ks, width=w, height=h)
+        r2["frame"].sum().backward()
+        assert new_m.grad is not None
+        assert r2["metadata"]["n_gaussians"] > N
+
+    @_skip_no_cuda
+    def test_prune_between_steps(self):
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import _prune_gaussians, _HIGS_DYNAMIC_SCENE
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        r1 = rasterize_gaussian_higs_dynamic(means, quats, scales, opacities, colors, viewmats=viewmats, Ks=Ks, width=w, height=h)
+        r1["frame"].sum().backward()
+        with torch.no_grad():
+            new_m, new_q, new_s, new_o, new_c = _prune_gaussians(means, quats, scales, opacities, colors, opacity_threshold=0.3)
+        _HIGS_DYNAMIC_SCENE.mark_dirty()
+        for t in [new_m, new_q, new_s, new_o, new_c]:
+            t.requires_grad_(True)
+        r2 = rasterize_gaussian_higs_dynamic(new_m, new_q, new_s, new_o, new_c, viewmats=viewmats, Ks=Ks, width=w, height=h)
+        r2["frame"].sum().backward()
+        assert new_m.grad is not None
+        assert r2["metadata"]["n_gaussians"] < N
+
+    @_skip_no_cuda
+    def test_multi_step_training_smoke(self):
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import _densify_gaussians, _prune_gaussians, _HIGS_DYNAMIC_SCENE
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        target = torch.rand(1, h, w, 3, device=device) * 0.5 + 0.25
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        opt = torch.optim.SGD([means, quats, scales, opacities, colors], lr=1.0)
+        losses = []
+        for step in range(10):
+            opt.zero_grad()
+            result = rasterize_gaussian_higs_dynamic(means, quats, scales, opacities, colors, viewmats=viewmats, Ks=Ks, width=w, height=h)
+            loss = (result["frame"] - target).pow(2).mean()
+            loss.backward()
+            opt.step()
+            losses.append(loss.item())
+            if step in (3, 7):
+                with torch.no_grad():
+                    means, quats, scales, opacities, colors = _densify_gaussians(means, quats, scales, opacities, colors, means.grad, threshold=0.0001)
+                for t in [means, quats, scales, opacities, colors]:
+                    t.requires_grad_(True)
+                _HIGS_DYNAMIC_SCENE.mark_dirty()
+            if step == 5:
+                with torch.no_grad():
+                    means, quats, scales, opacities, colors = _prune_gaussians(means, quats, scales, opacities, colors, opacity_threshold=0.1)
+                for t in [means, quats, scales, opacities, colors]:
+                    t.requires_grad_(True)
+                _HIGS_DYNAMIC_SCENE.mark_dirty()
+        assert len(losses) == 10
+        assert result["metadata"]["scene_version"] > 0
