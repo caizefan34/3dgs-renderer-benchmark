@@ -170,15 +170,9 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..c0b2144 100644
+index b6c1b13..61b5146 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
-@@ -1,4 +1,4 @@
--# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-+﻿# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- # SPDX-License-Identifier: Apache-2.0
- #
- # Licensed under the Apache License, Version 2.0 (the "License");
 @@ -18,6 +18,8 @@
  
  from __future__ import annotations
@@ -243,7 +237,7 @@ index b6c1b13..c0b2144 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2056 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2083 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -555,7 +549,7 @@ index b6c1b13..c0b2144 100644
 +            packed=False,
 +        )
 +    r = radii.squeeze(0)  # [C, N, 2]
-+    visible_mask = (r > 0).all(dim=-1).any(dim=0)  # [N] union over cameras
++    visible_mask = _union_visible_mask_native(r)  # [N] union over cameras
 +    visible_ids = torch.where(visible_mask)[0]
 +    culling_ratio = 1.0 - (visible_ids.numel() / max(radii.shape[-2], 1))
 +    return visible_ids, visible_mask, culling_ratio
@@ -778,6 +772,33 @@ index b6c1b13..c0b2144 100644
 +        opacities[visible_ids].contiguous(),
 +        colors[visible_ids].contiguous(),
 +    )
++
++
++def _union_visible_mask_native(r):
++    """Union visibility mask over cameras from ``[C, N, 2]`` projection radii.
++
++    Uses the fused CUDA kernel when the experimental extension is available
++    (one thread per Gaussian, ``any_c(both radii > 0)``); otherwise falls back
++    to the PyTorch expression, which the culling callers historically used.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_union_visible_mask")
++        and r.is_cuda
++        and r.dtype in (torch.float32, torch.int32)
++    ):
++        try:
++            return ext.higs_union_visible_mask(r.contiguous())
++        except RuntimeError:
++            pass
++    return (r > 0).all(dim=-1).any(dim=0)
++
 +
 +def _normalize_sh_compression_mode(mode):
 +    """Normalize str/int/enum SH compression modes to SHCompressionMode."""
@@ -2330,11 +2351,11 @@ index 50f357f..807910a 100644
          )
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
 new file mode 100644
-index 0000000..676fe38
+index 0000000..340fb6f
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
-@@ -0,0 +1,193 @@
-+﻿/*
+@@ -0,0 +1,254 @@
++/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
 + *
@@ -2525,15 +2546,76 @@ index 0000000..676fe38
 +
 +    return {v_means, v_quats, v_scales, v_opacities, v_colors};
 +}
++
++// Union visibility over cameras: a Gaussian is visible if BOTH radius
++// components are > 0 in at least one camera. One thread per Gaussian.
++template<typename T>
++__global__ void union_visible_mask_kernel_t(
++    const T *__restrict__ radii,        // [C, N, 2]
++    bool *__restrict__ mask,            // [N]
++    const int64_t C,
++    const int64_t N)
++{
++    const int64_t n = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
++    if(n >= N)
++    {
++        return;
++    }
++    bool vis = false;
++    for(int64_t c = 0; c < C && !vis; ++c)
++    {
++        const T *r = radii + (c * N + n) * 2;
++        vis = (r[0] > T(0)) && (r[1] > T(0));
++    }
++    mask[n] = vis;
++}
++
++at::Tensor higs_union_visible_mask(
++    const at::Tensor &radii) // [C, N, 2] float32 or int32
++{
++    TORCH_CHECK(radii.is_cuda(), "higs_union_visible_mask: radii must be CUDA");
++    TORCH_CHECK(
++        radii.scalar_type() == at::kFloat || radii.scalar_type() == at::kInt,
++        "higs_union_visible_mask: FP32 or int32 radii required");
++    TORCH_CHECK(radii.dim() == 3 && radii.size(2) == 2, "higs_union_visible_mask: expected [C, N, 2]");
++
++    const at::cuda::OptionalCUDAGuard device_guard(radii.device());
++    const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
++
++    const at::Tensor radii_c = radii.contiguous();
++    const int64_t C = radii_c.size(0);
++    const int64_t N = radii_c.size(1);
++
++    at::Tensor mask = at::empty({N}, radii_c.options().dtype(at::kBool));
++    if(N == 0)
++    {
++        return mask;
++    }
++
++    const int threads = 256;
++    const int grid = static_cast<int>(std::min<int64_t>(65535, (N + threads - 1) / threads));
++    if(radii_c.scalar_type() == at::kInt)
++    {
++        union_visible_mask_kernel_t<int><<<grid, threads, 0, stream>>>(
++            radii_c.const_data_ptr<int>(), mask.data_ptr<bool>(), C, N);
++    }
++    else
++    {
++        union_visible_mask_kernel_t<float><<<grid, threads, 0, stream>>>(
++            radii_c.const_data_ptr<float>(), mask.data_ptr<bool>(), C, N);
++    }
++    C10_CUDA_KERNEL_LAUNCH_CHECK();
++    return mask;
++}
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
 new file mode 100644
-index 0000000..60d5a30
+index 0000000..4291fae
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
-@@ -0,0 +1,58 @@
-+﻿/*
+@@ -0,0 +1,64 @@
++/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
 + *
@@ -2588,6 +2670,12 @@ index 0000000..60d5a30
 +        const at::Tensor &opacities,  // [N] float32
 +        const at::Tensor &colors,     // [N, ...] float32
 +        const at::Tensor &visible_ids // [N_visible] int64
++    );
++
++    /// Union-visibility mask over cameras from the culling projection radii:
++    /// mask[n] = any_c((r[c,n,0] > 0) && (r[c,n,1] > 0)). Output [N] bool.
++    at::Tensor higs_union_visible_mask(
++        const at::Tensor &radii // [C, N, 2] float32
 +    );
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
@@ -4049,7 +4137,7 @@ index 13097f3..6ff8288 100644
      return __cvt_pack_sat_u8_f32(a.x, a.y, a.z, a.w);
  }
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d1..f17a1a6 100644
+index 2eb26d1..5350469 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
 @@ -1,4 +1,4 @@
@@ -4067,7 +4155,7 @@ index 2eb26d1..f17a1a6 100644
  
  PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
  {
-@@ -52,9 +54,60 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+@@ -52,9 +54,67 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
          )
          .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
          .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
@@ -4123,13 +4211,20 @@ index 2eb26d1..f17a1a6 100644
 +        py::arg("colors"),
 +        py::arg("visible_ids")
 +    );
++
++    m.def(
++        "higs_union_visible_mask",
++        &gsplat::gaussian_render_inference_scene::higs_union_visible_mask,
++        "Union-visibility mask over cameras from culling-projection radii.",
++        py::arg("radii")
++    );
  }
  
 +
  TORCH_LIBRARY(experimental, m)
  {
      m.def(
-@@ -71,7 +124,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
+@@ -71,7 +131,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
  }
  
  // Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is

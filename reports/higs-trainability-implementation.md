@@ -176,7 +176,10 @@ and `results/higs-train-benchmark-2026-08-01h.json` (after the C++ direct-master
 gradient scatter). `results/higs-train-benchmark-2026-08-01i.json` captured a
 single-pass projection experiment that was measured as a regression and
 reverted; `results/higs-train-benchmark-2026-08-01j.json` confirms the reverted
-state matches 08-01h.
+state matches 08-01h. `results/higs-train-benchmark-2026-08-01l.json` captured the
+round-8 camera-row slice experiment (fused mask + slice in tree, regression vs the
+fused-mask-only state, slice reverted); `results/higs-train-benchmark-2026-08-01m.json` is the
+fused union-visibility-mask final result.
 
 ### Forward bottleneck found and fixed (2026-08-01)
 
@@ -576,6 +579,68 @@ implemented and benchmarked:
   (gather cost ~= saved projection). Reverted; 08-01j matches 08-01h
   (forward 18.0 / backward 26.8 / total 45.0 on bicycle, 99 tests pass).
 
+### Seventh optimization (2026-08-01m): fused union-visibility mask kernel
+
+A phase profile of the `higs_native` forward on bicycle (4 cams, 960x540,
+N=6.13M, 2.27M visible) decomposed the ~18.0 ms forward into: rasterize 10.4,
+isect 2.9, SH 1.9, batched FP32 culling projection 2.3, visible-subset gathers
+0.5, second projection over the visible subset 0.55, `where` 0.09, and the
+Python visibility mask `(r > 0).all(-1).any(0)` at **0.78 ms**. The mask was a
+double reduction over ~24.5M bools (C x N): an and-reduce over the two radius
+components (~0.28 ms) plus an or-reduce over cameras (~0.07 ms) plus the
+temporary bool allocations - a hidden Python-side cost on the critical path.
+
+Fix: `higs_union_visible_mask` (`GatherVisible.cu/.h`) - one thread per
+Gaussian, loop over cameras with early exit,
+`mask[n] = any_c((r[c,n,0] > 0) && (r[c,n,1] > 0))`, templated on int32/FP32
+radii (the culling projection returns int32 radii; the kernel covers both),
+emitting a single `[N]` bool tensor. `_cull_gaussians_batched` now calls it via
+`_union_visible_mask_native()`, keeping the original PyTorch expression as the
+automatic fallback when the extension is absent. Measured: 0.78 ms -> 0.136 ms
+(~-0.65 ms), matching the full-benchmark forward drop of -0.74 ms.
+
+The same round re-attempted the round-7 "single-pass projection" idea with a
+native per-camera row gather (`higs_gather_camera_rows` slicing the all-N
+projection outputs to the visible subset). The sliced projection outputs are
+bit-identical to a re-projection, but the native gather still costs 0.93 ms vs
+the ~0.55 ms the second projection pass saves - confirmed again as a regression
+and fully reverted (the tree contains no `higs_gather_camera_rows`). Two
+details matter for any future slicing attempt: `fully_fused_projection` radii
+are int32 (not FP32) and depths are 3-D `[1, C, N]`.
+
+### tanks_and_temples/train (N=1,026,508) --- 2026-08-01m (after fused mask)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 8.16 | 14.20 | 22.55 | 3.22 GB | 0.0% | 19.24 | 0.6762 | 0.2967 | 1,026,508 |
+| higs_recompute | 8.01 | 24.52 | 32.71 | 4.00 GB | 15.1% | 19.25 | 0.6765 | 0.2966 | 1,026,508 |
+| higs_native | 7.02 | 11.84 | 19.03 | 3.18 GB | 15.1% | 19.25 | 0.6763 | 0.2964 | 1,026,508 |
+| higs_dynamic | 6.30 | 10.60 | 17.07 | 3.59 GB | 15.6% | 20.30 | 0.7060 | 0.2771 | 731,698 |
+
+### mipnerf360/bicycle (N=6,131,954) --- 2026-08-01m (after fused mask)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 17.92 | 32.81 | 50.94 | 10.39 GB | 0.0% | 17.28 | 0.4480 | 0.4291 | 6,131,954 |
+| higs_recompute | 18.83 | 59.87 | 78.89 | 12.69 GB | 62.9% | 17.28 | 0.4480 | 0.4287 | 6,131,954 |
+| higs_native | 17.27 | 26.61 | 44.05 | 11.14 GB | 62.9% | 17.28 | 0.4479 | 0.4288 | 6,131,954 |
+| higs_dynamic | 13.68 | 22.00 | 35.86 | 14.14 GB | 65.0% | 18.21 | 0.4738 | 0.3792 | 4,160,369 |
+
+**Interpretation (after the fused mask)**
+
+- vs the 08-01j best baseline, bicycle `higs_native` forward 18.01 -> 17.27
+  (-0.74 ms) and total 45.04 -> 44.05 (-0.99 ms); train forward 7.12 -> 7.02.
+  The forward is now clearly faster than std (17.27 vs 17.92, -3.6%) and the
+  native backward is -18.9% vs std (26.61 vs 32.81) and 2.25x faster than the
+  recompute fallback (59.87 ms).
+- End-to-end vs std: `higs_native` -15.6% (train) / -13.5% (bicycle);
+  `higs_dynamic` -24.3% / -29.6% with the densify/prune PSNR gains unchanged
+  (train 20.30 / bicycle 18.21 vs std 19.24 / 17.28).
+- 08-01l captured the intermediate state with the camera-row slice still in the
+  tree (bicycle `higs_native` fwd 17.61 / total 44.45): a small net gain over
+  08-01j but a regression vs the fused-mask-only state, so the slice was
+  reverted and 08-01m is the final result. All 99 tests pass.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
@@ -598,11 +663,13 @@ implemented and benchmarked:
    pack skip, native visible-subset gather) plus three backward rounds (SH VJP
    visible-pair compaction + channel-adjacent thread order, blend VJP
    `__launch_bounds__(256, 5)` register fix, and the C++ direct-master
-   gradient scatter that removed the Python `index_copy_` scatter), the frozen
-   native path is faster than std gsplat end-to-end on both scenes (-11.5%
-   train / -12.7% bicycle, 2026-08-01h benchmark) and the dynamic path is
-   -21% / -29%. The only remaining structural forward cost is the batched
-   FP32 culling projection over all N x C (~3.3 ms on bicycle), the price of
+   gradient scatter that removed the Python `index_copy_` scatter, and the fused
+   union-visibility mask kernel that removed the Python double reduction), the
+   frozen native path is faster than std gsplat end-to-end on both scenes
+   (-15.6% train / -13.5% bicycle, 2026-08-01m benchmark) and the dynamic path
+   is -24.3% / -29.6%. The remaining structural forward costs are the batched
+   FP32 culling projection over all N x C (~2.3 ms on bicycle) and the
+   visible-subset second projection (~0.55 ms), the price of
    projection-consistent discrete culling; the native backward contributes no
    recomputation. The differentiable forward no longer re-packs the FP16
    scene per step (parameter drift only updates the handle version
@@ -621,8 +688,10 @@ implemented and benchmarked:
 - `gsplat/experimental/render/kernels/cuda/build.py` — include `HigsNativeBackward.cu`.
 - `gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.{cu,h}` — new
   compact-copy kernel `higs_gather_visible` (visible-subset gather, avoids PyTorch's
-  slow vectorized row gather for row widths divisible by four).
-- `gsplat/experimental/render/kernels/cuda/ext.cpp` — `higs_rasterize_backward` +
-  `higs_gather_visible` bindings.
+  slow vectorized row gather for row widths divisible by four) and the fused
+  `higs_union_visible_mask` kernel (union visibility mask over cameras from
+  `[C, N, 2]` int32/FP32 projection radii).
+- `gsplat/experimental/render/kernels/cuda/ext.cpp` — `higs_rasterize_backward`,
+  `higs_gather_visible` and `higs_union_visible_mask` bindings.
 - `tests/test_higs_native_backward.py` — new native-backward test suite.
 - `benchmark/run_higs_train_benchmark.py` — new training benchmark.
