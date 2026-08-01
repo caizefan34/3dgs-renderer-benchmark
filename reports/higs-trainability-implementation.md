@@ -1,4 +1,4 @@
-﻿# HiGS Trainability Implementation Report
+# HiGS Trainability Implementation Report
 
 ## Status: Native differentiable training path (HiGS forward + HiGS native CUDA backward) — VERIFIED on EPIC-05 (A100)
 
@@ -1246,8 +1246,68 @@ blend kernel and ~3 ms/step end-to-end. The dominant blend cost is the
 per-isect VJP math; the last big lever remains a HiGS-format backward
 consuming the macro-tile structure (30M entries vs 330M isects).
 
-Full JSON: `results/higs-train-benchmark-2026-08-02-round22-1080p.json`
+
+### Round 23 (2026-08-02): "why the 2x backward does not move the total" answered with the full backend matrix + CatArrayBatchedCopy red herring cleared
+
+**Direct answer.** On the current code (PX=2 default) the total iteration **is**
+speeded up. A full 4-backend run (backends `[std_ll, higs_recompute,
+higs_native, higs_dynamic]`, bicycle 1080p x 4 cams, 20 Adam steps, GPU0):
+
+| backend (bicycle) | fwd ms | bwd ms | total ms | train ms | vs recompute | vs std_ll |
+|---|---|---|---|---|---|---|
+| std_ll | 27.0 | 48.4 | 75.8 | 83.4 | — | — |
+| higs_recompute | 28.8 | 88.7 | 118.0 | 125.5 | — | +50% |
+| higs_native | 26.4 | 40.0 | 66.9 | 74.4 | **-43%** | **-12%** |
+| higs_dynamic | 20.9 | 35.5 | 56.9 | 64.2 | **-52%** | **-25%** |
+
+| backend (train, 1.03M) | fwd ms | bwd ms | total ms | train ms | vs recompute | vs std_ll |
+|---|---|---|---|---|---|---|
+| std_ll | 11.0 | 21.8 | 33.3 | 34.9 | — | — |
+| higs_recompute | 11.6 | 38.6 | 50.6 | 52.3 | — | +50% |
+| higs_native | 11.7 | 19.1 | 31.2 | 32.8 | **-38%** | **-6%** |
+| higs_dynamic | 9.6 | 17.0 | 27.1 | 29.0 | **-46%** | **-17%** |
+
+The "2x backward" only materialises against `higs_recompute`, whose backward
+re-runs the entire forward (rasterization under autograd) inside
+`loss.backward()`: 88.7 ms on bicycle vs 40.0 ms native (2.2x) — but that
+comparison is not a backward-vs-backward one. Against the honest low-overhead
+`std_ll` baseline the native backward edge is 40.0 vs 48.4 ms (-17%) and the
+forward is *not* faster (26.4 vs 27.0 ms: batched FP32 culling over all N x C
++ visible-subset gather offset the subset-render savings; the 62.9% culled
+Gaussians generate ~zero isects anyway). The pre-PX=2 code (round-22 px1
+control: native 26.9/56.1/83.4/91.1) is where "no total speedup" was true:
+native total 83.4 ≈ std_ll 82.5 ms. Round 22's PX=2 blend VJP (bwd
+56.1 -> 40.0) is exactly what moved the total into speedup territory.
+
+**1-camera check** (bicycle 1080p, `--n-train 1`, in case the question was
+measured on a single-view probe): std_ll 7.7/13.4/21.3/29.7; recompute
+8.3/29.4/37.9/45.4; native 7.5/11.0/18.6/26.1 — native is -13% vs std_ll and
+-51% vs recompute on total, so the speedup holds at 1 camera too.
+
+**CatArrayBatchedCopy red herring cleared.** The nsys fwd profile's
+`at::native::CatArrayBatchedCopy_alignedK_contig<OpaqueType<4u>, uint32_t, 2,
+128, 1, 16>` row showed avg 14.5 ms x 3 launches, which looked like a hidden
+per-step forward cost. Per-launch inspection shows the stats were skewed by a
+**single 43.56 ms launch** (grid 3456x45, block 128) during scene loading
+(cat of the 6.13M-Gaussian tensor group); the two steady-state launches in
+the 3-step forward loop are **4.5 us each**. There is no 14.5 ms/step hidden
+cat in the forward, and no `torch.cat`/`aten::cat` in the per-step capture
+path (torch profiler sees zero cat events; render_mode RGB skips the
+colors+depths cat). Nothing to optimize there.
+
+**Where the total actually goes** (bicycle 1080p x 4 cams, native 66.9 ms
+total): forward 26.4 ms (culling projection over all N x C ~2.3 ms, capture
+rasterize ~11.3 ms + isect ~4.1 ms + SH ~1.9 ms + subset projection ~0.6 ms,
+rest launch/alloc overhead), backward 40.0 ms (blend VJP ~29.8 ms + SH VJP
+~6.0 ms + projection VJP ~2.0 ms). The blend VJP's per-isect math on ~330M
+isects remains the largest single item; the last big lever is still a
+HiGS-format backward consuming the macro-tile structure (30M entries vs 330M
+isects), not the forward cat path.
+
+Full JSONs: `results/higs-train-benchmark-2026-08-02-round23-1080p.json`,
+`results/higs-train-benchmark-2026-08-02-round23-1cam-1080p.json`
 (regeneratable; not tracked).
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
