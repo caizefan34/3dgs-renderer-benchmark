@@ -134,7 +134,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..20a6f2f 100644
+index b6c1b13..fc3019e 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -201,7 +201,7 @@ index b6c1b13..20a6f2f 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,1905 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,1990 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -470,6 +470,98 @@ index b6c1b13..20a6f2f 100644
 +    visible_mask = (r > 0).all(dim=-1) if r.dim() > 1 else (r > 0)
 +    visible_ids = torch.where(visible_mask)[0]
 +    return visible_ids, visible_mask
++
++
++def _cull_gaussians_batched(
++    means, quats, scales, viewmats, Ks,
++    width, height, eps2d=0.3,
++    near_plane=0.01, far_plane=1e10, radius_clip=0.0,
++):
++    """Union-visibility culling over all cameras with ONE batched projection.
++
++    Runs ``fully_fused_projection`` once for every camera in parallel and marks
++    a Gaussian visible when any camera projects it with a positive radius. The
++    projection uses the exact same near/far/radius_clip/eps2d criteria as the
++    render path and operates on the FP32 master params, so the mask is
++    projection-consistent with the forward (the FP16-packed HiGS renderer is
++    not needed for this and would add a full per-camera render per step).
++
++    Returns:
++        visible_ids: 1D int64 tensor of visible Gaussian indices (ascending).
++        visible_mask: bool tensor [N] where True means visible.
++        culling_ratio: float fraction of culled (invisible) Gaussians.
++    """
++    from gsplat.cuda._wrapper import fully_fused_projection
++
++    with torch.no_grad():
++        radii, _, _, _, _ = fully_fused_projection(
++            means=means.unsqueeze(0).contiguous(),
++            covars=None,
++            quats=quats.unsqueeze(0).contiguous(),
++            scales=scales.unsqueeze(0).contiguous(),
++            viewmats=viewmats.contiguous(),
++            Ks=Ks.contiguous(),
++            width=width,
++            height=height,
++            eps2d=eps2d,
++            near_plane=near_plane,
++            far_plane=far_plane,
++            radius_clip=radius_clip,
++            packed=False,
++        )
++    r = radii.squeeze(0)  # [C, N, 2]
++    visible_mask = (r > 0).all(dim=-1).any(dim=0)  # [N] union over cameras
++    visible_ids = torch.where(visible_mask)[0]
++    culling_ratio = 1.0 - (visible_ids.numel() / max(radii.shape[-2], 1))
++    return visible_ids, visible_mask, culling_ratio
++
++
++def _refresh_higs_renderer_scene(
++    handle, means, quats, scales, opacities, colors,
++    N, sh_degree, sh_compression_mode,
++):
++    """Rebuild the packed HiGS scene when it is stale, WITHOUT rendering.
++
++    Mirrors the rebuild path of :func:`_cull_gaussians_higs` (which the direct
++    culling API still uses) but skips the per-camera render: the training
++    forward derives visibility from a batched FP32 projection, so the renderer's
++    packed scene only needs to stay version-consistent for the handle's
++    scene_version / topology_rebuilt / pending-backward bookkeeping.
++    """
++    from gsplat.scene.kernels.gaussian_inference_ops import (
++        pack_gaussian_inference_scene,
++    )
++    from ..kernels.gaussian_inference_ops import (
++        create_native_gaussian_inference_renderer,
++    )
++
++    sh_deg_i = -1 if sh_degree is None else sh_degree
++    comp = _normalize_sh_compression_mode(sh_compression_mode)
++    if handle.n_gaussians != N and not handle.dirty:
++        raise RuntimeError(
++            f"HiGS renderer handle has n_gaussians={handle.n_gaussians} "
++            f"but the input has N={N}. Topology changed without "
++            "mark_dirty(); call renderer_handle.mark_dirty() after "
++            "densify/prune before the next forward."
++        )
++    if handle.dirty or handle.n_gaussians != N or (
++        not handle.pending_backward
++        and handle.params_changed(means, quats, scales, opacities, colors)
++    ):
++        means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
++            means, quats, scales, opacities, colors, sh_deg_i, comp,
++        )
++        if handle.renderer is not None:
++            handle.renderer.release()
++        renderer = create_native_gaussian_inference_renderer(
++            means_planar, qso_packed, colors_packed, sh_deg_i, int(comp),
++        )
++        handle.rebuild(
++            means_planar, qso_packed, colors_packed, N,
++            packed_dtype=str(qso_packed.dtype), renderer=renderer,
++            means=means, quats=quats, scales=scales,
++            opacities=opacities, colors=colors,
++        )
 +
 +def _cull_gaussians_higs(
 +    means, quats, scales, opacities, colors,
@@ -1132,32 +1224,25 @@ index b6c1b13..20a6f2f 100644
 +        visible_ids = None
 +        if enable_culling:
 +            with torch.no_grad():
-+                per_camera_ids = []
-+                use_higs_cull = use_higs_culling and _higs_backend_available()
-+                for c in range(C):
-+                    viewmat_c = viewmats[..., c, :, :].reshape(4, 4)
-+                    K_c = Ks[..., c, :, :].reshape(3, 3)
-+                    if use_higs_cull:
-+                        vis_ids, _, _ = _cull_gaussians_higs(
-+                            means, quats, scales, opacities, colors,
-+                            viewmat_c, K_c, width, height, sh_degree,
-+                            tile_size=tile_size, near_plane=near_plane,
-+                            far_plane=far_plane, radius_clip=radius_clip,
-+                            eps2d=eps2d,
-+                            sh_compression_mode=sh_compression_mode,
-+                            background=background,
-+                            renderer_handle=renderer_handle,
-+                        )
-+                    else:
-+                        vis_ids, _ = _cull_gaussians(
-+                            means, quats, scales,
-+                            viewmats[..., c : c + 1, :, :],
-+                            Ks[..., c : c + 1, :, :],
-+                            width, height, eps2d,
-+                        )
-+                    per_camera_ids.append(vis_ids)
-+                if per_camera_ids:
-+                    visible_ids = torch.unique(torch.cat(per_camera_ids))
++                # Keep the packed HiGS scene version-consistent when a handle
++                # is present (dynamic mode bookkeeping) without running the
++                # expensive per-camera render that was only used for the
++                # visibility mask.
++                if renderer_handle is not None:
++                    _refresh_higs_renderer_scene(
++                        renderer_handle, means, quats, scales, opacities,
++                        colors, N_total, sh_degree, sh_compression_mode,
++                    )
++                # One batched FP32 projection over all cameras, unioned: same
++                # near/far/radius_clip/eps2d criteria as the render path, but
++                # ~C full HiGS renders cheaper (no intersect/rasterize pass).
++                vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
++                    means, quats, scales, viewmats, Ks,
++                    width, height,
++                    eps2d=eps2d, near_plane=near_plane,
++                    far_plane=far_plane, radius_clip=radius_clip,
++                )
++                visible_ids = vis_ids
 +
 +        if visible_ids is not None and visible_ids.numel() > 0:
 +            N_visible = visible_ids.numel()
