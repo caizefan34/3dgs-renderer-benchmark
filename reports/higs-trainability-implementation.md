@@ -168,7 +168,8 @@ Measured on EPIC-05 (1x A100-SXM4-80GB, CUDA 12.8, torch 2.9.1+cu128), 960x540,
 4 train + 3 eval cameras, 20 Adam steps, densify/prune every 5 steps.
 Full JSON: `results/higs-train-benchmark-2026-07-31.json` (baseline),
 `results/higs-train-benchmark-2026-08-01.json` (after the culling fix) and
-`results/higs-train-benchmark-2026-08-01b.json` (after the per-step pack skip).
+`results/higs-train-benchmark-2026-08-01b.json` (after the per-step pack skip) and
+`results/higs-train-benchmark-2026-08-01c.json` (after the native visible-subset gather).
 
 ### Forward bottleneck found and fixed (2026-08-01)
 
@@ -292,11 +293,69 @@ forward total 26.30 -> 23.83 ms. Re-running the full benchmark:
 - `topology_rebuilt` is now honest: `False` on pure parameter-drift steps
   (the packed hierarchy is not rebuilt), `True` only right after a real
   topology change (`mark_dirty()`/densify-prune).
-- Remaining bicycle `higs_native` forward gap vs std (+2.7 ms) is structural:
-  the batched FP32 culling projection over all N x C (~3.3 ms) and the
-  visible-subset gathers (~4.4 ms) are the price of projection-consistent
-  culling; they cannot be removed without changing the discrete-culling
-  semantics.
+- Remaining bicycle `higs_native` forward gap vs std (+2.7 ms) was dominated
+  by the visible-subset gathers (~4.4 ms) plus the batched FP32 culling
+  projection over all N x C (~3.3 ms). The gather part is now eliminated by
+  the native gather kernel (third optimization below); the culling
+  projection remains the price of projection-consistent discrete culling.
+
+
+### Third optimization (2026-08-01): native visible-subset gather kernel
+
+Phase profiling of the `higs_native` forward on bicycle (4 cams, 960x540,
+N=6.13M) still showed a 4.42 ms cost for gathering the visible-subset master
+rows (`means[vis_ids]`, `quats[vis_ids]`, ...). An inner-dimension sweep of
+PyTorch's row gather found the root cause: the CUDA index-select dispatches a
+vectorized path whenever the row width is a multiple of four floats, and that
+path is pathologically slow for random row indices on large tensors - ~1.70 ms
+for `quats [N,4]` and ~1.70 ms for `colors [N,16,3]` (48 floats/row), vs
+0.05-0.28 ms for non-multiple-of-4 widths (measured on EPIC-05, 2.27 M visible
+rows). `torch.gather`, `index_select` and int32 indices all hit the same path.
+
+Fix: a new single-purpose compact-copy kernel `higs_gather_visible`
+(`GatherVisible.cu`/`.h`) copies the five FP32 master tensors (means/quats/
+scales/opacities/colors, arbitrary trailing shape) into fresh contiguous
+visible-subset tensors with one element per thread, bypassing the bad PyTorch
+dispatch. Python falls back to the plain PyTorch gather when the extension is
+absent or the tensors are not CUDA FP32. Measured: 5-gather 3.79-4.42 ms ->
+0.93 ms (quats 1.70 -> 0.10 ms; colors 1.70 -> 0.65 ms); values bit-identical
+to `t[vis_ids].contiguous()`. Forward dropped from 23.83 -> 20.14 ms on
+bicycle (`higs_native`). Re-running the full benchmark:
+
+### tanks_and_temples/train (N=1,026,508) --- 2026-08-01c (after gather kernel)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 8.16 | 14.17 | 22.51 | 3.22 GB | 0.0% | 19.24 | 0.6763 | 0.2966 | 1,026,508 |
+| higs_recompute | 8.08 | 24.48 | 32.74 | 4.00 GB | 15.1% | 19.24 | 0.6763 | 0.2966 | 1,026,508 |
+| higs_native | 7.12 | 14.11 | 21.40 | 3.24 GB | 15.1% | 19.26 | 0.6765 | 0.2969 | 1,026,508 |
+| higs_dynamic | 6.24 | 12.65 | 19.07 | 3.63 GB | 15.6% | 20.19 | 0.7039 | 0.2806 | 731,783 |
+
+### mipnerf360/bicycle (N=6,131,954) --- 2026-08-01c (after gather kernel)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 17.85 | 33.21 | 51.26 | 10.39 GB | 0.0% | 17.28 | 0.4478 | 0.4289 | 6,131,954 |
+| higs_recompute | 19.30 | 59.86 | 79.34 | 12.69 GB | 62.9% | 17.29 | 0.4481 | 0.4284 | 6,131,954 |
+| higs_native | 17.74 | 31.64 | 49.56 | 11.27 GB | 62.9% | 17.27 | 0.4478 | 0.4286 | 6,131,954 |
+| higs_dynamic | 14.07 | 26.38 | 40.62 | 14.14 GB | 65.0% | 18.22 | 0.4746 | 0.3792 | 4,159,824 |
+
+**Interpretation (after the gather kernel)**
+
+- `higs_native` total iteration is now **faster than std gsplat end-to-end on
+  both scenes**: 21.40 vs 22.51 ms (train, -4.9%) and 49.56 vs 51.26 ms
+  (bicycle, -3.3%). The bicycle forward is at std parity (17.74 vs 17.85 ms)
+  and the native backward is faster than std's own backward (31.64 vs 33.21 ms).
+- `higs_dynamic` improves to 19.07 ms (train, -15.3%) and 40.62 ms (bicycle,
+  -20.8%) vs std while keeping the held-out PSNR gains (20.19 / 18.22 vs
+  std 19.24 / 17.28).
+- Native-vs-recompute probe stays at gradient cosine 0.999996 / 0.999997;
+  quality metrics are unchanged (frozen path bit-level parity aside from the
+  culled 15.1% / 62.9% invisible Gaussians), so the gather kernel is a pure
+  data-movement optimization.
+- All 99 tests pass with the new kernel; the PyTorch gather remains the
+  automatic fallback whenever the CUDA extension is not available.
+
 
 ## Known limitations
 
@@ -316,14 +375,16 @@ forward total 26.30 -> 23.83 ms. Re-running the full benchmark:
    estimator: the forward quantizes SH3 coefficients to FP16, the backward
    passes gradients through unchanged (STE). This is an approximate, non-zero
    gradient; `sh_compression_mode="none"` remains the exact path.
-4. The frozen native path is at std parity on the small scene and +3.5% on the
-   large scene (960x540); the dynamic path (densify/prune) is faster than std
-   on both scenes (-9.3% / -15.6%, 2026-08-01b benchmark). The remaining
-   large-scene forward gap comes from the batched FP32 culling projection +
-   visible-subset gathers, not from the native backward. The differentiable
-   forward no longer re-packs the FP16 scene per step (parameter drift only
-   updates the handle version bookkeeping; `pack_gaussian_inference_scene` runs
-   only on real topology changes).
+4. After three forward optimizations (batched culling projection, per-step
+   pack skip, native visible-subset gather), the frozen native path is faster
+   than std gsplat end-to-end on both scenes (-4.9% train / -3.3% bicycle,
+   2026-08-01c benchmark) and the dynamic path is -15.3% / -20.8%. The only
+   remaining structural forward cost is the batched FP32 culling projection
+   over all N x C (~3.3 ms on bicycle), the price of projection-consistent
+   discrete culling; the native backward contributes no recomputation. The
+   differentiable forward no longer re-packs the FP16 scene per step
+   (parameter drift only updates the handle version bookkeeping;
+   `pack_gaussian_inference_scene` runs only on real topology changes).
 5. `_densify_gaussians` clamps RGB colors to [0,1] by default;
    `color_clamp=None` disables the clamp. SH coefficient tensors ([N, K, C])
    are intentionally not clamped.
@@ -335,6 +396,10 @@ forward total 26.30 -> 23.83 ms. Re-running the full benchmark:
   `sync_optimizer_state_for_topology_change`, dynamic-scene handle ownership.
 - `gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.{cu,h}` — new.
 - `gsplat/experimental/render/kernels/cuda/build.py` — include `HigsNativeBackward.cu`.
-- `gsplat/experimental/render/kernels/cuda/ext.cpp` — `higs_rasterize_backward` binding.
+- `gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.{cu,h}` — new
+  compact-copy kernel `higs_gather_visible` (visible-subset gather, avoids PyTorch's
+  slow vectorized row gather for row widths divisible by four).
+- `gsplat/experimental/render/kernels/cuda/ext.cpp` — `higs_rasterize_backward` +
+  `higs_gather_visible` bindings.
 - `tests/test_higs_native_backward.py` — new native-backward test suite.
 - `benchmark/run_higs_train_benchmark.py` — new training benchmark.

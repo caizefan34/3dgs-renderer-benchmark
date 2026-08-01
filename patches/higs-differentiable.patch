@@ -134,9 +134,15 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..9cb501d 100644
+index b6c1b13..f289ff3 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
+@@ -1,4 +1,4 @@
+-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++﻿# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ # SPDX-License-Identifier: Apache-2.0
+ #
+ # Licensed under the Apache License, Version 2.0 (the "License");
 @@ -18,6 +18,8 @@
  
  from __future__ import annotations
@@ -201,7 +207,7 @@ index b6c1b13..9cb501d 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2022 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2054 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -699,6 +705,43 @@ index b6c1b13..9cb501d 100644
 +    ext = _backend._C
 +    return ext is not None and hasattr(ext, "higs_rasterize_backward")
 +
++
++def _gather_visible_native(
++    means, quats, scales, opacities, colors, visible_ids,
++):
++    """Gather the visible rows of the master FP32 tensors.
++
++    Uses the compact-copy CUDA kernel from the experimental extension when
++    available (avoids the pathologically slow PyTorch row gather for row
++    widths divisible by four, e.g. quats [N,4] and colors [N,16,3]);
++    otherwise falls back to the plain PyTorch gather.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_gather_visible")
++        and means.is_cuda
++        and means.dtype == torch.float32
++        and colors.dtype == torch.float32
++    ):
++        try:
++            return ext.higs_gather_visible(
++                means, quats, scales, opacities, colors, visible_ids,
++            )
++        except RuntimeError:
++            pass
++    return (
++        means[visible_ids].contiguous(),
++        quats[visible_ids].contiguous(),
++        scales[visible_ids].contiguous(),
++        opacities[visible_ids].contiguous(),
++        colors[visible_ids].contiguous(),
++    )
 +
 +def _normalize_sh_compression_mode(mode):
 +    """Normalize str/int/enum SH compression modes to SHCompressionMode."""
@@ -1278,14 +1321,9 @@ index b6c1b13..9cb501d 100644
 +
 +        if visible_ids is not None and visible_ids.numel() > 0:
 +            N_visible = visible_ids.numel()
-+            v_means = means[visible_ids].contiguous()
-+            v_quats = quats[visible_ids].contiguous()
-+            v_scales = scales[visible_ids].contiguous()
-+            v_opacities = opacities[visible_ids].contiguous()
-+            if colors.dim() == 2:
-+                v_colors = colors[visible_ids].contiguous()
-+            else:
-+                v_colors = colors[visible_ids].contiguous()
++            v_means, v_quats, v_scales, v_opacities, v_colors = _gather_visible_native(
++                means, quats, scales, opacities, colors, visible_ids,
++            )
 +        else:
 +            N_visible = 0 if visible_ids is not None else N_total
 +            if N_visible == 0:
@@ -2224,19 +2262,297 @@ index b6c1b13..9cb501d 100644
 +        sh_compression_mode=sh_compression_mode,
 +        scene=scene,
 +    )
-\ No newline at end of file
 diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py
-index 50f357f..eb94958 100644
+index 50f357f..807910a 100644
 --- a/gsplat/experimental/render/kernels/cuda/build.py
 +++ b/gsplat/experimental/render/kernels/cuda/build.py
-@@ -101,6 +101,7 @@ def get_build_parameters():
+@@ -1,4 +1,4 @@
+-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++﻿# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ # SPDX-License-Identifier: Apache-2.0
+ #
+ # Licensed under the Apache License, Version 2.0 (the "License");
+@@ -101,6 +101,8 @@ def get_build_parameters():
          sources += [
              os.path.join(gaussian_render_inference_dir, f)
              for f in [
++                "GatherVisible.cu",
 +                "HigsNativeBackward.cu",
                  "IntersectCommon.cu",
                  "IntersectMTFused.cu",
                  "MacroTileIntersect.cu",
+@@ -213,7 +215,7 @@ def build_and_load_experimental_gaussian_render_inference_scene():
+ 
+     if not hasattr(jit, "_get_build_directory"):
+         raise RuntimeError(
+-            "torch.utils.cpp_extension.jit._get_build_directory is missing — "
++            "torch.utils.cpp_extension.jit._get_build_directory is missing 鈥?"
+             "PyTorch upgrade broke a private API. Update "
+             "gsplat/experimental/render/kernels/cuda/build.py."
+         )
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
+new file mode 100644
+index 0000000..676fe38
+--- /dev/null
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
+@@ -0,0 +1,193 @@
++﻿/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++// Compact-copy kernel for the differentiable HiGS forward path.
++//
++// PyTorch's ``tensor[visible_ids]`` row gather dispatches to a vectorized
++// copy whenever the row width is a multiple of four floats, and that path is
++// pathologically slow for random row indices on large scenes (bicycle with a
++// 2.27 M visible subset: ~1.7 ms for quats [N,4] and ~1.7 ms for colors
++// [N,16,3], vs ~0.1 ms for non-multiple-of-4 widths). This single-purpose
++// element-wise kernel avoids the bad dispatch: the five gathers together drop
++// from ~4.4 ms to ~0.9 ms on the same scene.
++
++#include "Config.h"
++
++#include <ATen/ops/empty.h>
++#include <ATen/cuda/CUDAContext.h>
++#include <c10/cuda/CUDAGuard.h>
++#include <c10/cuda/CUDAException.h>
++#include <c10/cuda/CUDAStream.h>
++
++#include <algorithm>
++#include <cstdint>
++#include <vector>
++
++#include "GatherVisible.h"
++
++namespace gsplat
++{
++namespace gaussian_render_inference_scene
++{
++namespace
++{
++template<int INNER>
++__global__ void gather_rows_kernel_t(
++    const float *__restrict__ src,
++    const int64_t *__restrict__ idx,
++    float *__restrict__ dst,
++    const int64_t n_rows)
++{
++    const int64_t total = n_rows * INNER;
++    int64_t t = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
++    const int64_t stride = (int64_t)gridDim.x * blockDim.x;
++    if(INNER == 1)
++    {
++        for(; t < total; t += stride)
++        {
++            dst[t] = src[idx[t]];
++        }
++        return;
++    }
++    for(; t < total; t += stride)
++    {
++        const int64_t row = t / INNER;
++        dst[t] = src[idx[row] * INNER + (t - row * INNER)];
++    }
++}
++
++__global__ void gather_rows_kernel_gen(
++    const float *__restrict__ src,
++    const int64_t *__restrict__ idx,
++    float *__restrict__ dst,
++    const int64_t n_rows,
++    const int64_t inner)
++{
++    const int64_t total = n_rows * inner;
++    int64_t t = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
++    const int64_t stride = (int64_t)gridDim.x * blockDim.x;
++    for(; t < total; t += stride)
++    {
++        const int64_t row = t / inner;
++        dst[t] = src[idx[row] * inner + (t - row * inner)];
++    }
++}
++
++void launch_gather_rows(
++    const at::Tensor &src_flat, // [N, inner] contiguous FP32
++    const at::Tensor &ids,      // [N_visible] int64
++    at::Tensor &dst,            // [N_visible, inner] contiguous FP32
++    cudaStream_t stream)
++{
++    const int64_t n_rows = ids.numel();
++    const int64_t inner = dst.numel() / std::max<int64_t>(n_rows, 1);
++    const int64_t total = n_rows * inner;
++    if(total == 0)
++    {
++        return;
++    }
++    const int threads = 256;
++    const int grid    = static_cast<int>(std::min<int64_t>(65535, (total + threads - 1) / threads));
++    const float *s    = src_flat.const_data_ptr<float>();
++    const int64_t *id = ids.const_data_ptr<int64_t>();
++    float *d          = dst.data_ptr<float>();
++    switch(inner)
++    {
++    case 1:
++        gather_rows_kernel_t<1><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    case 3:
++        gather_rows_kernel_t<3><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    case 4:
++        gather_rows_kernel_t<4><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    case 12:
++        gather_rows_kernel_t<12><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    case 27:
++        gather_rows_kernel_t<27><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    case 48:
++        gather_rows_kernel_t<48><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    default:
++        gather_rows_kernel_gen<<<grid, threads, 0, stream>>>(s, id, d, n_rows, inner);
++        break;
++    }
++    C10_CUDA_KERNEL_LAUNCH_CHECK();
++}
++} // namespace
++
++std::tuple<
++    at::Tensor,
++    at::Tensor,
++    at::Tensor,
++    at::Tensor,
++    at::Tensor>
++higs_gather_visible(
++    const at::Tensor &means,
++    const at::Tensor &quats,
++    const at::Tensor &scales,
++    const at::Tensor &opacities,
++    const at::Tensor &colors,
++    const at::Tensor &visible_ids)
++{
++    TORCH_CHECK(means.is_cuda(), "higs_gather_visible: means must be CUDA");
++    TORCH_CHECK(means.scalar_type() == at::kFloat, "higs_gather_visible: FP32 master tensors required");
++    TORCH_CHECK(visible_ids.scalar_type() == at::kLong, "higs_gather_visible: int64 visible_ids required");
++
++    const at::cuda::OptionalCUDAGuard device_guard(means.device());
++    const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
++
++    const at::Tensor means_c     = means.contiguous();
++    const at::Tensor quats_c     = quats.contiguous();
++    const at::Tensor scales_c    = scales.contiguous();
++    const at::Tensor opacities_c = opacities.contiguous();
++    const at::Tensor colors_c    = colors.contiguous();
++    const at::Tensor ids_c       = visible_ids.contiguous();
++
++    const int64_t n_rows = ids_c.numel();
++    const at::TensorOptions opts = means_c.options();
++
++    at::Tensor v_means     = at::empty({n_rows, 3}, opts);
++    at::Tensor v_quats     = at::empty({n_rows, 4}, opts);
++    at::Tensor v_scales    = at::empty({n_rows, 3}, opts);
++    at::Tensor v_opacities = at::empty({n_rows}, opts);
++    std::vector<int64_t> color_sizes = colors_c.sizes().vec();
++    color_sizes[0] = n_rows;
++    at::Tensor v_colors = at::empty(color_sizes, opts);
++
++    if(n_rows == 0)
++    {
++        return {v_means, v_quats, v_scales, v_opacities, v_colors};
++    }
++
++    const at::Tensor colors_flat = colors_c.dim() == 1 ? colors_c.reshape({-1, 1}) : colors_c.flatten(1, -1);
++
++    launch_gather_rows(means_c, ids_c, v_means, stream);
++    launch_gather_rows(quats_c, ids_c, v_quats, stream);
++    launch_gather_rows(scales_c, ids_c, v_scales, stream);
++    at::Tensor v_opacities_2d = v_opacities.reshape({-1, 1});
++    launch_gather_rows(opacities_c.reshape({-1, 1}), ids_c, v_opacities_2d, stream);
++    at::Tensor v_colors_flat = v_colors.reshape({n_rows, -1});
++    launch_gather_rows(colors_flat, ids_c, v_colors_flat, stream);
++
++    return {v_means, v_quats, v_scales, v_opacities, v_colors};
++}
++} // namespace gaussian_render_inference_scene
++} // namespace gsplat
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
+new file mode 100644
+index 0000000..60d5a30
+--- /dev/null
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
+@@ -0,0 +1,58 @@
++﻿/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#pragma once
++
++#include <ATen/core/Tensor.h>
++#include <cstdint>
++#include <tuple>
++
++namespace gsplat
++{
++namespace gaussian_render_inference_scene
++{
++    /// Compact-copy the visible rows of the FP32 master tensors.
++    ///
++    /// ``visible_ids`` is the sorted int64 index list produced by the HiGS
++    /// culling pass (union over cameras). The five master tensors keep their
++    /// original shapes (``colors`` may be ``[N, 3]`` pre-activated RGB or
++    /// ``[N, K, D]`` SH coefficients). All tensors must be contiguous FP32 on
++    /// the current CUDA device. The outputs are freshly allocated contiguous
++    /// tensors with ``[N_visible, ...]`` leading dims.
++    ///
++    /// This exists because PyTorch's row gather dispatches to a vectorized
++    /// path whenever the row width is a multiple of four floats, which is
++    /// pathologically slow for random row indices (quats ``[N,4]`` and colors
++    /// ``[N,16,3]`` measured ~1.7 ms each on A100 for a 2.27 M visible subset).
++    /// A single-purpose element-wise kernel avoids that dispatch entirely.
++    std::tuple<
++        at::Tensor, // v_means    [N_visible, 3]
++        at::Tensor, // v_quats    [N_visible, 4]
++        at::Tensor, // v_scales   [N_visible, 3]
++        at::Tensor, // v_opacities [N_visible]
++        at::Tensor  // v_colors   [N_visible, ...] (same trailing shape as colors)
++        >
++    higs_gather_visible(
++        const at::Tensor &means,      // [N, 3] float32
++        const at::Tensor &quats,      // [N, 4] float32
++        const at::Tensor &scales,     // [N, 3] float32
++        const at::Tensor &opacities,  // [N] float32
++        const at::Tensor &colors,     // [N, ...] float32
++        const at::Tensor &visible_ids // [N_visible] int64
++    );
++} // namespace gaussian_render_inference_scene
++} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
 index 15a4650..e61bbac 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
@@ -3478,18 +3794,25 @@ index 0000000..b2d243c
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d1..ee8d2c0 100644
+index 2eb26d1..6f0eee4 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
-@@ -18,6 +18,7 @@
+@@ -1,4 +1,4 @@
+-/*
++﻿/*
+  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  * SPDX-License-Identifier: Apache-2.0
+  *
+@@ -18,6 +18,8 @@
  #include <torch/extension.h>
  
  #include "csrc/gaussian_inference/GaussianRenderInferenceScene.h"
 +#include "csrc/gaussian_inference/HigsNativeBackward.h"
++#include "csrc/gaussian_inference/GatherVisible.h"
  
  PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
  {
-@@ -52,9 +53,42 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+@@ -52,9 +54,54 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
          )
          .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
          .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
@@ -3527,12 +3850,33 @@ index 2eb26d1..ee8d2c0 100644
 +        py::arg("sh_coeffs"),
 +        py::arg("sh_degree")
 +    );
++
++    m.def(
++        "higs_gather_visible",
++        &gsplat::gaussian_render_inference_scene::higs_gather_visible,
++        "Compact-copy the visible rows of the FP32 master tensors for the differentiable HiGS forward path.",
++        py::arg("means"),
++        py::arg("quats"),
++        py::arg("scales"),
++        py::arg("opacities"),
++        py::arg("colors"),
++        py::arg("visible_ids")
++    );
  }
  
 +
  TORCH_LIBRARY(experimental, m)
  {
      m.def(
+@@ -71,7 +118,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
+ }
+ 
+ // Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is
+-// inference-only and has no backward kernel. Without this, PyTorch ≥ 2.x
++// inference-only and has no backward kernel. Without this, PyTorch 鈮?2.x
+ // auto-registers an AutogradCUDA entry that wraps outputs in a grad_fn even
+ // when no backward is available, which confuses callers that check grad_fn is None.
+ TORCH_LIBRARY_IMPL(experimental, Autograd, m)
 diff --git a/tests/experimental/render/test_trainable.py b/tests/experimental/render/test_trainable.py
 new file mode 100644
 index 0000000..5d8d595
