@@ -155,6 +155,30 @@ CUDA_VISIBLE_DEVICES=7 ~/miniforge3/envs/gsplat/bin/python -m pytest \
   tests/test_higs_native_backward.py -v
 ```
 
+Current EPIC-05 environment (CUDA 12.9, torch 2.9.1+cu128, GPU 1). Two environment
+caveats were hit on 2026-08-02 and are required for a green run:
+
+```bash
+cd /root/3dgs-roadmap-matrix
+mv artifacts/renderer-sources/gsplat/pytest.ini artifacts/renderer-sources/gsplat/pytest.ini.bak
+PATH=/root/miniforge3/envs/gsplat/bin:/usr/local/cuda-12.9/bin:$PATH \
+CUDA_HOME=/usr/local/cuda-12.9 TORCH_DONT_CHECK_COMPILER_ABI=1 CUDA_VISIBLE_DEVICES=1 \
+/root/miniforge3/envs/gsplat/bin/python -m pytest \
+  tests/test_higs_native_backward.py tests/test_higs_frozen.py \
+  tests/test_higs_dynamic.py tests/test_higs_trainable.py -q
+mv artifacts/renderer-sources/gsplat/pytest.ini.bak artifacts/renderer-sources/gsplat/pytest.ini
+```
+
+- `TORCH_DONT_CHECK_COMPILER_ABI=1` is required: torch 2.9.1's
+  `WRONG_COMPILER_WARNING` has 6 `%s` placeholders but is logged with 4 args,
+  so the resulting logging `TypeError` is swallowed in plain python but
+  propagates under pytest's log-capture handler and fails the JIT load of
+  `gsplat_scene_cuda` / the experimental extension (observed as 11 spurious
+  failures; verified 99 passed with the env var set).
+- The gsplat `pytest.ini` `addopts = -p pytest_check` references a plugin that
+  is not installed in this env; temporarily moving `pytest.ini` aside avoids
+  the import error.
+
 ## Training benchmark
 
 `benchmark/run_higs_train_benchmark.py` runs, per scene (small + large) and per
