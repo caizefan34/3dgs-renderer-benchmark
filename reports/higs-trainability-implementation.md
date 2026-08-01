@@ -1434,6 +1434,45 @@ ef8fcb3 PX=2 baseline (blend kernel back to 29.1 ms), 100 tests pass. No
 further AABB variants are planned; the remaining blend levers are the
 per-isect reduce/atomic scatter and a HiGS-format backward consuming the
 macro-tile structure (30M entries vs 330M std isects).
+### Round 27 (2026-08-02): blend-backward shared-memory slot accumulation measured and reverted (A/B negative)
+
+**Hypothesis.** Round-26 closed the prefilter levers: the blend kernel is
+memory/launch-bounds bound and the 15.8 ms eval+reduce+atomic block is dominated
+by the per-isect warp-reduce and atomic scatter. This round attacked the scatter
+itself. Each isect's warp leader currently emits 9 global atomics
+(3 rgb + 3 conic + 2 xy + 1 opacity, CDIM=3) to the flat `[I*N, ...]` gradient
+buffers, and the same Gaussian is typically visible in ~4 of the 8 pixel-bins
+of a tile, so global atomics are ~4-way contended. The change added a per-batch
+shared slot array `v_acc_batch[block_size][CDIM+6]`: warp leaders now do 9
+*shared* atomics into their isect's slot, then after the t-loop one
+`block.sync()` and a flush pass lets thread `tr < batch_size` scatter slot
+`tr` to global with 9 atomics (plus a 9-float zero pass per batch). Global
+atomic count drops ~4x; the shared layout (9-float stride, coprime with the
+32 banks) is conflict-free.
+
+**Why it still loses.** Measured blend bwd 29.08 -> 35.63/35.69 ms (+6.6 ms,
+~23% regression), reproduced twice. The 9 global atomics per (isect, leader)
+were not the bottleneck: the kernel is not L2-atomic-throughput bound. Moving
+the contention to shared memory kept the same total atomic volume (9 shared +
+9 global per slot) while adding a second reduction hop, a second
+`block.sync()` per batch and a per-batch zero pass, all on a kernel that is
+already launch-bounds/register bound. This closes the atomic-scatter lever with
+the same verdict as rounds 24/26: restructuring the per-isect scatter inside
+the current blend format does not help; the remaining lever is a HiGS-format
+backward consuming the macro-tile structure (30M entries vs 330M std isects),
+which changes the reduction shape rather than its location.
+
+**A/B (EPIC-05, bicycle 1080p x 4 cams, torch-profiler self-CUDA-time, PX=2):**
+
+| variant | blend bwd px kernel (self) |
+|---|---|
+| baseline (ef8fcb3) | 29.08 / 29.18 / 29.23 ms |
+| NEW (shared-slot accumulation) | 35.63 / 35.69 ms |
+| restored baseline | 29.20 ms |
+
+**Conclusion: reverted.** Source restored to the ef8fcb3 PX=2 baseline,
+100 tests pass.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
