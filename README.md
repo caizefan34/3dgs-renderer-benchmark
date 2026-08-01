@@ -114,7 +114,14 @@ with resolution - vs std `train_ms`, `higs_native` is -10.6%/-12.1% and `higs_dy
 parity (within 0.01 dB) and dynamic PSNR still ahead. Round 17 (2026-08-02) fused the Adam-state sync's zero-init into the row-gather kernel
 (`higs_gather_rows` gained a `zero_on_neg` mode): the per-densify-event state sync drops from 8.36 to
 2.97 ms (4.8M rows, bit-identical), and `higs_dynamic` `train_ms` vs std improves to -19.7% (train) /
-**-26.1%** (bicycle) at 960x540 (was -19.0% / -20.1%), with frozen paths and quality unchanged (99 tests pass). - All 5 params stay **FP32 master tensors**; FP16 packed buffers are forward/culling-only; lossy SH compression is trainable via a straight-through estimator (FP16 cast); culling auto-refreshes on parameter drift; ortho/fisheye cameras supported in the native backward; depth render modes `D`/`ED`/`RGB+D`/`RGB+ED` supported natively (hit-distance modes `d`/`Ed`/`RGB-d`/`RGB-Ed` still require the eval3d recompute fallback)
+**-26.1%** (bicycle) at 960x540 (was -19.0% / -20.1%), with frozen paths and quality unchanged (99 tests pass). Round 18 (2026-08-02) deferred the packed-scene rebuild on training-path topology changes: the
+differentiable forward/backward never consume the packed FP16 scene (visibility comes from a batched
+FP32 projection), so densify/prune steps now only advance the handle's version bookkeeping and set a
+`packed_stale` flag; the non-training culling API re-packs on demand (the explicit flag is required
+because new tensors' `_version` can collide with captured ones). The ~3.25 ms pack + renderer
+construction per densify event (6.13M Gaussians) is removed from the training loop: `higs_dynamic`
+bicycle `train_ms` -26.1% -> **-27.2%** vs std; train scene unchanged (noise), frozen paths and
+quality unchanged, 100 tests pass. - All 5 params stay **FP32 master tensors**; FP16 packed buffers are forward/culling-only; lossy SH compression is trainable via a straight-through estimator (FP16 cast); culling auto-refreshes on parameter drift; ortho/fisheye cameras supported in the native backward; depth render modes `D`/`ED`/`RGB+D`/`RGB+ED` supported natively (hit-distance modes `d`/`Ed`/`RGB-d`/`RGB-Ed` still require the eval3d recompute fallback)
 
 [Implementation report →](reports/higs-trainability-implementation.md) · [Trainability source analysis →](reports/higs-trainability-analysis-2026-07-24.md) · [PR #9 →](https://github.com/caizefan34/3dgs-renderer-benchmark/pull/9)
 

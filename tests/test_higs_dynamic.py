@@ -162,6 +162,63 @@ class TestTopologyMutation:
         assert r2["metadata"]["n_gaussians"] < N
 
     @_skip_no_cuda
+    def test_training_topology_change_defers_pack_and_culling_rebuilds(self):
+        """A dynamic training topology change must defer the packed-scene
+        rebuild (the training path never consumes it) while keeping the
+        non-training culling API correct: it re-packs on demand via
+        ``packed_stale``."""
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HIGS_DYNAMIC_SCENE,
+            _cull_gaussians_higs,
+            _densify_gaussians,
+        )
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 50
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        for t_ in [means, quats, scales, opacities, colors]:
+            t_.requires_grad_(True)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        r1 = rasterize_gaussian_higs_dynamic(
+            means, quats, scales, opacities, colors,
+            viewmats=viewmats, Ks=Ks, width=w, height=h,
+        )
+        r1["frame"].sum().backward()
+        handle = _HIGS_DYNAMIC_SCENE.renderer_handle
+        assert handle is not None and not handle.packed_stale
+        v_before = handle.version
+        with torch.no_grad():
+            new_m, new_q, new_s, new_o, new_c = _densify_gaussians(
+                means, quats, scales, opacities, colors, means.grad,
+                threshold=0.0001,
+            )
+        _HIGS_DYNAMIC_SCENE.mark_dirty()
+        assert handle.packed_stale, "mark_dirty should flag the packed scene stale"
+        for t_ in [new_m, new_q, new_s, new_o, new_c]:
+            t_.requires_grad_(True)
+        r2 = rasterize_gaussian_higs_dynamic(
+            new_m, new_q, new_s, new_o, new_c,
+            viewmats=viewmats, Ks=Ks, width=w, height=h,
+        )
+        r2["frame"].sum().backward()
+        # training forward deferred the pack: version advanced, packed scene
+        # stays stale, n_gaussians tracks the new count.
+        assert handle.version > v_before
+        assert handle.packed_stale
+        assert handle.n_gaussians == new_m.shape[0]
+        # the non-training culling API still works and re-packs on demand.
+        _, mask, _ = _cull_gaussians_higs(
+            new_m, new_q, new_s, new_o, new_c,
+            viewmat, K, w, h, None, renderer_handle=handle,
+        )
+        assert mask.shape[0] == new_m.shape[0]
+        assert not handle.packed_stale, "culling API should have re-packed"
+        assert handle.version > v_before
+        assert handle.n_gaussians == new_m.shape[0]
+
+    @_skip_no_cuda
     def test_multi_step_training_smoke(self):
         from gsplat.experimental import rasterize_gaussian_higs_dynamic
         from gsplat.experimental.render.functional.gaussian_inference import _densify_gaussians, _prune_gaussians, _HIGS_DYNAMIC_SCENE

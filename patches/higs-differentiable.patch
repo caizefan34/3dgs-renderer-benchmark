@@ -170,7 +170,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..d115ea4 100644
+index b6c1b13..46a3942 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -237,7 +237,7 @@ index b6c1b13..d115ea4 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2151 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2172 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -631,12 +631,12 @@ index b6c1b13..d115ea4 100644
 +    When ``lightweight`` is True (the differentiable training forward), the
 +    packed buffers are only kept bookkeeping-consistent, not re-packed: the
 +    native and recompute backends consume the FP32 captured tensors and never
-+    the packed FP16 scene, so a pure parameter drift (optimizer.step) skips the
-+    expensive ``pack_gaussian_inference_scene`` call entirely. A real topology
-+    change (``mark_dirty()`` or an N change) still re-packs so the handle stays
-+    valid for the non-training :func:`_cull_gaussians_higs` culling API (which
-+    detects the drift via the untouched master-tensor versions and re-packs on
-+    demand).
++    the packed FP16 scene. A pure parameter drift (optimizer.step) skips the
++    expensive ``pack_gaussian_inference_scene`` call, and a real topology
++    change (``mark_dirty()`` or an N change) also defers it: only the version
++    bookkeeping advances and ``packed_stale`` is set, so the packed scene is
++    rebuilt on demand the next time the non-training
++    :func:`_cull_gaussians_higs` culling API is used with this handle.
 +    """
 +    from gsplat.scene.kernels.gaussian_inference_ops import (
 +        pack_gaussian_inference_scene,
@@ -658,16 +658,28 @@ index b6c1b13..d115ea4 100644
 +        not handle.pending_backward
 +        and handle.params_changed(means, quats, scales, opacities, colors)
 +    ):
-+        if (
-+            lightweight
-+            and not handle.dirty
-+            and handle.n_gaussians == N
-+        ):
-+            # Pure parameter drift on the differentiable path: the packed scene
-+            # is stale but never consumed here. Do not update _param_versions
-+            # so _cull_gaussians_higs still sees the drift and re-packs when
-+            # the non-training culling API is used with this handle.
-+            handle._topology_rebuilt = False
++        if lightweight:
++            if not handle.dirty and handle.n_gaussians == N:
++                # Pure parameter drift on the differentiable path: the packed
++                # scene is stale but never consumed here. Do not update
++                # _param_versions so _cull_gaussians_higs still sees the drift
++                # and re-packs when the non-training culling API is used with
++                # this handle.
++                handle._topology_rebuilt = False
++                return
++            # Real topology change on the differentiable path: the packed FP16
++            # scene is never consumed by the training forward/backward (both
++            # consume the FP32 captured tensors), so defer the pack entirely.
++            # Advance only the version bookkeeping and mark the packed scene
++            # stale; _cull_gaussians_higs re-packs on demand. _param_versions
++            # is intentionally left untouched (a densify/prune creates brand-new
++            # tensors whose _version can collide with the captured ones, so
++            # packed_stale - not params_changed - is the authoritative signal).
++            handle._version += 1
++            handle.n_gaussians = N
++            handle._dirty = False
++            handle._topology_rebuilt = True
++            handle._packed_stale = True
 +            return
 +        means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
 +            means, quats, scales, opacities, colors, sh_deg_i, comp,
@@ -749,7 +761,7 @@ index b6c1b13..d115ea4 100644
 +                    "mark_dirty(); call renderer_handle.mark_dirty() after "
 +                    "densify/prune before the next forward."
 +                )
-+            if handle.dirty or handle.n_gaussians != N or (not handle.pending_backward and handle.params_changed(means, quats, scales, opacities, colors)):
++            if handle.dirty or handle.n_gaussians != N or handle.packed_stale or (not handle.pending_backward and handle.params_changed(means, quats, scales, opacities, colors)):
 +                means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
 +                    means, quats, scales, opacities, colors, sh_deg_i, comp,
 +                )
@@ -931,6 +943,7 @@ index b6c1b13..d115ea4 100644
 +        self._dirty: bool = False
 +        self._topology_rebuilt: bool = False
 +        self._pending_backward: bool = False
++        self._packed_stale: bool = False
 +        if means is not None:
 +            self._param_versions = self._capture_param_versions(
 +                (means, quats, scales, opacities, colors)
@@ -955,6 +968,10 @@ index b6c1b13..d115ea4 100644
 +    def pending_backward(self) -> bool:
 +        return self._pending_backward
 +
++    @property
++    def packed_stale(self) -> bool:
++        return self._packed_stale
++
 +    # -- lifecycle ---------------------------------------------------------
 +    def mark_dirty(self) -> None:
 +        """Mark the packed scene stale (after densify/prune/clone).
@@ -971,6 +988,7 @@ index b6c1b13..d115ea4 100644
 +            )
 +        self._dirty = True
 +        self._topology_rebuilt = False
++        self._packed_stale = True
 +
 +    def rebuild(self, means_planar, qso_packed, colors_packed, n_gaussians: int, packed_dtype: str, renderer=None, means=None, quats=None, scales=None, opacities=None, colors=None) -> None:
 +        """Replace the packed buffers + renderer after a topology change."""
@@ -983,6 +1001,7 @@ index b6c1b13..d115ea4 100644
 +            self.renderer = renderer
 +        self._dirty = False
 +        self._topology_rebuilt = True
++        self._packed_stale = False
 +        self._version += 1
 +        if means is not None:
 +            self._param_versions = self._capture_param_versions(
@@ -1422,8 +1441,10 @@ index b6c1b13..d115ea4 100644
 +                # visibility mask. The differentiable path never consumes the
 +                # packed FP16 scene (both backends consume the FP32 captured
 +                # tensors), so pure parameter drift updates the version
-+                # bookkeeping without re-packing (lightweight=True); only real
-+                # topology changes (mark_dirty / N change) re-pack.
++                # bookkeeping without re-packing (lightweight=True); real
++                # topology changes (mark_dirty / N change) defer the pack and
++                # set packed_stale so the non-training culling API rebuilds on
++                # demand.
 +                if renderer_handle is not None:
 +                    _refresh_higs_renderer_scene(
 +                        renderer_handle, means, quats, scales, opacities,

@@ -1057,6 +1057,43 @@ run-to-run variance plays a role).
 
 Full JSON: `results/higs-train-benchmark-2026-08-02-round17.json`.
 
+### Round 18 (2026-08-02): defer the packed-scene rebuild on training topology changes
+
+The dynamic training forward derives its visibility mask from a batched FP32
+projection (`_cull_gaussians_batched`) and both backends consume the FP32
+captured tensors - the handle's packed FP16 scene is never touched by
+training. But a real topology change (densify/prune -> `mark_dirty()` / an N
+change) still triggered `pack_gaussian_inference_scene` (FP32 -> FP16) plus
+renderer construction on every densify step (~3.25 ms for 6.13M Gaussians,
+measured directly).
+
+Fix: `_refresh_higs_renderer_scene` on the lightweight (training) path now
+defers the pack for real topology changes too - only the version bookkeeping
+advances (`version += 1`, `n_gaussians` updated, `topology_rebuilt = True`)
+and the new `packed_stale` flag is set. `_cull_gaussians_higs` (the
+non-training culling API) treats `packed_stale` as a rebuild trigger, so the
+packed scene is re-created on demand the first time it is actually needed. The
+explicit flag is required because densify/prune creates brand-new tensors
+whose `_version` can collide with the captured ones, so `params_changed`
+alone cannot detect the stale scene.
+
+Benchmark (960x540, 20 steps, densify every 5, GPU1 idle; round-18 vs
+round-17, same config):
+
+| backend | bicycle train ms | vs std |
+|---|---|---|
+| std | 58.2 (was 58.3) | - |
+| higs_dynamic | 42.4 (was 43.1) | **-27.2%** (was -26.1%) |
+
+The train scene shows no measurable change (its pack is only ~0.5 ms; run
+noise dominates there). Frozen paths unchanged (native bicycle 51.5 ms),
+quality within noise (dynamic PSNR 18.16 vs 18.19), `topology_rebuilt_frac`
+unchanged (0.75), peak VRAM unchanged. All 100 tests pass; one new test
+verifies that a training topology change defers the pack while the
+non-training culling API still re-packs on demand.
+
+Full JSON: `results/higs-train-benchmark-2026-08-02-round18.json`.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
