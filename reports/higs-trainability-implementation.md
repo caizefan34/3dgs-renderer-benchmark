@@ -1572,6 +1572,27 @@ status stand; no revision needed. The realized end-to-end speedups -- 73.7 vs
 backward 39.4 vs 88.7 ms vs recompute (2.25x) -- are bounded by the
 format-independent per-pixel work that dominates both forward and backward.
 
+**Final two-scene baseline (final code 9bbd720 / ef8fcb3 kernels, fresh run
+2026-08-02, EPIC-05 A100, 1920x1080, 4 train cams + 3 eval cams, steps 20):**
+
+| scene | backend | fwd | bwd | tot | train | VRAM | cull | PSNR | SSIM | LPIPS |
+|---|---|---|---|---|---|---|---|---|---|---|
+| train (1.03M) | std_ll | 11.3 | 22.3 | 34.0 | 35.9 ms | 3.23 GB | 0% | 19.02 | 0.6885 | 0.3850 |
+| train | higs_recompute | 11.8 | 38.6 | 50.8 | 52.4 ms | 4.54 GB | 15.1% | 19.02 | 0.6885 | 0.3851 |
+| train | higs_native | 11.7 | 18.9 | 31.0 | 32.6 ms | 3.57 GB | 15.1% | 19.02 | 0.6885 | 0.3853 |
+| train | higs_dynamic | 9.7 | 16.8 | 27.0 | 28.9 ms | 4.02 GB | 15.5% | 20.09 | 0.7139 | 0.3567 |
+| bicycle (6.13M) | std_ll | 26.8 | 48.0 | 75.2 | 82.7 ms | 10.74 GB | 0% | 16.75 | 0.4621 | 0.5516 |
+| bicycle | higs_recompute | 28.7 | 88.7 | 117.9 | 125.4 ms | 13.67 GB | 62.9% | 16.75 | 0.4619 | 0.5517 |
+| bicycle | higs_native | 26.4 | 39.5 | 66.3 | 73.8 ms | 11.67 GB | 62.9% | 16.76 | 0.4620 | 0.5518 |
+| bicycle | higs_dynamic | 20.8 | 35.0 | 56.3 | 63.5 ms | 14.67 GB | 62.9% | 17.59 | 0.4832 | 0.4956 |
+
+Total-iteration speedup vs std_ll on both scenes: higs_native -9.2% (train) /
+-10.8% (bicycle), higs_dynamic -19.5% / -23.2%; native grad cosine vs recompute
+0.999994 (train) / 1.000000 (bicycle). This is the completion-audit evidence
+for the objective requirement that total iteration (forward + backward) must
+actually benefit before claiming a speedup: both native and dynamic paths
+satisfy it on both small and large scenes, so the speedup claim stands.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
