@@ -1528,6 +1528,50 @@ current architecture; a HiGS-format differentiable pipeline would only pay off
 if the format-independent per-pixel work itself could be reduced, which no
 restructuring of the current math achieves.
 
+### Round 29 (2026-08-02): mt-format per-pixel-eval assumption re-verified at kernel level (Round 28 conclusion confirmed)
+
+**Context.** Round 28 closed the mt-backward lever with a ~4-6 ms ceiling,
+arguing the 6.23G per-pixel evals are format-independent. One residual doubt
+remained: if the HiGS rasterize kernel fused per-pixel evals into the
+macro-tile structure (e.g., per-row or per-column sharing), an mt-backward
+would exceed that bound. This round re-verified the assumption by reading the
+actual kernels and re-profiling.
+
+**Verification (kernel-level).**
+
+1. `MacroTileRasterize.cu` `rasterizeGaussian` (phase 2 of
+   `macro_tile_rasterize_kernel`): for every isect in a tile queue the
+   kernel evaluates one `sigma = (l10*dy + l00*dx)^2 + (l11*dy)^2 - log2(opac)`
+   and one `exp2(-sigma)` per pixel (N_PAIRS half2 lanes), then per-pixel
+   T-chain multiply and color FMA. The half2 lanes are SIMD vectorization over
+   pixel pairs, not amortization -- the exp2 count is one per (isect, pixel),
+   identical to the std blend kernel eval_gaussian_weight.
+2. The weight contains the cross term `2*l10*l00*dx*dy`, so it cannot factor
+   into `f(x)*g(y)`; no row/column sharing exists to compress the per-pixel
+   chain mathematically.
+3. `_native_forward_capture` (`gaussian_inference.py:1863-1955`) feeds the
+   backward the **std per-tile isect list** (40.5M entries via `isect_tiles`)
+   plus std `render_alphas`/`last_ids`; `higs_blend_bwd_px_kernel` iterates
+   that per-tile list with per-pixel `eval_gaussian_weight` + VJP. An
+   mt-backward would consume the native 11.2M-entry list -- exactly the
+   load-side saving (3.8 ms traversal) Round 28 credited, nothing more.
+4. The backward per-pixel eval count equals
+   `sum_pixels(last_ids - tile_start + 1)` = 6.23G (`count_probe2`), fixed by
+   geometry/visibility in both formats.
+
+**Fresh profile (2026-08-02, EPIC-05, bicycle 1080p x 4 cams):**
+`higs_blend_bwd_px_kernel` = 29.14 ms (stable vs Round-28 29.1 ms); total
+native backward 36.6 ms.
+
+**Conclusion.** The mt-format hypothesis is false: the macro-tile structure
+compresses the isect-entry list (~3.6-4.5x) and data-load traffic, but the
+per-pixel eval+VJP volume (6.23G) is untouched, and no restructuring of the
+current math removes it. Round-28 ceiling (~4-6 ms) and "lever closed"
+status stand; no revision needed. The realized end-to-end speedups -- 73.7 vs
+125.4 ms train vs recompute (-41%), 73.7 vs 83.1 ms vs std_ll (-11%), with a
+backward 39.4 vs 88.7 ms vs recompute (2.25x) -- are bounded by the
+format-independent per-pixel work that dominates both forward and backward.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
