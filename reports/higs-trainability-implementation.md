@@ -770,6 +770,29 @@ sort ~1.6 ms, amortized pack ~1.4 ms/step in dynamic mode) are already below
 std's corresponding full-scene costs. No further culling or autograd-side
 change can move the total more than ~1-2 ms without algorithmic work (e.g.
 tile LOD / fewer isects) or benchmark-level stream overlap.
+### Speed/quality knob: radius_clip curve (2026-08-02, round 10 follow-up)
+
+The only remaining speed lever on the exact path is a quality/speed knob, and
+it already exists as the `radius_clip` parameter (HiGS default 0.0 = max
+quality, consistent culling+render). Measured on bicycle (4 cams, 960x540,
+GPU1 quiet):
+
+| radius_clip | n_vis | n_isects | isect drop | PSNR vs clip 0 | native total ms |
+|---|---|---|---|---|---|
+| 0.0 | 2,274,065 | 14,013,675 | 0% | ref | 47.2 |
+| 2.5 | 2,026,705 | 12,432,424 | 11.3% | 33.45 dB | ~44 |
+| 3.0 | 1,452,891 | 9,375,657 | 33.1% | 24.82 dB | 34.3 |
+| 5.0 | 943,347 | 6,904,849 | 50.7% | 19.32 dB | 26.7 |
+
+The speed is real (-27% at 3.0, -43% at 5.0) but the cost is a hard quality
+trade-off: Gaussians with projected radius below the clip are dropped from
+both rendering and gradients, so fine-detail (small-splat) content cannot be
+learned at all on detail-heavy scenes like bicycle. There is no free variant:
+culling at T while rendering at 0 removes exactly the same splats (radius
+distribution is dominated by small splats, so any meaningful isect reduction
+means dropping visible detail). This confirms the per-step path is at its
+structural floor; further "optimization" is a product decision on the
+quality/speed operating point, not an algorithmic win.
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
