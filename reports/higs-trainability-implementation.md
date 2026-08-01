@@ -1349,6 +1349,50 @@ consuming the macro-tile structure (30M entries vs 330M isects). Cheap
 kernel-level knobs (`__launch_bounds__`, loop-unroll hints, shared-memory
 layout) were already tuned in rounds 21-22 and show no remaining headroom.
 
+### Round 25 (2026-08-02): SH VJP kernel - precomputed camera positions + shuffle-reduced means atomics (-0.6 ms/step)
+
+**Target.** `higs_sh_vjp_grid_kernel` (5.96 ms self) runs the coefficient VJP
+for every (camera, visible gaussian, channel) triple. Two structural costs
+vs the std `sh_backward` kernel stood out: (1) every thread re-derived the
+camera world position `cam_pos = -R^t t` (a mat3 transpose + mat-vec per
+thread, 27.2M times), and (2) the D=3 channel lanes of one
+(camera, gaussian) each issued their own `atomicAdd` to the same
+`v_means` entry - three serialized same-address atomics per output
+coordinate (std instead writes a per-camera `v_dirs` buffer with 1-way
+contention and chains it later).
+
+**Changes.**
+1. New `higs_camera_positions_kernel` computes `cam_pos` once per camera
+   per backward into a tiny `[C, 3]` tensor; the VJP kernel loads it instead
+   of re-deriving the transpose.
+2. The D channel lanes of one (camera, gaussian) are consecutive
+   (`c == t % D`), so the kernel reduces their `v_dir` partials with two
+   `__shfl_down_sync` and issues **one** atomicAdd per output coordinate
+   from the group leader. Partial warps (grid tail) and groups straddling a
+   warp boundary fall back to per-lane atomics; masked lanes participate in
+   the shuffles with `v_dir = 0`. The reduced sum is deterministic (a+b+c in
+   lane order) and bit-compatible with the previous nondeterministic atomic
+   order at test tolerance.
+
+**A/B (EPIC-05, bicycle 1080p x 4 cams, torch-profiler self-CUDA-time):**
+
+| kernel | before | after |
+|---|---|---|
+| higs_sh_vjp_grid_kernel | 5.955 / 5.955 ms | 5.385 / 5.390 ms |
+| _HigsAutogradFunctionBackward total | 37.13 ms | 36.57 ms |
+| blend bwd (unchanged control) | 29.08 ms | 29.08 ms |
+
+Full paired benchmark (bicycle 1080p x 4 cams, steps 20):
+`higs_native` bwd 40.0 -> 39.4 ms, total 66.9 -> 66.3 ms (-0.6 ms/step);
+`higs_dynamic` total 56.3 ms. Quality unchanged (native PSNR 16.75 /
+SSIM 0.4620 / LPIPS 0.5518, dynamic 17.61 / 0.4833 / 0.4968; grad cosine
+1.0; parity PSNR 18.81). All 100 tests pass.
+
+**Boundary of this win.** The remaining ~5.4 ms of the SH VJP is dominated
+by the 145M coefficient atomics (16 per thread for K=16), which are
+inherent to the visible-subset layout; a round-13 per-camera flat probe
+measured only -0.3 ms. The last big lever stays the HiGS-format backward
+(30M macro-tile entries vs 330M std isects).
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`

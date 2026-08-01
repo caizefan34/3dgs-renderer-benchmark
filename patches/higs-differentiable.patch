@@ -2895,10 +2895,10 @@ index c01a046..892a0e3 100644
          at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 new file mode 100644
-index 0000000..e30f478
+index 0000000..1935492
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
-@@ -0,0 +1,1442 @@
+@@ -0,0 +1,1504 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -3837,6 +3837,29 @@ index 0000000..e30f478
 +// (invisible) threads exit before any memory reads, exactly like std's
 +// masked SH backward.
 +// ============================================================================
++// Precompute camera world positions cam_pos = -R^t t once per camera so the
++// SH VJP grid kernel does not re-derive the mat3 transpose per thread.
++__global__ void higs_camera_positions_kernel(
++    const float *__restrict__ viewmats, // [1, C, 4, 4] row-major
++    float *__restrict__ cam_positions,  // [C, 3]
++    const uint32_t C
++)
++{
++    const uint32_t c = blockIdx.x * blockDim.x + threadIdx.x;
++    if(c >= C)
++    {
++        return;
++    }
++    const float *v = viewmats + c * 16;
++    const float tx = v[3];
++    const float ty = v[7];
++    const float tz = v[11];
++    float *p       = cam_positions + c * 3;
++    p[0]           = -(v[0] * tx + v[4] * ty + v[8] * tz);
++    p[1]           = -(v[1] * tx + v[5] * ty + v[9] * tz);
++    p[2]           = -(v[2] * tx + v[6] * ty + v[10] * tz);
++}
++
 +__global__ void higs_sh_vjp_grid_kernel(
 +    const uint32_t I,
 +    const uint32_t N,
@@ -3847,7 +3870,7 @@ index 0000000..e30f478
 +    const uint32_t stride,                    // colors_eval row stride (== D for RGB)
 +    const int32_t *__restrict__ radii,        // [I, N, 2]
 +    const float *__restrict__ means,          // [N, 3]
-+    const float *__restrict__ viewmats,       // [1, C, 4, 4]
++    const float *__restrict__ cam_positions,  // [C, 3]
 +    const float *__restrict__ coeffs,         // [N, K, D]
 +    const float *__restrict__ colors_eval,    // [I * N, D] forward-captured
 +    const float *__restrict__ v_colors_eval,  // [I * N, D]
@@ -3871,43 +3894,70 @@ index 0000000..e30f478
 +    const uint32_t i    = elem / N;
 +    const uint32_t c    = static_cast<uint32_t>(t % D);
 +    const int32_t *r    = radii + ((int64_t)i * N + g) * 2;
-+    if(!(r[0] > 0 && r[1] > 0))
-+    {
-+        return; // invisible in this camera (std-style mask, no work)
-+    }
-+    const uint32_t cid = i % C;
-+    const int64_t idx  = (int64_t)i * N + g;
-+
-+    // cam_pos = -R^t t  (world position of the camera from the view matrix)
-+    const float *view_ptr = viewmats + cid * 16;
-+    mat3 R = mat3(
-+        view_ptr[0], view_ptr[4], view_ptr[8], // 1st column
-+        view_ptr[1], view_ptr[5], view_ptr[9], // 2nd column
-+        view_ptr[2], view_ptr[6], view_ptr[10] // 3rd column
-+    );
-+    vec3 t_vec   = vec3(view_ptr[3], view_ptr[7], view_ptr[11]);
-+    vec3 cam_pos = -glm::transpose(R) * t_vec;
-+    vec3 dir     = glm::make_vec3(means + g * 3) - cam_pos;
++    const bool masked   = !(r[0] > 0 && r[1] > 0); // invisible in this camera
++    const uint32_t cid  = i % C;
++    const int64_t idx   = (int64_t)i * N + g;
++    const int64_t m_id  = visible_ids[g];
 +
 +    vec3 v_dir(0.f);
-+    const float *coeff_ptr     = coeffs + (int64_t)g * K * D;
-+    const float *col_eval_ptr  = colors_eval + idx * stride;
-+    const float *v_col_ptr     = v_colors_eval + idx * stride;
-+    float *v_coeff_ptr         = v_coeffs + visible_ids[g] * K * D;
-+    // activation chain: colors_eval = clamp_min(sph + 0.5, 0), so
-+    // d(colors_eval)/d(sph) = 1{colors_eval > 0} (mask from the FORWARD
-+    // evaluated colors, never from the gradient sign).
-+    const float v_sph = col_eval_ptr[c] > 0.f ? v_col_ptr[c] : 0.f;
-+    higs_sh_coeffs_to_color_fast_vjp(degree, D, c, dir, coeff_ptr, v_sph, v_coeff_ptr, &v_dir);
-+    // dir = means - cam_pos  ->  d(loss)/d(means) += v_dir (partial per channel;
-+    // the three channel threads accumulate into the same v_means entries).
-+    const int64_t m_id = visible_ids[g];
-+    atomicAdd(v_means + m_id * 3 + 0, v_dir.x);
-+    atomicAdd(v_means + m_id * 3 + 1, v_dir.y);
-+    atomicAdd(v_means + m_id * 3 + 2, v_dir.z);
++    if(!masked)
++    {
++        const float *cp = cam_positions + cid * 3;
++        const vec3 cam_pos(cp[0], cp[1], cp[2]);
++        const vec3 dir = glm::make_vec3(means + g * 3) - cam_pos;
++
++        const float *coeff_ptr    = coeffs + (int64_t)g * K * D;
++        const float *col_eval_ptr = colors_eval + idx * stride;
++        const float *v_col_ptr    = v_colors_eval + idx * stride;
++        float *v_coeff_ptr        = v_coeffs + m_id * K * D;
++        // activation chain: colors_eval = clamp_min(sph + 0.5, 0), so
++        // d(colors_eval)/d(sph) = 1{colors_eval > 0} (mask from the FORWARD
++        // evaluated colors, never from the gradient sign).
++        const float v_sph = col_eval_ptr[c] > 0.f ? v_col_ptr[c] : 0.f;
++        higs_sh_coeffs_to_color_fast_vjp(degree, D, c, dir, coeff_ptr, v_sph, v_coeff_ptr, &v_dir);
++    }
++
++    // dir = means - cam_pos -> d(loss)/d(means) += v_dir. The D channel lanes
++    // of one (camera, gaussian) are consecutive (c == t % D), so the three
++    // partials reduce with two shuffle-downs and one atomicAdd per output
++    // coordinate instead of three serialized same-address atomicAdds. Partial
++    // warps (grid tail) and groups that straddle a warp boundary fall back to
++    // the per-lane atomics; masked lanes contribute v_dir = 0 to the shuffle.
++    const uint32_t lane       = static_cast<uint32_t>(t) & 31u;
++    const uint32_t warp_start = static_cast<uint32_t>(t) & ~31u;
++    const bool full_warp      = (static_cast<int64_t>(warp_start) + 32 <= num);
++    const int32_t group_lane  = static_cast<int32_t>(lane) - static_cast<int32_t>(c);
++    const bool complete_group = full_warp && group_lane >= 0 && (group_lane + 2 <= 31);
++
++    vec3 v_dir_sum = v_dir;
++    if(full_warp)
++    {
++        v_dir_sum.x += __shfl_down_sync(0xffffffffu, v_dir.x, 1);
++        v_dir_sum.y += __shfl_down_sync(0xffffffffu, v_dir.y, 1);
++        v_dir_sum.z += __shfl_down_sync(0xffffffffu, v_dir.z, 1);
++        v_dir_sum.x += __shfl_down_sync(0xffffffffu, v_dir.x, 2);
++        v_dir_sum.y += __shfl_down_sync(0xffffffffu, v_dir.y, 2);
++        v_dir_sum.z += __shfl_down_sync(0xffffffffu, v_dir.z, 2);
++    }
++
++    if(!masked)
++    {
++        if(c == 0 && complete_group)
++        {
++            atomicAdd(v_means + m_id * 3 + 0, v_dir_sum.x);
++            atomicAdd(v_means + m_id * 3 + 1, v_dir_sum.y);
++            atomicAdd(v_means + m_id * 3 + 2, v_dir_sum.z);
++        }
++        else if(!complete_group)
++        {
++            atomicAdd(v_means + m_id * 3 + 0, v_dir.x);
++            atomicAdd(v_means + m_id * 3 + 1, v_dir.y);
++            atomicAdd(v_means + m_id * 3 + 2, v_dir.z);
++        }
++        // else: c != 0 lane of a complete group; its v_dir is already in the
++        // leader's shuffled sum.
++    }
 +}
-+
-+
 +// Per-gaussian reduction across camera views (RGB-mode colors + opacities).
 +// ============================================================================
 +__global__ void higs_reduce_master_kernel(
@@ -4278,7 +4328,19 @@ index 0000000..e30f478
 +        const int64_t total = I * N * D;
 +        const uint32_t threads = 256;
 +        const uint32_t grid = static_cast<uint32_t>((total + threads - 1) / threads);
++        at::Tensor cam_positions = at::empty({static_cast<int64_t>(C), 3}, viewmats.options());
++        {
++            const uint32_t threads = 64;
++            const uint32_t grid    = (C + threads - 1) / threads;
++            higs_camera_positions_kernel<<<grid, threads, 0, stream>>>(
++                viewmats.const_data_ptr<float>(),
++                cam_positions.data_ptr<float>(),
++                C
++            );
++            C10_CUDA_KERNEL_LAUNCH_CHECK();
++        }
 +        higs_sh_vjp_grid_kernel<<<grid, threads, 0, stream>>>(
++
 +            static_cast<uint32_t>(I),
 +            static_cast<uint32_t>(N),
 +            static_cast<uint32_t>(C),
@@ -4288,7 +4350,7 @@ index 0000000..e30f478
 +            static_cast<uint32_t>(color_dim),
 +            radii.const_data_ptr<int32_t>(),
 +            means.const_data_ptr<float>(),
-+            viewmats.const_data_ptr<float>(),
++            cam_positions.data_ptr<float>(),
 +            sh_coeffs.value().const_data_ptr<float>(),
 +            colors_eval.const_data_ptr<float>(),
 +            v_colors_flat.const_data_ptr<float>(),
