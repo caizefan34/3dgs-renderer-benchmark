@@ -728,6 +728,48 @@ eliminating std's `indexing_backward` + gather costs.
   `higs_dynamic` keeps its densify/prune quality gain (train 20.28, bicycle
   18.20).
 
+### Structural analysis (2026-08-02, round 10): blend bwd is irreducible; the add_/fill cluster is autograd semantics shared with std
+
+Two profiling probes on bicycle (4 cams, 960x540) settle where the remaining
+time is and why it cannot be reduced further:
+
+1. **Intersection count is identical, so `higs_blend_bwd_kernel` is
+   throughput-bound, not culling-bound.** A probe counted `n_isects =
+   14,013,675` for both std and higs (2,274,065 visible Gaussians). Culled
+   Gaussians produce zero intersections, so the visibility mask already
+   removes exactly the isects std processes; `higs_blend_bwd_kernel`
+   (19.1 ms) and std `rasterize_to_pixels_3dgs_bwd_kernel` (19.2 ms) do the
+   same per-isect math. Further culling cannot shrink it - it is the same
+   pixel/isect-throughput wall std hits.
+
+2. **The 2.47 ms vectorized-add cluster is autograd leaf accumulation,
+   shared with std.** An event-tree profiler (CPU+CUDA, `prof.events()`)
+   attributes the 1,940 us `vectorized_elementwise CUDAFunctor_add` to
+   `torch::autograd::AccumulateGrad` -> `aten::add_`: the engine adds the
+   returned master grad into the `colors` leaf `[6,131,954, 16, 3]`
+   (~1.2 GB). The 643 us FillFunctor is `aten::zeros_like` inside
+   `_native_backward` pre-zeroing the master buffers the kernels scatter
+   into. Both are required dense-tensor semantics for leaf-gradient training
+   and std pays the same or more (same-run comparison under load: std
+   FillFunctor 9.66 ms + add 7.84 ms vs higs 4.9 ms + 7.3 ms).
+   `higs_sh_vjp_grid_kernel` (5.97 ms) is already equal-or-better than std's
+   `spherical_harmonics_bwd_kernel`.
+
+Fresh quiet-GPU benchmark (GPU1 idle, 2026-08-02): std 52.3 /
+higs_recompute 79.3 / higs_native 44.0 / higs_dynamic 35.8 ms on bicycle.
+The native backward is 2.27x faster than recompute (26.4 vs 59.9 ms) but the
+total is only 1.80x (44.0 vs 79.3) because the forward (~17-19 ms, ~40% of
+the total) is shared and unchanged; vs std the total is -15.9% and the
+backward -21%.
+
+**Conclusion:** the frozen native per-step path is at its structural floor on
+bicycle. The top three costs (blend bwd ~19.5 ms / rasterize fwd ~8.7 ms /
+SH VJP ~6 ms) are the same kernel math std executes, and the remaining
+HiGS-specific items (batched culling projection ~2.3 ms, gather ~0.9 ms,
+sort ~1.6 ms, amortized pack ~1.4 ms/step in dynamic mode) are already below
+std's corresponding full-scene costs. No further culling or autograd-side
+change can move the total more than ~1-2 ms without algorithmic work (e.g.
+tile LOD / fewer isects) or benchmark-level stream overlap.
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
