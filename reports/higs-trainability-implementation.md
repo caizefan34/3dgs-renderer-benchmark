@@ -770,30 +770,46 @@ sort ~1.6 ms, amortized pack ~1.4 ms/step in dynamic mode) are already below
 std's corresponding full-scene costs. No further culling or autograd-side
 change can move the total more than ~1-2 ms without algorithmic work (e.g.
 tile LOD / fewer isects) or benchmark-level stream overlap.
-### Speed/quality knob: radius_clip curve (2026-08-02, round 10 follow-up)
+### Speed/quality knob: radius_clip curve (2026-08-02, benchmarked)
 
-The only remaining speed lever on the exact path is a quality/speed knob, and
-it already exists as the `radius_clip` parameter (HiGS default 0.0 = max
-quality, consistent culling+render). Measured on bicycle (4 cams, 960x540,
-GPU1 quiet):
+The only remaining speed lever on the exact path is the `radius_clip`
+parameter (HiGS default 0.0 = max quality, applied consistently to culling
+and render). Benchmarked end-to-end (20 training steps, train+eval at the
+same clip, GPU1 quiet):
 
-| radius_clip | n_vis | n_isects | isect drop | PSNR vs clip 0 | native total ms |
-|---|---|---|---|---|---|
-| 0.0 | 2,274,065 | 14,013,675 | 0% | ref | 47.2 |
-| 2.5 | 2,026,705 | 12,432,424 | 11.3% | 33.45 dB | ~44 |
-| 3.0 | 1,452,891 | 9,375,657 | 33.1% | 24.82 dB | 34.3 |
-| 5.0 | 943,347 | 6,904,849 | 50.7% | 19.32 dB | 26.7 |
+**bicycle (N=6.13M, detail-heavy)** - native / dynamic total, PSNR/SSIM/LPIPS:
 
-The speed is real (-27% at 3.0, -43% at 5.0) but the cost is a hard quality
-trade-off: Gaussians with projected radius below the clip are dropped from
-both rendering and gradients, so fine-detail (small-splat) content cannot be
-learned at all on detail-heavy scenes like bicycle. There is no free variant:
-culling at T while rendering at 0 removes exactly the same splats (radius
-distribution is dominated by small splats, so any meaningful isect reduction
-means dropping visible detail). This confirms the per-step path is at its
-structural floor; further "optimization" is a product decision on the
-quality/speed operating point, not an algorithmic win.
-## Known limitations
+| clip | std tot | native tot | dynamic tot | native PSNR | SSIM | LPIPS |
+|---|---|---|---|---|---|---|
+| 0.0 | 52.3 | 44.5 | 35.8 | 17.27 | 0.4479 | 0.4288 |
+| 3.0 | 32.7 | 32.8 (-26%) | 28.3 (-21%) | 17.46 | 0.4591 | 0.4188 |
+| 5.0 | 24.5 | 25.6 (-42%) | 22.4 (-37%) | 17.18 | 0.4257 | 0.4834 |
+
+**tanks_and_temples/train (N=1.03M, coarse)**:
+
+| clip | std tot | native tot | dynamic tot | native PSNR | SSIM | LPIPS |
+|---|---|---|---|---|---|---|
+| 0.0 | 20.94 | 19.11 | 18.11 | 19.35 | 0.6820 | 0.2931 |
+| 3.0 | 17.6 | 15.6 (-18%) | 13.9 (-23%) | 19.44 | 0.6859 | 0.2873 |
+| 5.0 | 13.7 | 12.7 (-33%) | 11.5 (-37%) | 19.59 | 0.6872 | 0.2898 |
+
+Findings:
+
+- At the 20-step horizon (train and eval rendered at the same clip), clip=3.0
+  is a near-free speedup on both scenes: -18% to -26% total with equal-or-
+  better PSNR/SSIM/LPIPS (removing tiny noisy splats helps the short-horizon
+  renders). clip=5.0 stays quality-neutral on the coarse train scene but
+  degrades on detail-heavy bicycle (SSIM 0.4257 / LPIPS 0.4834 vs clip 0).
+- The knob is a renderer-level parameter: it speeds up std and HiGS alike.
+  HiGS's culling advantage shrinks as the clip tightens (at clip 5.0 native
+  25.6 ms is marginally slower than std 24.5 ms because the union culling
+  pass over all N stays fixed while the shared isect-bound kernels shrink);
+  at clip 0.0 HiGS keeps its full -15.9% vs std.
+- Caveat: 20-step metrics are short-horizon; a fully converged model at
+  clip>=3 caps fine-detail content that small splats would otherwise provide,
+  so the long-run ceiling on detail-heavy scenes is still expected to sit
+  below clip 0. The knob is a legitimate product-level quality/speed
+  operating point, now exposed in the benchmark as `--radius-clip`.## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
    (depth composited as a channel with camera-space `z`; expected modes chain

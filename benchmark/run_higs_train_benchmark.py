@@ -195,7 +195,7 @@ def _l1_loss(frame, ref):
     return (frame - ref).abs().mean()
 
 
-def make_forward_fn(backend, width, height, handle, viewmats, Ks):
+def make_forward_fn(backend, width, height, handle, viewmats, Ks, radius_clip=0.0):
     from gsplat.rendering import rasterization
 
     def forward_fn(params_in, cam_ids):
@@ -207,12 +207,12 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks):
                 means=m.unsqueeze(0), quats=q.unsqueeze(0),
                 scales=s.unsqueeze(0), opacities=o.unsqueeze(0), colors=c,
                 viewmats=vm, Ks=K, width=width, height=height,
-                sh_degree=_SH_DEGREE, packed=True,
+                sh_degree=_SH_DEGREE, packed=True, radius_clip=radius_clip,
             )
             return out[0], out[1], {}
         kw = dict(
             viewmats=vm, Ks=K, width=width, height=height,
-            sh_degree=_SH_DEGREE, use_higs_culling=True,
+            sh_degree=_SH_DEGREE, use_higs_culling=True, radius_clip=radius_clip,
         )
         if backend in ("higs_native", "higs_recompute"):
             from gsplat.experimental import rasterize_gaussian_higs_frozen
@@ -287,6 +287,7 @@ def run_backend(
     backend, params0, viewmats, Ks, train_idx, refs_train,
     eval_idx, refs_eval, width, height, steps, seed, device,
     densify_every, densify_threshold, prune_threshold, lpips_model,
+    radius_clip=0.0,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -313,7 +314,9 @@ def run_backend(
         dynamic_scene = _HIGS_DYNAMIC_SCENE
         dynamic_scene.reset()
 
-    forward_fn = make_forward_fn(backend, width, height, handle, viewmats, Ks)
+    forward_fn = make_forward_fn(
+        backend, width, height, handle, viewmats, Ks, radius_clip=radius_clip,
+    )
     torch.cuda.reset_peak_memory_stats(device)
 
     fwd_times, bwd_times, total_times = [], [], []
@@ -457,6 +460,7 @@ def main():
     ap.add_argument("--densify-threshold", type=float, default=5e-3)
     ap.add_argument("--prune-threshold", type=float, default=0.01)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--radius-clip", type=float, default=0.0)
     args = ap.parse_args()
 
     import lpips
@@ -501,7 +505,7 @@ def main():
                     eval_idx, refs_eval, args.width, args.height, args.steps,
                     args.seed, device, args.densify_every,
                     args.densify_threshold, args.prune_threshold,
-                    lpips_model,
+                    lpips_model, radius_clip=args.radius_clip,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
