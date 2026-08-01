@@ -170,7 +170,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..5911a43 100644
+index b6c1b13..c0b2144 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -1,4 +1,4 @@
@@ -243,7 +243,7 @@ index b6c1b13..5911a43 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2057 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2056 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -1768,6 +1768,15 @@ index b6c1b13..5911a43 100644
 +                bg_kernel = backgrounds_b.new_zeros((I, 1))
 +            bg_kernel = bg_kernel.contiguous()
 +
++        # Master FP32 gradient accumulators: pre-zeroed here, then written in
++        # place by the native kernels through `visible_ids` (strictly
++        # increasing, duplicate-free), which removes the per-tensor
++        # zeros_like + index_copy_ scatter from the hot path.
++        grad_means = torch.zeros_like(means)
++        grad_quats = torch.zeros_like(quats)
++        grad_scales = torch.zeros_like(scales)
++        grad_opacities = torch.zeros_like(opacities)
++        grad_colors = torch.zeros_like(colors)
 +        out = backend.higs_rasterize_backward(
 +            means2d=means2d_f,
 +            conics=conics_f,
@@ -1797,27 +1806,17 @@ index b6c1b13..5911a43 100644
 +            v_render_alphas=v_render_alphas,
 +            sh_coeffs=sh_coeffs,
 +            sh_degree=-1 if ctx.sh_degree is None else ctx.sh_degree,
++            visible_ids=visible_ids,
++            grad_means=grad_means,
++            grad_quats=grad_quats,
++            grad_scales=grad_scales,
++            grad_opacities=grad_opacities,
++            grad_colors=grad_colors,
 +        )
 +        (
-+            v_means_g, v_quats_g, v_scales_g, v_opacities_g,
-+            v_colors_master_g, v_backgrounds_g,
++            _v_means_g, _v_quats_g, _v_scales_g, _v_opacities_g,
++            _v_colors_master_g, v_backgrounds_g,
 +        ) = out
-+
-+        grad_means = torch.zeros_like(means)
-+        grad_quats = torch.zeros_like(quats)
-+        grad_scales = torch.zeros_like(scales)
-+        grad_opacities = torch.zeros_like(opacities)
-+        grad_colors = torch.zeros_like(colors)
-+        if ctx.N_visible > 0:
-+            # visible_ids is a strictly increasing, duplicate-free index list
-+            # (the culling mask), so a plain indexed copy is exact and avoids
-+            # the read-modify-write reduction of index_add_.
-+            grad_means.index_copy_(0, visible_ids, v_means_g)
-+            grad_quats.index_copy_(0, visible_ids, v_quats_g)
-+            grad_scales.index_copy_(0, visible_ids, v_scales_g)
-+            grad_opacities.index_copy_(0, visible_ids, v_opacities_g)
-+            if _render_mode_color_channels(ctx.render_mode) > 0:
-+                grad_colors.index_copy_(0, visible_ids, v_colors_master_g)
 +
 +        grad_background = None
 +        if ctx.needs_input_grad[15] and backgrounds_b is not None and nch >= 3:
@@ -2648,10 +2647,10 @@ index c01a046..523e681 100644
          at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 new file mode 100644
-index 0000000..7ab477e
+index 0000000..497ea9c
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
-@@ -0,0 +1,1221 @@
+@@ -0,0 +1,1244 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -2981,10 +2980,11 @@ index 0000000..7ab477e
 +    const float *__restrict__ v_colors_flat, // [I * N, color_dim]
 +    const int32_t color_dim,
 +    const int32_t depth_channel,             // -1 when no depth channel
-+    // gradient inputs (FP32 master accumulators)
-+    float *__restrict__ v_means,  // [N, 3]
-+    float *__restrict__ v_quats,  // [N, 4]
-+    float *__restrict__ v_scales  // [N, 3]
++    const int64_t *__restrict__ visible_ids, // [N] master row per visible gaussian
++    // gradient inputs (FP32 master accumulators, written via visible_ids)
++    float *__restrict__ v_means,  // [M, 3]
++    float *__restrict__ v_quats,  // [M, 4]
++    float *__restrict__ v_scales  // [M, 3]
 +)
 +{
 +    const int64_t idx   = cg::this_grid().thread_rank();
@@ -3118,16 +3118,17 @@ index 0000000..7ab477e
 +    warpSum(v_scale, warp_group_g);
 +    if(warp_group_g.thread_rank() == 0)
 +    {
-+        float *v_m = v_means + g * 3;
++        const int64_t m_id = visible_ids[g];
++        float *v_m = v_means + m_id * 3;
 +        gpuAtomicAdd(v_m, v_mean.x);
 +        gpuAtomicAdd(v_m + 1, v_mean.y);
 +        gpuAtomicAdd(v_m + 2, v_mean.z);
-+        float *v_q = v_quats + g * 4;
++        float *v_q = v_quats + m_id * 4;
 +        gpuAtomicAdd(v_q, v_quat[0]);
 +        gpuAtomicAdd(v_q + 1, v_quat[1]);
 +        gpuAtomicAdd(v_q + 2, v_quat[2]);
 +        gpuAtomicAdd(v_q + 3, v_quat[3]);
-+        float *v_s = v_scales + g * 3;
++        float *v_s = v_scales + m_id * 3;
 +        gpuAtomicAdd(v_s, v_scale[0]);
 +        gpuAtomicAdd(v_s + 1, v_scale[1]);
 +        gpuAtomicAdd(v_s + 2, v_scale[2]);
@@ -3431,8 +3432,9 @@ index 0000000..7ab477e
 +    const float *__restrict__ coeffs,         // [N, K, D]
 +    const float *__restrict__ colors_eval,    // [I * N, D] forward-captured
 +    const float *__restrict__ v_colors_eval,  // [I * N, D]
-+    float *__restrict__ v_coeffs,             // [N, K, D]
-+    float *__restrict__ v_means               // [N, 3]
++    const int64_t *__restrict__ visible_ids,  // [N] master row per visible gaussian
++    float *__restrict__ v_coeffs,             // [M, K, D] master
++    float *__restrict__ v_means               // [M, 3] master
 +)
 +{
 +    const int64_t t         = cg::this_grid().thread_rank();
@@ -3467,7 +3469,7 @@ index 0000000..7ab477e
 +    const float *coeff_ptr     = coeffs + (int64_t)g * K * D;
 +    const float *col_eval_ptr  = colors_eval + idx * stride;
 +    const float *v_col_ptr     = v_colors_eval + idx * stride;
-+    float *v_coeff_ptr         = v_coeffs + (int64_t)g * K * D;
++    float *v_coeff_ptr         = v_coeffs + visible_ids[g] * K * D;
 +    // activation chain: colors_eval = clamp_min(sph + 0.5, 0), so
 +    // d(colors_eval)/d(sph) = 1{colors_eval > 0} (mask from the FORWARD
 +    // evaluated colors, never from the gradient sign).
@@ -3475,9 +3477,10 @@ index 0000000..7ab477e
 +    higs_sh_coeffs_to_color_fast_vjp(degree, D, c, dir, coeff_ptr, v_sph, v_coeff_ptr, &v_dir);
 +    // dir = means - cam_pos  ->  d(loss)/d(means) += v_dir (partial per channel;
 +    // the three channel threads accumulate into the same v_means entries).
-+    atomicAdd(v_means + g * 3 + 0, v_dir.x);
-+    atomicAdd(v_means + g * 3 + 1, v_dir.y);
-+    atomicAdd(v_means + g * 3 + 2, v_dir.z);
++    const int64_t m_id = visible_ids[g];
++    atomicAdd(v_means + m_id * 3 + 0, v_dir.x);
++    atomicAdd(v_means + m_id * 3 + 1, v_dir.y);
++    atomicAdd(v_means + m_id * 3 + 2, v_dir.z);
 +}
 +
 +// Per-gaussian reduction across camera views (RGB-mode colors + opacities).
@@ -3488,7 +3491,8 @@ index 0000000..7ab477e
 +    const uint32_t D,
 +    const uint32_t stride,            // v_flat row stride (== color_dim)
 +    const float *__restrict__ v_flat, // [I * N, stride]
-+    float *__restrict__ v_master      // [N, D]
++    const int64_t *__restrict__ visible_ids, // [N] master row per visible gaussian
++    float *__restrict__ v_master      // [M, D]
 +)
 +{
 +    const int64_t idx   = cg::this_grid().thread_rank();
@@ -3504,7 +3508,7 @@ index 0000000..7ab477e
 +    {
 +        acc += v_flat[((int64_t)i * N + g) * stride + d];
 +    }
-+    v_master[idx] = acc;
++    v_master[(int64_t)visible_ids[g] * D + d] = acc;
 +}
 +
 +// ============================================================================
@@ -3521,6 +3525,13 @@ index 0000000..7ab477e
 +{
 +    TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
 +    TORCH_CHECK(t.scalar_type() == at::kInt, name, " must be int32");
++    TORCH_CHECK(t.is_contiguous(), name, " must be contiguous");
++}
++
++void check_long_cuda(const at::Tensor &t, const char *name)
++{
++    TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
++    TORCH_CHECK(t.scalar_type() == at::kLong, name, " must be int64");
 +    TORCH_CHECK(t.is_contiguous(), name, " must be contiguous");
 +}
 +} // namespace
@@ -3557,7 +3568,13 @@ index 0000000..7ab477e
 +    const at::Tensor &v_render_colors,
 +    const at::Tensor &v_render_alphas,
 +    const at::optional<at::Tensor> &sh_coeffs,
-+    int64_t sh_degree
++    int64_t sh_degree,
++    const at::Tensor &visible_ids,  // [N] int64 ascending master indices
++    const at::Tensor &grad_means,   // [M, 3] pre-zeroed master gradients
++    const at::Tensor &grad_quats,   // [M, 4]
++    const at::Tensor &grad_scales,  // [M, 3]
++    const at::Tensor &grad_opacities, // [M]
++    const at::Tensor &grad_colors   // [M, K, D] (SH) or [M, D] (RGB)
 +)
 +{
 +    check_float_cuda(means2d, "means2d");
@@ -3584,11 +3601,19 @@ index 0000000..7ab477e
 +    {
 +        check_float_cuda(sh_coeffs.value(), "sh_coeffs");
 +    }
++    check_long_cuda(visible_ids, "visible_ids");
++    check_float_cuda(grad_means, "grad_means");
++    check_float_cuda(grad_quats, "grad_quats");
++    check_float_cuda(grad_scales, "grad_scales");
++    check_float_cuda(grad_opacities, "grad_opacities");
++    check_float_cuda(grad_colors, "grad_colors");
 +
 +    const int64_t B = viewmats.size(0);
 +    const int64_t C = viewmats.size(1);
 +    const int64_t I = render_alphas.size(0);
 +    const int64_t N = means.size(0);
++    TORCH_CHECK(visible_ids.size(0) == N, "visible_ids size ", visible_ids.size(0),
++        " does not match visible-subset N ", N);
 +    TORCH_CHECK(B == 1, "higs_native backward requires a single scene batch (B == 1), got ", B);
 +    TORCH_CHECK(I == B * C, "render_alphas batch size does not match viewmats");
 +    TORCH_CHECK(
@@ -3630,10 +3655,6 @@ index 0000000..7ab477e
 +    auto stream = at::cuda::getCurrentCUDAStream(device.index());
 +    auto opts   = at::TensorOptions().device(device).dtype(at::kFloat);
 +
-+    at::Tensor v_means       = at::zeros({N, 3}, opts);
-+    at::Tensor v_quats       = at::zeros({N, 4}, opts);
-+    at::Tensor v_scales      = at::zeros({N, 3}, opts);
-+    at::Tensor v_opacities   = at::zeros({N}, opts);
 +    at::Tensor v_backgrounds = at::zeros({color_dim}, opts);
 +    at::Tensor v_means2d     = at::zeros({I * N, 2}, opts);
 +    at::Tensor v_conics_out  = at::zeros({I * N, 3}, opts);
@@ -3746,21 +3767,20 @@ index 0000000..7ab477e
 +            v_colors_flat.const_data_ptr<float>(),
 +            static_cast<int32_t>(color_dim),
 +            depth_channel,
-+            v_means.data_ptr<float>(),
-+            v_quats.data_ptr<float>(),
-+            v_scales.data_ptr<float>()
++            visible_ids.const_data_ptr<int64_t>(),
++            grad_means.data_ptr<float>(),
++            grad_quats.data_ptr<float>(),
++            grad_scales.data_ptr<float>()
 +        );
 +        C10_CUDA_KERNEL_LAUNCH_CHECK();
 +    }
 +
-+    at::Tensor v_colors_master;
 +    if(sh_coeffs.has_value() && color_dim >= 3)
 +    {
 +        // ---- Stage 3a: SH VJP (depth-only modes have no color channels;
 +        // their SH/color input gradients are identically zero) ----
 +        const int64_t K = sh_coeffs.value().size(-2);
 +        const int64_t D = sh_coeffs.value().size(-1);
-+        v_colors_master = at::zeros({N, K, D}, opts);
 +        {
 +            // Compact the visible (camera, gaussian) pairs so the VJP launches
 +            // exactly one thread per visible pair (gsplat's visible-only SH bwd
@@ -3823,8 +3843,9 @@ index 0000000..7ab477e
 +                        sh_coeffs.value().const_data_ptr<float>(),
 +                        colors_eval.const_data_ptr<float>(),
 +                        v_colors_flat.const_data_ptr<float>(),
-+                        v_colors_master.data_ptr<float>(),
-+                        v_means.data_ptr<float>()
++                        visible_ids.const_data_ptr<int64_t>(),
++                        grad_colors.data_ptr<float>(),
++                        grad_means.data_ptr<float>()
 +                    );
 +                    C10_CUDA_KERNEL_LAUNCH_CHECK();
 +                }
@@ -3834,7 +3855,6 @@ index 0000000..7ab477e
 +    else
 +    {
 +        // ---- Stage 3b: RGB mode - reduce evaluated-color grads over views ----
-+        v_colors_master = at::zeros({N, kHigsColorDim}, opts);
 +        if(color_dim >= 3)
 +        {
 +            const int64_t total    = N * kHigsColorDim;
@@ -3846,7 +3866,8 @@ index 0000000..7ab477e
 +                kHigsColorDim,
 +                static_cast<uint32_t>(color_dim),
 +                v_colors_flat.const_data_ptr<float>(),
-+                v_colors_master.data_ptr<float>()
++                visible_ids.const_data_ptr<int64_t>(),
++                grad_colors.data_ptr<float>()
 +            );
 +            C10_CUDA_KERNEL_LAUNCH_CHECK();
 +        }
@@ -3863,22 +3884,23 @@ index 0000000..7ab477e
 +            1,
 +            1, // stride
 +            v_opacities_flat.const_data_ptr<float>(),
-+            v_opacities.data_ptr<float>()
++            visible_ids.const_data_ptr<int64_t>(),
++            grad_opacities.data_ptr<float>()
 +        );
 +        C10_CUDA_KERNEL_LAUNCH_CHECK();
 +    }
 +
 +    (void)eps2d;
-+    return {v_means, v_quats, v_scales, v_opacities, v_colors_master, v_backgrounds};
++    return {grad_means, grad_quats, grad_scales, grad_opacities, grad_colors, v_backgrounds};
 +}
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
 new file mode 100644
-index 0000000..b2d243c
+index 0000000..893872f
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,94 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -3962,7 +3984,14 @@ index 0000000..b2d243c
 +        const at::Tensor &v_render_alphas, // [I, H, W] float32
 +        // ---- SH evaluation backward inputs (nullopt for pre-activated RGB) ----
 +        const at::optional<at::Tensor> &sh_coeffs, // [N, K, D] float32
-+        int64_t sh_degree
++        int64_t sh_degree,
++        // ---- master-gradient outputs (pre-zeroed, written in place) ----
++        const at::Tensor &visible_ids,    // [N] int64 ascending master indices
++        const at::Tensor &grad_means,     // [M, 3] float32
++        const at::Tensor &grad_quats,     // [M, 4] float32
++        const at::Tensor &grad_scales,    // [M, 3] float32
++        const at::Tensor &grad_opacities, // [M] float32
++        const at::Tensor &grad_colors     // [M, K, D] (SH) or [M, D] (RGB) float32
 +    );
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
@@ -4020,7 +4049,7 @@ index 13097f3..6ff8288 100644
      return __cvt_pack_sat_u8_f32(a.x, a.y, a.z, a.w);
  }
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d1..6f0eee4 100644
+index 2eb26d1..f17a1a6 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
 @@ -1,4 +1,4 @@
@@ -4038,7 +4067,7 @@ index 2eb26d1..6f0eee4 100644
  
  PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
  {
-@@ -52,9 +54,54 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+@@ -52,9 +54,60 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
          )
          .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
          .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
@@ -4074,7 +4103,13 @@ index 2eb26d1..6f0eee4 100644
 +        py::arg("v_render_colors"),
 +        py::arg("v_render_alphas"),
 +        py::arg("sh_coeffs"),
-+        py::arg("sh_degree")
++        py::arg("sh_degree"),
++        py::arg("visible_ids"),
++        py::arg("grad_means"),
++        py::arg("grad_quats"),
++        py::arg("grad_scales"),
++        py::arg("grad_opacities"),
++        py::arg("grad_colors")
 +    );
 +
 +    m.def(
@@ -4094,7 +4129,7 @@ index 2eb26d1..6f0eee4 100644
  TORCH_LIBRARY(experimental, m)
  {
      m.def(
-@@ -71,7 +118,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
+@@ -71,7 +124,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
  }
  
  // Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is

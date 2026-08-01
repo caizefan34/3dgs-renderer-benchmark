@@ -170,7 +170,10 @@ Full JSON: `results/higs-train-benchmark-2026-07-31.json` (baseline),
 `results/higs-train-benchmark-2026-08-01.json` (after the culling fix) and
 `results/higs-train-benchmark-2026-08-01b.json` (after the per-step pack skip) and
 `results/higs-train-benchmark-2026-08-01c.json` (after the native visible-subset gather) and
-`results/higs-train-benchmark-2026-08-01e.json` (after the SH VJP / scatter optimization).
+`results/higs-train-benchmark-2026-08-01e.json` (after the SH VJP / scatter optimization),
+`results/higs-train-benchmark-2026-08-01f.json` (after the blend VJP launch-bounds fix)
+and `results/higs-train-benchmark-2026-08-01h.json` (after the C++ direct-master
+gradient scatter).
 
 ### Forward bottleneck found and fixed (2026-08-01)
 
@@ -485,6 +488,72 @@ profiling.
   budget; quality metrics and the gradient-cosine probe are unchanged
   (1.0), 99 tests pass.
 
+### Sixth optimization (2026-08-01h): C++ direct-master gradient scatter
+
+The kernel bundle was already at std parity, so this round attacked the
+remaining Python-side scatter. The native backward used to return
+visible-subset gradients and let autograd scatter them into the FP32 master
+tensors with five `torch.zeros_like` + five `index_copy_` calls (about
+1.1 ms of `index_copy_` plus the per-call launch/alloc overhead, and an
+extra ~435 MB temporary `v_colors_master` allocation on bicycle).
+
+`higs_rasterize_backward` now receives the pre-zeroed master gradient tensors
+plus `visible_ids` (the strictly increasing, duplicate-free culling mask) and
+writes every gradient directly into the master rows:
+
+- `higs_projection_bwd_kernel` / `higs_sh_vjp_kernel` scatter their
+  `atomicAdd` targets through `visible_ids[g]` (means/quats/scales/SH
+  coefficients);
+- `higs_reduce_master_kernel` writes the per-view color/opacity reductions
+  at `visible_ids[g]`;
+- the Python side keeps the five `zeros_like` allocations (invisible rows must
+  stay zero) but drops the five `index_copy_` scatter launches.
+
+Measured effect (bicycle, 4 cams, 960x540, same-process kernel profile):
+`index_copy_` and the extra fill calls disappear (-1.3 ms), partially offset
+by worse atomic locality on the sparse master rows (SH VJP 5.4 -> 6.0 ms,
+projection bwd 1.6 -> 2.0 ms). Net: native backward 28.9 -> 28.5 ms and total
+46.1 -> 45.5 ms in profiling; the full benchmark shows backward 27.0 -> 26.6 ms
+and total 45.0 -> 44.6 ms on bicycle (train 12.3 -> 11.9 ms), with peak VRAM
+down 0.13 GB. Gradient cosine stays 1.000000 and all 99 tests pass.
+
+### tanks_and_temples/train (N=1,026,508) --- 2026-08-01h (direct-master scatter)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 7.9 | 13.6 | 21.7 | 3.22 GB | 0.0% | 19.25 | 0.6764 | 0.2967 | 1,026,508 |
+| higs_recompute | 8.2 | 24.6 | 32.9 | 4.00 GB | 15.1% | 19.25 | 0.6763 | 0.2967 | 1,026,508 |
+| higs_native | 7.1 | 11.9 | 19.2 | 3.18 GB | 15.1% | 19.24 | 0.6762 | 0.2969 | 1,026,508 |
+| higs_dynamic | 6.3 | 10.6 | 17.1 | 3.59 GB | 15.6% | 20.34 | 0.7063 | 0.2785 | 731,576 |
+
+### mipnerf360/bicycle (N=6,131,954) --- 2026-08-01h
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 18.0 | 32.9 | 51.1 | 10.39 GB | 0.0% | 17.28 | 0.4479 | 0.4287 | 6,131,954 |
+| higs_recompute | 19.4 | 60.0 | 79.5 | 12.69 GB | 62.9% | 17.28 | 0.4480 | 0.4286 | 6,131,954 |
+| higs_native | 17.8 | 26.6 | 44.6 | 11.14 GB | 62.9% | 17.28 | 0.4480 | 0.4288 | 6,131,954 |
+| higs_dynamic | 14.1 | 22.0 | 36.3 | 14.14 GB | 65.0% | 18.16 | 0.4736 | 0.3795 | 4,159,381 |
+
+**Interpretation (2026-08-01h)**
+
+- `higs_native` total iteration vs std: **-11.5% on train** (19.2 vs 21.7 ms)
+  and **-12.7% on bicycle** (44.6 vs 51.1 ms); vs `gsplat_recompute` it is
+  **-42% / -44%** (32.9 / 79.5 ms).
+- Why a 2x backward speedup over `gsplat_recompute` does not become a 2x
+  total speedup: the 2x only holds against the recompute fallback, which
+  re-runs the whole rasterization pipeline inside backward (24.6 / 60.0 ms).
+  Against the real baseline (std's own backward, 13.6 / 32.9 ms) the native
+  backward is only -13% / -19%, and backward is ~60% of the iteration, so the
+  ceiling on total speedup vs std is bounded by that ~5-7 ms saving (11-13%
+  measured). The forward side is isect-bound (n_isects is identical to std's
+  because culling only removes Gaussians that had no intersections), so it
+  cannot improve via culling; the remaining total-time reduction must come
+  from the backward and per-gaussian memory savings (packed buffers, fewer
+  sorts, no index_add backward).
+- `higs_dynamic` reaches 17.1 ms (train, -21%) / 36.3 ms (bicycle, -29%) with
+  the densify/prune PSNR gains unchanged.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
@@ -504,17 +573,19 @@ profiling.
    passes gradients through unchanged (STE). This is an approximate, non-zero
    gradient; `sh_compression_mode="none"` remains the exact path.
 4. After three forward optimizations (batched culling projection, per-step
-   pack skip, native visible-subset gather) plus the fourth-round backward
-   optimization (SH VJP visible-pair compaction + channel-adjacent thread
-   order, `index_copy_` scatter), the frozen native path is faster than std
-   gsplat end-to-end on both scenes (-12.9% train / -10.8% bicycle, 2026-08-01f
-   benchmark) and the dynamic path is -22.7% / -28.2%. The only
-   remaining structural forward cost is the batched FP32 culling projection
-   over all N x C (~3.3 ms on bicycle), the price of projection-consistent
-   discrete culling; the native backward contributes no recomputation. The
-   differentiable forward no longer re-packs the FP16 scene per step
-   (parameter drift only updates the handle version bookkeeping;
-   `pack_gaussian_inference_scene` runs only on real topology changes).
+   pack skip, native visible-subset gather) plus three backward rounds (SH VJP
+   visible-pair compaction + channel-adjacent thread order, blend VJP
+   `__launch_bounds__(256, 5)` register fix, and the C++ direct-master
+   gradient scatter that removed the Python `index_copy_` scatter), the frozen
+   native path is faster than std gsplat end-to-end on both scenes (-11.5%
+   train / -12.7% bicycle, 2026-08-01h benchmark) and the dynamic path is
+   -21% / -29%. The only remaining structural forward cost is the batched
+   FP32 culling projection over all N x C (~3.3 ms on bicycle), the price of
+   projection-consistent discrete culling; the native backward contributes no
+   recomputation. The differentiable forward no longer re-packs the FP16
+   scene per step (parameter drift only updates the handle version
+   bookkeeping; `pack_gaussian_inference_scene` runs only on real topology
+   changes).
 5. `_densify_gaussians` clamps RGB colors to [0,1] by default;
    `color_clamp=None` disables the clamp. SH coefficient tensors ([N, K, C])
    are intentionally not clamped.
