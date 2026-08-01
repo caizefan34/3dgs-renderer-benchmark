@@ -1094,6 +1094,50 @@ non-training culling API still re-packs on demand.
 
 Full JSON: `results/higs-train-benchmark-2026-08-02-round18.json`.
 
+### Round 19 (2026-08-02): final 1080p numbers + tile-LOD feasibility measurement
+
+Re-ran the 1920x1080 benchmark (4 train + 3 eval cameras, 20 Adam steps,
+densify every 5, GPU1 idle) with all accumulated optimizations (rounds
+15-18), giving the authoritative end-state numbers:
+
+| backend (bicycle) | fwd ms | bwd ms | total ms | train ms | peak VRAM | PSNR | final N |
+|---|---|---|---|---|---|---|---|
+| std | 27.7 | 51.6 | 79.7 | 87.2 | 10.89 GB | 16.75 | 6,131,954 |
+| higs_native | 26.4 | 42.6 | 69.4 | 76.9 | 11.67 GB | 16.75 | 6,131,954 |
+| higs_dynamic | 20.8 | 37.7 | 59.0 | 66.2 | 14.67 GB | 17.60 | 4,477,957 |
+
+| backend (train) | fwd ms | bwd ms | total ms | train ms | peak VRAM | PSNR | final N |
+|---|---|---|---|---|---|---|---|
+| std | 11.8 | 24.6 | 37.1 | 39.0 | 3.52 GB | 19.02 | 1,026,508 |
+| higs_native | 11.7 | 20.9 | 33.1 | 34.8 | 3.57 GB | 19.02 | 1,026,508 |
+| higs_dynamic | 9.7 | 19.1 | 29.2 | 31.2 | 4.02 GB | 20.12 | 741,775 |
+
+vs std `train_ms`: `higs_native` -10.7% (train) / -11.8% (bicycle);
+`higs_dynamic` **-19.9% / -24.0%** (round-16 was -18.9% / -22.2%, so rounds
+17+18 added ~1.8 ms/step on bicycle). Frozen paths within 0.01 dB of std,
+dynamic held-out PSNR still ahead.
+
+Full JSON: `results/higs-train-benchmark-2026-08-02-round19-1080p.json`.
+
+**Tile-LOD feasibility (the last remaining lever, now measured).** On bicycle,
+4 train cameras, 1920x1080, rendering just the culled-visible subset (2.27M of
+6.13M Gaussians, 37.1%):
+
+- standard gsplat forward on the subset: **28.99 ms** (essentially the same as
+  rendering the full 6.13M scene - the 62.9% culled Gaussians generate ~zero
+  intersections because they are off-screen or sub-pixel, so culling saves
+  only the per-Gaussian projection overhead, not the isect-bound blend work);
+- HiGS renderer (macro-tile intersect) on the same subset: **8.61 ms**;
+- potential forward saving: **20.4 ms/step (3.37x)**.
+
+This confirms tile LOD / HiGS-native rendering is the one remaining
+algorithmic lever: it reduces the intersection work itself rather than the
+constant per-Gaussian overhead. Realizing it means making the differentiable
+forward render the visible subset with the HiGS renderer and having the
+native backward consume HiGS's captured state (or emitting the standard-layout
+capture tensors from the HiGS pipeline) - a substantial forward+backward
+rework, not a micro-optimization.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
