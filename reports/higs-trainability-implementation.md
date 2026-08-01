@@ -173,7 +173,10 @@ Full JSON: `results/higs-train-benchmark-2026-07-31.json` (baseline),
 `results/higs-train-benchmark-2026-08-01e.json` (after the SH VJP / scatter optimization),
 `results/higs-train-benchmark-2026-08-01f.json` (after the blend VJP launch-bounds fix)
 and `results/higs-train-benchmark-2026-08-01h.json` (after the C++ direct-master
-gradient scatter).
+gradient scatter). `results/higs-train-benchmark-2026-08-01i.json` captured a
+single-pass projection experiment that was measured as a regression and
+reverted; `results/higs-train-benchmark-2026-08-01j.json` confirms the reverted
+state matches 08-01h.
 
 ### Forward bottleneck found and fixed (2026-08-01)
 
@@ -553,6 +556,25 @@ down 0.13 GB. Gradient cosine stays 1.000000 and all 99 tests pass.
   sorts, no index_add backward).
 - `higs_dynamic` reaches 17.1 ms (train, -21%) / 36.3 ms (bicycle, -29%) with
   the densify/prune PSNR gains unchanged.
+
+### Attempted (2026-08-01i, reverted): single-pass culling+projection merge
+
+The forward ran two `fully_fused_projection` passes per step: one over ALL
+Gaussians to derive the culling mask (union over cameras) and a second one on
+the gathered visible subset inside `_native_forward_capture`. A single
+all-N projection whose per-camera outputs are sliced to the visible subset was
+implemented and benchmarked:
+
+- kernel bundle: `projection_ewa_3dgs_fused_fwd_kernel` went from 2 launches
+  (~1.75 ms aggregate) to 1 (~1.26 ms), but slicing the four per-camera
+  outputs with PyTorch advanced indexing (`t[:, :, visible_ids]`) added a
+  0.95 ms gather.
+- Full benchmark (08-01i): `higs_native` forward regressed 17.8 -> 18.5 ms on
+  bicycle (total 44.6 -> 45.5 ms); train was flat. The fused projection
+  kernel is launch/occupancy-bound rather than work-bound, so the second pass
+  was nearly free and the merge cannot win even with a native gather kernel
+  (gather cost ~= saved projection). Reverted; 08-01j matches 08-01h
+  (forward 18.0 / backward 26.8 / total 45.0 on bicycle, 99 tests pass).
 
 ## Known limitations
 
