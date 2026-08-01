@@ -2322,15 +2322,9 @@ index b6c1b13..61b5146 100644
 +        scene=scene,
 +    )
 diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py
-index 50f357f..807910a 100644
+index 50f357f..7815b38 100644
 --- a/gsplat/experimental/render/kernels/cuda/build.py
 +++ b/gsplat/experimental/render/kernels/cuda/build.py
-@@ -1,4 +1,4 @@
--# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-+﻿# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- # SPDX-License-Identifier: Apache-2.0
- #
- # Licensed under the Apache License, Version 2.0 (the "License");
 @@ -101,6 +101,8 @@ def get_build_parameters():
          sources += [
              os.path.join(gaussian_render_inference_dir, f)
@@ -2680,15 +2674,9 @@ index 0000000..4291fae
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
-index 15a4650..e61bbac 100644
+index 15a4650..590c12c 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
-@@ -1,4 +1,4 @@
--/*
-+﻿/*
-  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-  * SPDX-License-Identifier: Apache-2.0
-  *
 @@ -517,7 +517,20 @@ namespace gaussian_render_inference_scene
      // ==========================================================================
      // gaussian_render_inference_only — torch.ops compatibility wrapper
@@ -2712,15 +2700,9 @@ index 15a4650..e61bbac 100644
          const at::Tensor &qso_packed,
          const at::Tensor &colors_packed,
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
-index c01a046..523e681 100644
+index c01a046..892a0e3 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
-@@ -1,4 +1,4 @@
--/*
-+﻿/*
-  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-  * SPDX-License-Identifier: Apache-2.0
-  *
 @@ -178,6 +178,11 @@ namespace gaussian_render_inference_scene
              return !state_ || state_->num_gaussians == 0;
          }
@@ -2735,10 +2717,10 @@ index c01a046..523e681 100644
          at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 new file mode 100644
-index 0000000..497ea9c
+index 0000000..34d5cb2
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
-@@ -0,0 +1,1244 @@
+@@ -0,0 +1,1127 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -2768,10 +2750,8 @@ index 0000000..497ea9c
 +
 +#include <ATen/cuda/Atomic.cuh>
 +#include <ATen/cuda/CUDAContext.h>
-+#include <ATen/cuda/cub.h>
 +#include <ATen/ops/empty.h>
 +#include <ATen/ops/zeros.h>
-+#include <cub/cub.cuh>
 +#include <c10/cuda/CUDAGuard.h>
 +#include <c10/cuda/CUDAException.h>
 +#include <c10/cuda/CUDAStream.h>
@@ -3421,100 +3401,24 @@ index 0000000..497ea9c
 +}
 +
 +// ============================================================================
-+// Stage 3 helper: compact the visible (camera, gaussian) pairs.
-+//
-+// The SH VJP below originally launched one thread per (i, g) and early-exited
-+// for invisible pairs, wasting roughly 3/4 of the launch once culling has
-+// removed most Gaussians. These passes instead build a packed list of visible
-+// pairs (mirroring gsplat's visible-only spherical_harmonics_bwd) so the VJP
-+// launches exactly one thread per visible pair:
-+//   pass 1 : per-block visible counts             (2D grid over (N, I))
-+//   scan   : exclusive_sum over block counts -> block offsets
-+//   pass 2 : write packed (i << 32) | g per visible pair
++// Stage 3: SH coefficient + direction VJP over a FIXED grid of I * N * D
++// threads with a per-pair radii mask (std-shaped like gsplat's
++// spherical_harmonics_bwd). A fixed grid avoids the visible-pair compaction
++// (per-block counts + exclusive scan + packed pair list) and, more
++// importantly, the device->host readback that used to size the dynamic grid:
++// the VJP now launches back-to-back with the projection VJP. Masked
++// (invisible) threads exit before any memory reads, exactly like std's
++// masked SH backward.
 +// ============================================================================
-+#define HIGS_SH_VIS_BLOCK 256
-+
-+__global__ void higs_vis_block_counts_kernel(
-+    const uint32_t N,
-+    const int32_t *__restrict__ radii,     // [I, N, 2]
-+    int32_t *__restrict__ block_counts     // [I * blocks_x]
-+)
-+{
-+    const uint32_t g = blockIdx.x * HIGS_SH_VIS_BLOCK + threadIdx.x;
-+    int32_t thread_data = 0;
-+    if(g < N)
-+    {
-+        const int32_t *r = radii + ((int64_t)blockIdx.y * N + g) * 2;
-+        thread_data      = (r[0] > 0 && r[1] > 0) ? 1 : 0;
-+    }
-+    typedef cub::BlockReduce<int32_t, HIGS_SH_VIS_BLOCK> BlockReduce;
-+    __shared__ typename BlockReduce::TempStorage temp_storage;
-+    const int32_t aggregate = BlockReduce(temp_storage).Sum(thread_data);
-+    if(threadIdx.x == 0)
-+    {
-+        block_counts[blockIdx.y * gridDim.x + blockIdx.x] = aggregate;
-+    }
-+}
-+
-+__global__ void higs_vis_total_kernel(
-+    const int32_t *__restrict__ block_offsets, // [n_blocks] exclusive scan
-+    const int32_t *__restrict__ block_counts,  // [n_blocks]
-+    const uint32_t n_blocks,
-+    int64_t *__restrict__ n_vis                // [1]
-+)
-+{
-+    if(blockIdx.x != 0 || threadIdx.x != 0)
-+    {
-+        return;
-+    }
-+    const int32_t last = static_cast<int32_t>(n_blocks) - 1;
-+    n_vis[0]           = static_cast<int64_t>(block_offsets[last]) + block_counts[last];
-+}
-+
-+__global__ void higs_vis_pairs_kernel(
-+    const uint32_t N,
-+    const int32_t *__restrict__ radii,         // [I, N, 2]
-+    const int32_t *__restrict__ block_offsets, // [n_blocks]
-+    uint64_t *__restrict__ vis_pairs           // [n_vis] packed (i << 32) | g
-+)
-+{
-+    const uint32_t g = blockIdx.x * HIGS_SH_VIS_BLOCK + threadIdx.x;
-+    int32_t flag     = 0;
-+    if(g < N)
-+    {
-+        const int32_t *r = radii + ((int64_t)blockIdx.y * N + g) * 2;
-+        flag             = (r[0] > 0 && r[1] > 0) ? 1 : 0;
-+    }
-+    int32_t offset = 0;
-+    if(__syncthreads_or(flag))
-+    {
-+        typedef cub::BlockScan<int32_t, HIGS_SH_VIS_BLOCK> BlockScan;
-+        __shared__ typename BlockScan::TempStorage temp_storage;
-+        BlockScan(temp_storage).ExclusiveSum(flag, offset);
-+    }
-+    if(flag)
-+    {
-+        const uint32_t block_idx = blockIdx.y * gridDim.x + blockIdx.x;
-+        vis_pairs[block_offsets[block_idx] + offset] =
-+            (static_cast<uint64_t>(blockIdx.y) << 32) | static_cast<uint64_t>(g);
-+    }
-+}
-+
-+// ============================================================================
-+// Stage 3: SH coefficient + direction VJP over the compacted visible pairs.
-+// Each thread owns one visible (i, g) pair from `vis_pairs` (no wasted early
-+// exits, no per-thread idx/N division, and the activation chain is identical
-+// to the original full-grid kernel).
-+// ============================================================================
-+__global__ void higs_sh_vjp_kernel(
++__global__ void higs_sh_vjp_grid_kernel(
++    const uint32_t I,
 +    const uint32_t N,
 +    const uint32_t C,
 +    const uint32_t degree,
 +    const uint32_t K,
 +    const uint32_t D,
 +    const uint32_t stride,                    // colors_eval row stride (== D for RGB)
-+    const int64_t n_vis,
-+    const uint64_t *__restrict__ vis_pairs,   // [n_vis] packed (i << 32) | g
++    const int32_t *__restrict__ radii,        // [I, N, 2]
 +    const float *__restrict__ means,          // [N, 3]
 +    const float *__restrict__ viewmats,       // [1, C, 4, 4]
 +    const float *__restrict__ coeffs,         // [N, K, D]
@@ -3525,22 +3429,27 @@ index 0000000..497ea9c
 +    float *__restrict__ v_means               // [M, 3] master
 +)
 +{
-+    const int64_t t         = cg::this_grid().thread_rank();
-+    const int64_t num       = static_cast<int64_t>(n_vis) * D;
++    const int64_t t   = cg::this_grid().thread_rank();
++    const int64_t num = static_cast<int64_t>(I) * N * D;
 +    if(t >= num)
 +    {
 +        return;
 +    }
-+    // One thread per (visible pair, output channel), ordered with the D
-+    // channels of a pair adjacent (matching gsplat's SH bwd) so the atomic
-+    // coefficient updates of one Gaussian stay in the same warp/cache lines.
-+    const uint32_t pair_id  = static_cast<uint32_t>(t / D);
-+    const uint32_t c        = static_cast<uint32_t>(t % D);
-+    const uint64_t packed   = vis_pairs[pair_id];
-+    const uint32_t i        = static_cast<uint32_t>(packed >> 32);
-+    const uint32_t g        = static_cast<uint32_t>(packed & 0xFFFFFFFFu);
-+    const uint32_t cid      = i % C;
-+    const int64_t idx       = (int64_t)i * N + g;
++    // One thread per (camera, gaussian, channel), gaussian fastest within a
++    // camera and the D channels of a gaussian adjacent (matching gsplat's SH
++    // bwd) so the atomic coefficient updates of one Gaussian stay in the
++    // same warp/cache lines.
++    const uint32_t elem = static_cast<uint32_t>(t / D);
++    const uint32_t g    = elem % N;
++    const uint32_t i    = elem / N;
++    const uint32_t c    = static_cast<uint32_t>(t % D);
++    const int32_t *r    = radii + ((int64_t)i * N + g) * 2;
++    if(!(r[0] > 0 && r[1] > 0))
++    {
++        return; // invisible in this camera (std-style mask, no work)
++    }
++    const uint32_t cid = i % C;
++    const int64_t idx  = (int64_t)i * N + g;
 +
 +    // cam_pos = -R^t t  (world position of the camera from the view matrix)
 +    const float *view_ptr = viewmats + cid * 16;
@@ -3570,6 +3479,7 @@ index 0000000..497ea9c
 +    atomicAdd(v_means + m_id * 3 + 1, v_dir.y);
 +    atomicAdd(v_means + m_id * 3 + 2, v_dir.z);
 +}
++
 +
 +// Per-gaussian reduction across camera views (RGB-mode colors + opacities).
 +// ============================================================================
@@ -3863,82 +3773,37 @@ index 0000000..497ea9c
 +        C10_CUDA_KERNEL_LAUNCH_CHECK();
 +    }
 +
-+    if(sh_coeffs.has_value() && color_dim >= 3)
++        if(sh_coeffs.has_value() && color_dim >= 3)
 +    {
 +        // ---- Stage 3a: SH VJP (depth-only modes have no color channels;
 +        // their SH/color input gradients are identically zero) ----
++        // Fixed grid over I * N * D with a per-pair radii mask: no visible-
++        // pair compaction and no device->host readback to size the grid, so
++        // this launches back-to-back with the projection VJP.
 +        const int64_t K = sh_coeffs.value().size(-2);
 +        const int64_t D = sh_coeffs.value().size(-1);
-+        {
-+            // Compact the visible (camera, gaussian) pairs so the VJP launches
-+            // exactly one thread per visible pair (gsplat's visible-only SH bwd
-+            // organization) instead of one thread per (i, g) with early exits.
-+            const uint32_t vis_block = HIGS_SH_VIS_BLOCK;
-+            const uint32_t blocks_x  = static_cast<uint32_t>((N + vis_block - 1) / vis_block);
-+            const uint32_t n_blocks  = blocks_x * static_cast<uint32_t>(I);
-+            if(n_blocks > 0)
-+            {
-+                at::Tensor block_counts  = at::empty({n_blocks}, opts.dtype(at::kInt));
-+                at::Tensor block_offsets = at::empty({n_blocks}, opts.dtype(at::kInt));
-+                at::Tensor n_vis         = at::empty({1}, opts.dtype(at::kLong));
-+                at::Tensor vis_pairs     = at::empty({I * N}, opts.dtype(at::kLong)); // capacity
-+                const dim3 vis_grid(blocks_x, static_cast<uint32_t>(I));
-+                higs_vis_block_counts_kernel<<<vis_grid, vis_block, 0, stream>>>(
-+                    static_cast<uint32_t>(N),
-+                    radii.const_data_ptr<int32_t>(),
-+                    block_counts.data_ptr<int32_t>()
-+                );
-+                C10_CUDA_KERNEL_LAUNCH_CHECK();
-+                at::cuda::cub::exclusive_sum(
-+                    block_counts.const_data_ptr<int32_t>(),
-+                    block_offsets.data_ptr<int32_t>(),
-+                    n_blocks
-+                );
-+                higs_vis_total_kernel<<<1, 32, 0, stream>>>(
-+                    block_offsets.const_data_ptr<int32_t>(),
-+                    block_counts.const_data_ptr<int32_t>(),
-+                    n_blocks,
-+                    n_vis.data_ptr<int64_t>()
-+                );
-+                C10_CUDA_KERNEL_LAUNCH_CHECK();
-+                higs_vis_pairs_kernel<<<vis_grid, vis_block, 0, stream>>>(
-+                    static_cast<uint32_t>(N),
-+                    radii.const_data_ptr<int32_t>(),
-+                    block_offsets.const_data_ptr<int32_t>(),
-+                    reinterpret_cast<uint64_t *>(vis_pairs.data_ptr<int64_t>())
-+                );
-+                C10_CUDA_KERNEL_LAUNCH_CHECK();
-+
-+                // Read the compacted count back to size the VJP grid exactly.
-+                const int64_t n_vis_host = n_vis.to(at::kCPU).item<int64_t>();
-+                if(n_vis_host > 0)
-+                {
-+                    const uint32_t threads = 256;
-+                    const uint32_t grid    = static_cast<uint32_t>(
-+                        (n_vis_host * D + threads - 1) / threads
-+                    );
-+                    higs_sh_vjp_kernel<<<grid, threads, 0, stream>>>(
-+                        static_cast<uint32_t>(N),
-+                        static_cast<uint32_t>(C),
-+                        static_cast<uint32_t>(sh_degree),
-+                        static_cast<uint32_t>(K),
-+                        static_cast<uint32_t>(D),
-+                        static_cast<uint32_t>(color_dim),
-+                        n_vis_host,
-+                        reinterpret_cast<const uint64_t *>(vis_pairs.const_data_ptr<int64_t>()),
-+                        means.const_data_ptr<float>(),
-+                        viewmats.const_data_ptr<float>(),
-+                        sh_coeffs.value().const_data_ptr<float>(),
-+                        colors_eval.const_data_ptr<float>(),
-+                        v_colors_flat.const_data_ptr<float>(),
-+                        visible_ids.const_data_ptr<int64_t>(),
-+                        grad_colors.data_ptr<float>(),
-+                        grad_means.data_ptr<float>()
-+                    );
-+                    C10_CUDA_KERNEL_LAUNCH_CHECK();
-+                }
-+            }
-+        }
++        const int64_t total = I * N * D;
++        const uint32_t threads = 256;
++        const uint32_t grid = static_cast<uint32_t>((total + threads - 1) / threads);
++        higs_sh_vjp_grid_kernel<<<grid, threads, 0, stream>>>(
++            static_cast<uint32_t>(I),
++            static_cast<uint32_t>(N),
++            static_cast<uint32_t>(C),
++            static_cast<uint32_t>(sh_degree),
++            static_cast<uint32_t>(K),
++            static_cast<uint32_t>(D),
++            static_cast<uint32_t>(color_dim),
++            radii.const_data_ptr<int32_t>(),
++            means.const_data_ptr<float>(),
++            viewmats.const_data_ptr<float>(),
++            sh_coeffs.value().const_data_ptr<float>(),
++            colors_eval.const_data_ptr<float>(),
++            v_colors_flat.const_data_ptr<float>(),
++            visible_ids.const_data_ptr<int64_t>(),
++            grad_colors.data_ptr<float>(),
++            grad_means.data_ptr<float>()
++        );
++        C10_CUDA_KERNEL_LAUNCH_CHECK();
 +    }
 +    else
 +    {
@@ -4083,69 +3948,10 @@ index 0000000..893872f
 +    );
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
-diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
-index 13097f3..6ff8288 100644
---- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
-+++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
-@@ -28,21 +28,21 @@ __device__ __forceinline__ void AssignAs(U &u, const V &v)
- }
- 
- // Round-to-nearest (ties away from zero) __half2 pair to the M bits of mantissa
--template<uint M, bool MASK_OUT_OUTPUT = true>
-+template<uint32_t M, bool MASK_OUT_OUTPUT = true>
- __device__ __forceinline__ __half2 RoundToNearest(const __half2 &v)
- {
--    constexpr uint MANTISSA_MASK = 0x03FF03FF;
--    constexpr uint TRUNC_MASK    = ~(((1u << (10 - M)) - 1) * 0x10001u);
-+    constexpr uint32_t MANTISSA_MASK = 0x03FF03FF;
-+    constexpr uint32_t TRUNC_MASK    = ~(((1u << (10 - M)) - 1) * 0x10001u);
-     // get rounding offset scale s*2^e (input float with mantissa zeroed out)
--    const uint vn                = reinterpret_cast<const uint &>(v) & ~MANTISSA_MASK;
-+    const uint32_t vn                = reinterpret_cast<const uint32_t &>(v) & ~MANTISSA_MASK;
-     const __half2 vb             = reinterpret_cast<const __half2 &>(vn);
-     // get rounding offset
-     const __half2 vs             = __float2half2_rn((1 << (10 - M)) / 2048.0f);
-     // add to float a scaled rounding offset
-     const __half2 v_r            = __hfma2(vb, vs, v);
-     // return masked __half2
--    const uint vi_r
--        = MASK_OUT_OUTPUT ? (reinterpret_cast<const uint &>(v_r) & TRUNC_MASK) : reinterpret_cast<const uint &>(v_r);
-+    const uint32_t vi_r
-+        = MASK_OUT_OUTPUT ? (reinterpret_cast<const uint32_t &>(v_r) & TRUNC_MASK) : reinterpret_cast<const uint32_t &>(v_r);
-     return reinterpret_cast<const __half2 &>(vi_r);
- }
- 
-@@ -137,9 +137,9 @@ __forceinline__ __device__ __half2 __uint8x2_to_half2(uint32_t src)
-     return dp.f;
- }
- 
--__forceinline__ __device__ uint __cvt_pack_sat_u8_f32(float a0, float a1, float a2, float a3)
-+__forceinline__ __device__ uint32_t __cvt_pack_sat_u8_f32(float a0, float a1, float a2, float a3)
- {
--    uint rval;
-+    uint32_t rval;
-     asm volatile(
-         "{.reg .u32 tmp, i0, i1;\n"
-         "cvt.rni.s32.f32 i0, %1;\n"
-@@ -154,7 +154,7 @@ __forceinline__ __device__ uint __cvt_pack_sat_u8_f32(float a0, float a1, float
-     return rval;
- }
- 
--__forceinline__ __device__ uint __cvt_pack_sat_u8_f32(const float4 &a)
-+__forceinline__ __device__ uint32_t __cvt_pack_sat_u8_f32(const float4 &a)
- {
-     return __cvt_pack_sat_u8_f32(a.x, a.y, a.z, a.w);
- }
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d1..5350469 100644
+index 2eb26d1..7eea28f 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
-@@ -1,4 +1,4 @@
--/*
-+﻿/*
-  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-  * SPDX-License-Identifier: Apache-2.0
-  *
 @@ -18,6 +18,8 @@
  #include <torch/extension.h>
  

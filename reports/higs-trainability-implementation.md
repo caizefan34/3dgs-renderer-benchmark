@@ -127,7 +127,7 @@ Host launcher `higs_rasterize_backward(...)` returns FP32 tuple
 tests/test_higs_trainable.py ............... 13/13 [100%]
 tests/test_higs_frozen.py ................... 14/14 [100%]
 tests/test_higs_dynamic.py ................. 11/11 [100%]
-tests/test_higs_native_backward.py ......... 58/58 [100%]
+tests/test_higs_native_backward.py ......... 61/61 [100%]
 ============================== 99 passed in 19.91s ===============================
 ```
 Native-backward coverage: forward RGB/SH/background parity vs standard gsplat;
@@ -179,7 +179,9 @@ reverted; `results/higs-train-benchmark-2026-08-01j.json` confirms the reverted
 state matches 08-01h. `results/higs-train-benchmark-2026-08-01l.json` captured the
 round-8 camera-row slice experiment (fused mask + slice in tree, regression vs the
 fused-mask-only state, slice reverted); `results/higs-train-benchmark-2026-08-01m.json` is the
-fused union-visibility-mask final result.
+fused union-visibility-mask final result. esults/higs-train-benchmark-2026-08-02-shvjp.json and
+esults/higs-train-benchmark-2026-08-02-train.json are the round-9
+fixed-grid SH VJP results (bicycle / train).
 
 ### Forward bottleneck found and fixed (2026-08-01)
 
@@ -641,6 +643,91 @@ are int32 (not FP32) and depths are 3-D `[1, C, N]`.
   08-01j but a regression vs the fused-mask-only state, so the slice was
   reverted and 08-01m is the final result. All 99 tests pass.
 
+### Eighth optimization (2026-08-02): fixed-grid SH VJP (no compaction, no device->host sync)
+
+A backward profiler on bicycle (4 cams, 960x540, N=6.13M, 2.27M visible
+pairs) showed `higs_sh_vjp_kernel` at 5.97 ms vs std's
+`spherical_harmonics_bwd_kernel` at 4.89 ms - the only HiGS backward kernel
+slower than its std counterpart (std additionally pays ~9.8 ms of
+`indexing_backward` that HiGS eliminates). The old SH VJP sized its grid from
+a device-side visible-pair compaction
+(`higs_vis_block_counts` / `higs_vis_total` / `higs_vis_pairs` +
+`exclusive_sum` + `n_vis.to(cpu).item()`), forcing a device->host sync in
+every backward.
+
+Fix: replace the compaction pipeline with a fixed `I*N*D` grid and a per-pair
+radii mask (std-style `masks` filtering), deleting the three compaction
+kernels, the `HIGS_SH_VIS_BLOCK` macro and the CUB includes. The kernel body
+is unchanged apart from the thread mapping. Measured:
+
+- `higs_sh_vjp_grid_kernel` self time unchanged at 5.97 ms - the compaction
+  and the host sync were not the kernel bottleneck. Full benchmark is neutral:
+  bicycle `higs_native` 17.37/26.52/44.07 ms vs 08-01m 17.27/26.61/44.05
+  (same run: std 22.06/35.82/58.10, recompute 18.82/60.30/79.32; std's
+  absolute numbers vary run-to-run with neighbor-GPU load, the same-run
+  relative ranking is unchanged).
+- Structural win: no per-backward device->host sync, 3 fewer kernel launches,
+  no CUB dependency, no per-step visible-pair buffer allocations. All 99 tests
+  pass.
+
+An isolation build that hardcoded `cam_pos = 0` (skipping the per-thread
+`-R^T t` direction recompute) still measured 5.96 ms, so the 1.1 ms gap vs std
+is not the direction math. It is attributed to the master-buffer `v_means`
+atomics (up to 12-way contention for Gaussians visible in all 4 cameras vs
+std's per-camera `v_dirs` 3-way) plus the `colors_eval` ReLU-mask load.
+Closing it would need std-style per-camera `dirs` capture ([B, N, 3] = 294 MB
+on bicycle) or a per-camera `v_dirs` intermediate plus a reduction pass - a
+real memory/launch cost for ~1 ms on a 44 ms iteration, so it is left as a
+documented trade-off.
+
+Topology-rebuild cost (bicycle): `pack_gaussian_inference_scene` 3.2 ms,
+renderer construction 0.35 ms; a `mark_dirty()`-forced rebuild step measures
+56.3 ms fwd+bwd vs 47.3 ms without rebuild (+9.0 ms). In the 20-step benchmark
+(densify every 5, 3 rebuilds) that is ~+1.4 ms/step amortized.
+
+**Answer to "backward is 2x faster than recompute, why is the total not
+faster?"** The observation was accurate for the early state (08-01b:
+`higs_native` bicycle total 52.8 ms vs std 51.0 ms - the backward was already
+faster than recompute, but the forward paid a full per-camera HiGS render just
+to build the culling mask and cancelled the gain). The forward-side rounds
+(batched culling projection, per-step pack skip, visible-subset gather, fused
+union mask) plus the backward rounds brought the total to 44.05 ms
+(-13.5% vs std, -44% vs recompute on bicycle). The absolute backward is still
+dominated by `higs_blend_bwd_kernel` (19.1 ms), the same
+pixel/isect-throughput-bound kernel std uses (19.1 ms); the native path wins by
+not re-running the pipeline (recompute bwd = fwd + bwd = 60 ms) and by
+eliminating std's `indexing_backward` + gather costs.
+
+### tanks_and_temples/train (N=1,026,508) - 2026-08-02 (after fixed-grid SH VJP)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 7.59 | 13.17 | 20.94 | 3.22 GB | 0.0% | 19.25 | 0.6761 | 0.2966 | 1,026,508 |
+| higs_recompute | 8.05 | 24.54 | 32.78 | 4.00 GB | 15.1% | 19.25 | 0.6764 | 0.2965 | 1,026,508 |
+| higs_native | 7.12 | 11.82 | 19.11 | 3.15 GB | 15.1% | 19.35 | 0.6820 | 0.2931 | 1,026,508 |
+| higs_dynamic | 6.66 | 11.14 | 18.11 | 3.57 GB | 15.6% | 20.28 | 0.7070 | 0.2755 | 730,112 |
+
+### mipnerf360/bicycle (N=6,131,954) - 2026-08-02 (after fixed-grid SH VJP)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 22.06 | 35.82 | 58.10 | 15.58 GB | 0.0% | 17.28 | 0.4481 | 0.4287 | 6,131,954 |
+| higs_recompute | 18.82 | 60.30 | 79.32 | 17.89 GB | 62.9% | 17.28 | 0.4481 | 0.4287 | 6,131,954 |
+| higs_native | 17.37 | 26.52 | 44.07 | 16.26 GB | 62.9% | 17.28 | 0.4479 | 0.4294 | 6,131,954 |
+| higs_dynamic | 13.74 | 21.83 | 35.75 | 19.33 GB | 65.0% | 18.20 | 0.4740 | 0.3798 | 4,159,001 |
+
+**Interpretation (round 9)**
+
+- The fixed-grid SH VJP is benchmark-neutral (bicycle total 44.07 vs 08-01m
+  44.05, train 19.11 vs 19.03) while removing the per-backward device->host
+  sync; train `higs_native` stays -8.7% vs std (19.11 vs 20.94) and bicycle
+  -24.2% vs std in the same run (std's absolute numbers are inflated by
+  neighbor-GPU load; the -13.5% figure from the 08-01m quiet-machine run is
+  the more representative cross-run comparison).
+- PSNR/SSIM/LPIPS parity with std holds (train 19.35 vs 19.25; bicycle 17.28);
+  `higs_dynamic` keeps its densify/prune quality gain (train 20.28, bicycle
+  18.20).
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
@@ -677,7 +764,16 @@ are int32 (not FP32) and depths are 3-D `[1, C, N]`.
    changes).
 5. `_densify_gaussians` clamps RGB colors to [0,1] by default;
    `color_clamp=None` disables the clamp. SH coefficient tensors ([N, K, C])
-   are intentionally not clamped.
+   are intentionally not clamped.a6. The SH VJP kernel remains ~1.1 ms slower than std's on bicycle (5.97 vs
+   4.89 ms): the fixed-grid rewrite (2026-08-02) removed the per-backward
+   device->host sync and the compaction pipeline, but the remaining gap is
+   the master-buffer `v_means` atomics (multi-camera contention) plus the
+   `colors_eval` ReLU-mask load. Closing it requires std-style per-camera
+   `dirs` capture (294 MB on bicycle) or a per-camera `v_dirs` intermediate
+   plus a reduction pass, kept as a documented trade-off.
+7. A topology rebuild on a 6.13M-Gaussian scene costs ~3.6 ms to pack +
+   construct the renderer and ~+9 ms per `mark_dirty()`-forced forward+backward
+   step; amortized over densify-every-5 training this is ~+1.4 ms/step.
 
 ## Modified files (gsplat source tree)
 
