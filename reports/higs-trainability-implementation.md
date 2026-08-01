@@ -1,4 +1,4 @@
-# HiGS Trainability Implementation Report
+﻿# HiGS Trainability Implementation Report
 
 ## Status: Native differentiable training path (HiGS forward + HiGS native CUDA backward) — VERIFIED on EPIC-05 (A100)
 
@@ -1195,6 +1195,59 @@ the last big lever.
 
 Full JSON: `results/higs-train-benchmark-2026-08-02-round20-1080p.json`.
 
+
+### Round 21-22 (2026-08-02): backward cost decomposition + PX pixels-per-thread blend VJP
+
+**Why the "2x backward" does not move the total.** CPU+CUDA profiling of one
+dynamic step (bicycle 1080p, 4 cams) splits the 37.81 ms backward into
+`higs_blend_bwd_kernel` 29.76 ms + `higs_sh_vjp_grid_kernel` 5.96 ms +
+`higs_projection_bwd_kernel` 2.04 ms. Culling cannot reduce the blend VJP: the
+62.9% culled Gaussians generate zero isects, so the per-isect blend work is
+fixed. Round 20's honest `std_ll` baseline (bwd 47.9 vs native 42.7 ms on
+bicycle) shows the real native-backward edge is ~5 ms; the standalone "2x"
+microbenchmark only compared against the recompute fallback, which pays a
+whole extra re-rasterization. The dominant backward cost is the blend VJP
+itself.
+
+**Compile-time probe (GPU1 idle).** Building the blend kernel with the warp
+reductions + atomic scatters compiled out (`HIGS_BWD_PROBE_NO_ATOMICS`) drops
+it 29.76 -> 3.64 ms; removing the per-isect VJP math leaves ~15.3 ms. The
+naive reading is "~10.9 ms of reduction/atomic work", but the honest PX A/B
+below shows the real lever is much smaller (probe codegen effects), so that
+estimate was optimistic.
+
+**PX (pixels-per-thread) blend VJP.** Added a templated
+`higs_blend_bwd_px_kernel<CDIM, PX>` where each thread owns PX pixels (rows
+`ty + q * (16/PX)` of the 16x16 tile), so the per-isect warp reductions and
+atomic scatters scale as 1/PX while the per-pixel math is unchanged. Runtime
+selection via `HIGS_PX_RUNTIME` (0/1/2/4; default 2); PX=1 is bit-equivalent
+to the original kernel.
+
+**Bug found & fixed during the PX work.** The first shared-accumulator PX=2
+implementation produced wrong gradients (max diff ~3e-3 on means/scales for
+four near-tile-boundary Gaussians) while PX=1 was bit-exact. Root cause:
+`rasterize_to_pixels_3dgs_blend_bwd` ASSIGNS its `v_rgb_local` /
+`v_conic_local` / `v_xy_local` / `v_opacity_local` outputs (correct for one
+call per (thread, isect)), so calling it once per q-pixel made the later q
+overwrite the earlier q's contribution. Verified with a diagnostic "split"
+kernel (per-q warp reductions, matches the original to 1e-10) vs the shared
+version (1e-3). Fixed by accumulating per-q scratch locals into the shared
+per-isect totals before the single warp reduction. PX=1/2/4 now all match the
+original kernel to ~1e-10; 100 tests pass with PX=2 as the default.
+
+**Measured.** Paired profiler (bicycle 1080p, GPU1): blend bwd 30.5 -> 29.0 ms
+(PX1 -> PX2), full step 122.6 -> 119.6 ms; PX=4 is slower than PX=2
+(29.8 / 121.2, register pressure). Round-22 benchmark (same machine,
+backends `[std_ll, higs_native, higs_dynamic]`): bicycle native bwd
+42.7 -> 40.0 and dynamic bwd 37.8 -> 35.5 ms; train scene native 20.9 -> 19.1
+and dynamic 19.1 -> 17.0 ms. Cross-run variance is +-15%, so the paired
+profiler numbers are the reliable A/B: the honest gain is ~1.5 ms on the
+blend kernel and ~3 ms/step end-to-end. The dominant blend cost is the
+per-isect VJP math; the last big lever remains a HiGS-format backward
+consuming the macro-tile structure (30M entries vs 330M isects).
+
+Full JSON: `results/higs-train-benchmark-2026-08-02-round22-1080p.json`
+(regeneratable; not tracked).
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
