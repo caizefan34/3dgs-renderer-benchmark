@@ -19,6 +19,7 @@ only claimed when the measured total iteration time actually wins.
 
 import argparse
 import json
+import math
 import os
 import time
 from dataclasses import asdict
@@ -208,6 +209,81 @@ def _l1_loss(frame, ref):
     return (frame - ref).abs().mean()
 
 
+def _std_ll_forward(means, quats, scales, opacities, colors, viewmats, Ks,
+                   width, height, sh_degree, radius_clip=0.0):
+    """Low-level standard gsplat forward (raw CUDA kernels, no culling).
+
+    Mirrors the kernels that ``rasterize_gaussian_higs_*`` use for the capture
+    path, so the ``std_ll`` backend is the apples-to-apples baseline: the
+    high-level ``rasterization()`` wrapper used by ``std`` carries ~9 ms/step of
+    Python/alloc overhead at 1920x1080 x 4 cameras, which would otherwise
+    inflate the reported HiGS margin.
+    """
+    from gsplat.cuda._wrapper import (
+        fully_fused_projection,
+        isect_tiles,
+        isect_offset_encode,
+        _make_lazy_cuda_func,
+    )
+    from gsplat.rendering import _maybe_evaluate_sh
+
+    C = viewmats.shape[-3]
+    N = means.shape[-2]
+    tile_size = 16
+    tile_width = math.ceil(width / tile_size)
+    tile_height = math.ceil(height / tile_size)
+    radii, means2d, depths, conics, _ = fully_fused_projection(
+        means=means.contiguous(),
+        covars=None,
+        quats=quats.contiguous(),
+        scales=scales.contiguous(),
+        viewmats=viewmats,
+        Ks=Ks,
+        width=width,
+        height=height,
+        eps2d=0.3,
+        near_plane=0.01,
+        far_plane=1e10,
+        radius_clip=radius_clip,
+        packed=False,
+        calc_compensations=False,
+        camera_model="pinhole",
+    )
+    opacities_bc = torch.broadcast_to(
+        opacities[..., None, :], (1, C, N)
+    ).contiguous()
+    _, isect_ids, flatten_ids = isect_tiles(
+        means2d, radii, depths, tile_size, tile_width, tile_height,
+        packed=False, n_images=C, image_ids=None, gaussian_ids=None,
+        conics=conics, opacities=opacities_bc,
+    )
+    isect_offsets = isect_offset_encode(
+        isect_ids, C, tile_width, tile_height
+    ).reshape((1, C, tile_height, tile_width))
+    colors_eval = _maybe_evaluate_sh(
+        sh_degree, colors, means, radii, viewmats, (1,), C, N, True,
+    ).contiguous()
+    bg_kernel = torch.zeros((1, C, 3), device=means.device)
+    render_colors, render_alphas, _absgrad, last_ids = (
+        _make_lazy_cuda_func("rasterize_to_pixels_3dgs")(
+            means2d.contiguous(),
+            conics.contiguous(),
+            colors_eval.contiguous(),
+            opacities_bc.contiguous(),
+            bg_kernel,
+            None,
+            width,
+            height,
+            tile_size,
+            isect_offsets.contiguous(),
+            flatten_ids.contiguous(),
+            False,
+            False,
+        )
+    )
+    return render_colors, render_alphas
+
+
 def make_forward_fn(backend, width, height, handle, viewmats, Ks, radius_clip=0.0):
     from gsplat.rendering import rasterization
 
@@ -223,6 +299,13 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks, radius_clip=0.
                 sh_degree=_SH_DEGREE, packed=True, radius_clip=radius_clip,
             )
             return out[0], out[1], {}
+        if backend == "std_ll":
+            rc, ra = _std_ll_forward(
+                m.unsqueeze(0), q.unsqueeze(0), s.unsqueeze(0),
+                o.unsqueeze(0), c, vm, K, width, height,
+                _SH_DEGREE, radius_clip=radius_clip,
+            )
+            return rc, ra, {}
         kw = dict(
             viewmats=vm, Ks=K, width=width, height=height,
             sh_degree=_SH_DEGREE, use_higs_culling=True, radius_clip=radius_clip,

@@ -1138,6 +1138,63 @@ native backward consume HiGS's captured state (or emitting the standard-layout
 capture tensors from the HiGS pipeline) - a substantial forward+backward
 rework, not a micro-optimization.
 
+### Round 20 (2026-08-02): honest low-overhead std baseline (std_ll) + tile-LOD economics corrected
+
+**Fairness fix.** The benchmark's `std` backend calls the high-level
+`gsplat.rendering.rasterization()` wrapper, which carries Python/alloc
+overhead on top of the same CUDA kernels. Added a `std_ll` backend that runs
+the raw kernels the HiGS capture path uses (identical pipeline, no culling) as
+the apples-to-apples baseline. In the warmed training loop at 1920x1080 x 4
+cameras the wrapper overhead is ~1.3 ms fwd + ~4.2 ms bwd on bicycle (a cold
+standalone probe showed ~9 ms, i.e. most of the round-19 "3.37x" probe gap was
+wrapper overhead that the training loop does not actually pay).
+
+Re-ran the 1080p benchmark (4 train + 3 eval cameras, 20 Adam steps, densify
+every 5, GPU1 idle) with backends `[std, std_ll, higs_native, higs_dynamic]`:
+
+| backend (bicycle) | fwd ms | bwd ms | total ms | train ms | peak VRAM | PSNR |
+|---|---|---|---|---|---|---|
+| std | 28.1 | 52.1 | 80.7 | 88.3 | 16.03 GB | 16.75 |
+| std_ll | 26.8 | 47.9 | 75.2 | 82.7 | 15.88 GB | 16.75 |
+| higs_native | 26.9 | 42.7 | 70.0 | 77.5 | 17.06 GB | 16.76 |
+| higs_dynamic | 21.2 | 37.8 | 59.4 | 67.1 | 19.81 GB | 17.61 |
+
+| backend (train) | fwd ms | bwd ms | total ms | train ms | peak VRAM | PSNR |
+|---|---|---|---|---|---|---|
+| std | 11.0 | 23.5 | 34.9 | 36.5 | 10.50 GB | 19.02 |
+| std_ll | 11.0 | 21.7 | 33.2 | 34.8 | 10.20 GB | 19.02 |
+| higs_native | 11.8 | 20.9 | 33.1 | 34.8 | 10.55 GB | 19.02 |
+| higs_dynamic | 9.7 | 19.1 | 29.3 | 31.2 | 10.99 GB | 20.06 |
+
+Honest margins (train_ms): vs the low-overhead `std_ll` baseline,
+`higs_native` is -6.3% (bicycle) / ~0% (train) and `higs_dynamic` is
+**-18.9% / -14.5%**; vs the `std` wrapper the margins stay -12.2%/-4.9% and
+-24.0%/-14.6%. The native forward is **not** faster than the raw std forward
+(culling+gather overhead offsets the subset-render savings; the 62.9% culled
+Gaussians generate no isects anyway) - the win is the native backward (bwd
+42.7 vs 47.9 on bicycle) and the dynamic path's densify/prune efficiency.
+
+**Tile-LOD economics corrected.** The round-19 probe's 28.99 ms std number
+used the high-level `rasterization()` wrapper on the visible subset; the
+training loop's capture path is ~17.7 ms of kernels (rasterize 11.3, isect
+4.1, SH 1.9, proj 0.55). A realistic tile-LOD forward = pack visible subset
+(raw C++ pack 1.23 ms for 2.27M; the 7.8 ms `GaussianInferenceScene.
+from_gaussian_tensors` path is avoidable by constructing the scene from the
+packed tensors directly) + HiGS renderer with reused output buffers (9.5 ms,
+4 cams 1080p) + emitting std-format captures for the native backward (isect
+sort + alpha/last_ids + FP32 conversions, ~4-5 ms) ~= 15-17 ms vs the current
+20.9 ms forward - a forward-only saving of roughly 4 ms/step, not 20.4. The
+dominant training cost is the backward (37.7 ms dynamic / 42.7 native); a
+HiGS-format backward (blend VJP over the macro-tile isect structure) remains
+the last big lever.
+
+**Rejected experiment.** Reusing the culling projection's rows for the capture
+(4 advanced-index gathers) cost 1.05 ms vs 0.55 ms for re-projecting the
+2.27M subset - a net regression, reverted (bit-exact either way; tests still
+100 passed).
+
+Full JSON: `results/higs-train-benchmark-2026-08-02-round20-1080p.json`.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
