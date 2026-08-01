@@ -1393,6 +1393,47 @@ by the 145M coefficient atomics (16 per thread for K=16), which are
 inherent to the visible-subset layout; a round-13 per-camera flat probe
 measured only -0.3 ms. The last big lever stays the HiGS-format backward
 (30M macro-tile entries vs 330M std isects).
+### Round 26 (2026-08-02): per-(camera,gaussian) ellipse AABB prefilter measured and reverted (A/B negative again)
+
+**Hypothesis.** Round-24's AABB prefilter was negative, but its extent math ran
+per isect inside the batch load (`logf/sqrtf/div` per isect + 2 extra shared
+floats). Round-25 diagnostics decomposed the blend kernel into ~3.8 ms pure
+traversal, ~15.8 ms eval + warp-reduce + atomic and ~9.5 ms VJP math (29.1 ms
+total). This round kept the same ellipse prefilter but hoisted the extent math
+out of the blend kernel entirely: a new `higs_compute_aabb_kernel` computes
+`ex/ey = sqrt(k*conic.z/det), sqrt(k*conic.x/det)` (`k = 2*ln(opac/AT)`) once
+per (camera, gaussian) pair (9.1M pairs for bicycle 1080p x 4 cams) into a
+flat `[I*N, 2]` tensor; both blend kernels load it into a shared
+`vec2 aabb_batch` (same 8B/entry footprint as round-24's 2 floats) and gate
+the q-loop with `in_ellipse = ex<=0 || (|dx|<=ex && |dy|<=ey)` before
+`eval_gaussian_weight`, skipping the eval + accumulated VJP body for
+out-of-ellipse pixels.
+
+**Why it still loses.** The prefilter can only skip `eval_gaussian_weight`
+(2 FMAs + `__expf` + clamp + compare): the VJP math is already gated by
+`gw.valid` in the unfiltered kernel, and the per-isect warp-reduce/atomic
+scatters run whenever any lane is valid, which the AABB (a superset of the
+valid set) leaves unchanged. So the filter trades a cheap, fully-parallel
+`__expf` for one extra scattered 8-byte global load per isect (`aabb[g]`) in
+the batch load, the shared write/read of `aabb_batch`, two `fabsf`+compare
+branches per (isect, pixel) pair, and extra register pressure - and the blend
+kernel is memory/launch-bounds bound. The 15.8 ms eval+reduce+atomic block is
+dominated by the reduction/atomic scatter, which no AABB scheme can skip.
+
+**A/B (EPIC-05, bicycle 1080p x 4 cams, torch-profiler self-CUDA-time, PX=2):**
+
+| variant | blend bwd px kernel (self) |
+|---|---|
+| baseline (ef8fcb3) | 29.08 / 29.18 / 29.23 ms |
+| NEW (per-pair AABB) | 31.51 / 31.64 / 31.38 ms |
+
+**Conclusion: reverted.** +2.3~2.6 ms on the blend kernel, reproducing
+round-24's +2.1 ms even with the per-isect math removed - the extent-math
+location was not the problem, the filter itself is. Source restored to the
+ef8fcb3 PX=2 baseline (blend kernel back to 29.1 ms), 100 tests pass. No
+further AABB variants are planned; the remaining blend levers are the
+per-isect reduce/atomic scatter and a HiGS-format backward consuming the
+macro-tile structure (30M entries vs 330M std isects).
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
