@@ -969,6 +969,60 @@ vs 51.45 ms, PSNR within 0.01 dB); all 99 tests pass. In heavy-duplication
 training regimes the per-event saving is much larger (the slow gather scales
 with the duplicated-row count).
 
+### Round 16 (2026-08-02): 1080p benchmark - resolution-independent culling widens the HiGS lead
+
+Re-ran the round-15 configuration at 1920x1080 (4 train + 3 eval cameras, 20
+Adam steps, fused Adam, densify every 5, GPU1 idle) to verify the speedup at
+higher resolution. The culling decision is resolution-independent (one
+O(N x C) visibility mask; the 15.1% / 62.9% culling ratios are identical to
+960x540), while the per-pixel blend cost grows 4x - so the relative and the
+absolute per-step HiGS advantage should both grow.
+
+Full JSON: `results/higs-train-benchmark-2026-08-02-round15-1080p.json`.
+
+#### tanks_and_temples/train (N=1,026,508) - 1080p
+
+| backend | fwd ms | bwd ms | total ms | train ms | peak VRAM | culling | PSNR | final N |
+|---|---|---|---|---|---|---|---|---|
+| std | 11.7 | 24.7 | 36.9 | 38.8 | 3.52 GB | 0.0% | 19.02 | 1,026,508 |
+| higs_recompute | 11.6 | 38.5 | 50.6 | 52.2 | 4.54 GB | 15.1% | 19.01 | 1,026,508 |
+| higs_native | 11.7 | 20.9 | 33.1 | 34.7 | 3.57 GB | 15.1% | 19.02 | 1,026,508 |
+| higs_dynamic | 9.7 | 19.1 | 29.3 | 31.5 | 3.99 GB | 15.5% | 20.05 | 741,584 |
+
+#### mipnerf360/bicycle (N=6,131,954) - 1080p
+
+| backend | fwd ms | bwd ms | total ms | train ms | peak VRAM | culling | PSNR | final N |
+|---|---|---|---|---|---|---|---|---|
+| std | 27.9 | 51.6 | 79.9 | 87.4 | 10.89 GB | 0.0% | 16.76 | 6,131,954 |
+| higs_recompute | 28.7 | 88.5 | 117.7 | 125.1 | 13.66 GB | 62.9% | 16.76 | 6,131,954 |
+| higs_native | 26.3 | 42.6 | 69.4 | 76.8 | 11.67 GB | 62.9% | 16.75 | 6,131,954 |
+| higs_dynamic | 21.2 | 37.8 | 59.4 | 68.0 | 14.92 GB | 62.9% | 17.61 | 4,477,802 |
+
+**Interpretation**
+
+- Native-vs-recompute gradient cosine 0.999995 (train) / 1.000000 (bicycle),
+  quality within noise of the round-15 probe.
+- The native backward is 1.84x (train) / 2.08x (bicycle) faster than
+  `gsplat_recompute` at 1080p (20.9 vs 38.5 ms; 42.6 vs 88.5 ms): the
+  recompute fallback re-runs the full rasterization pipeline per backward and
+  scales with resolution, while the native VJP only touches the captured
+  visible-subset state.
+- Speedup vs std holds and grows with resolution (train_ms): `higs_native`
+  -10.6% (train) / -12.1% (bicycle); `higs_dynamic` **-18.9% / -22.2%**
+  (vs -19.0% / -20.1% at 960x540). On bicycle the absolute saving is now
+  **-19.4 ms per training step** (68.0 vs 87.4 ms; -11.7 ms at 960x540).
+- Why the advantage grows: culling is resolution-independent, so the
+  N-proportional work saved by skipping 62.9% of the 6.13M Gaussians is
+  constant in ratio but its absolute value scales with the
+  resolution-proportional blend/isect work it avoids.
+- Quality conclusions unchanged: frozen paths within 0.01 dB of std
+  (16.75 vs 16.76); `higs_dynamic` still ahead on held-out PSNR (20.05 vs
+  19.02 train; 17.61 vs 16.76 bicycle).
+- VRAM: `higs_native` stays near std (+0.05 GB train / +0.8 GB bicycle);
+  `higs_dynamic` peaks at 14.92 GB on bicycle (+4.0 GB vs std) - densify
+  temporaries plus resolution-scaling visibility lists; well within the
+  80 GB A100, but the dynamic-path overhead does grow with resolution.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
