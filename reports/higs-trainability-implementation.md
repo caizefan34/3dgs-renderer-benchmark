@@ -166,8 +166,9 @@ cosine probe.
 
 Measured on EPIC-05 (1x A100-SXM4-80GB, CUDA 12.8, torch 2.9.1+cu128), 960x540,
 4 train + 3 eval cameras, 20 Adam steps, densify/prune every 5 steps.
-Full JSON: `results/higs-train-benchmark-2026-07-31.json` (baseline) and
-`results/higs-train-benchmark-2026-08-01.json` (after the culling fix).
+Full JSON: `results/higs-train-benchmark-2026-07-31.json` (baseline),
+`results/higs-train-benchmark-2026-08-01.json` (after the culling fix) and
+`results/higs-train-benchmark-2026-08-01b.json` (after the per-step pack skip).
 
 ### Forward bottleneck found and fixed (2026-08-01)
 
@@ -236,6 +237,67 @@ Native-vs-recompute probe: gradient cosine 0.999996 (train) / 0.999997
 | higs_native | 12.03 | 25.96 | 28.29 | 59.02 |
 | higs_dynamic | 10.93 | 23.61 | 23.50 | 49.68 |
 
+### Second optimization (2026-08-01): drop the per-step packed-scene rebuild
+
+Phase profiling of the `higs_native` forward on bicycle (4 cams, 960x540,
+N=6.13M) with CUDA events showed the forward was still paying
+`_refresh_higs_renderer_scene`: every `optimizer.step()` bumped the master
+tensor `_version`s, so `HigsRendererHandle.params_changed` forced a full
+`pack_gaussian_inference_scene` (FP32 -> packed FP16, ~3.2 ms) plus a renderer
+construction on **every** training step - even though neither the native nor
+the recompute backward ever consumes the packed FP16 scene (both consume the
+FP32 captured tensors: means2d/conics/colors_eval/opacities/tile offsets/
+flatten ids).
+
+Fix (`_refresh_higs_renderer_scene(..., lightweight=True)`, used by the
+differentiable forward): pure parameter drift now only updates the handle
+version bookkeeping - the pack/renderer rebuild is skipped entirely. Real
+topology changes (`mark_dirty()` / an N change) still re-pack, so the handle
+stays valid for the non-training `_cull_gaussians_higs` culling API (which
+detects the drift through the untouched master-tensor versions and re-packs on
+demand). The culling projection now also passes `camera_model` through, so the
+visibility mask is projection-consistent for ortho/fisheye too.
+
+Measured phase cost on bicycle (mean over 10 steps): `refresh` 3.00 -> 0.03 ms;
+forward total 26.30 -> 23.83 ms. Re-running the full benchmark:
+
+### tanks_and_temples/train (N=1,026,508) --- 2026-08-01b (after pack skip)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 8.04 | 13.78 | 22.00 | 3.22 GB | 0.0% | 19.25 | 0.6762 | 0.2965 | 1,026,508 |
+| higs_recompute | 9.05 | 24.52 | 33.76 | 4.00 GB | 15.1% | 19.24 | 0.6761 | 0.2969 | 1,026,508 |
+| higs_native | 8.13 | 14.11 | 22.41 | 3.24 GB | 15.1% | 19.26 | 0.6767 | 0.2967 | 1,026,508 |
+| higs_dynamic | 7.08 | 12.69 | 19.95 | 3.63 GB | 15.6% | 20.17 | 0.7033 | 0.2802 | 731,802 |
+
+### mipnerf360/bicycle (N=6,131,954) --- 2026-08-01b (after pack skip)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 17.99 | 32.82 | 50.99 | 10.39 GB | 0.0% | 17.28 | 0.4480 | 0.4288 | 6,131,954 |
+| higs_recompute | 22.18 | 60.10 | 82.54 | 12.69 GB | 62.9% | 17.28 | 0.4480 | 0.4291 | 6,131,954 |
+| higs_native | 20.66 | 31.87 | 52.79 | 11.27 GB | 62.9% | 17.28 | 0.4481 | 0.4284 | 6,131,954 |
+| higs_dynamic | 16.28 | 26.52 | 43.04 | 14.14 GB | 65.0% | 18.20 | 0.4739 | 0.3780 | 4,160,008 |
+
+**Interpretation (after the pack skip)**
+
+- `higs_native` total iteration improved from 22.85 -> 22.41 ms (train, +2.0% ->
+  +1.9% vs std) and from 55.65 -> 52.79 ms (bicycle, +8.8% -> +3.5% vs std).
+- `higs_dynamic` improved to 19.95 ms (train, -9.3% vs std) and 43.04 ms
+  (bicycle, -15.6% vs std) while raising held-out PSNR (20.17 / 18.20 vs
+  std 19.25 / 17.28).
+- The native backward stays ~1.7-1.9x faster than the `gsplat_recompute`
+  fallback (bwd 14.11 vs 24.52 ms; 31.87 vs 60.10 ms) because it never
+  re-runs the rasterization pipeline.
+- `topology_rebuilt` is now honest: `False` on pure parameter-drift steps
+  (the packed hierarchy is not rebuilt), `True` only right after a real
+  topology change (`mark_dirty()`/densify-prune).
+- Remaining bicycle `higs_native` forward gap vs std (+2.7 ms) is structural:
+  the batched FP32 culling projection over all N x C (~3.3 ms) and the
+  visible-subset gathers (~4.4 ms) are the price of projection-consistent
+  culling; they cannot be removed without changing the discrete-culling
+  semantics.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
@@ -254,11 +316,14 @@ Native-vs-recompute probe: gradient cosine 0.999996 (train) / 0.999997
    estimator: the forward quantizes SH3 coefficients to FP16, the backward
    passes gradients through unchanged (STE). This is an approximate, non-zero
    gradient; `sh_compression_mode="none"` remains the exact path.
-4. The frozen native path is at std parity on the small scene and +8.8% on the
+4. The frozen native path is at std parity on the small scene and +3.5% on the
    large scene (960x540); the dynamic path (densify/prune) is faster than std
-   on both scenes (-9.8% / -12.3%, 2026-08-01 benchmark). The remaining
-   large-scene forward gap comes from the batched FP32 projection +
-   visible-subset render, not from the native backward.
+   on both scenes (-9.3% / -15.6%, 2026-08-01b benchmark). The remaining
+   large-scene forward gap comes from the batched FP32 culling projection +
+   visible-subset gathers, not from the native backward. The differentiable
+   forward no longer re-packs the FP16 scene per step (parameter drift only
+   updates the handle version bookkeeping; `pack_gaussian_inference_scene` runs
+   only on real topology changes).
 5. `_densify_gaussians` clamps RGB colors to [0,1] by default;
    `color_clamp=None` disables the clamp. SH coefficient tensors ([N, K, C])
    are intentionally not clamped.

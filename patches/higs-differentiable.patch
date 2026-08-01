@@ -134,7 +134,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..fc3019e 100644
+index b6c1b13..9cb501d 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -201,7 +201,7 @@ index b6c1b13..fc3019e 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,1990 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2022 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -476,15 +476,17 @@ index b6c1b13..fc3019e 100644
 +    means, quats, scales, viewmats, Ks,
 +    width, height, eps2d=0.3,
 +    near_plane=0.01, far_plane=1e10, radius_clip=0.0,
++    camera_model="pinhole",
 +):
 +    """Union-visibility culling over all cameras with ONE batched projection.
 +
 +    Runs ``fully_fused_projection`` once for every camera in parallel and marks
 +    a Gaussian visible when any camera projects it with a positive radius. The
-+    projection uses the exact same near/far/radius_clip/eps2d criteria as the
-+    render path and operates on the FP32 master params, so the mask is
-+    projection-consistent with the forward (the FP16-packed HiGS renderer is
-+    not needed for this and would add a full per-camera render per step).
++    projection uses the exact same near/far/radius_clip/eps2d/camera_model
++    criteria as the render path and operates on the FP32 master params, so the
++    mask is projection-consistent with the forward (the FP16-packed HiGS
++    renderer is not needed for this and would add a full per-camera render per
++    step).
 +
 +    Returns:
 +        visible_ids: 1D int64 tensor of visible Gaussian indices (ascending).
@@ -494,7 +496,7 @@ index b6c1b13..fc3019e 100644
 +    from gsplat.cuda._wrapper import fully_fused_projection
 +
 +    with torch.no_grad():
-+        radii, _, _, _, _ = fully_fused_projection(
++        radii, means2d, depths, conics, _ = fully_fused_projection(
 +            means=means.unsqueeze(0).contiguous(),
 +            covars=None,
 +            quats=quats.unsqueeze(0).contiguous(),
@@ -507,6 +509,7 @@ index b6c1b13..fc3019e 100644
 +            near_plane=near_plane,
 +            far_plane=far_plane,
 +            radius_clip=radius_clip,
++            camera_model=camera_model,
 +            packed=False,
 +        )
 +    r = radii.squeeze(0)  # [C, N, 2]
@@ -518,7 +521,7 @@ index b6c1b13..fc3019e 100644
 +
 +def _refresh_higs_renderer_scene(
 +    handle, means, quats, scales, opacities, colors,
-+    N, sh_degree, sh_compression_mode,
++    N, sh_degree, sh_compression_mode, lightweight=False,
 +):
 +    """Rebuild the packed HiGS scene when it is stale, WITHOUT rendering.
 +
@@ -527,6 +530,16 @@ index b6c1b13..fc3019e 100644
 +    forward derives visibility from a batched FP32 projection, so the renderer's
 +    packed scene only needs to stay version-consistent for the handle's
 +    scene_version / topology_rebuilt / pending-backward bookkeeping.
++
++    When ``lightweight`` is True (the differentiable training forward), the
++    packed buffers are only kept bookkeeping-consistent, not re-packed: the
++    native and recompute backends consume the FP32 captured tensors and never
++    the packed FP16 scene, so a pure parameter drift (optimizer.step) skips the
++    expensive ``pack_gaussian_inference_scene`` call entirely. A real topology
++    change (``mark_dirty()`` or an N change) still re-packs so the handle stays
++    valid for the non-training :func:`_cull_gaussians_higs` culling API (which
++    detects the drift via the untouched master-tensor versions and re-packs on
++    demand).
 +    """
 +    from gsplat.scene.kernels.gaussian_inference_ops import (
 +        pack_gaussian_inference_scene,
@@ -548,6 +561,17 @@ index b6c1b13..fc3019e 100644
 +        not handle.pending_backward
 +        and handle.params_changed(means, quats, scales, opacities, colors)
 +    ):
++        if (
++            lightweight
++            and not handle.dirty
++            and handle.n_gaussians == N
++        ):
++            # Pure parameter drift on the differentiable path: the packed scene
++            # is stale but never consumed here. Do not update _param_versions
++            # so _cull_gaussians_higs still sees the drift and re-packs when
++            # the non-training culling API is used with this handle.
++            handle._topology_rebuilt = False
++            return
 +        means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
 +            means, quats, scales, opacities, colors, sh_deg_i, comp,
 +        )
@@ -1227,20 +1251,28 @@ index b6c1b13..fc3019e 100644
 +                # Keep the packed HiGS scene version-consistent when a handle
 +                # is present (dynamic mode bookkeeping) without running the
 +                # expensive per-camera render that was only used for the
-+                # visibility mask.
++                # visibility mask. The differentiable path never consumes the
++                # packed FP16 scene (both backends consume the FP32 captured
++                # tensors), so pure parameter drift updates the version
++                # bookkeeping without re-packing (lightweight=True); only real
++                # topology changes (mark_dirty / N change) re-pack.
 +                if renderer_handle is not None:
 +                    _refresh_higs_renderer_scene(
 +                        renderer_handle, means, quats, scales, opacities,
 +                        colors, N_total, sh_degree, sh_compression_mode,
++                        lightweight=True,
 +                    )
 +                # One batched FP32 projection over all cameras, unioned: same
-+                # near/far/radius_clip/eps2d criteria as the render path, but
-+                # ~C full HiGS renders cheaper (no intersect/rasterize pass).
++                # near/far/radius_clip/eps2d/camera_model criteria as the
++                # render path, but ~C full HiGS renders cheaper (no
++                # intersect/rasterize pass). The camera model is passed through
++                # so the mask is projection-consistent for ortho/fisheye too.
 +                vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
 +                    means, quats, scales, viewmats, Ks,
 +                    width, height,
 +                    eps2d=eps2d, near_plane=near_plane,
 +                    far_plane=far_plane, radius_clip=radius_clip,
++                    camera_model=camera_model,
 +                )
 +                visible_ids = vis_ids
 +
@@ -1440,22 +1472,22 @@ index b6c1b13..fc3019e 100644
 +
 +        with torch.no_grad():
 +            radii, means2d, depths, conics, compensations = fully_fused_projection(
-+                means=means_b.contiguous(),
-+                covars=None,
-+                quats=quats_b.contiguous(),
-+                scales=scales_b.contiguous(),
-+                viewmats=viewmats,
-+                Ks=Ks,
-+                width=width,
-+                height=height,
-+                eps2d=eps2d,
-+                near_plane=near_plane,
-+                far_plane=far_plane,
-+                radius_clip=radius_clip,
-+                packed=False,
-+                calc_compensations=False,
-+                camera_model=camera_model,
-+            )
++                    means=means_b.contiguous(),
++                    covars=None,
++                    quats=quats_b.contiguous(),
++                    scales=scales_b.contiguous(),
++                    viewmats=viewmats,
++                    Ks=Ks,
++                    width=width,
++                    height=height,
++                    eps2d=eps2d,
++                    near_plane=near_plane,
++                    far_plane=far_plane,
++                    radius_clip=radius_clip,
++                    packed=False,
++                    calc_compensations=False,
++                    camera_model=camera_model,
++                )
 +            opacities_bc = torch.broadcast_to(
 +                opacities_b[..., None, :], (1, C, N)
 +            ).contiguous()  # [1, C, N]
