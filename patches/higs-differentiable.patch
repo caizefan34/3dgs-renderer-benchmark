@@ -170,7 +170,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..0334819 100644
+index b6c1b13..d115ea4 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -237,7 +237,7 @@ index b6c1b13..0334819 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2119 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2151 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -580,6 +580,40 @@ index b6c1b13..0334819 100644
 +        except RuntimeError:
 +            pass
 +    return t[row_ids]
++
++
++def _gather_rows_new_zeros(t, row_ids):
++    """Gather rows with ``row_ids[i] == -1`` writing zeros, in one kernel.
++
++    Used by the Adam-state sync: every row of the new state tensor is either
++    copied from its source row (``row_ids[i] >= 0``) or zero-initialized
++    (``row_ids[i] == -1`` for brand-new Gaussians). Fusing the zero-fill into
++    the gather removes the ``zeros_like`` memset plus the scatter pass, and the
++    output can be allocated uninitialized. Falls back to zeros + indexed copy
++    when the CUDA extension is unavailable.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_gather_rows")
++        and t.is_cuda
++        and t.dtype == torch.float32
++    ):
++        try:
++            return ext.higs_gather_rows(t, row_ids.to(torch.long), True)
++        except RuntimeError:
++            pass
++    valid = row_ids >= 0
++    shape = (row_ids.numel(),) + tuple(t.shape[1:])
++    out = torch.zeros(shape, dtype=t.dtype, device=t.device)
++    if valid.any():
++        out.index_copy_(0, valid.nonzero().flatten(), t[row_ids[valid].clamp(min=0)])
++    return out
 +
 +
 +def _refresh_higs_renderer_scene(
@@ -1253,9 +1287,6 @@ index b6c1b13..0334819 100644
 +                new_t = new_by_name[name]
 +                state = optimizer.state.get(param)
 +                if state is not None:
-+                    valid = index_map >= 0
-+                    v_idx = index_map[valid].clamp(min=0)
-+                    row_idx = valid.nonzero().flatten()
 +                    new_state = {}
 +                    for key, value in state.items():
 +                        if (
@@ -1263,11 +1294,12 @@ index b6c1b13..0334819 100644
 +                            and value.dim() >= 1
 +                            and value.shape[0] == old_t.shape[0]
 +                        ):
-+                            rows = torch.zeros_like(new_t)
-+                            rows.index_copy_(
-+                                0, row_idx, _gather_rows_fast(value, v_idx)
++                            # One fused kernel: row i is copied from
++                            # index_map[i] (valid rows) or zero-filled
++                            # (index_map[i] == -1, brand-new Gaussians).
++                            new_state[key] = _gather_rows_new_zeros(
++                                value, index_map
 +                            )
-+                            new_state[key] = rows
 +                        else:
 +                            new_state[key] = value
 +                    del optimizer.state[param]
@@ -2381,10 +2413,10 @@ index 50f357f..7815b38 100644
          )
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
 new file mode 100644
-index 0000000..447dec7
+index 0000000..fc99f69
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,331 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -2432,7 +2464,11 @@ index 0000000..447dec7
 +{
 +namespace
 +{
-+template<int INNER>
++// ``ZERO_NEG``: a negative row id writes zeros instead of gathering. This is
++// used by the Adam-state sync, where ``row_ids[i] == -1`` marks brand-new
++// Gaussians whose state must be zero-initialized; fusing the zero-fill into
++// the gather removes the ``zeros_like`` memset and the scatter pass.
++template<int INNER, bool ZERO_NEG>
 +__global__ void gather_rows_kernel_t(
 +    const float *__restrict__ src,
 +    const int64_t *__restrict__ idx,
@@ -2446,17 +2482,34 @@ index 0000000..447dec7
 +    {
 +        for(; t < total; t += stride)
 +        {
-+            dst[t] = src[idx[t]];
++            const int64_t r = idx[t];
++            if(ZERO_NEG && r < 0)
++            {
++                dst[t] = 0.0f;
++            }
++            else
++            {
++                dst[t] = src[r];
++            }
 +        }
 +        return;
 +    }
 +    for(; t < total; t += stride)
 +    {
 +        const int64_t row = t / INNER;
-+        dst[t] = src[idx[row] * INNER + (t - row * INNER)];
++        const int64_t r = idx[row];
++        if(ZERO_NEG && r < 0)
++        {
++            dst[t] = 0.0f;
++        }
++        else
++        {
++            dst[t] = src[r * INNER + (t - row * INNER)];
++        }
 +    }
 +}
 +
++template<bool ZERO_NEG>
 +__global__ void gather_rows_kernel_gen(
 +    const float *__restrict__ src,
 +    const int64_t *__restrict__ idx,
@@ -2470,14 +2523,23 @@ index 0000000..447dec7
 +    for(; t < total; t += stride)
 +    {
 +        const int64_t row = t / inner;
-+        dst[t] = src[idx[row] * inner + (t - row * inner)];
++        const int64_t r = idx[row];
++        if(ZERO_NEG && r < 0)
++        {
++            dst[t] = 0.0f;
++        }
++        else
++        {
++            dst[t] = src[r * inner + (t - row * inner)];
++        }
 +    }
 +}
 +
-+void launch_gather_rows(
++template<bool ZERO_NEG>
++void launch_gather_rows_impl(
 +    const at::Tensor &src_flat, // [N, inner] contiguous FP32
-+    const at::Tensor &ids,      // [N_visible] int64
-+    at::Tensor &dst,            // [N_visible, inner] contiguous FP32
++    const at::Tensor &ids,      // [N_rows] int64
++    at::Tensor &dst,            // [N_rows, inner] contiguous FP32
 +    cudaStream_t stream)
 +{
 +    const int64_t n_rows = ids.numel();
@@ -2495,28 +2557,45 @@ index 0000000..447dec7
 +    switch(inner)
 +    {
 +    case 1:
-+        gather_rows_kernel_t<1><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        gather_rows_kernel_t<1, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
 +        break;
 +    case 3:
-+        gather_rows_kernel_t<3><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        gather_rows_kernel_t<3, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
 +        break;
 +    case 4:
-+        gather_rows_kernel_t<4><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        gather_rows_kernel_t<4, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
 +        break;
 +    case 12:
-+        gather_rows_kernel_t<12><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        gather_rows_kernel_t<12, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
 +        break;
 +    case 27:
-+        gather_rows_kernel_t<27><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        gather_rows_kernel_t<27, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
 +        break;
 +    case 48:
-+        gather_rows_kernel_t<48><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        gather_rows_kernel_t<48, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
 +        break;
 +    default:
-+        gather_rows_kernel_gen<<<grid, threads, 0, stream>>>(s, id, d, n_rows, inner);
++        gather_rows_kernel_gen<ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows, inner);
 +        break;
 +    }
 +    C10_CUDA_KERNEL_LAUNCH_CHECK();
++}
++
++void launch_gather_rows(
++    const at::Tensor &src_flat, // [N, inner] contiguous FP32
++    const at::Tensor &ids,      // [N_rows] int64
++    at::Tensor &dst,            // [N_rows, inner] contiguous FP32
++    cudaStream_t stream,
++    const bool zero_on_neg = false)
++{
++    if(zero_on_neg)
++    {
++        launch_gather_rows_impl<true>(src_flat, ids, dst, stream);
++    }
++    else
++    {
++        launch_gather_rows_impl<false>(src_flat, ids, dst, stream);
++    }
 +}
 +} // namespace
 +
@@ -2579,7 +2658,8 @@ index 0000000..447dec7
 +
 +at::Tensor higs_gather_rows(
 +    const at::Tensor &src,
-+    const at::Tensor &row_ids)
++    const at::Tensor &row_ids,
++    const bool zero_on_neg)
 +{
 +    TORCH_CHECK(src.is_cuda(), "higs_gather_rows: src must be CUDA");
 +    TORCH_CHECK(src.scalar_type() == at::kFloat, "higs_gather_rows: FP32 tensor required");
@@ -2602,7 +2682,7 @@ index 0000000..447dec7
 +    }
 +    const at::Tensor src_flat = src_c.dim() == 1 ? src_c.reshape({-1, 1}) : src_c.flatten(1, -1);
 +    at::Tensor dst_flat = dst.reshape({n_rows, -1});
-+    launch_gather_rows(src_flat, ids_c, dst_flat, stream);
++    launch_gather_rows(src_flat, ids_c, dst_flat, stream, zero_on_neg);
 +    return dst;
 +}
 +
@@ -2670,10 +2750,10 @@ index 0000000..447dec7
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
 new file mode 100644
-index 0000000..976eb1e
+index 0000000..560280c
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,76 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -2738,8 +2818,9 @@ index 0000000..976eb1e
 +    /// row gathers would otherwise hit the same slow vectorized PyTorch
 +    /// dispatch (row widths divisible by four floats).
 +    at::Tensor higs_gather_rows(
-+        const at::Tensor &src,    // [N, ...] float32
-+        const at::Tensor &row_ids // [N_rows] int64
++        const at::Tensor &src,     // [N, ...] float32
++        const at::Tensor &row_ids, // [N_rows] int64
++        const bool zero_on_neg = false // negative ids write zeros (Adam-state sync)
 +    );
 +
 +    /// Union-visibility mask over cameras from the culling projection radii:
@@ -4025,7 +4106,7 @@ index 0000000..893872f
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d1..eeb49db 100644
+index 2eb26d1..fc28161 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
 @@ -18,6 +18,8 @@
@@ -4037,7 +4118,7 @@ index 2eb26d1..eeb49db 100644
  
  PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
  {
-@@ -52,9 +54,75 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+@@ -52,9 +54,76 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
          )
          .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
          .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
@@ -4104,9 +4185,10 @@ index 2eb26d1..eeb49db 100644
 +    m.def(
 +        "higs_gather_rows",
 +        &gsplat::gaussian_render_inference_scene::higs_gather_rows,
-+        "Compact-copy an arbitrary subset of rows of one FP32 tensor (fast path for densify/prune and Adam-state sync).",
++        "Compact-copy an arbitrary subset of rows of one FP32 tensor (fast path for densify/prune and Adam-state sync). With zero_on_neg, negative row ids write zeros (used to fuse the zero-init of brand-new Gaussians into the state sync).",
 +        py::arg("src"),
-+        py::arg("row_ids")
++        py::arg("row_ids"),
++        py::arg("zero_on_neg") = false
 +    );
  }
  
@@ -4114,7 +4196,7 @@ index 2eb26d1..eeb49db 100644
  TORCH_LIBRARY(experimental, m)
  {
      m.def(
-@@ -71,7 +139,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
+@@ -71,7 +140,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
  }
  
  // Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is

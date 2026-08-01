@@ -1023,6 +1023,40 @@ Full JSON: `results/higs-train-benchmark-2026-08-02-round15-1080p.json`.
   temporaries plus resolution-scaling visibility lists; well within the
   80 GB A100, but the dynamic-path overhead does grow with resolution.
 
+### Round 17 (2026-08-02): fused zero-neg row gather for the Adam-state sync
+
+The dynamic-path `sync_optimizer_state_for_topology_change` built each new
+Adam state tensor with `torch.zeros_like(new_t)` (allocation + memset), a
+`higs_gather_rows` copy of the valid rows, and an `index_copy_` scatter - up
+to ten state tensors per densify event (5 params x exp_avg / exp_avg_sq).
+
+Fix: `higs_gather_rows` gained a `zero_on_neg` mode - row ids of -1
+(brand-new Gaussians) write zeros inside the same gather kernel, so the
+output is allocated uninitialized and every row is written by a single
+launch. The new helper `_gather_rows_new_zeros` routes the sync through it
+(zeros + indexed-copy fallback without CUDA).
+
+Micro-benchmark (4.8M rows, 25% duplication + 5% brand-new, 5 state tensors,
+GPU1 idle): **8.36 ms -> 2.97 ms per event** (-5.4 ms, 2.8x), bit-identical.
+
+Full benchmark (960x540, 20 steps, densify every 5, GPU1 idle; round-17 vs
+round-15 with the same config):
+
+| backend | train total/train ms | bicycle total/train ms |
+|---|---|---|
+| std | 21.5 / 23.4 (was 21.8 / 23.7) | 50.8 / 58.3 (was 50.9 / 58.3) |
+| higs_dynamic | 16.9 / 18.8 (was 16.9 / 19.2) | 35.7 / 43.1 (was 35.7 / 46.6) |
+
+`higs_dynamic` `train_ms` improves from -19.0% to **-19.7%** (train) and from
+-20.1% to **-26.1%** (bicycle) vs std gsplat. Frozen paths are unchanged
+(bicycle native train 51.4 vs 51.5 ms, PSNR within 0.01 dB) and dynamic
+held-out quality is unchanged (PSNR 18.19 vs 18.20). All 99 tests pass.
+Dynamic-bicycle peak VRAM did not increase (13.42 vs 14.15 GB - the fused
+path allocates one output instead of zeros + gather temp, though allocator
+run-to-run variance plays a role).
+
+Full JSON: `results/higs-train-benchmark-2026-08-02-round17.json`.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`

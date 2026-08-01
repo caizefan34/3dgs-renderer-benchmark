@@ -111,7 +111,10 @@ Round 16 (2026-08-02) re-ran the round-15 benchmark at 1920x1080: culling is
 resolution-independent (same O(N x C) mask, 62.9% bicycle culling), so the per-step savings scale
 with resolution - vs std `train_ms`, `higs_native` is -10.6%/-12.1% and `higs_dynamic`
 **-18.9%/-22.2%** (bicycle -19.4 ms/step at 1080p vs -11.7 ms at 960x540), with frozen-path quality
-parity (within 0.01 dB) and dynamic PSNR still ahead. - All 5 params stay **FP32 master tensors**; FP16 packed buffers are forward/culling-only; lossy SH compression is trainable via a straight-through estimator (FP16 cast); culling auto-refreshes on parameter drift; ortho/fisheye cameras supported in the native backward; depth render modes `D`/`ED`/`RGB+D`/`RGB+ED` supported natively (hit-distance modes `d`/`Ed`/`RGB-d`/`RGB-Ed` still require the eval3d recompute fallback)
+parity (within 0.01 dB) and dynamic PSNR still ahead. Round 17 (2026-08-02) fused the Adam-state sync's zero-init into the row-gather kernel
+(`higs_gather_rows` gained a `zero_on_neg` mode): the per-densify-event state sync drops from 8.36 to
+2.97 ms (4.8M rows, bit-identical), and `higs_dynamic` `train_ms` vs std improves to -19.7% (train) /
+**-26.1%** (bicycle) at 960x540 (was -19.0% / -20.1%), with frozen paths and quality unchanged (99 tests pass). - All 5 params stay **FP32 master tensors**; FP16 packed buffers are forward/culling-only; lossy SH compression is trainable via a straight-through estimator (FP16 cast); culling auto-refreshes on parameter drift; ortho/fisheye cameras supported in the native backward; depth render modes `D`/`ED`/`RGB+D`/`RGB+ED` supported natively (hit-distance modes `d`/`Ed`/`RGB-d`/`RGB-Ed` still require the eval3d recompute fallback)
 
 [Implementation report →](reports/higs-trainability-implementation.md) · [Trainability source analysis →](reports/higs-trainability-analysis-2026-07-24.md) · [PR #9 →](https://github.com/caizefan34/3dgs-renderer-benchmark/pull/9)
 
