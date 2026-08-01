@@ -1473,6 +1473,61 @@ which changes the reduction shape rather than its location.
 **Conclusion: reverted.** Source restored to the ef8fcb3 PX=2 baseline,
 100 tests pass.
 
+### Round 28 (2026-08-02): HiGS macro-tile backward feasibility quantified and refuted (40.5M vs 11.2M isects; 6.2G per-pixel evals are format-independent)
+
+**Context.** Rounds 24/26/27 closed the AABB-prefilter and shared-atomic-scatter
+levers inside the current blend format. The last advertised lever was a
+HiGS-format backward consuming the macro-tile structure ("30M vs 330M isects").
+This round measured the actual quantities on EPIC-05 (bicycle 1080p x 4 cams,
+eps2d=0.3, visible subset 2.27M of 6.13M gaussians) to bound the achievable
+gain *before* any rework:
+
+| quantity | value |
+|---|---|
+| std-format isects (visible subset, tile 16) | 40.5M |
+| HiGS macro-tile entries (visible subset, tile 8) | 11.2M (4 cams) |
+| HiGS macro-tile entries (visible subset, tile 16) | 9.1M (4 cams) |
+| per-pixel eval depth (bin_final - tile_start + 1) | 751 avg |
+| total per-pixel evals (format-independent) | 6.23G |
+
+Note the earlier "330M std isects" figure was the full-scene (un-culled) count;
+the culled-visible subset at 1080p is 40.5M. The mt format cuts the
+*isect-entry* count ~3.6-4.5x (40.5M -> 11.2M/9.1M), but every pixel still
+evaluates every sorted gaussian up to its last contributor (751/pixel avg), and
+the valid-pixel VJP volume is unchanged. The format only saves (a) per-entry
+gaussian data loads (the 3.8 ms traversal of the 29.1 ms blend bwd) and (b) a
+share of the per-(isect, warp) loop/reduce overhead; per-pixel eval (~8-10 ms)
+and VJP math (~9.5 ms) are identical in both formats. Bounded ceiling: ~4-6 ms
+of the blend kernel for a full rework (mt-buffer capture in the forward, a new
+backward kernel with per-fine-tile warp masking, depth-cutoff mapping from the
+std `last_ids` to mt order, parity/gradcheck suites).
+
+The same economics apply to the forward: the HiGS renderer renders the packed
+visible subset in ~2.1 ms/4 cams (tile 8, wall incl. pybind), but a
+differentiable tile-LOD forward must still emit std-format capture outputs
+(SH eval + render_alphas/last_ids/isect emission, ~4-5 ms per Round 19), so the
+forward-side ceiling is also ~4-5 ms/step.
+
+**Fresh baseline locked after the Round-27 revert (bicycle 1080p x 4 cams,
+steps 20, 2026-08-02):**
+
+| backend | fwd | bwd | tot | train | PSNR | VRAM |
+|---|---|---|---|---|---|---|
+| std_ll | 27.0 | 48.0 | 75.5 | 83.1 ms | 16.76 | 15.88 GB |
+| higs_recompute | 28.7 | 88.7 | 117.9 | 125.4 ms | 16.74 | 18.80 GB |
+| higs_native | 26.4 | 39.4 | 66.2 | 73.7 ms | 16.75 | 16.81 GB |
+| higs_dynamic | 20.8 | 35.0 | 56.2 | 63.5 ms | 17.60 | 19.81 GB |
+
+100 tests pass; native-vs-recompute grad cosine = 0.9999999.
+
+**Conclusion.** The remaining theoretical levers (mt-format backward and
+tile-LOD differentiable forward) are both quantified at ~4-6 ms/step ceilings,
+below the cost/risk of a multi-week rework with high correctness risk. The
+native/dynamic differentiable paths are at their practical optimum for the
+current architecture; a HiGS-format differentiable pipeline would only pay off
+if the format-independent per-pixel work itself could be reduced, which no
+restructuring of the current math achieves.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
