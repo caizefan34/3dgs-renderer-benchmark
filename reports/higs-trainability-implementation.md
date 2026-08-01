@@ -1308,6 +1308,47 @@ Full JSONs: `results/higs-train-benchmark-2026-08-02-round23-1080p.json`,
 `results/higs-train-benchmark-2026-08-02-round23-1cam-1080p.json`
 (regeneratable; not tracked).
 
+### Round 24 (2026-08-02): blend-VJP ellipse AABB prefilter measured and reverted (interleaved A/B negative)
+
+**Hypothesis.** The blend VJP's inner q-loop calls `eval_gaussian_weight`
+(an `__expf` plus alpha-threshold compare) for every (isect, pixel) pair,
+and most pairs are far outside the Gaussian's support. A per-isect ellipse
+AABB (`|dx| <= ex && |dy| <= ey`, with `ex/ey` derived from the conic and
+`opac`/`ALPHA_THRESHOLD`) is a strict superset of the valid set: for
+`opac <= 1` the `alpha >= ALPHA_THRESHOLD` region lies inside the
+`sigma <= ln(opac / ALPHA_THRESHOLD)` ellipse, and degenerate conics
+(`det <= 0`) disable the filter, so skipping `__expf` for out-of-AABB
+pixels is bit-exact.
+
+**Implementation.** Added `ex_batch`/`ey_batch` shared-memory arrays
+(+2 floats x block size), computed them during the batch load
+(`k = 2*ln(opac/ALPHA_THRESHOLD)`, `inv_det = 1/det`,
+`ex = sqrt(k*conic.z*inv_det)`, `ey = sqrt(k*conic.x*inv_det)`), and gated
+the q-loop with `inside_ellipse = ex<=0 || (|dx|<=ex && |dy|<=ey)`.
+
+**Interleaved A/B** (bicycle 1080p x 4 cams, GPU0, alternating
+OLD/NEW/OLD/NEW builds, 2 runs each; kernel column is torch-profiler
+self-CUDA-time, WALL columns are CUDA-event timings):
+
+| variant | blend bwd (self) | WALL fwd | WALL bwd | WALL total |
+|---|---|---|---|---|
+| OLD (PX=2 baseline) | 29.12 / 29.19 / 29.32 / 29.14 ms | 20.4 ms | 41.2 ms | 61.8 ms |
+| NEW (AABB prefilter) | 31.42 / 31.30 / 31.29 / 31.33 ms | 20.8 ms | 43.8 ms | 64.6 ms |
+
+**Conclusion: reverted.** The AABB prefilter is a stable ~+2.1 ms (+7%) on
+the blend kernel and ~+2.8 ms on the full step across all four interleaved
+pairs. The added shared memory, the per-isect `logf/sqrtf/div` in the batch
+load and the extra register/branch pressure cost more than the skipped
+`__expf` (a cheap, fully parallel instruction); the kernel is bound by
+memory/launch-bounds and the per-isect VJP math, not by the exponential.
+The source was restored to the round-22 PX=2 baseline: 100 tests pass and
+the blend kernel is back to 29.1 ms.
+
+**Next levers (unchanged).** The last big item is a HiGS-format backward
+consuming the macro-tile structure (30M entries vs 330M isects). Cheap
+kernel-level knobs (`__launch_bounds__`, loop-unroll hints, shared-memory
+layout) were already tuned in rounds 21-22 and show no remaining headroom.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
