@@ -170,7 +170,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..61b5146 100644
+index b6c1b13..0334819 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -237,7 +237,7 @@ index b6c1b13..61b5146 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2083 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2119 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -553,6 +553,33 @@ index b6c1b13..61b5146 100644
 +    visible_ids = torch.where(visible_mask)[0]
 +    culling_ratio = 1.0 - (visible_ids.numel() / max(radii.shape[-2], 1))
 +    return visible_ids, visible_mask, culling_ratio
++
++
++def _gather_rows_fast(t, row_ids):
++    """Compact-copy arbitrary row subsets of one FP32 tensor.
++
++    Uses the single-tensor ``higs_gather_rows`` CUDA kernel when available
++    (bypasses PyTorch's slow vectorized row gather for row widths divisible
++    by four, which the densify/prune and Adam-state-sync paths hit with
++    ``colors [N,16,3]``); falls back to ``t[row_ids]`` otherwise.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_gather_rows")
++        and t.is_cuda
++        and t.dtype == torch.float32
++    ):
++        try:
++            return ext.higs_gather_rows(t, row_ids)
++        except RuntimeError:
++            pass
++    return t[row_ids]
 +
 +
 +def _refresh_higs_renderer_scene(
@@ -1154,12 +1181,16 @@ index b6c1b13..61b5146 100644
 +    if n_new == 0:
 +        return means, quats, scales, opacities, colors
 +
-+    noise = torch.randn_like(means[mask]) * noise_scale
-+    new_means = torch.cat([means, means[mask] + noise])
-+    new_quats = torch.cat([quats, quats[mask]])
-+    new_scales = torch.cat([scales, scales[mask]])
-+    new_opacities = torch.cat([opacities, opacities[mask]]).clamp(0.0, 1.0)
-+    new_colors = torch.cat([colors, colors[mask]])
++    dup_ids = mask.nonzero().flatten()
++    dup_means = _gather_rows_fast(means, dup_ids)
++    noise = torch.randn_like(dup_means) * noise_scale
++    new_means = torch.cat([means, dup_means + noise])
++    new_quats = torch.cat([quats, _gather_rows_fast(quats, dup_ids)])
++    new_scales = torch.cat([scales, _gather_rows_fast(scales, dup_ids)])
++    new_opacities = torch.cat(
++        [opacities, _gather_rows_fast(opacities, dup_ids)]
++    ).clamp(0.0, 1.0)
++    new_colors = torch.cat([colors, _gather_rows_fast(colors, dup_ids)])
 +    if colors.dim() == 2 and color_clamp is not None:
 +        # RGB pre-activated colors are bounded to [0, 1] by default; pass
 +        # color_clamp=None to keep the raw (possibly unbounded) values. SH
@@ -1181,12 +1212,13 @@ index b6c1b13..61b5146 100644
 +    if mask.all():
 +        return means, quats, scales, opacities, colors
 +
++    keep_ids = mask.nonzero().flatten()
 +    return (
-+        means[mask],
-+        quats[mask],
-+        scales[mask],
-+        opacities[mask],
-+        colors[mask],
++        _gather_rows_fast(means, keep_ids),
++        _gather_rows_fast(quats, keep_ids),
++        _gather_rows_fast(scales, keep_ids),
++        _gather_rows_fast(opacities, keep_ids),
++        _gather_rows_fast(colors, keep_ids),
 +    )
 +
 +
@@ -1221,6 +1253,9 @@ index b6c1b13..61b5146 100644
 +                new_t = new_by_name[name]
 +                state = optimizer.state.get(param)
 +                if state is not None:
++                    valid = index_map >= 0
++                    v_idx = index_map[valid].clamp(min=0)
++                    row_idx = valid.nonzero().flatten()
 +                    new_state = {}
 +                    for key, value in state.items():
 +                        if (
@@ -1229,8 +1264,9 @@ index b6c1b13..61b5146 100644
 +                            and value.shape[0] == old_t.shape[0]
 +                        ):
 +                            rows = torch.zeros_like(new_t)
-+                            valid = index_map >= 0
-+                            rows[valid] = value[index_map[valid].clamp(min=0)]
++                            rows.index_copy_(
++                                0, row_idx, _gather_rows_fast(value, v_idx)
++                            )
 +                            new_state[key] = rows
 +                        else:
 +                            new_state[key] = value
@@ -2345,10 +2381,10 @@ index 50f357f..7815b38 100644
          )
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
 new file mode 100644
-index 0000000..340fb6f
+index 0000000..447dec7
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
-@@ -0,0 +1,254 @@
+@@ -0,0 +1,283 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -2541,6 +2577,35 @@ index 0000000..340fb6f
 +    return {v_means, v_quats, v_scales, v_opacities, v_colors};
 +}
 +
++at::Tensor higs_gather_rows(
++    const at::Tensor &src,
++    const at::Tensor &row_ids)
++{
++    TORCH_CHECK(src.is_cuda(), "higs_gather_rows: src must be CUDA");
++    TORCH_CHECK(src.scalar_type() == at::kFloat, "higs_gather_rows: FP32 tensor required");
++    TORCH_CHECK(row_ids.scalar_type() == at::kLong, "higs_gather_rows: int64 row_ids required");
++
++    const at::cuda::OptionalCUDAGuard device_guard(src.device());
++    const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
++
++    const at::Tensor src_c = src.contiguous();
++    const at::Tensor ids_c = row_ids.contiguous();
++
++    const int64_t n_rows = ids_c.numel();
++    const at::TensorOptions opts = src_c.options();
++    std::vector<int64_t> sizes = src_c.sizes().vec();
++    sizes[0] = n_rows;
++    at::Tensor dst = at::empty(sizes, opts);
++    if(n_rows == 0)
++    {
++        return dst;
++    }
++    const at::Tensor src_flat = src_c.dim() == 1 ? src_c.reshape({-1, 1}) : src_c.flatten(1, -1);
++    at::Tensor dst_flat = dst.reshape({n_rows, -1});
++    launch_gather_rows(src_flat, ids_c, dst_flat, stream);
++    return dst;
++}
++
 +// Union visibility over cameras: a Gaussian is visible if BOTH radius
 +// components are > 0 in at least one camera. One thread per Gaussian.
 +template<typename T>
@@ -2605,10 +2670,10 @@ index 0000000..340fb6f
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
 new file mode 100644
-index 0000000..4291fae
+index 0000000..976eb1e
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,75 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -2664,6 +2729,17 @@ index 0000000..4291fae
 +        const at::Tensor &opacities,  // [N] float32
 +        const at::Tensor &colors,     // [N, ...] float32
 +        const at::Tensor &visible_ids // [N_visible] int64
++    );
++
++    /// Compact-copy an arbitrary subset of rows of one FP32 tensor.
++    ///
++    /// Same purpose as ``higs_gather_visible`` but for a single tensor of any
++    /// trailing shape; used by densify/prune and the Adam-state sync, whose
++    /// row gathers would otherwise hit the same slow vectorized PyTorch
++    /// dispatch (row widths divisible by four floats).
++    at::Tensor higs_gather_rows(
++        const at::Tensor &src,    // [N, ...] float32
++        const at::Tensor &row_ids // [N_rows] int64
 +    );
 +
 +    /// Union-visibility mask over cameras from the culling projection radii:
@@ -3949,7 +4025,7 @@ index 0000000..893872f
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d1..7eea28f 100644
+index 2eb26d1..eeb49db 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
 @@ -18,6 +18,8 @@
@@ -3961,7 +4037,7 @@ index 2eb26d1..7eea28f 100644
  
  PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
  {
-@@ -52,9 +54,67 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+@@ -52,9 +54,75 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
          )
          .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
          .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
@@ -4024,13 +4100,21 @@ index 2eb26d1..7eea28f 100644
 +        "Union-visibility mask over cameras from culling-projection radii.",
 +        py::arg("radii")
 +    );
++
++    m.def(
++        "higs_gather_rows",
++        &gsplat::gaussian_render_inference_scene::higs_gather_rows,
++        "Compact-copy an arbitrary subset of rows of one FP32 tensor (fast path for densify/prune and Adam-state sync).",
++        py::arg("src"),
++        py::arg("row_ids")
++    );
  }
  
 +
  TORCH_LIBRARY(experimental, m)
  {
      m.def(
-@@ -71,7 +131,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
+@@ -71,7 +139,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
  }
  
  // Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is

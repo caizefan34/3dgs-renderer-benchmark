@@ -934,6 +934,41 @@ Notes:
   first round-14 pass (vs the stable 24.5-24.7 ms) disappeared on re-run
   (24.7 ms); not reproducible, attributed to allocator/neighbor-GPU state.
 
+
+### Round 15 (2026-08-02): fast row-gather for densify/prune + Adam-state sync
+
+The dynamic-path densify/prune and Adam-state sync used PyTorch's boolean-mask
+row gather and masked assignment on the FP32 masters / state tensors. On row
+widths divisible by four floats (`colors [N,16,3]`, `quats [N,4]`) those
+dispatch to the same pathologically slow vectorized path that motivated the
+round-3 `higs_gather_visible` kernel. Micro-benchmark at 4.8M rows / 20%
+duplication: the five-tensor state-sync pattern (`rows[valid] =
+value[idx[valid]]`) cost **15.4 ms vs 5.6 ms** with `higs_gather_visible` +
+`index_copy_` (bit-identical), and the five `t[mask]` gathers cost 2.24 ms vs
+0.57 ms with the kernel.
+
+Fix (all in `gaussian_inference.py` + the experimental extension):
+
+- New single-tensor binding `higs_gather_rows(src, row_ids)` in
+  `GatherVisible.{cu,h}` / `ext.cpp`, reusing the element-wise compact-copy
+  kernel for arbitrary trailing shapes.
+- `_densify_gaussians` / `_prune_gaussians`: the masked row gathers go through
+  the new `_gather_rows_fast` helper (kernel when available, `t[ids]`
+  fallback otherwise).
+- `sync_optimizer_state_for_topology_change`: the per-state-tensor update
+  becomes `rows.index_copy_(0, row_idx, _gather_rows_fast(value, v_idx))`
+  instead of the boolean-mask gather+scatter (identical semantics for the
+  duplicate-free row index map).
+
+Measured on the dynamic path (bicycle, GPU1 idle, random-reference probe with
+heavy duplication): densify-event tails **31-73 ms -> 12-18 ms**. Full
+benchmark (GT references, 20 steps, densify every 5), round-15:
+`higs_dynamic` `train_ms` **48.0 -> 46.6 ms** (bicycle) and **20.1 -> 19.2 ms**
+(train scene); frozen paths and quality unchanged (bicycle native train 51.46
+vs 51.45 ms, PSNR within 0.01 dB); all 99 tests pass. In heavy-duplication
+training regimes the per-event saving is much larger (the slow gather scales
+with the duplicated-row count).
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
