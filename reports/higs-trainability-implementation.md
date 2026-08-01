@@ -169,7 +169,8 @@ Measured on EPIC-05 (1x A100-SXM4-80GB, CUDA 12.8, torch 2.9.1+cu128), 960x540,
 Full JSON: `results/higs-train-benchmark-2026-07-31.json` (baseline),
 `results/higs-train-benchmark-2026-08-01.json` (after the culling fix) and
 `results/higs-train-benchmark-2026-08-01b.json` (after the per-step pack skip) and
-`results/higs-train-benchmark-2026-08-01c.json` (after the native visible-subset gather).
+`results/higs-train-benchmark-2026-08-01c.json` (after the native visible-subset gather) and
+`results/higs-train-benchmark-2026-08-01e.json` (after the SH VJP / scatter optimization).
 
 ### Forward bottleneck found and fixed (2026-08-01)
 
@@ -357,6 +358,73 @@ bicycle (`higs_native`). Re-running the full benchmark:
   automatic fallback whenever the CUDA extension is not available.
 
 
+### Backward profiling and SH VJP optimization (2026-08-01e)
+
+With the forward at std parity, the remaining target was the native backward
+itself. Profiling the 6.1M-Gaussian bicycle backward (4 cams, 960x540, L1
+loss) with `torch.profiler` + CUDA events split the ~37 ms backward into:
+
+| stage | before | after | notes |
+|---|---|---|---|
+| blend VJP (+ flat-buffer alloc) | 21.6 ms | 21.6 ms | same algorithm as std `rasterize_to_pixels_3dgs_bwd` (19-20 ms) |
+| SH VJP | 8.3 ms | 5.9 ms | visible-pair compaction + one thread per (pair, channel) |
+| projection VJP | 1.6 ms | 1.6 ms | |
+| Python-side scatter (`zeros_like` + `index_add_`) | 5.4 ms | 4.5 ms | `index_add_` -> `index_copy_` (visible ids are duplicate-free) |
+
+Three experiments pinned down the SH VJP fix:
+
+1. `atomicAdd_system` -> `atomicAdd` (device atomics): no change (reverted).
+2. Compacting the visible (camera, gaussian) pairs so the VJP launches only
+   the visible subset: no change -- the full-grid prologue was already cheap;
+   the VJP is bound by the ~109M coefficient atomics, not the launch shape.
+3. Splitting the 3 output channels across a 2D (pair, channel) grid:
+   **slower** (12.8 ms), because a Gaussian's coefficient atomics then land
+   in different blocks / SMs.
+
+The winning layout matches gsplat's `spherical_harmonics_bwd`: a 1D grid
+ordered as (visible pair, channel) so the D=3 channel threads of one pair are
+adjacent in the same warp, keeping the 48 coefficient atomic updates of a
+Gaussian on the same cache lines. Combined with the pair compaction
+(`higs_vis_block_counts_kernel` + `cub::exclusive_sum` +
+`higs_vis_pairs_kernel`) this dropped the SH VJP from 8.3 to 5.9 ms
+(std: 4.8 ms). The `index_copy_` swap removed the read-modify-write reduction
+on the duplicate-free visible ids and saved another ~1 ms.
+
+### tanks_and_temples/train (N=1,026,508) --- 2026-08-01e (after backward opt)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 7.8 | 13.6 | 21.6 | 3.22 GB | 0.0% | 19.25 | 0.6762 | 0.2967 | 1,026,508 |
+| higs_recompute | 8.2 | 24.5 | 32.8 | 4.00 GB | 15.1% | 19.25 | 0.6763 | 0.2966 | 1,026,508 |
+| higs_native | 7.1 | 13.0 | 20.4 | 3.24 GB | 15.1% | 19.24 | 0.6764 | 0.2966 | 1,026,508 |
+| higs_dynamic | 6.3 | 11.8 | 18.3 | 3.63 GB | 15.6% | 20.32 | 0.7059 | 0.2771 | 731,367 |
+
+### mipnerf360/bicycle (N=6,131,954) --- 2026-08-01e
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 17.8 | 32.8 | 50.8 | 10.39 GB | 0.0% | 17.28 | 0.4480 | 0.4291 | 6,131,954 |
+| higs_recompute | 19.3 | 59.9 | 79.4 | 12.69 GB | 62.9% | 17.29 | 0.4481 | 0.4288 | 6,131,954 |
+| higs_native | 17.8 | 28.3 | 46.3 | 11.27 GB | 62.9% | 17.28 | 0.4479 | 0.4286 | 6,131,954 |
+| higs_dynamic | 14.1 | 23.9 | 38.1 | 14.14 GB | 65.0% | 18.21 | 0.4733 | 0.3788 | 4,160,370 |
+
+**Interpretation (after the backward optimization)**
+
+- `higs_native` total iteration is now **-8.9% on bicycle** (46.3 vs 50.8 ms)
+  and **-5.6% on train** (20.4 vs 21.6 ms) vs std gsplat. The native backward
+  alone is -14% vs std's own backward on bicycle (28.3 vs 32.8 ms) and ~2.1x
+  faster than the `gsplat_recompute` fallback (28.3 vs 59.9 ms).
+- `higs_dynamic` improves further to 18.3 ms (train, -15.3%) and 38.1 ms
+  (bicycle, -25.0%) vs std while keeping the held-out PSNR gains
+  (20.32 / 18.21 vs std 19.25 / 17.28).
+- The blend VJP (~21.6 ms, ~69% of the kernel bundle) is already the same
+  algorithm as std's `rasterize_to_pixels_3dgs_bwd` (19-20 ms); the residual
+  gap is launch/measurement overhead, not an algorithmic difference. The
+  remaining backward headroom is small: SH VJP 5.9 ms (std 4.8 ms) plus
+  ~4.5 ms of Python-side scatter.
+- Native-vs-recompute probe stays at gradient cosine 0.99999998-1.000000 and
+  quality metrics are unchanged; all 99 tests pass.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
@@ -376,9 +444,11 @@ bicycle (`higs_native`). Re-running the full benchmark:
    passes gradients through unchanged (STE). This is an approximate, non-zero
    gradient; `sh_compression_mode="none"` remains the exact path.
 4. After three forward optimizations (batched culling projection, per-step
-   pack skip, native visible-subset gather), the frozen native path is faster
-   than std gsplat end-to-end on both scenes (-4.9% train / -3.3% bicycle,
-   2026-08-01c benchmark) and the dynamic path is -15.3% / -20.8%. The only
+   pack skip, native visible-subset gather) plus the fourth-round backward
+   optimization (SH VJP visible-pair compaction + channel-adjacent thread
+   order, `index_copy_` scatter), the frozen native path is faster than std
+   gsplat end-to-end on both scenes (-5.6% train / -8.9% bicycle, 2026-08-01e
+   benchmark) and the dynamic path is -15.3% / -25.0%. The only
    remaining structural forward cost is the batched FP32 culling projection
    over all N x C (~3.3 ms on bicycle), the price of projection-consistent
    discrete culling; the native backward contributes no recomputation. The
