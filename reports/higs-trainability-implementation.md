@@ -425,6 +425,66 @@ on the duplicate-free visible ids and saved another ~1 ms.
 - Native-vs-recompute probe stays at gradient cosine 0.99999998-1.000000 and
   quality metrics are unchanged; all 99 tests pass.
 
+### Fifth optimization (2026-08-01f): blend VJP register/occupancy fix
+
+The remaining blend VJP (~21.6 ms, ~69% of the kernel bundle) looked
+structurally identical to std `rasterize_to_pixels_3dgs_bwd`, so the earlier
+report attributed the 2.5 ms gap to launch/measurement overhead. This round
+proved the gap was real and pinned it down:
+
+- **Same data, same isects**: both kernels process 14.13M isects on bicycle
+  (HiGS n_isects on the 2.27M visible subset is 14,125,785 vs std 14,123,181
+  on the full set; the native capture runs `isect_tiles` over the visible
+  subset with identical radius/eps2d criteria).
+- **Cross-kernel A/B on identical inputs**: feeding the same captured tensors
+  through std's `rasterize_to_pixels_3dgs_bwd` and through
+  `higs_blend_bwd_kernel` gave std 19.1-19.2 ms vs HiGS 21.6-21.7 ms
+  (interleaved, stable across reps) - a real kernel-level difference.
+- **SASS + resource dump**: identical math (`rasterize_to_pixels_3dgs_blend_bwd`
+  is `__forceinline__` and matches the std inlined body), same build flags
+  (-O3, -use_fast_math), but HiGS compiled to **REG:40 -> 6 blocks/SM** while
+  std uses **REG:48 -> 5 blocks/SM** on sm_80. Experiments ruled out the
+  atomic scope (`atomicAdd_system` swap: no change) and lower occupancy
+  (`__launch_bounds__(256, 4)` at 64 regs: 20.6 ms, worse).
+
+Fix: `__launch_bounds__(256, 5)` on `higs_blend_bwd_kernel` lets nvcc use
+the same 48-register budget as std's kernel. Blend VJP 21.6 -> 19.1 ms
+(matches std exactly), backward bundle 33.8 -> 31.3 ms in same-process
+profiling.
+
+### tanks_and_temples/train (N=1,026,508) --- 2026-08-01f (after blend fix)
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 8.1 | 14.2 | 22.5 | 3.22 GB | 0.0% | 19.25 | 0.6762 | 0.2967 | 1,026,508 |
+| higs_recompute | 8.1 | 24.5 | 32.8 | 4.00 GB | 15.1% | 19.25 | 0.6763 | 0.2965 | 1,026,508 |
+| higs_native | 7.1 | 12.3 | 19.6 | 3.24 GB | 15.1% | 19.25 | 0.6763 | 0.2965 | 1,026,508 |
+| higs_dynamic | 6.3 | 10.9 | 17.4 | 3.63 GB | 15.6% | 20.31 | 0.7058 | 0.2779 | 731,614 |
+
+### mipnerf360/bicycle (N=6,131,954) --- 2026-08-01f
+
+| backend | fwd ms | bwd ms | total ms | peak VRAM | culling | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|---|
+| std | 17.9 | 32.9 | 51.0 | 10.39 GB | 0.0% | 17.28 | 0.4479 | 0.4289 | 6,131,954 |
+| higs_recompute | 19.5 | 60.1 | 79.8 | 12.69 GB | 62.9% | 17.28 | 0.4481 | 0.4288 | 6,131,954 |
+| higs_native | 18.0 | 27.2 | 45.5 | 11.27 GB | 62.9% | 17.28 | 0.4479 | 0.4290 | 6,131,954 |
+| higs_dynamic | 14.2 | 22.3 | 36.6 | 14.14 GB | 65.0% | 18.19 | 0.4739 | 0.3799 | 4,160,121 |
+
+**Interpretation (after the blend fix)**
+
+- `higs_native` total iteration vs std gsplat: **-12.9% on train** (19.6 vs
+  22.5 ms) and **-10.8% on bicycle** (45.5 vs 51.0 ms). The native backward
+  alone is -13.4% (12.3 vs 14.2 ms) / -17.3% (27.2 vs 32.9 ms) vs std's own
+  backward, and **~2.0x / ~2.2x faster than `gsplat_recompute`** (24.5 / 60.1
+  ms) - the recompute fallback re-runs the rasterization pipeline inside
+  backward.
+- `higs_dynamic` improves to 17.4 ms (train, -22.7%) and 36.6 ms (bicycle,
+  -28.2%) vs std, keeping the held-out PSNR gains (20.31 / 18.19 vs std
+  19.25 / 17.28).
+- Blend VJP is now bit-for-bit the same algorithm as std at the same register
+  budget; quality metrics and the gradient-cosine probe are unchanged
+  (1.0), 99 tests pass.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
@@ -447,8 +507,8 @@ on the duplicate-free visible ids and saved another ~1 ms.
    pack skip, native visible-subset gather) plus the fourth-round backward
    optimization (SH VJP visible-pair compaction + channel-adjacent thread
    order, `index_copy_` scatter), the frozen native path is faster than std
-   gsplat end-to-end on both scenes (-5.6% train / -8.9% bicycle, 2026-08-01e
-   benchmark) and the dynamic path is -15.3% / -25.0%. The only
+   gsplat end-to-end on both scenes (-12.9% train / -10.8% bicycle, 2026-08-01f
+   benchmark) and the dynamic path is -22.7% / -28.2%. The only
    remaining structural forward cost is the batched FP32 culling projection
    over all N x C (~3.3 ms on bicycle), the price of projection-consistent
    discrete culling; the native backward contributes no recomputation. The

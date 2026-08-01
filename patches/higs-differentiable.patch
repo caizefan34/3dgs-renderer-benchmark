@@ -1,3 +1,39 @@
+diff --git a/gsplat/cuda/build.py b/gsplat/cuda/build.py
+index 1a3cbbf..9de859c 100644
+--- a/gsplat/cuda/build.py
++++ b/gsplat/cuda/build.py
+@@ -123,6 +123,16 @@ def get_build_parameters():
+         + [os.path.join(PATH, "ext.cpp")]
+     )
+ 
++    # Local-only build accelerator: the three RasterizeToPixelsFromWorld3DGS*
++    # kernels take 1.5-3.5h each to compile with CUDA 13.x + sm_120 (cicc
++    # blowup) and are unused by the HiGS training path. Set
++    # GSPLAT_SKIP_FROM_WORLD=1 to drop them from this build only.
++    if os.environ.get("GSPLAT_SKIP_FROM_WORLD", "0") == "1":
++        sources = [
++            s for s in sources
++            if not (os.path.basename(s).startswith("RasterizeToPixelsFromWorld3DGS"))
++        ]
++
+     # Compiler flags ----------------------------------
+     extra_cflags = []
+     extra_cuda_cflags = []
+diff --git a/gsplat/cuda/include/Cameras.cuh b/gsplat/cuda/include/Cameras.cuh
+index abce151..d9a2dcf 100644
+--- a/gsplat/cuda/include/Cameras.cuh
++++ b/gsplat/cuda/include/Cameras.cuh
+@@ -779,7 +779,9 @@ struct OrthographicCameraModel
+         }
+ 
+         const auto point = glm::fvec2{ray.x, ray.y} / ray.z;
+-        if(!std::isfinite(point.x) || !std::isfinite(point.y))
++        const float ax = fabsf(point.x);
++        const float ay = fabsf(point.y);
++        if(!(ax == ax) || !(ay == ay) || ax == INFINITY || ay == INFINITY)
+         {
+             return {
+                 glm::fvec2{0.f, 0.f},
 diff --git a/gsplat/experimental/__init__.py b/gsplat/experimental/__init__.py
 index 7d12bf6..be7042a 100644
 --- a/gsplat/experimental/__init__.py
@@ -2612,7 +2648,7 @@ index c01a046..523e681 100644
          at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 new file mode 100644
-index 0000000..ce11eb3
+index 0000000..7ab477e
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 @@ -0,0 +1,1221 @@
@@ -2676,7 +2712,7 @@ index 0000000..ce11eb3
 +// Stage 1: pixel-blend backward (per-tile, warp-reduced, atomicAdd scatter)
 +// ============================================================================
 +template<uint32_t CDIM>
-+__global__ void higs_blend_bwd_kernel(
++__global__ void __launch_bounds__(256, 5) higs_blend_bwd_kernel(
 +    const uint32_t I,
 +    const uint32_t N,
 +    const uint32_t n_isects,
@@ -3930,6 +3966,59 @@ index 0000000..b2d243c
 +    );
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
+index 13097f3..6ff8288 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
+@@ -28,21 +28,21 @@ __device__ __forceinline__ void AssignAs(U &u, const V &v)
+ }
+ 
+ // Round-to-nearest (ties away from zero) __half2 pair to the M bits of mantissa
+-template<uint M, bool MASK_OUT_OUTPUT = true>
++template<uint32_t M, bool MASK_OUT_OUTPUT = true>
+ __device__ __forceinline__ __half2 RoundToNearest(const __half2 &v)
+ {
+-    constexpr uint MANTISSA_MASK = 0x03FF03FF;
+-    constexpr uint TRUNC_MASK    = ~(((1u << (10 - M)) - 1) * 0x10001u);
++    constexpr uint32_t MANTISSA_MASK = 0x03FF03FF;
++    constexpr uint32_t TRUNC_MASK    = ~(((1u << (10 - M)) - 1) * 0x10001u);
+     // get rounding offset scale s*2^e (input float with mantissa zeroed out)
+-    const uint vn                = reinterpret_cast<const uint &>(v) & ~MANTISSA_MASK;
++    const uint32_t vn                = reinterpret_cast<const uint32_t &>(v) & ~MANTISSA_MASK;
+     const __half2 vb             = reinterpret_cast<const __half2 &>(vn);
+     // get rounding offset
+     const __half2 vs             = __float2half2_rn((1 << (10 - M)) / 2048.0f);
+     // add to float a scaled rounding offset
+     const __half2 v_r            = __hfma2(vb, vs, v);
+     // return masked __half2
+-    const uint vi_r
+-        = MASK_OUT_OUTPUT ? (reinterpret_cast<const uint &>(v_r) & TRUNC_MASK) : reinterpret_cast<const uint &>(v_r);
++    const uint32_t vi_r
++        = MASK_OUT_OUTPUT ? (reinterpret_cast<const uint32_t &>(v_r) & TRUNC_MASK) : reinterpret_cast<const uint32_t &>(v_r);
+     return reinterpret_cast<const __half2 &>(vi_r);
+ }
+ 
+@@ -137,9 +137,9 @@ __forceinline__ __device__ __half2 __uint8x2_to_half2(uint32_t src)
+     return dp.f;
+ }
+ 
+-__forceinline__ __device__ uint __cvt_pack_sat_u8_f32(float a0, float a1, float a2, float a3)
++__forceinline__ __device__ uint32_t __cvt_pack_sat_u8_f32(float a0, float a1, float a2, float a3)
+ {
+-    uint rval;
++    uint32_t rval;
+     asm volatile(
+         "{.reg .u32 tmp, i0, i1;\n"
+         "cvt.rni.s32.f32 i0, %1;\n"
+@@ -154,7 +154,7 @@ __forceinline__ __device__ uint __cvt_pack_sat_u8_f32(float a0, float a1, float
+     return rval;
+ }
+ 
+-__forceinline__ __device__ uint __cvt_pack_sat_u8_f32(const float4 &a)
++__forceinline__ __device__ uint32_t __cvt_pack_sat_u8_f32(const float4 &a)
+ {
+     return __cvt_pack_sat_u8_f32(a.x, a.y, a.z, a.w);
+ }
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
 index 2eb26d1..6f0eee4 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
