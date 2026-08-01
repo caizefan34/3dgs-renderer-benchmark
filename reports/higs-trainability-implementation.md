@@ -203,8 +203,10 @@ reverted; `results/higs-train-benchmark-2026-08-01j.json` confirms the reverted
 state matches 08-01h. `results/higs-train-benchmark-2026-08-01l.json` captured the
 round-8 camera-row slice experiment (fused mask + slice in tree, regression vs the
 fused-mask-only state, slice reverted); `results/higs-train-benchmark-2026-08-01m.json` is the
-fused union-visibility-mask final result. esults/higs-train-benchmark-2026-08-02-shvjp.json and
-esults/higs-train-benchmark-2026-08-02-train.json are the round-9
+fused union-visibility-mask final result. 
+esults/higs-train-benchmark-2026-08-02-shvjp.json and
+
+esults/higs-train-benchmark-2026-08-02-train.json are the round-9
 fixed-grid SH VJP results (bicycle / train).
 
 ### Forward bottleneck found and fixed (2026-08-01)
@@ -862,6 +864,75 @@ two open cost-model questions:
    probe counted 0 `CUDAFunctor_add` kernels under AccumulateGrad. The
    profiled 26.6 ms backward includes ~1.9 ms that real training never pays
    (for std and higs alike); the cuda-event backward here is 25.4 ms.
+
+
+### Round 14 (2026-08-02): fused Adam + honest train-time metric
+
+The benchmark's `total_ms` always excluded `opt.step()`, so the "total
+training time" was never measured. A fresh phase profile on bicycle (GPU1
+idle) showed why that matters: the 5-group Adam step over the 6.13M-Gaussian
+masters (means/quats/scales/opacities/SH, ~362M floats) costs **14.9 ms** with
+the default foreach path - the same order as the entire HiGS forward (17.3 ms)
+and half of the native backward (26.5 ms). It dilutes the backward speedup in
+real training and is identical for every backend.
+
+Fix in `benchmark/run_higs_train_benchmark.py`:
+
+- `make_optimizer` now defaults to `fused=True`: torch's single-kernel fused
+  Adam runs each param group's whole update in one pass. Standalone A/B on the
+  bicycle shapes: **14.88 -> 6.78 ms/step (2.2x)**. Inside the full loop the
+  optimizer part drops from ~18.0 to ~7.4 ms/step (CUDA-event wall time), a
+  ~10-12 ms/step saving on bicycle and ~1.9 ms/step on the 1.03M train scene.
+  A `--no-fused-adam` flag plus an automatic non-fused fallback (CPU /
+  unsupported platforms) preserves the old behavior; fused Adam state
+  (`exp_avg` / `exp_avg_sq`) is shape-identical to foreach state, so the
+  dynamic-mode densify/prune `sync_optimizer_state_for_topology_change` works
+  unchanged.
+- The benchmark now also reports `train_ms`: the CUDA-event wall time of the
+  full training step **including** `opt.step()` (and densify/prune for
+  `higs_dynamic`), recorded after `zero_grad`. This is the honest per-step
+  training time.
+
+Round-14 benchmark (EPIC-05 A100, GPU1 idle, fused Adam, 960x540, 4 train +
+3 eval cams, 20 steps, densify every 5):
+
+### tanks_and_temples/train (N=1,026,508) - 2026-08-02 round-14
+
+| backend | fwd ms | bwd ms | total ms | train ms | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|
+| std | 8.1 | 14.0 | 22.3 | 24.2 | 19.25 | 0.6762 | 0.2967 | 1,026,508 |
+| higs_recompute | 8.1 | 24.7 | 33.0 | 34.7 | 19.24 | 0.6763 | 0.2968 | 1,026,508 |
+| higs_native | 7.1 | 11.8 | 19.1 | 20.8 | 19.25 | 0.6763 | 0.2967 | 1,026,508 |
+| higs_dynamic | 6.2 | 10.6 | 17.1 | 20.1 | 20.36 | 0.7057 | 0.2764 | 731,688 |
+
+### mipnerf360/bicycle (N=6,131,954) - 2026-08-02 round-14
+
+| backend | fwd ms | bwd ms | total ms | train ms | PSNR | SSIM | LPIPS | final N |
+|---|---|---|---|---|---|---|---|---|
+| std | 17.8 | 32.9 | 50.9 | 58.3 | 17.29 | 0.4483 | 0.4286 | 6,131,954 |
+| higs_recompute | 18.8 | 60.0 | 79.0 | 86.5 | 17.28 | 0.4480 | 0.4283 | 6,131,954 |
+| higs_native | 17.3 | 26.5 | 44.0 | 51.4 | 17.28 | 0.4479 | 0.4286 | 6,131,954 |
+| higs_dynamic | 13.7 | 21.9 | 35.8 | 48.0 | 18.20 | 0.4736 | 0.3796 | 4,159,597 |
+
+With the optimizer included, `higs_native` is -13.9% / -11.8% and
+`higs_dynamic` -16.9% / -17.7% vs std on train/bicycle. The shared optimizer
+cost shrinks the gap vs the optimizer-excluded `total_ms` figures, but the
+absolute per-step training time is ~10-12 ms faster than before for every
+backend on bicycle.
+
+Notes:
+
+- With the old foreach optimizer the same bicycle loop measured std `train_ms`
+  70.0 / native 61.5 ms (round-14-nofused JSON) vs 58.3 / 51.4 ms fused:
+  fused Adam is worth ~10-12 ms/step of real training time on the large scene
+  for all backends.
+- Quality is unchanged within run noise (PSNR/SSIM/LPIPS match the
+  foreach-Adam runs to ~0.01 dB / 0.0005). The dynamic-path densify/pack cost
+  is now visible in `train_ms` (bicycle +12.2 ms/step vs the +7.4 ms shared
+  optimizer on the frozen paths).
+- One transient anomaly: a `higs_recompute` train-scene bwd of 41.5 ms in the
+  first round-14 pass (vs the stable 24.5-24.7 ms) disappeared on re-run
+  (24.7 ms); not reproducible, attributed to allocator/neighbor-GPU state.
 
 ## Known limitations
 
