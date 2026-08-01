@@ -767,17 +767,21 @@ time is and why it cannot be reduced further:
    pixel/isect-throughput wall std hits.
 
 2. **The 2.47 ms vectorized-add cluster is autograd leaf accumulation,
-   shared with std.** An event-tree profiler (CPU+CUDA, `prof.events()`)
-   attributes the 1,940 us `vectorized_elementwise CUDAFunctor_add` to
-   `torch::autograd::AccumulateGrad` -> `aten::add_`: the engine adds the
-   returned master grad into the `colors` leaf `[6,131,954, 16, 3]`
-   (~1.2 GB). The 643 us FillFunctor is `aten::zeros_like` inside
-   `_native_backward` pre-zeroing the master buffers the kernels scatter
-   into. Both are required dense-tensor semantics for leaf-gradient training
-   and std pays the same or more (same-run comparison under load: std
-   FillFunctor 9.66 ms + add 7.84 ms vs higs 4.9 ms + 7.3 ms).
-   `higs_sh_vjp_grid_kernel` (5.97 ms) is already equal-or-better than std's
-   `spherical_harmonics_bwd_kernel`.
+   shared with std - and mostly a profiling artifact.** A round-13 probe
+   (2026-08-02) counted AccumulateGrad `add_` kernel executions in a
+   benchmark-style step using `opt.zero_grad(set_to_none=True)`: the engine
+   performs **direct assignment** when the leaf grad is None, so the
+   1,940 us `vectorized_elementwise CUDAFunctor_add` attributed to
+   `torch::autograd::AccumulateGrad` -> `aten::add_` (adding the returned
+   master grad into the `colors` leaf `[6,131,954, 16, 3]`, ~1.2 GB) does
+   NOT exist in real training - it only appears in profile scripts that
+   leave stale grads behind, and the benchmark itself uses set_to_none.
+   Real-training backward is therefore ~1.9 ms cheaper than the profiled
+   figure for both std and higs. The 643 us FillFunctor is `aten::zeros_like`
+   inside `_native_backward` pre-zeroing the master buffers the kernels
+   scatter into (required dense-tensor semantics; std pays the same or more
+   under load: std FillFunctor 9.66 ms + add 7.84 ms vs higs 4.9 ms +
+   7.3 ms).
 
 Fresh quiet-GPU benchmark (GPU1 idle, 2026-08-02): std 52.3 /
 higs_recompute 79.3 / higs_native 44.0 / higs_dynamic 35.8 ms on bicycle.
@@ -833,7 +837,33 @@ Findings:
   clip>=3 caps fine-detail content that small splats would otherwise provide,
   so the long-run ceiling on detail-heavy scenes is still expected to sit
   below clip 0. The knob is a legitimate product-level quality/speed
-  operating point, now exposed in the benchmark as `--radius-clip`.## Known limitations
+  operating point, now exposed in the benchmark as `--radius-clip`.
+
+### Round 13 (2026-08-02): SH VJP atomic-contention probe refuted; AccumulateGrad add_ is a profile artifact
+
+Two probes on bicycle (4 cams, 960x540, N=6.13M, GPU1 idle) closed the last
+two open cost-model questions:
+
+1. **SH VJP master `v_means` atomics are NOT the ~1.1 ms gap vs std.** An
+   A/B rebuild of `higs_sh_vjp_grid_kernel` replaced the three master
+   `atomicAdd(v_means + m_id*3 + {0,1,2}, v_dir)` (12-way cross-camera
+   contention) with per-camera flat `atomicAdd(v_means_flat + idx*3 +
+   {0,1,2})` (3-way within-warp contention, std-style). Same-session
+   measurements: master 5972.8 us vs flat 5672.3 us (-0.30 ms, -5%);
+   total backward 25.55 -> 25.38 ms and total iteration 41.92 -> 41.99 ms
+   (flat, within noise; the flat variant also needs a 294 MB zeroed buffer).
+   Conclusion: the gap vs std's 4.89 ms `spherical_harmonics_bwd_kernel` is
+   the coefficient-atomic work itself (~109M atomics) plus the ReLU-mask
+   load, not the means scatter. The std-style per-camera `v_dirs` + reduce
+   redesign is not worth its memory cost; kept as documented trade-off.
+2. **AccumulateGrad `add_` (1,940 us) does not run in real training.** The
+   benchmark's `opt.zero_grad(set_to_none=True)` makes leaf grads None, so
+   the autograd engine assigns the first backward result directly - the
+   probe counted 0 `CUDAFunctor_add` kernels under AccumulateGrad. The
+   profiled 26.6 ms backward includes ~1.9 ms that real training never pays
+   (for std and higs alike); the cuda-event backward here is 25.4 ms.
+
+## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
    (depth composited as a channel with camera-space `z`; expected modes chain
@@ -870,12 +900,15 @@ Findings:
 5. `_densify_gaussians` clamps RGB colors to [0,1] by default;
    `color_clamp=None` disables the clamp. SH coefficient tensors ([N, K, C])
    are intentionally not clamped.a6. The SH VJP kernel remains ~1.1 ms slower than std's on bicycle (5.97 vs
-   4.89 ms): the fixed-grid rewrite (2026-08-02) removed the per-backward
-   device->host sync and the compaction pipeline, but the remaining gap is
-   the master-buffer `v_means` atomics (multi-camera contention) plus the
-   `colors_eval` ReLU-mask load. Closing it requires std-style per-camera
-   `dirs` capture (294 MB on bicycle) or a per-camera `v_dirs` intermediate
-   plus a reduction pass, kept as a documented trade-off.
+   4.89 ms). A round-13 probe (2026-08-02) refuted the master-buffer
+   `v_means` atomic-contention hypothesis: a per-camera flat accumulation
+   variant (3-way vs 12-way contention) measured 5.67 ms, only -0.3 ms
+   (-5%), with total iteration unchanged (41.9 vs 42.0 ms). The remaining
+   gap is the ~109M coefficient atomics plus the `colors_eval` ReLU-mask
+   load, both of which std shares in different form; a std-style per-camera
+   `v_dirs` intermediate + reduction pass would cost a 294 MB buffer and a
+   reduce pass for ~0.3 ms, so it is kept as a documented, not-worth-it
+   trade-off.
 7. A topology rebuild on a 6.13M-Gaussian scene costs ~3.6 ms to pack +
    construct the renderer and ~+9 ms per `mark_dirty()`-forced forward+backward
    step; amortized over densify-every-5 training this is ~+1.4 ms/step.
