@@ -12,13 +12,14 @@ Compares, on the same scene + cameras + optimizer schedule:
 - ``higs_dynamic``   : HiGS native path with densify/prune + Adam-state sync.
 
 Per backend reports: forward latency, backward latency, total iteration
-latency, peak VRAM, culling ratio, and final PSNR / SSIM / LPIPS on held-out
-cameras. A speedup is only claimed when the measured total iteration time
-actually wins.
+latency, full training-step latency (including the optimizer step), peak VRAM,
+culling ratio, and final PSNR / SSIM / LPIPS on held-out cameras. A speedup is
+only claimed when the measured total iteration time actually wins.
 """
 
 import argparse
 import json
+import math
 import os
 import time
 from dataclasses import asdict
@@ -180,22 +181,110 @@ def lpips_score(lpips_model, x, y):
 # Forward helpers
 # --------------------------------------------------------------------------
 
-def make_optimizer(params, lr_scale=1.0):
+def make_optimizer(params, lr_scale=1.0, fused=True):
+    """Build the 5-group Adam optimizer used by every backend.
+
+    ``fused=True`` (default when every param is a CUDA tensor) runs each param
+    group's whole update in a single kernel, about 2x faster than the foreach
+    path on large scenes (6.8 vs 14.9 ms/step on the 6.13M-Gaussian bicycle
+    scene); a non-fused fallback keeps CPU / unsupported platforms working.
+    """
     means, quats, scales, opacities, sh = params
-    return torch.optim.Adam([
+    groups = [
         {"params": [means], "lr": 1.6e-4 * lr_scale},
         {"params": [quats], "lr": 1e-3 * lr_scale},
         {"params": [scales], "lr": 5e-3 * lr_scale},
         {"params": [opacities], "lr": 5e-2 * lr_scale},
         {"params": [sh], "lr": 2.5e-3 * lr_scale},
-    ])
+    ]
+    if fused and all(p.is_cuda for g in groups for p in g["params"]):
+        try:
+            return torch.optim.Adam(groups, fused=True)
+        except (TypeError, ValueError, RuntimeError):
+            pass
+    return torch.optim.Adam(groups)
 
 
 def _l1_loss(frame, ref):
     return (frame - ref).abs().mean()
 
 
-def make_forward_fn(backend, width, height, handle, viewmats, Ks):
+def _std_ll_forward(means, quats, scales, opacities, colors, viewmats, Ks,
+                   width, height, sh_degree, radius_clip=0.0):
+    """Low-level standard gsplat forward (raw CUDA kernels, no culling).
+
+    Mirrors the kernels that ``rasterize_gaussian_higs_*`` use for the capture
+    path, so the ``std_ll`` backend is the apples-to-apples baseline: the
+    high-level ``rasterization()`` wrapper used by ``std`` carries ~9 ms/step of
+    Python/alloc overhead at 1920x1080 x 4 cameras, which would otherwise
+    inflate the reported HiGS margin.
+    """
+    from gsplat.cuda._wrapper import (
+        fully_fused_projection,
+        isect_tiles,
+        isect_offset_encode,
+        _make_lazy_cuda_func,
+    )
+    from gsplat.rendering import _maybe_evaluate_sh
+
+    C = viewmats.shape[-3]
+    N = means.shape[-2]
+    tile_size = 16
+    tile_width = math.ceil(width / tile_size)
+    tile_height = math.ceil(height / tile_size)
+    radii, means2d, depths, conics, _ = fully_fused_projection(
+        means=means.contiguous(),
+        covars=None,
+        quats=quats.contiguous(),
+        scales=scales.contiguous(),
+        viewmats=viewmats,
+        Ks=Ks,
+        width=width,
+        height=height,
+        eps2d=0.3,
+        near_plane=0.01,
+        far_plane=1e10,
+        radius_clip=radius_clip,
+        packed=False,
+        calc_compensations=False,
+        camera_model="pinhole",
+    )
+    opacities_bc = torch.broadcast_to(
+        opacities[..., None, :], (1, C, N)
+    ).contiguous()
+    _, isect_ids, flatten_ids = isect_tiles(
+        means2d, radii, depths, tile_size, tile_width, tile_height,
+        packed=False, n_images=C, image_ids=None, gaussian_ids=None,
+        conics=conics, opacities=opacities_bc,
+    )
+    isect_offsets = isect_offset_encode(
+        isect_ids, C, tile_width, tile_height
+    ).reshape((1, C, tile_height, tile_width))
+    colors_eval = _maybe_evaluate_sh(
+        sh_degree, colors, means, radii, viewmats, (1,), C, N, True,
+    ).contiguous()
+    bg_kernel = torch.zeros((1, C, 3), device=means.device)
+    render_colors, render_alphas, _absgrad, last_ids = (
+        _make_lazy_cuda_func("rasterize_to_pixels_3dgs")(
+            means2d.contiguous(),
+            conics.contiguous(),
+            colors_eval.contiguous(),
+            opacities_bc.contiguous(),
+            bg_kernel,
+            None,
+            width,
+            height,
+            tile_size,
+            isect_offsets.contiguous(),
+            flatten_ids.contiguous(),
+            False,
+            False,
+        )
+    )
+    return render_colors, render_alphas
+
+
+def make_forward_fn(backend, width, height, handle, viewmats, Ks, radius_clip=0.0):
     from gsplat.rendering import rasterization
 
     def forward_fn(params_in, cam_ids):
@@ -207,12 +296,19 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks):
                 means=m.unsqueeze(0), quats=q.unsqueeze(0),
                 scales=s.unsqueeze(0), opacities=o.unsqueeze(0), colors=c,
                 viewmats=vm, Ks=K, width=width, height=height,
-                sh_degree=_SH_DEGREE, packed=True,
+                sh_degree=_SH_DEGREE, packed=True, radius_clip=radius_clip,
             )
             return out[0], out[1], {}
+        if backend == "std_ll":
+            rc, ra = _std_ll_forward(
+                m.unsqueeze(0), q.unsqueeze(0), s.unsqueeze(0),
+                o.unsqueeze(0), c, vm, K, width, height,
+                _SH_DEGREE, radius_clip=radius_clip,
+            )
+            return rc, ra, {}
         kw = dict(
             viewmats=vm, Ks=K, width=width, height=height,
-            sh_degree=_SH_DEGREE, use_higs_culling=True,
+            sh_degree=_SH_DEGREE, use_higs_culling=True, radius_clip=radius_clip,
         )
         if backend in ("higs_native", "higs_recompute"):
             from gsplat.experimental import rasterize_gaussian_higs_frozen
@@ -287,6 +383,7 @@ def run_backend(
     backend, params0, viewmats, Ks, train_idx, refs_train,
     eval_idx, refs_eval, width, height, steps, seed, device,
     densify_every, densify_threshold, prune_threshold, lpips_model,
+    radius_clip=0.0, fused_adam=True,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -295,7 +392,7 @@ def run_backend(
     for t in (means, quats, scales, opacities, sh):
         t.requires_grad_(True)
     params = (means, quats, scales, opacities, sh)
-    opt = make_optimizer(params)
+    opt = make_optimizer(params, fused=fused_adam)
 
     handle = None
     dynamic_scene = None
@@ -313,10 +410,12 @@ def run_backend(
         dynamic_scene = _HIGS_DYNAMIC_SCENE
         dynamic_scene.reset()
 
-    forward_fn = make_forward_fn(backend, width, height, handle, viewmats, Ks)
+    forward_fn = make_forward_fn(
+        backend, width, height, handle, viewmats, Ks, radius_clip=radius_clip,
+    )
     torch.cuda.reset_peak_memory_stats(device)
 
-    fwd_times, bwd_times, total_times = [], [], []
+    fwd_times, bwd_times, total_times, train_times = [], [], [], []
     culling_ratios, n_visibles, topo_rebuilt = [], [], []
     ref = refs_train
 
@@ -400,6 +499,10 @@ def run_backend(
                     dynamic_scene.mark_dirty()
 
             opt.zero_grad(set_to_none=True)
+            ev4 = torch.cuda.Event(enable_timing=True)
+            ev4.record()
+            torch.cuda.synchronize(device)
+            train_times.append(ev0.elapsed_time(ev4))
 
         torch.cuda.synchronize(device)
         peak = torch.cuda.max_memory_allocated(device) / 1e9
@@ -422,6 +525,7 @@ def run_backend(
         "fwd_ms": float(np.mean(fwd_times)),
         "bwd_ms": float(np.mean(bwd_times)),
         "total_ms": float(np.mean(total_times)),
+        "train_ms": float(np.mean(train_times)) if train_times else 0.0,
         "peak_vram_gb": peak,
         "culling_ratio": float(np.mean(culling_ratios)) if culling_ratios else 0.0,
         "n_visible_avg": float(np.mean(n_visibles)) if n_visibles else 0.0,
@@ -457,6 +561,13 @@ def main():
     ap.add_argument("--densify-threshold", type=float, default=5e-3)
     ap.add_argument("--prune-threshold", type=float, default=0.01)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--radius-clip", type=float, default=0.0)
+    ap.add_argument(
+        "--no-fused-adam",
+        action="store_false",
+        dest="fused_adam",
+        help="disable fused Adam (fall back to the foreach optimizer)",
+    )
     args = ap.parse_args()
 
     import lpips
@@ -501,7 +612,8 @@ def main():
                     eval_idx, refs_eval, args.width, args.height, args.steps,
                     args.seed, device, args.densify_every,
                     args.densify_threshold, args.prune_threshold,
-                    lpips_model,
+                    lpips_model, radius_clip=args.radius_clip,
+                    fused_adam=args.fused_adam,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
@@ -537,6 +649,7 @@ def main():
             print(
                 f"  {r['backend']:<16} fwd={r['fwd_ms']:8.1f}ms "
                 f"bwd={r['bwd_ms']:8.1f}ms tot={r['total_ms']:8.1f}ms "
+                f"train={r['train_ms']:8.1f}ms "
                 f"vram={r['peak_vram_gb']:5.2f}GB cull={r['culling_ratio']:6.1%} "
                 f"PSNR={r['psnr']:5.2f} SSIM={r['ssim']:.4f} LPIPS={r['lpips']:.4f} "
                 f"N={r['final_n']}"

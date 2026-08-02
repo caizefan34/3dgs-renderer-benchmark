@@ -1,3 +1,58 @@
+diff --git a/gsplat/cuda/build.py b/gsplat/cuda/build.py
+index 1a3cbbf..9de859c 100644
+--- a/gsplat/cuda/build.py
++++ b/gsplat/cuda/build.py
+@@ -123,6 +123,16 @@ def get_build_parameters():
+         + [os.path.join(PATH, "ext.cpp")]
+     )
+ 
++    # Local-only build accelerator: the three RasterizeToPixelsFromWorld3DGS*
++    # kernels take 1.5-3.5h each to compile with CUDA 13.x + sm_120 (cicc
++    # blowup) and are unused by the HiGS training path. Set
++    # GSPLAT_SKIP_FROM_WORLD=1 to drop them from this build only.
++    if os.environ.get("GSPLAT_SKIP_FROM_WORLD", "0") == "1":
++        sources = [
++            s for s in sources
++            if not (os.path.basename(s).startswith("RasterizeToPixelsFromWorld3DGS"))
++        ]
++
+     # Compiler flags ----------------------------------
+     extra_cflags = []
+     extra_cuda_cflags = []
+diff --git a/gsplat/cuda/csrc/Utils.cpp b/gsplat/cuda/csrc/Utils.cpp
+index 06cba55..e27e715 100644
+--- a/gsplat/cuda/csrc/Utils.cpp
++++ b/gsplat/cuda/csrc/Utils.cpp
+@@ -36,12 +36,12 @@ void merge_streams()
+     {
+         C10_CUDA_CHECK(cudaSetDevice(device_id));
+         auto stream = c10::cuda::getCurrentCUDAStream(device_id);
+-        C10_CUDA_CHECK(cudaEventCreate(&events[device_id], cudaEventDisableTiming));
++        C10_CUDA_CHECK(cudaEventCreateWithFlags(&events[device_id], cudaEventDisableTiming));
+         C10_CUDA_CHECK(cudaEventRecord(events[device_id], stream));
+     }
+ 
+     C10_CUDA_CHECK(cudaSetDevice(merge_device_id));
+-    C10_CUDA_CHECK(cudaEventCreate(&merge_event, cudaEventDisableTiming));
++    C10_CUDA_CHECK(cudaEventCreateWithFlags(&merge_event, cudaEventDisableTiming));
+     auto merge_stream = c10::cuda::getCurrentCUDAStream(merge_device_id);
+     for(const auto device_id: c10::irange(c10::cuda::device_count()))
+     {
+diff --git a/gsplat/cuda/include/Cameras.cuh b/gsplat/cuda/include/Cameras.cuh
+index abce151..d9a2dcf 100644
+--- a/gsplat/cuda/include/Cameras.cuh
++++ b/gsplat/cuda/include/Cameras.cuh
+@@ -779,7 +779,9 @@ struct OrthographicCameraModel
+         }
+ 
+         const auto point = glm::fvec2{ray.x, ray.y} / ray.z;
+-        if(!std::isfinite(point.x) || !std::isfinite(point.y))
++        const float ax = fabsf(point.x);
++        const float ay = fabsf(point.y);
++        if(!(ax == ax) || !(ay == ay) || ax == INFINITY || ay == INFINITY)
+         {
+             return {
+                 glm::fvec2{0.f, 0.f},
 diff --git a/gsplat/experimental/__init__.py b/gsplat/experimental/__init__.py
 index 7d12bf6..be7042a 100644
 --- a/gsplat/experimental/__init__.py
@@ -134,7 +189,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..20a6f2f 100644
+index b6c1b13..46a3942 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -201,7 +256,7 @@ index b6c1b13..20a6f2f 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,1905 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2172 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -471,6 +526,195 @@ index b6c1b13..20a6f2f 100644
 +    visible_ids = torch.where(visible_mask)[0]
 +    return visible_ids, visible_mask
 +
++
++def _cull_gaussians_batched(
++    means, quats, scales, viewmats, Ks,
++    width, height, eps2d=0.3,
++    near_plane=0.01, far_plane=1e10, radius_clip=0.0,
++    camera_model="pinhole",
++):
++    """Union-visibility culling over all cameras with ONE batched projection.
++
++    Runs ``fully_fused_projection`` once for every camera in parallel and marks
++    a Gaussian visible when any camera projects it with a positive radius. The
++    projection uses the exact same near/far/radius_clip/eps2d/camera_model
++    criteria as the render path and operates on the FP32 master params, so the
++    mask is projection-consistent with the forward (the FP16-packed HiGS
++    renderer is not needed for this and would add a full per-camera render per
++    step).
++
++    Returns:
++        visible_ids: 1D int64 tensor of visible Gaussian indices (ascending).
++        visible_mask: bool tensor [N] where True means visible.
++        culling_ratio: float fraction of culled (invisible) Gaussians.
++    """
++    from gsplat.cuda._wrapper import fully_fused_projection
++
++    with torch.no_grad():
++        radii, means2d, depths, conics, _ = fully_fused_projection(
++            means=means.unsqueeze(0).contiguous(),
++            covars=None,
++            quats=quats.unsqueeze(0).contiguous(),
++            scales=scales.unsqueeze(0).contiguous(),
++            viewmats=viewmats.contiguous(),
++            Ks=Ks.contiguous(),
++            width=width,
++            height=height,
++            eps2d=eps2d,
++            near_plane=near_plane,
++            far_plane=far_plane,
++            radius_clip=radius_clip,
++            camera_model=camera_model,
++            packed=False,
++        )
++    r = radii.squeeze(0)  # [C, N, 2]
++    visible_mask = _union_visible_mask_native(r)  # [N] union over cameras
++    visible_ids = torch.where(visible_mask)[0]
++    culling_ratio = 1.0 - (visible_ids.numel() / max(radii.shape[-2], 1))
++    return visible_ids, visible_mask, culling_ratio
++
++
++def _gather_rows_fast(t, row_ids):
++    """Compact-copy arbitrary row subsets of one FP32 tensor.
++
++    Uses the single-tensor ``higs_gather_rows`` CUDA kernel when available
++    (bypasses PyTorch's slow vectorized row gather for row widths divisible
++    by four, which the densify/prune and Adam-state-sync paths hit with
++    ``colors [N,16,3]``); falls back to ``t[row_ids]`` otherwise.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_gather_rows")
++        and t.is_cuda
++        and t.dtype == torch.float32
++    ):
++        try:
++            return ext.higs_gather_rows(t, row_ids)
++        except RuntimeError:
++            pass
++    return t[row_ids]
++
++
++def _gather_rows_new_zeros(t, row_ids):
++    """Gather rows with ``row_ids[i] == -1`` writing zeros, in one kernel.
++
++    Used by the Adam-state sync: every row of the new state tensor is either
++    copied from its source row (``row_ids[i] >= 0``) or zero-initialized
++    (``row_ids[i] == -1`` for brand-new Gaussians). Fusing the zero-fill into
++    the gather removes the ``zeros_like`` memset plus the scatter pass, and the
++    output can be allocated uninitialized. Falls back to zeros + indexed copy
++    when the CUDA extension is unavailable.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_gather_rows")
++        and t.is_cuda
++        and t.dtype == torch.float32
++    ):
++        try:
++            return ext.higs_gather_rows(t, row_ids.to(torch.long), True)
++        except RuntimeError:
++            pass
++    valid = row_ids >= 0
++    shape = (row_ids.numel(),) + tuple(t.shape[1:])
++    out = torch.zeros(shape, dtype=t.dtype, device=t.device)
++    if valid.any():
++        out.index_copy_(0, valid.nonzero().flatten(), t[row_ids[valid].clamp(min=0)])
++    return out
++
++
++def _refresh_higs_renderer_scene(
++    handle, means, quats, scales, opacities, colors,
++    N, sh_degree, sh_compression_mode, lightweight=False,
++):
++    """Rebuild the packed HiGS scene when it is stale, WITHOUT rendering.
++
++    Mirrors the rebuild path of :func:`_cull_gaussians_higs` (which the direct
++    culling API still uses) but skips the per-camera render: the training
++    forward derives visibility from a batched FP32 projection, so the renderer's
++    packed scene only needs to stay version-consistent for the handle's
++    scene_version / topology_rebuilt / pending-backward bookkeeping.
++
++    When ``lightweight`` is True (the differentiable training forward), the
++    packed buffers are only kept bookkeeping-consistent, not re-packed: the
++    native and recompute backends consume the FP32 captured tensors and never
++    the packed FP16 scene. A pure parameter drift (optimizer.step) skips the
++    expensive ``pack_gaussian_inference_scene`` call, and a real topology
++    change (``mark_dirty()`` or an N change) also defers it: only the version
++    bookkeeping advances and ``packed_stale`` is set, so the packed scene is
++    rebuilt on demand the next time the non-training
++    :func:`_cull_gaussians_higs` culling API is used with this handle.
++    """
++    from gsplat.scene.kernels.gaussian_inference_ops import (
++        pack_gaussian_inference_scene,
++    )
++    from ..kernels.gaussian_inference_ops import (
++        create_native_gaussian_inference_renderer,
++    )
++
++    sh_deg_i = -1 if sh_degree is None else sh_degree
++    comp = _normalize_sh_compression_mode(sh_compression_mode)
++    if handle.n_gaussians != N and not handle.dirty:
++        raise RuntimeError(
++            f"HiGS renderer handle has n_gaussians={handle.n_gaussians} "
++            f"but the input has N={N}. Topology changed without "
++            "mark_dirty(); call renderer_handle.mark_dirty() after "
++            "densify/prune before the next forward."
++        )
++    if handle.dirty or handle.n_gaussians != N or (
++        not handle.pending_backward
++        and handle.params_changed(means, quats, scales, opacities, colors)
++    ):
++        if lightweight:
++            if not handle.dirty and handle.n_gaussians == N:
++                # Pure parameter drift on the differentiable path: the packed
++                # scene is stale but never consumed here. Do not update
++                # _param_versions so _cull_gaussians_higs still sees the drift
++                # and re-packs when the non-training culling API is used with
++                # this handle.
++                handle._topology_rebuilt = False
++                return
++            # Real topology change on the differentiable path: the packed FP16
++            # scene is never consumed by the training forward/backward (both
++            # consume the FP32 captured tensors), so defer the pack entirely.
++            # Advance only the version bookkeeping and mark the packed scene
++            # stale; _cull_gaussians_higs re-packs on demand. _param_versions
++            # is intentionally left untouched (a densify/prune creates brand-new
++            # tensors whose _version can collide with the captured ones, so
++            # packed_stale - not params_changed - is the authoritative signal).
++            handle._version += 1
++            handle.n_gaussians = N
++            handle._dirty = False
++            handle._topology_rebuilt = True
++            handle._packed_stale = True
++            return
++        means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
++            means, quats, scales, opacities, colors, sh_deg_i, comp,
++        )
++        if handle.renderer is not None:
++            handle.renderer.release()
++        renderer = create_native_gaussian_inference_renderer(
++            means_planar, qso_packed, colors_packed, sh_deg_i, int(comp),
++        )
++        handle.rebuild(
++            means_planar, qso_packed, colors_packed, N,
++            packed_dtype=str(qso_packed.dtype), renderer=renderer,
++            means=means, quats=quats, scales=scales,
++            opacities=opacities, colors=colors,
++        )
++
 +def _cull_gaussians_higs(
 +    means, quats, scales, opacities, colors,
 +    viewmat, K, width, height, sh_degree,
@@ -536,7 +780,7 @@ index b6c1b13..20a6f2f 100644
 +                    "mark_dirty(); call renderer_handle.mark_dirty() after "
 +                    "densify/prune before the next forward."
 +                )
-+            if handle.dirty or handle.n_gaussians != N or (not handle.pending_backward and handle.params_changed(means, quats, scales, opacities, colors)):
++            if handle.dirty or handle.n_gaussians != N or handle.packed_stale or (not handle.pending_backward and handle.params_changed(means, quats, scales, opacities, colors)):
 +                means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
 +                    means, quats, scales, opacities, colors, sh_deg_i, comp,
 +                )
@@ -582,6 +826,70 @@ index b6c1b13..20a6f2f 100644
 +
 +    ext = _backend._C
 +    return ext is not None and hasattr(ext, "higs_rasterize_backward")
++
++
++def _gather_visible_native(
++    means, quats, scales, opacities, colors, visible_ids,
++):
++    """Gather the visible rows of the master FP32 tensors.
++
++    Uses the compact-copy CUDA kernel from the experimental extension when
++    available (avoids the pathologically slow PyTorch row gather for row
++    widths divisible by four, e.g. quats [N,4] and colors [N,16,3]);
++    otherwise falls back to the plain PyTorch gather.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_gather_visible")
++        and means.is_cuda
++        and means.dtype == torch.float32
++        and colors.dtype == torch.float32
++    ):
++        try:
++            return ext.higs_gather_visible(
++                means, quats, scales, opacities, colors, visible_ids,
++            )
++        except RuntimeError:
++            pass
++    return (
++        means[visible_ids].contiguous(),
++        quats[visible_ids].contiguous(),
++        scales[visible_ids].contiguous(),
++        opacities[visible_ids].contiguous(),
++        colors[visible_ids].contiguous(),
++    )
++
++
++def _union_visible_mask_native(r):
++    """Union visibility mask over cameras from ``[C, N, 2]`` projection radii.
++
++    Uses the fused CUDA kernel when the experimental extension is available
++    (one thread per Gaussian, ``any_c(both radii > 0)``); otherwise falls back
++    to the PyTorch expression, which the culling callers historically used.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_union_visible_mask")
++        and r.is_cuda
++        and r.dtype in (torch.float32, torch.int32)
++    ):
++        try:
++            return ext.higs_union_visible_mask(r.contiguous())
++        except RuntimeError:
++            pass
++    return (r > 0).all(dim=-1).any(dim=0)
 +
 +
 +def _normalize_sh_compression_mode(mode):
@@ -654,6 +962,7 @@ index b6c1b13..20a6f2f 100644
 +        self._dirty: bool = False
 +        self._topology_rebuilt: bool = False
 +        self._pending_backward: bool = False
++        self._packed_stale: bool = False
 +        if means is not None:
 +            self._param_versions = self._capture_param_versions(
 +                (means, quats, scales, opacities, colors)
@@ -678,6 +987,10 @@ index b6c1b13..20a6f2f 100644
 +    def pending_backward(self) -> bool:
 +        return self._pending_backward
 +
++    @property
++    def packed_stale(self) -> bool:
++        return self._packed_stale
++
 +    # -- lifecycle ---------------------------------------------------------
 +    def mark_dirty(self) -> None:
 +        """Mark the packed scene stale (after densify/prune/clone).
@@ -694,6 +1007,7 @@ index b6c1b13..20a6f2f 100644
 +            )
 +        self._dirty = True
 +        self._topology_rebuilt = False
++        self._packed_stale = True
 +
 +    def rebuild(self, means_planar, qso_packed, colors_packed, n_gaussians: int, packed_dtype: str, renderer=None, means=None, quats=None, scales=None, opacities=None, colors=None) -> None:
 +        """Replace the packed buffers + renderer after a topology change."""
@@ -706,6 +1020,7 @@ index b6c1b13..20a6f2f 100644
 +            self.renderer = renderer
 +        self._dirty = False
 +        self._topology_rebuilt = True
++        self._packed_stale = False
 +        self._version += 1
 +        if means is not None:
 +            self._param_versions = self._capture_param_versions(
@@ -938,12 +1253,16 @@ index b6c1b13..20a6f2f 100644
 +    if n_new == 0:
 +        return means, quats, scales, opacities, colors
 +
-+    noise = torch.randn_like(means[mask]) * noise_scale
-+    new_means = torch.cat([means, means[mask] + noise])
-+    new_quats = torch.cat([quats, quats[mask]])
-+    new_scales = torch.cat([scales, scales[mask]])
-+    new_opacities = torch.cat([opacities, opacities[mask]]).clamp(0.0, 1.0)
-+    new_colors = torch.cat([colors, colors[mask]])
++    dup_ids = mask.nonzero().flatten()
++    dup_means = _gather_rows_fast(means, dup_ids)
++    noise = torch.randn_like(dup_means) * noise_scale
++    new_means = torch.cat([means, dup_means + noise])
++    new_quats = torch.cat([quats, _gather_rows_fast(quats, dup_ids)])
++    new_scales = torch.cat([scales, _gather_rows_fast(scales, dup_ids)])
++    new_opacities = torch.cat(
++        [opacities, _gather_rows_fast(opacities, dup_ids)]
++    ).clamp(0.0, 1.0)
++    new_colors = torch.cat([colors, _gather_rows_fast(colors, dup_ids)])
 +    if colors.dim() == 2 and color_clamp is not None:
 +        # RGB pre-activated colors are bounded to [0, 1] by default; pass
 +        # color_clamp=None to keep the raw (possibly unbounded) values. SH
@@ -965,12 +1284,13 @@ index b6c1b13..20a6f2f 100644
 +    if mask.all():
 +        return means, quats, scales, opacities, colors
 +
++    keep_ids = mask.nonzero().flatten()
 +    return (
-+        means[mask],
-+        quats[mask],
-+        scales[mask],
-+        opacities[mask],
-+        colors[mask],
++        _gather_rows_fast(means, keep_ids),
++        _gather_rows_fast(quats, keep_ids),
++        _gather_rows_fast(scales, keep_ids),
++        _gather_rows_fast(opacities, keep_ids),
++        _gather_rows_fast(colors, keep_ids),
 +    )
 +
 +
@@ -1012,10 +1332,12 @@ index b6c1b13..20a6f2f 100644
 +                            and value.dim() >= 1
 +                            and value.shape[0] == old_t.shape[0]
 +                        ):
-+                            rows = torch.zeros_like(new_t)
-+                            valid = index_map >= 0
-+                            rows[valid] = value[index_map[valid].clamp(min=0)]
-+                            new_state[key] = rows
++                            # One fused kernel: row i is copied from
++                            # index_map[i] (valid rows) or zero-filled
++                            # (index_map[i] == -1, brand-new Gaussians).
++                            new_state[key] = _gather_rows_new_zeros(
++                                value, index_map
++                            )
 +                        else:
 +                            new_state[key] = value
 +                    del optimizer.state[param]
@@ -1132,43 +1454,41 @@ index b6c1b13..20a6f2f 100644
 +        visible_ids = None
 +        if enable_culling:
 +            with torch.no_grad():
-+                per_camera_ids = []
-+                use_higs_cull = use_higs_culling and _higs_backend_available()
-+                for c in range(C):
-+                    viewmat_c = viewmats[..., c, :, :].reshape(4, 4)
-+                    K_c = Ks[..., c, :, :].reshape(3, 3)
-+                    if use_higs_cull:
-+                        vis_ids, _, _ = _cull_gaussians_higs(
-+                            means, quats, scales, opacities, colors,
-+                            viewmat_c, K_c, width, height, sh_degree,
-+                            tile_size=tile_size, near_plane=near_plane,
-+                            far_plane=far_plane, radius_clip=radius_clip,
-+                            eps2d=eps2d,
-+                            sh_compression_mode=sh_compression_mode,
-+                            background=background,
-+                            renderer_handle=renderer_handle,
-+                        )
-+                    else:
-+                        vis_ids, _ = _cull_gaussians(
-+                            means, quats, scales,
-+                            viewmats[..., c : c + 1, :, :],
-+                            Ks[..., c : c + 1, :, :],
-+                            width, height, eps2d,
-+                        )
-+                    per_camera_ids.append(vis_ids)
-+                if per_camera_ids:
-+                    visible_ids = torch.unique(torch.cat(per_camera_ids))
++                # Keep the packed HiGS scene version-consistent when a handle
++                # is present (dynamic mode bookkeeping) without running the
++                # expensive per-camera render that was only used for the
++                # visibility mask. The differentiable path never consumes the
++                # packed FP16 scene (both backends consume the FP32 captured
++                # tensors), so pure parameter drift updates the version
++                # bookkeeping without re-packing (lightweight=True); real
++                # topology changes (mark_dirty / N change) defer the pack and
++                # set packed_stale so the non-training culling API rebuilds on
++                # demand.
++                if renderer_handle is not None:
++                    _refresh_higs_renderer_scene(
++                        renderer_handle, means, quats, scales, opacities,
++                        colors, N_total, sh_degree, sh_compression_mode,
++                        lightweight=True,
++                    )
++                # One batched FP32 projection over all cameras, unioned: same
++                # near/far/radius_clip/eps2d/camera_model criteria as the
++                # render path, but ~C full HiGS renders cheaper (no
++                # intersect/rasterize pass). The camera model is passed through
++                # so the mask is projection-consistent for ortho/fisheye too.
++                vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
++                    means, quats, scales, viewmats, Ks,
++                    width, height,
++                    eps2d=eps2d, near_plane=near_plane,
++                    far_plane=far_plane, radius_clip=radius_clip,
++                    camera_model=camera_model,
++                )
++                visible_ids = vis_ids
 +
 +        if visible_ids is not None and visible_ids.numel() > 0:
 +            N_visible = visible_ids.numel()
-+            v_means = means[visible_ids].contiguous()
-+            v_quats = quats[visible_ids].contiguous()
-+            v_scales = scales[visible_ids].contiguous()
-+            v_opacities = opacities[visible_ids].contiguous()
-+            if colors.dim() == 2:
-+                v_colors = colors[visible_ids].contiguous()
-+            else:
-+                v_colors = colors[visible_ids].contiguous()
++            v_means, v_quats, v_scales, v_opacities, v_colors = _gather_visible_native(
++                means, quats, scales, opacities, colors, visible_ids,
++            )
 +        else:
 +            N_visible = 0 if visible_ids is not None else N_total
 +            if N_visible == 0:
@@ -1355,22 +1675,22 @@ index b6c1b13..20a6f2f 100644
 +
 +        with torch.no_grad():
 +            radii, means2d, depths, conics, compensations = fully_fused_projection(
-+                means=means_b.contiguous(),
-+                covars=None,
-+                quats=quats_b.contiguous(),
-+                scales=scales_b.contiguous(),
-+                viewmats=viewmats,
-+                Ks=Ks,
-+                width=width,
-+                height=height,
-+                eps2d=eps2d,
-+                near_plane=near_plane,
-+                far_plane=far_plane,
-+                radius_clip=radius_clip,
-+                packed=False,
-+                calc_compensations=False,
-+                camera_model=camera_model,
-+            )
++                    means=means_b.contiguous(),
++                    covars=None,
++                    quats=quats_b.contiguous(),
++                    scales=scales_b.contiguous(),
++                    viewmats=viewmats,
++                    Ks=Ks,
++                    width=width,
++                    height=height,
++                    eps2d=eps2d,
++                    near_plane=near_plane,
++                    far_plane=far_plane,
++                    radius_clip=radius_clip,
++                    packed=False,
++                    calc_compensations=False,
++                    camera_model=camera_model,
++                )
 +            opacities_bc = torch.broadcast_to(
 +                opacities_b[..., None, :], (1, C, N)
 +            ).contiguous()  # [1, C, N]
@@ -1577,6 +1897,15 @@ index b6c1b13..20a6f2f 100644
 +                bg_kernel = backgrounds_b.new_zeros((I, 1))
 +            bg_kernel = bg_kernel.contiguous()
 +
++        # Master FP32 gradient accumulators: pre-zeroed here, then written in
++        # place by the native kernels through `visible_ids` (strictly
++        # increasing, duplicate-free), which removes the per-tensor
++        # zeros_like + index_copy_ scatter from the hot path.
++        grad_means = torch.zeros_like(means)
++        grad_quats = torch.zeros_like(quats)
++        grad_scales = torch.zeros_like(scales)
++        grad_opacities = torch.zeros_like(opacities)
++        grad_colors = torch.zeros_like(colors)
 +        out = backend.higs_rasterize_backward(
 +            means2d=means2d_f,
 +            conics=conics_f,
@@ -1606,24 +1935,17 @@ index b6c1b13..20a6f2f 100644
 +            v_render_alphas=v_render_alphas,
 +            sh_coeffs=sh_coeffs,
 +            sh_degree=-1 if ctx.sh_degree is None else ctx.sh_degree,
++            visible_ids=visible_ids,
++            grad_means=grad_means,
++            grad_quats=grad_quats,
++            grad_scales=grad_scales,
++            grad_opacities=grad_opacities,
++            grad_colors=grad_colors,
 +        )
 +        (
-+            v_means_g, v_quats_g, v_scales_g, v_opacities_g,
-+            v_colors_master_g, v_backgrounds_g,
++            _v_means_g, _v_quats_g, _v_scales_g, _v_opacities_g,
++            _v_colors_master_g, v_backgrounds_g,
 +        ) = out
-+
-+        grad_means = torch.zeros_like(means)
-+        grad_quats = torch.zeros_like(quats)
-+        grad_scales = torch.zeros_like(scales)
-+        grad_opacities = torch.zeros_like(opacities)
-+        grad_colors = torch.zeros_like(colors)
-+        if ctx.N_visible > 0:
-+            grad_means.index_add_(0, visible_ids, v_means_g)
-+            grad_quats.index_add_(0, visible_ids, v_quats_g)
-+            grad_scales.index_add_(0, visible_ids, v_scales_g)
-+            grad_opacities.index_add_(0, visible_ids, v_opacities_g)
-+            if _render_mode_color_channels(ctx.render_mode) > 0:
-+                grad_colors.index_add_(0, visible_ids, v_colors_master_g)
 +
 +        grad_background = None
 +        if ctx.needs_input_grad[15] and backgrounds_b is not None and nch >= 3:
@@ -2107,29 +2429,451 @@ index b6c1b13..20a6f2f 100644
 +        sh_compression_mode=sh_compression_mode,
 +        scene=scene,
 +    )
-\ No newline at end of file
 diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py
-index 50f357f..eb94958 100644
+index 50f357f..7815b38 100644
 --- a/gsplat/experimental/render/kernels/cuda/build.py
 +++ b/gsplat/experimental/render/kernels/cuda/build.py
-@@ -101,6 +101,7 @@ def get_build_parameters():
+@@ -101,6 +101,8 @@ def get_build_parameters():
          sources += [
              os.path.join(gaussian_render_inference_dir, f)
              for f in [
++                "GatherVisible.cu",
 +                "HigsNativeBackward.cu",
                  "IntersectCommon.cu",
                  "IntersectMTFused.cu",
                  "MacroTileIntersect.cu",
+@@ -213,7 +215,7 @@ def build_and_load_experimental_gaussian_render_inference_scene():
+ 
+     if not hasattr(jit, "_get_build_directory"):
+         raise RuntimeError(
+-            "torch.utils.cpp_extension.jit._get_build_directory is missing — "
++            "torch.utils.cpp_extension.jit._get_build_directory is missing 鈥?"
+             "PyTorch upgrade broke a private API. Update "
+             "gsplat/experimental/render/kernels/cuda/build.py."
+         )
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
+new file mode 100644
+index 0000000..fc99f69
+--- /dev/null
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
+@@ -0,0 +1,331 @@
++/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++// Compact-copy kernel for the differentiable HiGS forward path.
++//
++// PyTorch's ``tensor[visible_ids]`` row gather dispatches to a vectorized
++// copy whenever the row width is a multiple of four floats, and that path is
++// pathologically slow for random row indices on large scenes (bicycle with a
++// 2.27 M visible subset: ~1.7 ms for quats [N,4] and ~1.7 ms for colors
++// [N,16,3], vs ~0.1 ms for non-multiple-of-4 widths). This single-purpose
++// element-wise kernel avoids the bad dispatch: the five gathers together drop
++// from ~4.4 ms to ~0.9 ms on the same scene.
++
++#include "Config.h"
++
++#include <ATen/ops/empty.h>
++#include <ATen/cuda/CUDAContext.h>
++#include <c10/cuda/CUDAGuard.h>
++#include <c10/cuda/CUDAException.h>
++#include <c10/cuda/CUDAStream.h>
++
++#include <algorithm>
++#include <cstdint>
++#include <vector>
++
++#include "GatherVisible.h"
++
++namespace gsplat
++{
++namespace gaussian_render_inference_scene
++{
++namespace
++{
++// ``ZERO_NEG``: a negative row id writes zeros instead of gathering. This is
++// used by the Adam-state sync, where ``row_ids[i] == -1`` marks brand-new
++// Gaussians whose state must be zero-initialized; fusing the zero-fill into
++// the gather removes the ``zeros_like`` memset and the scatter pass.
++template<int INNER, bool ZERO_NEG>
++__global__ void gather_rows_kernel_t(
++    const float *__restrict__ src,
++    const int64_t *__restrict__ idx,
++    float *__restrict__ dst,
++    const int64_t n_rows)
++{
++    const int64_t total = n_rows * INNER;
++    int64_t t = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
++    const int64_t stride = (int64_t)gridDim.x * blockDim.x;
++    if(INNER == 1)
++    {
++        for(; t < total; t += stride)
++        {
++            const int64_t r = idx[t];
++            if(ZERO_NEG && r < 0)
++            {
++                dst[t] = 0.0f;
++            }
++            else
++            {
++                dst[t] = src[r];
++            }
++        }
++        return;
++    }
++    for(; t < total; t += stride)
++    {
++        const int64_t row = t / INNER;
++        const int64_t r = idx[row];
++        if(ZERO_NEG && r < 0)
++        {
++            dst[t] = 0.0f;
++        }
++        else
++        {
++            dst[t] = src[r * INNER + (t - row * INNER)];
++        }
++    }
++}
++
++template<bool ZERO_NEG>
++__global__ void gather_rows_kernel_gen(
++    const float *__restrict__ src,
++    const int64_t *__restrict__ idx,
++    float *__restrict__ dst,
++    const int64_t n_rows,
++    const int64_t inner)
++{
++    const int64_t total = n_rows * inner;
++    int64_t t = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
++    const int64_t stride = (int64_t)gridDim.x * blockDim.x;
++    for(; t < total; t += stride)
++    {
++        const int64_t row = t / inner;
++        const int64_t r = idx[row];
++        if(ZERO_NEG && r < 0)
++        {
++            dst[t] = 0.0f;
++        }
++        else
++        {
++            dst[t] = src[r * inner + (t - row * inner)];
++        }
++    }
++}
++
++template<bool ZERO_NEG>
++void launch_gather_rows_impl(
++    const at::Tensor &src_flat, // [N, inner] contiguous FP32
++    const at::Tensor &ids,      // [N_rows] int64
++    at::Tensor &dst,            // [N_rows, inner] contiguous FP32
++    cudaStream_t stream)
++{
++    const int64_t n_rows = ids.numel();
++    const int64_t inner = dst.numel() / std::max<int64_t>(n_rows, 1);
++    const int64_t total = n_rows * inner;
++    if(total == 0)
++    {
++        return;
++    }
++    const int threads = 256;
++    const int grid    = static_cast<int>(std::min<int64_t>(65535, (total + threads - 1) / threads));
++    const float *s    = src_flat.const_data_ptr<float>();
++    const int64_t *id = ids.const_data_ptr<int64_t>();
++    float *d          = dst.data_ptr<float>();
++    switch(inner)
++    {
++    case 1:
++        gather_rows_kernel_t<1, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    case 3:
++        gather_rows_kernel_t<3, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    case 4:
++        gather_rows_kernel_t<4, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    case 12:
++        gather_rows_kernel_t<12, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    case 27:
++        gather_rows_kernel_t<27, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    case 48:
++        gather_rows_kernel_t<48, ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows);
++        break;
++    default:
++        gather_rows_kernel_gen<ZERO_NEG><<<grid, threads, 0, stream>>>(s, id, d, n_rows, inner);
++        break;
++    }
++    C10_CUDA_KERNEL_LAUNCH_CHECK();
++}
++
++void launch_gather_rows(
++    const at::Tensor &src_flat, // [N, inner] contiguous FP32
++    const at::Tensor &ids,      // [N_rows] int64
++    at::Tensor &dst,            // [N_rows, inner] contiguous FP32
++    cudaStream_t stream,
++    const bool zero_on_neg = false)
++{
++    if(zero_on_neg)
++    {
++        launch_gather_rows_impl<true>(src_flat, ids, dst, stream);
++    }
++    else
++    {
++        launch_gather_rows_impl<false>(src_flat, ids, dst, stream);
++    }
++}
++} // namespace
++
++std::tuple<
++    at::Tensor,
++    at::Tensor,
++    at::Tensor,
++    at::Tensor,
++    at::Tensor>
++higs_gather_visible(
++    const at::Tensor &means,
++    const at::Tensor &quats,
++    const at::Tensor &scales,
++    const at::Tensor &opacities,
++    const at::Tensor &colors,
++    const at::Tensor &visible_ids)
++{
++    TORCH_CHECK(means.is_cuda(), "higs_gather_visible: means must be CUDA");
++    TORCH_CHECK(means.scalar_type() == at::kFloat, "higs_gather_visible: FP32 master tensors required");
++    TORCH_CHECK(visible_ids.scalar_type() == at::kLong, "higs_gather_visible: int64 visible_ids required");
++
++    const at::cuda::OptionalCUDAGuard device_guard(means.device());
++    const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
++
++    const at::Tensor means_c     = means.contiguous();
++    const at::Tensor quats_c     = quats.contiguous();
++    const at::Tensor scales_c    = scales.contiguous();
++    const at::Tensor opacities_c = opacities.contiguous();
++    const at::Tensor colors_c    = colors.contiguous();
++    const at::Tensor ids_c       = visible_ids.contiguous();
++
++    const int64_t n_rows = ids_c.numel();
++    const at::TensorOptions opts = means_c.options();
++
++    at::Tensor v_means     = at::empty({n_rows, 3}, opts);
++    at::Tensor v_quats     = at::empty({n_rows, 4}, opts);
++    at::Tensor v_scales    = at::empty({n_rows, 3}, opts);
++    at::Tensor v_opacities = at::empty({n_rows}, opts);
++    std::vector<int64_t> color_sizes = colors_c.sizes().vec();
++    color_sizes[0] = n_rows;
++    at::Tensor v_colors = at::empty(color_sizes, opts);
++
++    if(n_rows == 0)
++    {
++        return {v_means, v_quats, v_scales, v_opacities, v_colors};
++    }
++
++    const at::Tensor colors_flat = colors_c.dim() == 1 ? colors_c.reshape({-1, 1}) : colors_c.flatten(1, -1);
++
++    launch_gather_rows(means_c, ids_c, v_means, stream);
++    launch_gather_rows(quats_c, ids_c, v_quats, stream);
++    launch_gather_rows(scales_c, ids_c, v_scales, stream);
++    at::Tensor v_opacities_2d = v_opacities.reshape({-1, 1});
++    launch_gather_rows(opacities_c.reshape({-1, 1}), ids_c, v_opacities_2d, stream);
++    at::Tensor v_colors_flat = v_colors.reshape({n_rows, -1});
++    launch_gather_rows(colors_flat, ids_c, v_colors_flat, stream);
++
++    return {v_means, v_quats, v_scales, v_opacities, v_colors};
++}
++
++at::Tensor higs_gather_rows(
++    const at::Tensor &src,
++    const at::Tensor &row_ids,
++    const bool zero_on_neg)
++{
++    TORCH_CHECK(src.is_cuda(), "higs_gather_rows: src must be CUDA");
++    TORCH_CHECK(src.scalar_type() == at::kFloat, "higs_gather_rows: FP32 tensor required");
++    TORCH_CHECK(row_ids.scalar_type() == at::kLong, "higs_gather_rows: int64 row_ids required");
++
++    const at::cuda::OptionalCUDAGuard device_guard(src.device());
++    const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
++
++    const at::Tensor src_c = src.contiguous();
++    const at::Tensor ids_c = row_ids.contiguous();
++
++    const int64_t n_rows = ids_c.numel();
++    const at::TensorOptions opts = src_c.options();
++    std::vector<int64_t> sizes = src_c.sizes().vec();
++    sizes[0] = n_rows;
++    at::Tensor dst = at::empty(sizes, opts);
++    if(n_rows == 0)
++    {
++        return dst;
++    }
++    const at::Tensor src_flat = src_c.dim() == 1 ? src_c.reshape({-1, 1}) : src_c.flatten(1, -1);
++    at::Tensor dst_flat = dst.reshape({n_rows, -1});
++    launch_gather_rows(src_flat, ids_c, dst_flat, stream, zero_on_neg);
++    return dst;
++}
++
++// Union visibility over cameras: a Gaussian is visible if BOTH radius
++// components are > 0 in at least one camera. One thread per Gaussian.
++template<typename T>
++__global__ void union_visible_mask_kernel_t(
++    const T *__restrict__ radii,        // [C, N, 2]
++    bool *__restrict__ mask,            // [N]
++    const int64_t C,
++    const int64_t N)
++{
++    const int64_t n = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
++    if(n >= N)
++    {
++        return;
++    }
++    bool vis = false;
++    for(int64_t c = 0; c < C && !vis; ++c)
++    {
++        const T *r = radii + (c * N + n) * 2;
++        vis = (r[0] > T(0)) && (r[1] > T(0));
++    }
++    mask[n] = vis;
++}
++
++at::Tensor higs_union_visible_mask(
++    const at::Tensor &radii) // [C, N, 2] float32 or int32
++{
++    TORCH_CHECK(radii.is_cuda(), "higs_union_visible_mask: radii must be CUDA");
++    TORCH_CHECK(
++        radii.scalar_type() == at::kFloat || radii.scalar_type() == at::kInt,
++        "higs_union_visible_mask: FP32 or int32 radii required");
++    TORCH_CHECK(radii.dim() == 3 && radii.size(2) == 2, "higs_union_visible_mask: expected [C, N, 2]");
++
++    const at::cuda::OptionalCUDAGuard device_guard(radii.device());
++    const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
++
++    const at::Tensor radii_c = radii.contiguous();
++    const int64_t C = radii_c.size(0);
++    const int64_t N = radii_c.size(1);
++
++    at::Tensor mask = at::empty({N}, radii_c.options().dtype(at::kBool));
++    if(N == 0)
++    {
++        return mask;
++    }
++
++    const int threads = 256;
++    const int grid = static_cast<int>(std::min<int64_t>(65535, (N + threads - 1) / threads));
++    if(radii_c.scalar_type() == at::kInt)
++    {
++        union_visible_mask_kernel_t<int><<<grid, threads, 0, stream>>>(
++            radii_c.const_data_ptr<int>(), mask.data_ptr<bool>(), C, N);
++    }
++    else
++    {
++        union_visible_mask_kernel_t<float><<<grid, threads, 0, stream>>>(
++            radii_c.const_data_ptr<float>(), mask.data_ptr<bool>(), C, N);
++    }
++    C10_CUDA_KERNEL_LAUNCH_CHECK();
++    return mask;
++}
++} // namespace gaussian_render_inference_scene
++} // namespace gsplat
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
+new file mode 100644
+index 0000000..560280c
+--- /dev/null
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
+@@ -0,0 +1,76 @@
++/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#pragma once
++
++#include <ATen/core/Tensor.h>
++#include <cstdint>
++#include <tuple>
++
++namespace gsplat
++{
++namespace gaussian_render_inference_scene
++{
++    /// Compact-copy the visible rows of the FP32 master tensors.
++    ///
++    /// ``visible_ids`` is the sorted int64 index list produced by the HiGS
++    /// culling pass (union over cameras). The five master tensors keep their
++    /// original shapes (``colors`` may be ``[N, 3]`` pre-activated RGB or
++    /// ``[N, K, D]`` SH coefficients). All tensors must be contiguous FP32 on
++    /// the current CUDA device. The outputs are freshly allocated contiguous
++    /// tensors with ``[N_visible, ...]`` leading dims.
++    ///
++    /// This exists because PyTorch's row gather dispatches to a vectorized
++    /// path whenever the row width is a multiple of four floats, which is
++    /// pathologically slow for random row indices (quats ``[N,4]`` and colors
++    /// ``[N,16,3]`` measured ~1.7 ms each on A100 for a 2.27 M visible subset).
++    /// A single-purpose element-wise kernel avoids that dispatch entirely.
++    std::tuple<
++        at::Tensor, // v_means    [N_visible, 3]
++        at::Tensor, // v_quats    [N_visible, 4]
++        at::Tensor, // v_scales   [N_visible, 3]
++        at::Tensor, // v_opacities [N_visible]
++        at::Tensor  // v_colors   [N_visible, ...] (same trailing shape as colors)
++        >
++    higs_gather_visible(
++        const at::Tensor &means,      // [N, 3] float32
++        const at::Tensor &quats,      // [N, 4] float32
++        const at::Tensor &scales,     // [N, 3] float32
++        const at::Tensor &opacities,  // [N] float32
++        const at::Tensor &colors,     // [N, ...] float32
++        const at::Tensor &visible_ids // [N_visible] int64
++    );
++
++    /// Compact-copy an arbitrary subset of rows of one FP32 tensor.
++    ///
++    /// Same purpose as ``higs_gather_visible`` but for a single tensor of any
++    /// trailing shape; used by densify/prune and the Adam-state sync, whose
++    /// row gathers would otherwise hit the same slow vectorized PyTorch
++    /// dispatch (row widths divisible by four floats).
++    at::Tensor higs_gather_rows(
++        const at::Tensor &src,     // [N, ...] float32
++        const at::Tensor &row_ids, // [N_rows] int64
++        const bool zero_on_neg = false // negative ids write zeros (Adam-state sync)
++    );
++
++    /// Union-visibility mask over cameras from the culling projection radii:
++    /// mask[n] = any_c((r[c,n,0] > 0) && (r[c,n,1] > 0)). Output [N] bool.
++    at::Tensor higs_union_visible_mask(
++        const at::Tensor &radii // [C, N, 2] float32
++    );
++} // namespace gaussian_render_inference_scene
++} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
-index 15a4650..e61bbac 100644
+index 15a4650..590c12c 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
-@@ -1,4 +1,4 @@
--/*
-+﻿/*
-  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-  * SPDX-License-Identifier: Apache-2.0
-  *
 @@ -517,7 +517,20 @@ namespace gaussian_render_inference_scene
      // ==========================================================================
      // gaussian_render_inference_only — torch.ops compatibility wrapper
@@ -2153,15 +2897,9 @@ index 15a4650..e61bbac 100644
          const at::Tensor &qso_packed,
          const at::Tensor &colors_packed,
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
-index c01a046..523e681 100644
+index c01a046..892a0e3 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
-@@ -1,4 +1,4 @@
--/*
-+﻿/*
-  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-  * SPDX-License-Identifier: Apache-2.0
-  *
 @@ -178,6 +178,11 @@ namespace gaussian_render_inference_scene
              return !state_ || state_->num_gaussians == 0;
          }
@@ -2176,10 +2914,10 @@ index c01a046..523e681 100644
          at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 new file mode 100644
-index 0000000..9426432
+index 0000000..1935492
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
-@@ -0,0 +1,1087 @@
+@@ -0,0 +1,1504 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -2209,6 +2947,7 @@ index 0000000..9426432
 +
 +#include <ATen/cuda/Atomic.cuh>
 +#include <ATen/cuda/CUDAContext.h>
++#include <ATen/ops/empty.h>
 +#include <ATen/ops/zeros.h>
 +#include <c10/cuda/CUDAGuard.h>
 +#include <c10/cuda/CUDAException.h>
@@ -2217,6 +2956,7 @@ index 0000000..9426432
 +#include <cooperative_groups/reduce.h>
 +
 +#include <cstdint>
++#include <cstdlib>
 +
 +#include "Common.h"
 +#include "HigsNativeBackward.h"
@@ -2237,7 +2977,7 @@ index 0000000..9426432
 +// Stage 1: pixel-blend backward (per-tile, warp-reduced, atomicAdd scatter)
 +// ============================================================================
 +template<uint32_t CDIM>
-+__global__ void higs_blend_bwd_kernel(
++__global__ void __launch_bounds__(256, 5) higs_blend_bwd_kernel(
 +    const uint32_t I,
 +    const uint32_t N,
 +    const uint32_t n_isects,
@@ -2329,7 +3069,7 @@ index 0000000..9426432
 +#pragma unroll
 +        for(uint32_t k = 0; k < CDIM; ++k)
 +        {
-+            atomicAdd_system(v_backgrounds + k, T_final * v_render_c[k]);
++            atomicAdd(v_backgrounds + k, T_final * v_render_c[k]);
 +        }
 +    }
 +
@@ -2437,25 +3177,273 @@ index 0000000..9426432
 +#pragma unroll
 +                for(uint32_t k = 0; k < CDIM; ++k)
 +                {
-+                    atomicAdd_system(v_rgb_ptr + k, v_rgb_local[k]);
++                    atomicAdd(v_rgb_ptr + k, v_rgb_local[k]);
 +                }
 +
 +                float *v_conic_ptr = (float *)(v_conics) + 3 * (int64_t)g;
-+                atomicAdd_system(v_conic_ptr, v_conic_local.x);
-+                atomicAdd_system(v_conic_ptr + 1, v_conic_local.y);
-+                atomicAdd_system(v_conic_ptr + 2, v_conic_local.z);
++                atomicAdd(v_conic_ptr, v_conic_local.x);
++                atomicAdd(v_conic_ptr + 1, v_conic_local.y);
++                atomicAdd(v_conic_ptr + 2, v_conic_local.z);
 +
 +                float *v_xy_ptr = (float *)(v_means2d) + 2 * (int64_t)g;
-+                atomicAdd_system(v_xy_ptr, v_xy_local.x);
-+                atomicAdd_system(v_xy_ptr + 1, v_xy_local.y);
++                atomicAdd(v_xy_ptr, v_xy_local.x);
++                atomicAdd(v_xy_ptr + 1, v_xy_local.y);
 +
-+                atomicAdd_system(v_opacities + g, v_opacity_local);
++                atomicAdd(v_opacities + g, v_opacity_local);
 +            }
 +        }
 +    }
 +}
 +
++
 +// ============================================================================
++// PX-pixels-per-thread variant of the pixel-blend backward.  Each thread owns
++// PX pixels (strided by 16/PX rows inside the 16x16 render tile), so a tile's
++// 256 pixels are covered by 256/PX threads.  The per-isect warp reductions
++// and atomic scatters scale as 1/PX (same total per-pixel math), trading
++// register pressure (PX pixel states) for fewer reduction/atomic operations.
++// ============================================================================
++template<uint32_t CDIM, uint32_t PX>
++__global__ void __launch_bounds__(256 / PX, PX == 1 ? 5 : PX == 2 ? 5 : PX == 4 ? 8 : 10)
++higs_blend_bwd_px_kernel(
++    const uint32_t I,
++    const uint32_t N,
++    const uint32_t n_isects,
++    const vec2 *__restrict__ means2d,
++    const vec3 *__restrict__ conics,
++    const float *__restrict__ colors,
++    const float *__restrict__ opacities,
++    const float *__restrict__ backgrounds,
++    const uint32_t image_width,
++    const uint32_t image_height,
++    const uint32_t tile_size,
++    const int32_t *__restrict__ tile_offsets,
++    const int32_t *__restrict__ flatten_ids,
++    const float *__restrict__ render_alphas,
++    const int32_t *__restrict__ last_ids,
++    const float *__restrict__ v_render_colors,
++    const float *__restrict__ v_render_alphas,
++    vec2 *__restrict__ v_means2d,
++    vec3 *__restrict__ v_conics,
++    float *__restrict__ v_colors,
++    float *__restrict__ v_opacities,
++    float *__restrict__ v_backgrounds
++)
++{
++    static_assert(PX == 1 || PX == 2 || PX == 4 || PX == 8, "PX must be 1/2/4/8");
++    auto block              = cg::this_thread_block();
++    const uint32_t tile_width  = gridDim.z;
++    const uint32_t tile_height = gridDim.y;
++
++    uint32_t image_id = block.group_index().x;
++    uint32_t tile_id  = block.group_index().y * tile_width + block.group_index().z;
++    uint32_t i0       = block.group_index().y * tile_size;
++    uint32_t j0       = block.group_index().z * tile_size;
++    const uint32_t ty = block.thread_index().y;
++    const uint32_t tx = block.thread_index().x;
++    constexpr uint32_t PX_ROWS = 16 / PX; // tile rows assigned per q (tile_size == 16)
++
++    tile_offsets    += (int64_t)image_id * tile_height * tile_width;
++    render_alphas   += (int64_t)image_id * image_height * image_width;
++    last_ids        += (int64_t)image_id * image_height * image_width;
++    v_render_colors += (int64_t)image_id * image_height * image_width * CDIM;
++    v_render_alphas += (int64_t)image_id * image_height * image_width;
++    if(backgrounds != nullptr)
++    {
++        backgrounds += image_id * CDIM;
++    }
++
++    // per-pixel state for each of the PX pixels
++    float px[PX], py[PX];
++    int32_t pix_id[PX];
++    bool inside[PX];
++    float T_final[PX], T[PX];
++    float buffer[PX][CDIM];
++    float v_render_c[PX][CDIM];
++    float v_render_a[PX];
++    int32_t bin_final[PX];
++    bool valid[PX];
++
++#pragma unroll
++    for(uint32_t q = 0; q < PX; ++q)
++    {
++        const uint32_t i = i0 + ty + q * PX_ROWS;
++        const uint32_t j = j0 + tx;
++        px[q]            = (float)j + 0.5f;
++        py[q]            = (float)i + 0.5f;
++        pix_id[q]        = min(i * image_width + j, image_width * image_height - 1);
++        inside[q]        = (i < image_height && j < image_width);
++        T_final[q]       = 1.0f - render_alphas[pix_id[q]];
++        T[q]             = T_final[q];
++        bin_final[q]     = inside[q] ? last_ids[pix_id[q]] : 0;
++#pragma unroll
++        for(uint32_t k = 0; k < CDIM; ++k)
++        {
++            v_render_c[q][k] = v_render_colors[pix_id[q] * CDIM + k];
++            buffer[q][k]     = 0.f;
++        }
++        v_render_a[q] = v_render_alphas[pix_id[q]];
++        if(backgrounds != nullptr)
++        {
++#pragma unroll
++            for(uint32_t k = 0; k < CDIM; ++k)
++            {
++                atomicAdd(v_backgrounds + k, T_final[q] * v_render_c[q][k]);
++            }
++        }
++    }
++
++    int32_t range_start = tile_offsets[tile_id];
++    int32_t range_end   = (image_id == I - 1) && (tile_id == tile_width * tile_height - 1)
++                              ? (int32_t)n_isects
++                              : tile_offsets[tile_id + 1];
++    const uint32_t block_size  = block.size();
++    const uint32_t num_batches = (range_end - range_start + block_size - 1) / block_size;
++
++    extern __shared__ int s[];
++    int32_t *id_batch      = (int32_t *)s;
++    vec3 *xy_opacity_batch = reinterpret_cast<vec3 *>(&id_batch[block_size]);
++    vec3 *conic_batch      = reinterpret_cast<vec3 *>(&xy_opacity_batch[block_size]);
++    float *rgbs_batch      = (float *)&conic_batch[block_size];
++
++    const uint32_t tr              = block.thread_rank();
++    cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
++    int32_t warp_bin_final         = 0;
++#pragma unroll
++    for(uint32_t q = 0; q < PX; ++q)
++    {
++        warp_bin_final = max(warp_bin_final, bin_final[q]);
++    }
++    warp_bin_final = cg::reduce(warp, warp_bin_final, cg::greater<int>());
++
++    for(uint32_t b = 0; b < num_batches; ++b)
++    {
++        block.sync();
++        const int32_t batch_end  = range_end - 1 - (int32_t)(block_size * b);
++        const int32_t batch_size = min((int32_t)block_size, batch_end + 1 - range_start);
++        const int32_t idx        = batch_end - (int32_t)tr;
++        if(idx >= range_start)
++        {
++            int32_t g            = flatten_ids[idx];
++            id_batch[tr]         = g;
++            const vec2 xy        = means2d[g];
++            const float opac     = opacities[g];
++            xy_opacity_batch[tr] = {xy.x, xy.y, opac};
++            conic_batch[tr]      = conics[g];
++#pragma unroll
++            for(uint32_t k = 0; k < CDIM; ++k)
++            {
++                rgbs_batch[tr * CDIM + k] = colors[(int64_t)g * CDIM + k];
++            }
++        }
++        block.sync();
++
++        for(uint32_t t = (uint32_t)max(0, batch_end - warp_bin_final); t < (uint32_t)batch_size; ++t)
++        {
++            float v_rgb_local[CDIM] = {0.f};
++            vec3 v_conic_local      = {0.f, 0.f, 0.f};
++            vec2 v_xy_local         = {0.f, 0.f};
++            float v_opacity_local   = 0.f;
++            bool any_valid          = false;
++            for(uint32_t q = 0; q < PX; ++q)
++            {
++                valid[q] = inside[q];
++                if(batch_end - (int32_t)t > bin_final[q])
++                {
++                    valid[q] = false;
++                }
++                if(valid[q])
++                {
++                    const vec3 conic          = conic_batch[t];
++                    const vec3 xy_opac        = xy_opacity_batch[t];
++                    const float opac          = xy_opac.z;
++                    const vec2 delta          = {xy_opac.x - px[q], xy_opac.y - py[q]};
++                    const GaussianWeight gw   = eval_gaussian_weight(conic, delta.x, delta.y, opac);
++                    const float vis           = gw.vis;
++                    const float alpha         = gw.alpha;
++                    if(!gw.valid)
++                    {
++                        valid[q] = false;
++                    }
++                    else
++                    {
++                        any_valid = true;
++                        // rasterize_to_pixels_3dgs_blend_bwd ASSIGNS its
++                        // v_*_local outputs (it is written for one call per
++                        // (thread, isect)), so each q-pixel must use private
++                        // scratch and the results are accumulated into the
++                        // shared per-isect totals before the single warp
++                        // reduction and atomic scatter below.
++                        float v_rgb_q[CDIM] = {0.f};
++                        vec3 v_conic_q      = {0.f, 0.f, 0.f};
++                        vec2 v_xy_q         = {0.f, 0.f};
++                        float v_opacity_q   = 0.f;
++                        rasterize_to_pixels_3dgs_blend_bwd<CDIM>(
++                            conic,
++                            delta,
++                            opac,
++                            vis,
++                            alpha,
++                            rgbs_batch + t * CDIM,
++                            v_render_c[q],
++                            v_render_a[q],
++                            T_final[q],
++                            backgrounds,
++                            false, // compute_abs
++                            T[q],
++                            buffer[q],
++                            v_rgb_q,
++                            v_conic_q,
++                            v_xy_q,
++                            v_xy_q,
++                            v_opacity_q
++                        );
++#pragma unroll
++                        for(uint32_t k = 0; k < CDIM; ++k)
++                        {
++                            v_rgb_local[k] += v_rgb_q[k];
++                        }
++                        v_conic_local.x += v_conic_q.x;
++                        v_conic_local.y += v_conic_q.y;
++                        v_conic_local.z += v_conic_q.z;
++                        v_xy_local.x += v_xy_q.x;
++                        v_xy_local.y += v_xy_q.y;
++                        v_opacity_local += v_opacity_q;
++                    }
++                }
++            }
++            if(!warp.any(any_valid))
++            {
++                continue;
++            }
++            warpSum<CDIM>(v_rgb_local, warp);
++            warpSum(v_conic_local, warp);
++            warpSum(v_xy_local, warp);
++            warpSum(v_opacity_local, warp);
++            if(warp.thread_rank() == 0)
++            {
++                int32_t g        = id_batch[t];
++                float *v_rgb_ptr = v_colors + (int64_t)CDIM * g;
++#pragma unroll
++                for(uint32_t k = 0; k < CDIM; ++k)
++                {
++                    atomicAdd(v_rgb_ptr + k, v_rgb_local[k]);
++                }
++                float *v_conic_ptr = (float *)(v_conics) + 3 * (int64_t)g;
++                atomicAdd(v_conic_ptr, v_conic_local.x);
++                atomicAdd(v_conic_ptr + 1, v_conic_local.y);
++                atomicAdd(v_conic_ptr + 2, v_conic_local.z);
++                float *v_xy_ptr = (float *)(v_means2d) + 2 * (int64_t)g;
++                atomicAdd(v_xy_ptr, v_xy_local.x);
++                atomicAdd(v_xy_ptr + 1, v_xy_local.y);
++                atomicAdd(v_opacities + g, v_opacity_local);
++            }
++        }
++    }
++}
++
++
++
 +// Background gradient (per-pixel reduction; only used when there are no
 +// intersections -- the blend kernel covers it otherwise).
 +// ============================================================================
@@ -2476,7 +3464,7 @@ index 0000000..9426432
 +#pragma unroll
 +    for(uint32_t k = 0; k < color_dim; ++k)
 +    {
-+        atomicAdd_system(v_backgrounds + k, T_final * v_render_colors[idx * color_dim + k]);
++        atomicAdd(v_backgrounds + k, T_final * v_render_colors[idx * color_dim + k]);
 +    }
 +}
 +
@@ -2506,10 +3494,11 @@ index 0000000..9426432
 +    const float *__restrict__ v_colors_flat, // [I * N, color_dim]
 +    const int32_t color_dim,
 +    const int32_t depth_channel,             // -1 when no depth channel
-+    // gradient inputs (FP32 master accumulators)
-+    float *__restrict__ v_means,  // [N, 3]
-+    float *__restrict__ v_quats,  // [N, 4]
-+    float *__restrict__ v_scales  // [N, 3]
++    const int64_t *__restrict__ visible_ids, // [N] master row per visible gaussian
++    // gradient inputs (FP32 master accumulators, written via visible_ids)
++    float *__restrict__ v_means,  // [M, 3]
++    float *__restrict__ v_quats,  // [M, 4]
++    float *__restrict__ v_scales  // [M, 3]
 +)
 +{
 +    const int64_t idx   = cg::this_grid().thread_rank();
@@ -2643,16 +3632,17 @@ index 0000000..9426432
 +    warpSum(v_scale, warp_group_g);
 +    if(warp_group_g.thread_rank() == 0)
 +    {
-+        float *v_m = v_means + g * 3;
++        const int64_t m_id = visible_ids[g];
++        float *v_m = v_means + m_id * 3;
 +        gpuAtomicAdd(v_m, v_mean.x);
 +        gpuAtomicAdd(v_m + 1, v_mean.y);
 +        gpuAtomicAdd(v_m + 2, v_mean.z);
-+        float *v_q = v_quats + g * 4;
++        float *v_q = v_quats + m_id * 4;
 +        gpuAtomicAdd(v_q, v_quat[0]);
 +        gpuAtomicAdd(v_q + 1, v_quat[1]);
 +        gpuAtomicAdd(v_q + 2, v_quat[2]);
 +        gpuAtomicAdd(v_q + 3, v_quat[3]);
-+        float *v_s = v_scales + g * 3;
++        float *v_s = v_scales + m_id * 3;
 +        gpuAtomicAdd(v_s, v_scale[0]);
 +        gpuAtomicAdd(v_s + 1, v_scale[1]);
 +        gpuAtomicAdd(v_s + 2, v_scale[2]);
@@ -2856,7 +3846,40 @@ index 0000000..9426432
 +    }
 +}
 +
-+__global__ void higs_sh_vjp_kernel(
++// ============================================================================
++// Stage 3: SH coefficient + direction VJP over a FIXED grid of I * N * D
++// threads with a per-pair radii mask (std-shaped like gsplat's
++// spherical_harmonics_bwd). A fixed grid avoids the visible-pair compaction
++// (per-block counts + exclusive scan + packed pair list) and, more
++// importantly, the device->host readback that used to size the dynamic grid:
++// the VJP now launches back-to-back with the projection VJP. Masked
++// (invisible) threads exit before any memory reads, exactly like std's
++// masked SH backward.
++// ============================================================================
++// Precompute camera world positions cam_pos = -R^t t once per camera so the
++// SH VJP grid kernel does not re-derive the mat3 transpose per thread.
++__global__ void higs_camera_positions_kernel(
++    const float *__restrict__ viewmats, // [1, C, 4, 4] row-major
++    float *__restrict__ cam_positions,  // [C, 3]
++    const uint32_t C
++)
++{
++    const uint32_t c = blockIdx.x * blockDim.x + threadIdx.x;
++    if(c >= C)
++    {
++        return;
++    }
++    const float *v = viewmats + c * 16;
++    const float tx = v[3];
++    const float ty = v[7];
++    const float tz = v[11];
++    float *p       = cam_positions + c * 3;
++    p[0]           = -(v[0] * tx + v[4] * ty + v[8] * tz);
++    p[1]           = -(v[1] * tx + v[5] * ty + v[9] * tz);
++    p[2]           = -(v[2] * tx + v[6] * ty + v[10] * tz);
++}
++
++__global__ void higs_sh_vjp_grid_kernel(
 +    const uint32_t I,
 +    const uint32_t N,
 +    const uint32_t C,
@@ -2864,62 +3887,96 @@ index 0000000..9426432
 +    const uint32_t K,
 +    const uint32_t D,
 +    const uint32_t stride,                    // colors_eval row stride (== D for RGB)
-+    const float *__restrict__ means,          // [N, 3]
-+    const float *__restrict__ viewmats,       // [1, C, 4, 4]
 +    const int32_t *__restrict__ radii,        // [I, N, 2]
++    const float *__restrict__ means,          // [N, 3]
++    const float *__restrict__ cam_positions,  // [C, 3]
 +    const float *__restrict__ coeffs,         // [N, K, D]
 +    const float *__restrict__ colors_eval,    // [I * N, D] forward-captured
 +    const float *__restrict__ v_colors_eval,  // [I * N, D]
-+    float *__restrict__ v_coeffs,             // [N, K, D]
-+    float *__restrict__ v_means               // [N, 3]
++    const int64_t *__restrict__ visible_ids,  // [N] master row per visible gaussian
++    float *__restrict__ v_coeffs,             // [M, K, D] master
++    float *__restrict__ v_means               // [M, 3] master
 +)
 +{
-+    const int64_t idx   = cg::this_grid().thread_rank();
-+    const int64_t count = (int64_t)I * N;
-+    if(idx >= count)
++    const int64_t t   = cg::this_grid().thread_rank();
++    const int64_t num = static_cast<int64_t>(I) * N * D;
++    if(t >= num)
 +    {
 +        return;
 +    }
-+    const uint32_t i   = idx / N;
-+    const uint32_t g   = idx % N;
-+    const uint32_t cid = i % C;
-+    const int32_t *r   = radii + idx * 2;
-+    if(r[0] <= 0 || r[1] <= 0)
-+    {
-+        return;
-+    }
-+
-+    // cam_pos = -R^T t  (world position of the camera from the view matrix)
-+    const float *view_ptr = viewmats + cid * 16;
-+    mat3 R = mat3(
-+        view_ptr[0], view_ptr[4], view_ptr[8], // 1st column
-+        view_ptr[1], view_ptr[5], view_ptr[9], // 2nd column
-+        view_ptr[2], view_ptr[6], view_ptr[10] // 3rd column
-+    );
-+    vec3 t       = vec3(view_ptr[3], view_ptr[7], view_ptr[11]);
-+    vec3 cam_pos = -glm::transpose(R) * t;
-+    vec3 dir     = glm::make_vec3(means + g * 3) - cam_pos;
++    // One thread per (camera, gaussian, channel), gaussian fastest within a
++    // camera and the D channels of a gaussian adjacent (matching gsplat's SH
++    // bwd) so the atomic coefficient updates of one Gaussian stay in the
++    // same warp/cache lines.
++    const uint32_t elem = static_cast<uint32_t>(t / D);
++    const uint32_t g    = elem % N;
++    const uint32_t i    = elem / N;
++    const uint32_t c    = static_cast<uint32_t>(t % D);
++    const int32_t *r    = radii + ((int64_t)i * N + g) * 2;
++    const bool masked   = !(r[0] > 0 && r[1] > 0); // invisible in this camera
++    const uint32_t cid  = i % C;
++    const int64_t idx   = (int64_t)i * N + g;
++    const int64_t m_id  = visible_ids[g];
 +
 +    vec3 v_dir(0.f);
-+    const float *coeff_ptr     = coeffs + (int64_t)g * K * D;
-+    const float *col_eval_ptr  = colors_eval + (int64_t)idx * stride;
-+    const float *v_col_ptr     = v_colors_eval + (int64_t)idx * stride;
-+    float *v_coeff_ptr         = v_coeffs + (int64_t)g * K * D;
-+    for(uint32_t c = 0; c < D; ++c)
++    if(!masked)
 +    {
++        const float *cp = cam_positions + cid * 3;
++        const vec3 cam_pos(cp[0], cp[1], cp[2]);
++        const vec3 dir = glm::make_vec3(means + g * 3) - cam_pos;
++
++        const float *coeff_ptr    = coeffs + (int64_t)g * K * D;
++        const float *col_eval_ptr = colors_eval + idx * stride;
++        const float *v_col_ptr    = v_colors_eval + idx * stride;
++        float *v_coeff_ptr        = v_coeffs + m_id * K * D;
 +        // activation chain: colors_eval = clamp_min(sph + 0.5, 0), so
 +        // d(colors_eval)/d(sph) = 1{colors_eval > 0} (mask from the FORWARD
 +        // evaluated colors, never from the gradient sign).
 +        const float v_sph = col_eval_ptr[c] > 0.f ? v_col_ptr[c] : 0.f;
 +        higs_sh_coeffs_to_color_fast_vjp(degree, D, c, dir, coeff_ptr, v_sph, v_coeff_ptr, &v_dir);
 +    }
-+    // dir = means - cam_pos  ->  d(loss)/d(means) += v_dir
-+    atomicAdd_system(v_means + g * 3 + 0, v_dir.x);
-+    atomicAdd_system(v_means + g * 3 + 1, v_dir.y);
-+    atomicAdd_system(v_means + g * 3 + 2, v_dir.z);
-+}
 +
-+// ============================================================================
++    // dir = means - cam_pos -> d(loss)/d(means) += v_dir. The D channel lanes
++    // of one (camera, gaussian) are consecutive (c == t % D), so the three
++    // partials reduce with two shuffle-downs and one atomicAdd per output
++    // coordinate instead of three serialized same-address atomicAdds. Partial
++    // warps (grid tail) and groups that straddle a warp boundary fall back to
++    // the per-lane atomics; masked lanes contribute v_dir = 0 to the shuffle.
++    const uint32_t lane       = static_cast<uint32_t>(t) & 31u;
++    const uint32_t warp_start = static_cast<uint32_t>(t) & ~31u;
++    const bool full_warp      = (static_cast<int64_t>(warp_start) + 32 <= num);
++    const int32_t group_lane  = static_cast<int32_t>(lane) - static_cast<int32_t>(c);
++    const bool complete_group = full_warp && group_lane >= 0 && (group_lane + 2 <= 31);
++
++    vec3 v_dir_sum = v_dir;
++    if(full_warp)
++    {
++        v_dir_sum.x += __shfl_down_sync(0xffffffffu, v_dir.x, 1);
++        v_dir_sum.y += __shfl_down_sync(0xffffffffu, v_dir.y, 1);
++        v_dir_sum.z += __shfl_down_sync(0xffffffffu, v_dir.z, 1);
++        v_dir_sum.x += __shfl_down_sync(0xffffffffu, v_dir.x, 2);
++        v_dir_sum.y += __shfl_down_sync(0xffffffffu, v_dir.y, 2);
++        v_dir_sum.z += __shfl_down_sync(0xffffffffu, v_dir.z, 2);
++    }
++
++    if(!masked)
++    {
++        if(c == 0 && complete_group)
++        {
++            atomicAdd(v_means + m_id * 3 + 0, v_dir_sum.x);
++            atomicAdd(v_means + m_id * 3 + 1, v_dir_sum.y);
++            atomicAdd(v_means + m_id * 3 + 2, v_dir_sum.z);
++        }
++        else if(!complete_group)
++        {
++            atomicAdd(v_means + m_id * 3 + 0, v_dir.x);
++            atomicAdd(v_means + m_id * 3 + 1, v_dir.y);
++            atomicAdd(v_means + m_id * 3 + 2, v_dir.z);
++        }
++        // else: c != 0 lane of a complete group; its v_dir is already in the
++        // leader's shuffled sum.
++    }
++}
 +// Per-gaussian reduction across camera views (RGB-mode colors + opacities).
 +// ============================================================================
 +__global__ void higs_reduce_master_kernel(
@@ -2928,7 +3985,8 @@ index 0000000..9426432
 +    const uint32_t D,
 +    const uint32_t stride,            // v_flat row stride (== color_dim)
 +    const float *__restrict__ v_flat, // [I * N, stride]
-+    float *__restrict__ v_master      // [N, D]
++    const int64_t *__restrict__ visible_ids, // [N] master row per visible gaussian
++    float *__restrict__ v_master      // [M, D]
 +)
 +{
 +    const int64_t idx   = cg::this_grid().thread_rank();
@@ -2944,7 +4002,7 @@ index 0000000..9426432
 +    {
 +        acc += v_flat[((int64_t)i * N + g) * stride + d];
 +    }
-+    v_master[idx] = acc;
++    v_master[(int64_t)visible_ids[g] * D + d] = acc;
 +}
 +
 +// ============================================================================
@@ -2961,6 +4019,13 @@ index 0000000..9426432
 +{
 +    TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
 +    TORCH_CHECK(t.scalar_type() == at::kInt, name, " must be int32");
++    TORCH_CHECK(t.is_contiguous(), name, " must be contiguous");
++}
++
++void check_long_cuda(const at::Tensor &t, const char *name)
++{
++    TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
++    TORCH_CHECK(t.scalar_type() == at::kLong, name, " must be int64");
 +    TORCH_CHECK(t.is_contiguous(), name, " must be contiguous");
 +}
 +} // namespace
@@ -2997,7 +4062,13 @@ index 0000000..9426432
 +    const at::Tensor &v_render_colors,
 +    const at::Tensor &v_render_alphas,
 +    const at::optional<at::Tensor> &sh_coeffs,
-+    int64_t sh_degree
++    int64_t sh_degree,
++    const at::Tensor &visible_ids,  // [N] int64 ascending master indices
++    const at::Tensor &grad_means,   // [M, 3] pre-zeroed master gradients
++    const at::Tensor &grad_quats,   // [M, 4]
++    const at::Tensor &grad_scales,  // [M, 3]
++    const at::Tensor &grad_opacities, // [M]
++    const at::Tensor &grad_colors   // [M, K, D] (SH) or [M, D] (RGB)
 +)
 +{
 +    check_float_cuda(means2d, "means2d");
@@ -3024,11 +4095,19 @@ index 0000000..9426432
 +    {
 +        check_float_cuda(sh_coeffs.value(), "sh_coeffs");
 +    }
++    check_long_cuda(visible_ids, "visible_ids");
++    check_float_cuda(grad_means, "grad_means");
++    check_float_cuda(grad_quats, "grad_quats");
++    check_float_cuda(grad_scales, "grad_scales");
++    check_float_cuda(grad_opacities, "grad_opacities");
++    check_float_cuda(grad_colors, "grad_colors");
 +
 +    const int64_t B = viewmats.size(0);
 +    const int64_t C = viewmats.size(1);
 +    const int64_t I = render_alphas.size(0);
 +    const int64_t N = means.size(0);
++    TORCH_CHECK(visible_ids.size(0) == N, "visible_ids size ", visible_ids.size(0),
++        " does not match visible-subset N ", N);
 +    TORCH_CHECK(B == 1, "higs_native backward requires a single scene batch (B == 1), got ", B);
 +    TORCH_CHECK(I == B * C, "render_alphas batch size does not match viewmats");
 +    TORCH_CHECK(
@@ -3070,10 +4149,6 @@ index 0000000..9426432
 +    auto stream = at::cuda::getCurrentCUDAStream(device.index());
 +    auto opts   = at::TensorOptions().device(device).dtype(at::kFloat);
 +
-+    at::Tensor v_means       = at::zeros({N, 3}, opts);
-+    at::Tensor v_quats       = at::zeros({N, 4}, opts);
-+    at::Tensor v_scales      = at::zeros({N, 3}, opts);
-+    at::Tensor v_opacities   = at::zeros({N}, opts);
 +    at::Tensor v_backgrounds = at::zeros({color_dim}, opts);
 +    at::Tensor v_means2d     = at::zeros({I * N, 2}, opts);
 +    at::Tensor v_conics_out  = at::zeros({I * N, 3}, opts);
@@ -3099,39 +4174,105 @@ index 0000000..9426432
 +        );
 +#define LAUNCH_BLEND_BWD(CDIM)                                                                     \
 +    {                                                                                              \
-+        const int64_t shmem_size = tile_size * tile_size                                          \
-+            * (sizeof(int32_t) + sizeof(vec3) + sizeof(vec3) + sizeof(float) * (CDIM));            \
-+        C10_CUDA_CHECK(cudaFuncSetAttribute(                                                       \
-+            higs_blend_bwd_kernel<(CDIM)>,                                                         \
-+            cudaFuncAttributeMaxDynamicSharedMemorySize,                                           \
-+            static_cast<int>(shmem_size)                                                           \
-+        ));                                                                                        \
-+        higs_blend_bwd_kernel<(CDIM)><<<grid, threads, static_cast<size_t>(shmem_size), stream>>>( \
-+            static_cast<uint32_t>(I),                                                              \
-+            static_cast<uint32_t>(N),                                                              \
-+            static_cast<uint32_t>(n_isects),                                                       \
-+            reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                       \
-+            reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                        \
-+            colors_eval.const_data_ptr<float>(),                                                   \
-+            opacities.const_data_ptr<float>(),                                                     \
-+            backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,       \
-+            static_cast<uint32_t>(width),                                                          \
-+            static_cast<uint32_t>(height),                                                         \
-+            static_cast<uint32_t>(tile_size),                                                      \
-+            tile_offsets.const_data_ptr<int32_t>(),                                                \
-+            flatten_ids.const_data_ptr<int32_t>(),                                                 \
-+            render_alphas.const_data_ptr<float>(),                                                 \
-+            last_ids.const_data_ptr<int32_t>(),                                                    \
-+            v_render_colors.const_data_ptr<float>(),                                               \
-+            v_render_alphas.const_data_ptr<float>(),                                               \
-+            reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                                 \
-+            reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                              \
-+            v_colors_flat.data_ptr<float>(),                                                       \
-+            v_opacities_flat.data_ptr<float>(),                                                    \
-+            v_backgrounds.data_ptr<float>()                                                        \
-+        );                                                                                         \
-+        C10_CUDA_KERNEL_LAUNCH_CHECK();                                                            \
++        const char *px_env = std::getenv("HIGS_PX_RUNTIME");                                       \
++        const int64_t px_use = (px_env != nullptr) ? atoi(px_env) : 2;                             \
++        const int64_t px_safe = (px_use == 0) ? 0 : (px_use == 1) ? 1 : (px_use == 2) ? 2 :         \
++                                (px_use == 4) ? 4 : (px_use == 8) ? 8 : 2;                          \
++        const int64_t thrs = (tile_size * tile_size) / (px_safe == 0 ? 1 : px_safe);               \
++        const int64_t shmem_size = thrs                                                             \
++            * (sizeof(int32_t) + sizeof(vec3) + sizeof(vec3) + sizeof(float) * (CDIM));             \
++        dim3 threads_px(static_cast<uint32_t>(tile_size),                                           \
++                        static_cast<uint32_t>(thrs / tile_size), 1);                                \
++        if(px_safe == 0)                                                                            \
++        {                                                                                           \
++            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_kernel<(CDIM)>,                      \
++                cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shmem_size)));        \
++            higs_blend_bwd_kernel<(CDIM)><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
++                static_cast<uint32_t>(I), static_cast<uint32_t>(N), static_cast<uint32_t>(n_isects),\
++                reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                    \
++                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
++                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
++                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
++                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
++                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
++                last_ids.const_data_ptr<int32_t>(), v_render_colors.const_data_ptr<float>(),        \
++                v_render_alphas.const_data_ptr<float>(),                                            \
++                reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                              \
++                reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                           \
++                v_colors_flat.data_ptr<float>(), v_opacities_flat.data_ptr<float>(),                \
++                v_backgrounds.data_ptr<float>());                                                   \
++            C10_CUDA_KERNEL_LAUNCH_CHECK();                                                         \
++        }                                                                                           \
++        else if(px_safe == 1)                                                                       \
++        {                                                                                           \
++            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_px_kernel<(CDIM), 1>,                \
++                cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shmem_size)));        \
++            higs_blend_bwd_px_kernel<(CDIM), 1><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
++                static_cast<uint32_t>(I), static_cast<uint32_t>(N), static_cast<uint32_t>(n_isects),\
++                reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                    \
++                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
++                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
++                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
++                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
++                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
++                last_ids.const_data_ptr<int32_t>(), v_render_colors.const_data_ptr<float>(),        \
++                v_render_alphas.const_data_ptr<float>(),                                            \
++                reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                              \
++                reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                           \
++                v_colors_flat.data_ptr<float>(), v_opacities_flat.data_ptr<float>(),                \
++                v_backgrounds.data_ptr<float>());                                                   \
++            C10_CUDA_KERNEL_LAUNCH_CHECK();                                                         \
++        }                                                                                           \
++        else if(px_safe == 2)                                                                       \
++        {                                                                                           \
++            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_px_kernel<(CDIM), 2>,                \
++                cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shmem_size)));        \
++            higs_blend_bwd_px_kernel<(CDIM), 2><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
++                static_cast<uint32_t>(I), static_cast<uint32_t>(N), static_cast<uint32_t>(n_isects),\
++                reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                    \
++                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
++                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
++                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
++                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
++                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
++                last_ids.const_data_ptr<int32_t>(), v_render_colors.const_data_ptr<float>(),        \
++                v_render_alphas.const_data_ptr<float>(),                                            \
++                reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                              \
++                reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                           \
++                v_colors_flat.data_ptr<float>(), v_opacities_flat.data_ptr<float>(),                \
++                v_backgrounds.data_ptr<float>());                                                   \
++            C10_CUDA_KERNEL_LAUNCH_CHECK();                                                         \
++        }                                                                                           \
++        else if(px_safe == 4)                                                                       \
++        {                                                                                           \
++            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_px_kernel<(CDIM), 4>,                \
++                cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shmem_size)));        \
++            higs_blend_bwd_px_kernel<(CDIM), 4><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
++                static_cast<uint32_t>(I), static_cast<uint32_t>(N), static_cast<uint32_t>(n_isects),\
++                reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                    \
++                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
++                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
++                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
++                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
++                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
++                last_ids.const_data_ptr<int32_t>(), v_render_colors.const_data_ptr<float>(),        \
++                v_render_alphas.const_data_ptr<float>(),                                            \
++                reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                              \
++                reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                           \
++                v_colors_flat.data_ptr<float>(), v_opacities_flat.data_ptr<float>(),                \
++                v_backgrounds.data_ptr<float>());                                                   \
++            C10_CUDA_KERNEL_LAUNCH_CHECK();                                                         \
++        }                                                                                           \
++        else                                                                                        \
++        {                                                                                           \
++            TORCH_CHECK(false, "unsupported HIGS_PX_RUNTIME");                                      \
++        }                                                                                           \
 +    }
++
 +        switch(color_dim)
 +        {
 +        case 1:
@@ -3186,49 +4327,61 @@ index 0000000..9426432
 +            v_colors_flat.const_data_ptr<float>(),
 +            static_cast<int32_t>(color_dim),
 +            depth_channel,
-+            v_means.data_ptr<float>(),
-+            v_quats.data_ptr<float>(),
-+            v_scales.data_ptr<float>()
++            visible_ids.const_data_ptr<int64_t>(),
++            grad_means.data_ptr<float>(),
++            grad_quats.data_ptr<float>(),
++            grad_scales.data_ptr<float>()
 +        );
 +        C10_CUDA_KERNEL_LAUNCH_CHECK();
 +    }
 +
-+    at::Tensor v_colors_master;
-+    if(sh_coeffs.has_value() && color_dim >= 3)
++        if(sh_coeffs.has_value() && color_dim >= 3)
 +    {
 +        // ---- Stage 3a: SH VJP (depth-only modes have no color channels;
 +        // their SH/color input gradients are identically zero) ----
++        // Fixed grid over I * N * D with a per-pair radii mask: no visible-
++        // pair compaction and no device->host readback to size the grid, so
++        // this launches back-to-back with the projection VJP.
 +        const int64_t K = sh_coeffs.value().size(-2);
 +        const int64_t D = sh_coeffs.value().size(-1);
-+        v_colors_master = at::zeros({N, K, D}, opts);
++        const int64_t total = I * N * D;
++        const uint32_t threads = 256;
++        const uint32_t grid = static_cast<uint32_t>((total + threads - 1) / threads);
++        at::Tensor cam_positions = at::empty({static_cast<int64_t>(C), 3}, viewmats.options());
 +        {
-+            const int64_t total    = I * N;
-+            const uint32_t threads = 256;
-+            const uint32_t grid    = static_cast<uint32_t>((total + threads - 1) / threads);
-+            higs_sh_vjp_kernel<<<grid, threads, 0, stream>>>(
-+                static_cast<uint32_t>(I),
-+                static_cast<uint32_t>(N),
-+                static_cast<uint32_t>(C),
-+                static_cast<uint32_t>(sh_degree),
-+                static_cast<uint32_t>(K),
-+                static_cast<uint32_t>(D),
-+                static_cast<uint32_t>(color_dim),
-+                means.const_data_ptr<float>(),
++            const uint32_t threads = 64;
++            const uint32_t grid    = (C + threads - 1) / threads;
++            higs_camera_positions_kernel<<<grid, threads, 0, stream>>>(
 +                viewmats.const_data_ptr<float>(),
-+                radii.const_data_ptr<int32_t>(),
-+                sh_coeffs.value().const_data_ptr<float>(),
-+                colors_eval.const_data_ptr<float>(),
-+                v_colors_flat.const_data_ptr<float>(),
-+                v_colors_master.data_ptr<float>(),
-+                v_means.data_ptr<float>()
++                cam_positions.data_ptr<float>(),
++                C
 +            );
 +            C10_CUDA_KERNEL_LAUNCH_CHECK();
 +        }
++        higs_sh_vjp_grid_kernel<<<grid, threads, 0, stream>>>(
++
++            static_cast<uint32_t>(I),
++            static_cast<uint32_t>(N),
++            static_cast<uint32_t>(C),
++            static_cast<uint32_t>(sh_degree),
++            static_cast<uint32_t>(K),
++            static_cast<uint32_t>(D),
++            static_cast<uint32_t>(color_dim),
++            radii.const_data_ptr<int32_t>(),
++            means.const_data_ptr<float>(),
++            cam_positions.data_ptr<float>(),
++            sh_coeffs.value().const_data_ptr<float>(),
++            colors_eval.const_data_ptr<float>(),
++            v_colors_flat.const_data_ptr<float>(),
++            visible_ids.const_data_ptr<int64_t>(),
++            grad_colors.data_ptr<float>(),
++            grad_means.data_ptr<float>()
++        );
++        C10_CUDA_KERNEL_LAUNCH_CHECK();
 +    }
 +    else
 +    {
 +        // ---- Stage 3b: RGB mode - reduce evaluated-color grads over views ----
-+        v_colors_master = at::zeros({N, kHigsColorDim}, opts);
 +        if(color_dim >= 3)
 +        {
 +            const int64_t total    = N * kHigsColorDim;
@@ -3240,7 +4393,8 @@ index 0000000..9426432
 +                kHigsColorDim,
 +                static_cast<uint32_t>(color_dim),
 +                v_colors_flat.const_data_ptr<float>(),
-+                v_colors_master.data_ptr<float>()
++                visible_ids.const_data_ptr<int64_t>(),
++                grad_colors.data_ptr<float>()
 +            );
 +            C10_CUDA_KERNEL_LAUNCH_CHECK();
 +        }
@@ -3257,22 +4411,23 @@ index 0000000..9426432
 +            1,
 +            1, // stride
 +            v_opacities_flat.const_data_ptr<float>(),
-+            v_opacities.data_ptr<float>()
++            visible_ids.const_data_ptr<int64_t>(),
++            grad_opacities.data_ptr<float>()
 +        );
 +        C10_CUDA_KERNEL_LAUNCH_CHECK();
 +    }
 +
 +    (void)eps2d;
-+    return {v_means, v_quats, v_scales, v_opacities, v_colors_master, v_backgrounds};
++    return {grad_means, grad_quats, grad_scales, grad_opacities, grad_colors, v_backgrounds};
 +}
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
 new file mode 100644
-index 0000000..b2d243c
+index 0000000..893872f
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,94 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -3356,23 +4511,31 @@ index 0000000..b2d243c
 +        const at::Tensor &v_render_alphas, // [I, H, W] float32
 +        // ---- SH evaluation backward inputs (nullopt for pre-activated RGB) ----
 +        const at::optional<at::Tensor> &sh_coeffs, // [N, K, D] float32
-+        int64_t sh_degree
++        int64_t sh_degree,
++        // ---- master-gradient outputs (pre-zeroed, written in place) ----
++        const at::Tensor &visible_ids,    // [N] int64 ascending master indices
++        const at::Tensor &grad_means,     // [M, 3] float32
++        const at::Tensor &grad_quats,     // [M, 4] float32
++        const at::Tensor &grad_scales,    // [M, 3] float32
++        const at::Tensor &grad_opacities, // [M] float32
++        const at::Tensor &grad_colors     // [M, K, D] (SH) or [M, D] (RGB) float32
 +    );
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d1..ee8d2c0 100644
+index 2eb26d1..fc28161 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
-@@ -18,6 +18,7 @@
+@@ -18,6 +18,8 @@
  #include <torch/extension.h>
  
  #include "csrc/gaussian_inference/GaussianRenderInferenceScene.h"
 +#include "csrc/gaussian_inference/HigsNativeBackward.h"
++#include "csrc/gaussian_inference/GatherVisible.h"
  
  PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
  {
-@@ -52,9 +53,42 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+@@ -52,9 +54,76 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
          )
          .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
          .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
@@ -3408,7 +4571,41 @@ index 2eb26d1..ee8d2c0 100644
 +        py::arg("v_render_colors"),
 +        py::arg("v_render_alphas"),
 +        py::arg("sh_coeffs"),
-+        py::arg("sh_degree")
++        py::arg("sh_degree"),
++        py::arg("visible_ids"),
++        py::arg("grad_means"),
++        py::arg("grad_quats"),
++        py::arg("grad_scales"),
++        py::arg("grad_opacities"),
++        py::arg("grad_colors")
++    );
++
++    m.def(
++        "higs_gather_visible",
++        &gsplat::gaussian_render_inference_scene::higs_gather_visible,
++        "Compact-copy the visible rows of the FP32 master tensors for the differentiable HiGS forward path.",
++        py::arg("means"),
++        py::arg("quats"),
++        py::arg("scales"),
++        py::arg("opacities"),
++        py::arg("colors"),
++        py::arg("visible_ids")
++    );
++
++    m.def(
++        "higs_union_visible_mask",
++        &gsplat::gaussian_render_inference_scene::higs_union_visible_mask,
++        "Union-visibility mask over cameras from culling-projection radii.",
++        py::arg("radii")
++    );
++
++    m.def(
++        "higs_gather_rows",
++        &gsplat::gaussian_render_inference_scene::higs_gather_rows,
++        "Compact-copy an arbitrary subset of rows of one FP32 tensor (fast path for densify/prune and Adam-state sync). With zero_on_neg, negative row ids write zeros (used to fuse the zero-init of brand-new Gaussians into the state sync).",
++        py::arg("src"),
++        py::arg("row_ids"),
++        py::arg("zero_on_neg") = false
 +    );
  }
  
@@ -3416,6 +4613,15 @@ index 2eb26d1..ee8d2c0 100644
  TORCH_LIBRARY(experimental, m)
  {
      m.def(
+@@ -71,7 +140,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
+ }
+ 
+ // Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is
+-// inference-only and has no backward kernel. Without this, PyTorch ≥ 2.x
++// inference-only and has no backward kernel. Without this, PyTorch 鈮?2.x
+ // auto-registers an AutogradCUDA entry that wraps outputs in a grad_fn even
+ // when no backward is available, which confuses callers that check grad_fn is None.
+ TORCH_LIBRARY_IMPL(experimental, Autograd, m)
 diff --git a/tests/experimental/render/test_trainable.py b/tests/experimental/render/test_trainable.py
 new file mode 100644
 index 0000000..5d8d595
