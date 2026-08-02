@@ -1593,6 +1593,56 @@ for the objective requirement that total iteration (forward + backward) must
 actually benefit before claiming a speedup: both native and dynamic paths
 satisfy it on both small and large scenes, so the speedup claim stands.
 
+### Round 30 (2026-08-02): EPIC-05 environment recovery + reproducibility (container re-provisioned; all levers re-validated)
+
+**Incident.** The EPIC-05 container was re-provisioned: /root (repo clone,
+conda env, rebuilt extensions, /root/epic05-data) was wiped; hostname changed.
+The shared storage /mnt/workspace/codex-3dgs-epic05 (raw/processed datasets,
+downloads, state) and the local Windows tree (the authoritative gsplat HiGS
+sources under rtifacts/renderer-sources/gsplat) survived.
+
+**Recovery (all on the new container, CUDA 12.9.86 toolkit, 8x A100-80GB).**
+1. miniforge -> gsplat env: python 3.10.20, torch 2.7.0+cu128 (matches the
+   old py310_cu128 JIT cache ABI), plus benchmark/quality deps.
+2. Repo restored at /root/3dgs-roadmap-matrix @ 5e5cbd; processed data
+   symlinked (/root/epic05-data -> shared datasets/).
+3. gsplat tree (73.5 MB, incl. the untracked .cu kernels) re-synced from the
+   local tree; CRLF -> LF normalized.
+4. Build fix required: gsplat/cuda/csrc/Utils.cpp called the 2-arg
+   cudaEventCreate(&e, flags) (a CUDA 12.9 header mismatch that the old flow
+   never hit because it only rebuilt the experimental extension against a
+   prebuilt gsplat). Fixed to cudaEventCreateWithFlags(&e, flags) (2 sites).
+5. Built both extensions in-place (setup.py build_ext --inplace, ninja,
+   MAX_JOBS=6): gsplat/csrc.so + gsplat/experimental/render/kernels/csrc.so.
+
+**Validation (fresh).**
+- 100 tests pass (	est_higs_native_backward/frozen/dynamic/trainable).
+- Two-scene benchmark parity vs the Round-29 locked baseline (train/bicycle,
+   steps 20): higs_native 33.0/73.8 ms (baseline 32.6/73.8), higs_dynamic
+   29.4/63.6 (baseline 28.9/63.5), PSNR and native-vs-recompute grad cosine
+   (0.9999999/1.000000) match. Rebuilt environment reproduces the locked
+   numbers within noise.
+
+**Reproducibility safeguards (so this never costs 2h again).**
+- scripts/linux/rebuild_higs_csrc.py (tracked) rebuilds both extensions
+  incrementally via ninja and clears the stale torch JIT cache; this replaces
+  the lost /root/rebuild_higs_csrc.py.
+- Full gsplat HiGS source snapshot archived to shared storage
+  /mnt/workspace/codex-3dgs-epic05/state/backups/gsplat-higs-source-2026-08-02.tar.gz
+  (145 MB; the rtifacts/renderer-sources/ tree is gitignored so it is not
+  in the repo).
+- The Utils.cpp cudaEventCreateWithFlags fix is included in both the local
+  tree and the shared-storage archive.
+
+**Re-verification of optimization headroom (fresh profile, bicycle 1080p x 4
+cams, native): blend bwd 26.3 ms, forward capture rasterize 10.4 ms, SH VJP
+5.4 ms, fused Adam ~7.5 ms (shared with std), radix sort 2.1 ms, projection
+bwd 2.0 ms, projection fwd 1.8 ms, intersect 1.4 ms, SH fwd 1.1 ms, grad-zero
+fills 1.0 ms, culling gathers 0.8 ms. No new lever appears; the closed
+Round-28/29 conclusions (mt-backward ~4-6 ms ceiling, tile-LOD forward
+~4-5 ms ceiling, per-pixel eval volume format-independent) hold on the rebuilt
+environment.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
