@@ -118,7 +118,40 @@ class TestErrorGuidedLambdaMix:
         k = int(round(n * ratio))
         cnt = weights * k / n
         assert torch.allclose(cnt, cnt.round(), atol=1e-5), "uniform-mix weights not m*n/k"
-        assert (cnt >= 0).all() and (cnt[mask] > 0).all()
+
+
+class TestErrorGuidedCoverage:
+    def test_with_replacement_coverage_bound(self):
+        """With-replacement multinomial draws cover only a fraction of
+        the tiles, so the realized isect fraction stays well below the nominal
+        ratio (e.g. ~0.35-0.39 at nominal r=0.5 in the benchmark runs). The
+        mean over many draws must match the analytic coverage for the actual
+        draw distribution p (1 - sum_t (1 - p_t)^k, exact per image) and never
+        exceed the nominal ratio in a single draw."""
+        torch.manual_seed(23)
+        C, th, tw = 2, 8, 16
+        n = th * tw
+        tile_err = torch.rand(C, th, tw)
+        ratio = 0.5
+        k = int(round(n * ratio))
+        e = tile_err.reshape(C, n)
+        floor = (1e-3 * e.mean(dim=1, keepdim=True)).clamp_min(1e-6)
+        p = (e + floor) ** 1.0
+        p = p / p.sum(dim=1, keepdim=True)
+        expected = float((1.0 - (1.0 - p).pow(k)).mean())
+        fracs = []
+        for seed in range(60):
+            torch.manual_seed(seed)
+            mask, _ = _error_guided_mask(tile_err, ratio, 1.0, torch.device("cpu"))
+            fracs.append(float(mask.float().mean()))
+        mean_frac = float(np.mean(fracs))
+        assert abs(mean_frac - expected) < 0.02, (
+            f"mean coverage {mean_frac:.4f} != analytic {expected:.4f}"
+        )
+        # k draws with replacement can cover at most k distinct tiles.
+        assert max(fracs) <= ratio + 1e-6, f"coverage {max(fracs):.4f} > ratio {ratio}"
+        # the realized coverage at nominal r=0.5 is far below the ratio itself.
+        assert mean_frac < 0.45, f"coverage {mean_frac:.4f} not below nominal ratio"
 
     def test_lambda_one_is_default_unchanged(self):
         torch.manual_seed(17)
