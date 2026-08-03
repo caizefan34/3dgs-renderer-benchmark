@@ -7,6 +7,7 @@
   <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/LICENSE">
     <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
   </a>
+  <img src="https://img.shields.io/github/stars/caizefan34/3dgs-renderer-benchmark?style=flat&label=Stars&color=gold" alt="Stars">
   <img src="https://img.shields.io/badge/GPU-A100_80GB-46e970" alt="GPU">
   <img src="https://img.shields.io/badge/Renderers-7_measured-38bdf8" alt="Renderers">
   <img src="https://img.shields.io/badge/Compression_Codecs-10_tested-34d399" alt="Codecs">
@@ -14,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>🏆 Which 3DGS renderer is fastest? Which compression is best?<br>
+  <b>Which 3DGS renderer is fastest? Which compression is best?<br>
   We measured them all — on the same GPU, same scenes, same protocol.</b>
 </p>
 
@@ -24,7 +25,31 @@
   </a>
 </p>
 
----
+<p align="center">
+  <img src="docs/assets/social-preview.png" alt="3DGS Renderer Benchmark — every renderer measured on the same GPU, scenes and protocol" width="100%">
+</p>
+
+**A reproducible benchmark of 3D Gaussian Splatting renderers and compression codecs — measured on identical hardware, scenes, and protocol, so the speed-vs-quality trade-offs are real and directly comparable.**
+
+- **What** — 5+ renderers (gsplat, HiGS, Speedy-Splat, TC-GS, Original 3DGS) × 5 scenes, plus 10 compression codecs (SPZ, FCGS, …), all on one A100-80GB with the same checkpoints and camera trajectories.
+- **Why** — papers report numbers on different GPUs and datasets, so you can never trust a head-to-head. This repo normalizes everything (evidence tiers A/B/C) and publishes raw data + charts.
+- **Who** — researchers picking a renderer or compression method, engineers deploying 3DGS, and anyone who wants to **train HiGS end-to-end** (native CUDA backward, see below).
+
+## Quickstart
+
+**Prerequisites:** Python 3.10+, a CUDA-capable GPU (validated on NVIDIA A100-80GB). Everything except the CUDA extensions is CPU-safe and tested in CI.
+
+```bash
+git clone https://github.com/caizefan34/3dgs-renderer-benchmark.git
+cd 3dgs-renderer-benchmark
+pip install -r requirements-benchmark.txt
+python benchmark.py run gsplat_higs --dataset garden   # any renderer in benchmark/renderers.json
+```
+
+That's it — the CLI downloads the scene, runs the suite, and writes results under `results/`. Want the full tour first? Browse the [live dashboard](https://caizefan34.github.io/3dgs-renderer-benchmark/) or start with [docs/README.md](docs/README.md).
+
+> **Run the test suite:** `python -m unittest discover -s tests -v` (155 tests; CUDA-specific HiGS tests skip cleanly when the extension is unavailable).
+
 
 ## ⚡ TL;DR — Key Results
 
@@ -185,14 +210,22 @@ The benchmark provides **complete Tier A coverage** across 5 renderers × 5 scen
 
 ---
 
-## Getting Started
+## FAQ
 
-```bash
-git clone https://github.com/caizefan34/3dgs-renderer-benchmark.git
-cd 3dgs-renderer-benchmark
-pip install -r requirements-benchmark.txt
-python benchmark.py run gsplat_higs --dataset garden
-```
+**Does this run on my GPU?**
+Measured on an NVIDIA A100-80GB (EPIC-05), but any CUDA GPU can run it. Numbers differ per machine — which is exactly why every result here is reported per-cohort with full protocol disclosure (see `docs/hardware.md`).
+
+**What is HiGS?**
+HiGS (Hierarchically Tiled Gaussian Splatting) is a macro-tile renderer inside gsplat: it sorts Gaussians by coarse macro-tiles, then rasterizes fine render tiles, preserving exact front-to-back compositing. It is the fastest renderer in this benchmark — and we made it **trainable end-to-end** with a native CUDA backward (see the HiGS section above and `reports/higs-trainability-implementation.md`).
+
+**How is this different from other 3DGS benchmarks?**
+Every renderer gets the same GPU, checkpoints, 100-camera trajectory, and measurement protocol. Evidence tiers (measured / reproduced / paper) never mix into one ranking. Details: [docs/methodology.md](docs/methodology.md).
+
+**Can I add my own renderer or codec?**
+Yes. Follow [docs/adding-a-renderer.md](docs/adding-a-renderer.md) and use `community/submission_template.json` for new submissions.
+
+**Where is the raw data?**
+`results/` holds the evidence artifacts (measured / reproduced / paper); the generated leaderboard is in `docs/leaderboard/` and published to GitHub Pages.
 
 ---
 
@@ -214,5 +247,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 <p align="center">
   <b>If you find this useful, please star the repo! ⭐</b><br>
-  <i>Last updated: 2026-07-25 | Authority host: EPIC-05</i>
+  <i>Last updated: 2026-08-03 | Authority host: EPIC-05</i>
 </p>
