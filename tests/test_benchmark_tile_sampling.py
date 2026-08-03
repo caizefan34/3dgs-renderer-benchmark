@@ -131,3 +131,22 @@ class TestErrorGuidedLambdaMix:
             tile_err, ratio, 1.0, torch.device("cpu"), lambda_mix=1.0
         )
         assert torch.equal(m1, m2) and torch.allclose(w1, w2)
+
+
+class TestLrSchedule:
+    def test_endpoints_match_exponential_decay(self):
+        base, decay, steps = 1.6e-4, 0.1, 3000
+        lr0 = _mod._lr_at_step(base, decay, 0, steps)
+        lr_last = _mod._lr_at_step(base, decay, steps - 1, steps)
+        assert lr0 == pytest.approx(base * decay ** (1.0 / steps))
+        assert lr_last == pytest.approx(base * decay)  # final step reaches base*decay
+
+    def test_monotone_non_increasing(self):
+        base, decay, steps = 1e-3, 0.1, 300
+        vals = [_mod._lr_at_step(base, decay, it, steps) for it in range(steps)]
+        assert all(a >= b for a, b in zip(vals, vals[1:]))
+        assert vals[0] > vals[-1]
+
+    def test_no_decay_is_constant(self):
+        for it in (0, 7, 299):
+            assert _mod._lr_at_step(5e-3, 1.0, it, 300) == 5e-3

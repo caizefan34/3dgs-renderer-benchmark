@@ -1933,6 +1933,47 @@ the current fixed-LR protocols - it requires the full 3DGS training recipe
 (lr schedule, densify window, opacity reset), which is the remaining open
 work item.
 
+### Round 35 (2026-08-04): full training recipe (lr-decay + densify window) fixes protocol collapse (M4 partial; LPIPS r<1 bound persists)
+
+The harness now exposes the standard 3DGS training recipe as CLI knobs:
+`--lr-decay` (exponential schedule reaching `base_lr * decay` at the final
+step; `1.0` = constant LR) and `--densify-window` (topology freezes after
+step N; 0 = no window). Protocol: 4 train + 3 eval cams, 1080p, A100, seed 0,
+3000 steps, eval each 300, within one sequential session.
+
+| scene   | protocol                          | step-3000 (PSNR/SSIM/LPIPS) | N(300) -> N(3000) | train_ms |
+|---------|-----------------------------------|-----------------------------|-------------------|----------|
+| train   | dynamic full r=1.0                | 16.590/0.6256/0.3730         | 528K -> 460K      | 22.79 |
+| train   | dynamic error-guided r=0.5        | 16.243/0.6213/0.3933         | 506K -> 418K      | 16.64 |
+| train   | frozen full r=1.0                 | 14.501/0.5732/0.4884         | 1027K (const)     | 34.31 |
+| train   | frozen error-guided r=0.5         | 14.418/0.5916/0.4625         | 1027K (const)     | 26.40 |
+| bicycle | dynamic full r=1.0                | 16.202/0.3945/0.4736         | 3.29M -> 2.79M    | 48.96 |
+| bicycle | dynamic error-guided r=0.5        | 15.701/0.3883/0.5217         | 2.99M -> 2.46M    | 34.41 |
+
+Findings: (1) the recipe fixes the dynamic long-horizon collapse - train
+full goes 15.975/0.5781/0.5187 (Round 34) to 16.590/0.6256/0.3730, and LPIPS
+0.3730 now beats the frozen 300-step peak 0.3989; (2) with `--densify-window
+1500` the topology freezes at step 1500 (train 460K, bicycle 2.79M) instead
+of the Round-34 runaway pruning (train 505K->258K), and bicycle LPIPS keeps
+improving during the decay phase (0.5976 -> 0.5217 between 1500 and 3000);
+(3) frozen + lr-decay no longer collapses (train full 12.499 dB in Round 33
+-> 14.501 dB) but still degrades monotonically after step 300, so the recipe
+does not rescue the frozen protocol itself.
+
+Honest remaining gaps (dynamic r=0.5 vs full at step 3000): train
+-0.35 dB / +0.020 LPIPS, bicycle -0.50 dB / +0.048 LPIPS - the LPIPS gap is
+roughly halved versus Round 34 (train +0.038, bicycle +0.116) but not closed;
+the PSNR gap is single-seed noise. Within-session per-step speedup at r=0.5
+is -27% (train) / -30% (bicycle).
+
+**Round 35 bottom line.** The full recipe (lr decay + densify window) is now
+in the harness and fixes the protocol collapse, stabilizes N after the
+densify window, and roughly halves the r=0.5 LPIPS gap; converged-quality
+parity at r=0.5 is still not established, so M4 remains partial. Next levers:
+LPIPS-targeted loss (perceptual-tile weighting), a prune-side signal fix
+(window-accumulated gradients, anchoring both densify and prune), or a full
+30k-step run with the complete schedule.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`

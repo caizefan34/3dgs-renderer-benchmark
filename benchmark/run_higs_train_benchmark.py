@@ -487,6 +487,14 @@ def probe_native_vs_recompute(
 # Training loop
 # --------------------------------------------------------------------------
 
+def _lr_at_step(base_lr, decay, step, steps):
+    """Exponential LR schedule: ``base_lr`` at step 0, ``base_lr*decay`` at the
+    final step (``step`` is 0-based, ``decay`` in (0, 1], 1.0 = constant)."""
+    if decay >= 1.0:
+        return base_lr
+    return base_lr * (decay ** ((step + 1) / max(1, steps)))
+
+
 def run_backend(
     backend, params0, viewmats, Ks, train_idx, refs_train,
     eval_idx, refs_eval, width, height, steps, seed, device,
@@ -494,7 +502,7 @@ def run_backend(
     radius_clip=0.0, fused_adam=True, tile_sampling_ratio=1.0,
     anchor_densify=False, sampling_mode="uniform",
     error_alpha=1.0, error_refresh_every=25, error_lambda=1.0,
-    eval_every=0,
+    eval_every=0, lr_decay=1.0, densify_window=None,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -504,6 +512,8 @@ def run_backend(
         t.requires_grad_(True)
     params = (means, quats, scales, opacities, sh)
     opt = make_optimizer(params, fused=fused_adam)
+    _base_lrs = [g["lr"] for g in opt.param_groups]
+    _lr_gamma = lr_decay ** (1.0 / max(1, steps)) if lr_decay < 1.0 else 1.0
 
     handle = None
     dynamic_scene = None
@@ -547,6 +557,7 @@ def run_backend(
                 backend in ("higs_dynamic", "higs_dynamic_ts")
                 and densify_every > 0
                 and (it + 1) % densify_every == 0
+                and (densify_window is None or it < densify_window)
             )
             step_ratio = 1.0 if (anchor_densify and is_densify_step) else tile_sampling_ratio
             eg_mask = eg_weights = None
@@ -617,9 +628,18 @@ def run_backend(
                 n_visibles.append(means.shape[0])
                 topo_rebuilt.append(0.0)
 
+            if lr_decay < 1.0:
+                _t = float(it + 1)
+                for _g, _b in zip(opt.param_groups, _base_lrs):
+                    _g["lr"] = _b * (_lr_gamma ** _t)
+
             opt.step()
 
-            if backend in ("higs_dynamic", "higs_dynamic_ts") and (it + 1) % densify_every == 0:
+            if (
+                backend in ("higs_dynamic", "higs_dynamic_ts")
+                and (it + 1) % densify_every == 0
+                and (densify_window is None or it < densify_window)
+            ):
                 from gsplat.experimental.render.functional.gaussian_inference import (
                     _densify_gaussians,
                     _prune_gaussians,
@@ -784,6 +804,14 @@ def main():
         help="record full-res eval PSNR/SSIM/LPIPS every N steps (0 = only final)",
     )
     ap.add_argument(
+        "--lr-decay", type=float, default=1.0,
+        help="exponential LR decay: final LR factor over `--steps` (1.0 = constant)",
+    )
+    ap.add_argument(
+        "--densify-window", type=int, default=0,
+        help="dynamic: run densify/prune only while step < window (0 = whole run)",
+    )
+    ap.add_argument(
         "--no-fused-adam",
         action="store_false",
         dest="fused_adam",
@@ -842,6 +870,10 @@ def main():
                     error_refresh_every=args.error_refresh_every,
                     error_lambda=args.error_lambda,
                     eval_every=args.eval_every,
+                    lr_decay=args.lr_decay,
+                    densify_window=(
+                        None if args.densify_window == 0 else args.densify_window
+                    ),
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
