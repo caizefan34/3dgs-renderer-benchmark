@@ -2014,6 +2014,51 @@ parity gate (3-seed, LPIPS within noise) but not bicycle. The quality-side
 lever works; the remaining open work for the 1.8x wall-clock gate is forward
 tile sampling (the forward currently costs the same at r=0.5).
 
+### Round 39 (2026-08-04): backward blend 内核按 active tile 压缩网格（dense 路径逐字节不变）
+
+目标：把 backward 的 pixel-blend 内核网格从全量 `[I, tile_h, tile_w]` 压缩为
+`dim3(n_active_tiles, 1, 1)`——每个 block 只处理一个**选中** tile，掩码 tile 的每-tile
+固定开销（线程/共享内存/边界处理）整体移除；isect 遍历本就只覆盖选中 tile 的排序交集。
+
+改动（均在 patched gsplat 源码树）：
+- `HigsNativeBackward.cu`：两个 blend 内核（非 px 与 px 变体）新增
+  `tile_width/tile_height/active_tiles/skip_background_atomic` 参数；compacted 时
+  `active_tiles[blockIdx.x]` 解码 (image_id, tile_id)，否则保留原 3 维 grid 解码；
+  launcher 新增 optional `active_tiles`，compacted 时 grid = dim3(n_active_tiles, 1, 1)。
+- 背景梯度：compacted + backgrounds 时 blend 内核跳过 per-pixel 背景原子
+  （`skip_background_atomic`），另启动全像素 `higs_background_bwd_kernel`
+  （Σ_pixels (1-alpha) * v_render_colors），覆盖 LPIPS 式全帧损失；dense 路径
+  （无 mask）不改一行、不启额外内核。
+- `ext.cpp`：`py::arg("active_tiles")` 位于 `flatten_ids` 之后。
+- `gaussian_inference.py` `_native_backward`：`ctx.sampled_tile_ratio < 1.0` 时
+  `active_tiles = torch.nonzero(ctx.tile_mask.reshape(-1)).squeeze(1).to(torch.int32)`
+  以 kwarg 传入；dense 时不传（nullopt）。
+
+否决项：**不**按"采样高斯"压缩 projection/SH VJP——实测 K/(I*N) ≈ 0.80 不随 r 下降
+（约 420-425k / 529,472 个 (image, gaussian) 对出现在任意采样 tile 中），收益仅 ~20%
+且破坏逐字节一致性；本 round 只动 blend。
+
+验证：
+- 新增 `tests/test_higs_native_backward.py::TestTileSampledBackward` 4 项：
+  `test_sampled_backward_matches_masked_full`（r=0.5 采样 vs 同 mask 全量，各参数梯度
+  + 背景梯度 atol=1e-6 精确一致）、`test_sampled_multi_camera_matches_masked_full`
+  （2 相机，验证 active tile 的 image_id 解码）、`test_unsampled_gaussians_exact_zero_grad`
+  （只选无高斯 tile：参数梯度**精确为 0**、背景梯度非零）、
+  `test_unmasked_loss_background_gradient`（全帧 LPIPS 式损失：背景梯度 = 全像素
+  Σ (1-alpha) * dL/d(render)，独立全像素背景内核覆盖掩码 tile）。
+- HiGS 全量 109 passed；全仓 `pytest tests` 276 passed / 1 skipped（较 R38 基线
+  272 + 4 项新测试）。`patches/higs-differentiable.patch` 已刷新，对 pristine `77ab983`
+  `git apply --check` 通过。
+
+性能（本机 Windows + RTX，N=200k、C=4、1080p、masked-loss，iters=3，4 轮 median）：
+- blend self-time：r=1.0 ≈ 33.5 ms（min 26.9，GPU 时钟波动 ±30%）→ r=0.5 ≈ 18.5 ms
+  （≈55% of dense）→ r=0.25 ≈ 9.6 ms（≈29% of dense）；n_isects 43.0M → 21.7M → 10.8M。
+- 相对 R38（全网格 + 掩码 tile 空 isect）：r=0.25 blend 从 ~10.8ms 降至 ~9.6ms
+  （消除掩码 tile 的每-tile 固定开销）；isect 遍历仍是主导项且随 r 缩放。
+- 诚实结论：绝对数字受 GPU 时钟波动影响大，比率（r=0.25 ≈ 29% of dense）更稳定；
+  端到端 M4 1.8x 墙钟门槛仍待 EPIC-05 A100 全协议复测；LPIPS 质量协议（R36）不受影响
+  （bwd 输出逐像素等价）。
+
 ### Round 38 (2026-08-04): forward tile sampling — tile_mask 移入 isect_tiles CUDA 内核（M4 速度门槛最后一块）
 
 目标：前向改为**只在选中 tile 上构建 isect 并排序**，去掉"全量 isect + Python 后过滤"。此前
@@ -2043,6 +2088,18 @@ tile 数近似线性下降。
 
 预期：isect 计数 + radix sort 规模随 r 线性下降，叠加 R37 已证的 backward 减量（r=0.5 每步 -27..-29%），
 补齐 M4 1.8x wall-clock 的 forward 侧杠杆；端到端数字待 EPIC-05 A100 复测。
+
+
+**本地实证（本机 Windows + RTX，N=200k、C=4、1080p、frozen+native+culling，profiler self-time）**：
+
+| r | total fwd | isect_tile | radix onesweep | rasterize_fwd | n_isects |
+|---|-----------|------------|----------------|---------------|----------|
+| 1.0 | 39.90 ms | 7.476 ms | 23.505 ms | 5.503 ms | 42,952,076 |
+| 0.5 | 21.69 ms | 4.742 ms | 10.977 ms | 3.681 ms | 21,419,630 |
+| 0.25 | 11.02 ms | 2.469 ms | 5.280 ms | 1.907 ms | 10,562,599 |
+
+结论：isect 与 radix sort 随选中 tile 数近线性下降；rasterize_fwd 仍是全图 1080p 发射
+（掩码 tile 输出背景，只随 isect 数轻微下降）——这是 forward 侧最后一个不随 r 缩放的项。
 
 ### Round 37 (2026-08-04): culling refresh-interval cache (--cull-interval; ~2% train saving, quality-neutral at ci=25)
 

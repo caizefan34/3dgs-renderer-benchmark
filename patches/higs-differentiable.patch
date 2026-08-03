@@ -698,7 +698,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..7cc56d5 100644
+index b6c1b13..f9e290b 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -765,7 +765,7 @@ index b6c1b13..7cc56d5 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2394 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2405 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -2597,6 +2597,16 @@ index b6c1b13..7cc56d5 100644
 +        grad_scales = torch.zeros_like(scales)
 +        grad_opacities = torch.zeros_like(opacities)
 +        grad_colors = torch.zeros_like(colors)
++        # Round 39: backward tile sampling - compact the pixel-blend grid to
++        # the selected tiles only. active_tiles are the global (image, tile)
++        # ids of ctx.tile_mask, so the blend backward launches one block per
++        # selected tile instead of the full tile grid; the per-pixel
++        # background gradient moves to a separate all-pixel kernel inside the
++        # launcher. The full-coverage (all-ones) case keeps the dense path.
++        active_tiles = None
++        if getattr(ctx, "sampled_tile_ratio", 1.0) < 1.0:
++            tm_flat = ctx.tile_mask.reshape(-1)
++            active_tiles = torch.nonzero(tm_flat, as_tuple=False).squeeze(1).to(torch.int32)
 +        out = backend.higs_rasterize_backward(
 +            means2d=means2d_f,
 +            conics=conics_f,
@@ -2605,6 +2615,7 @@ index b6c1b13..7cc56d5 100644
 +            backgrounds=bg_kernel,
 +            tile_offsets=tile_offsets_f,
 +            flatten_ids=flatten_ids_f,
++            active_tiles=active_tiles,
 +            render_alphas=render_alphas_f,
 +            last_ids=last_ids_f,
 +            means=v_means,
@@ -3645,10 +3656,10 @@ index c01a046..892a0e3 100644
          at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 new file mode 100644
-index 0000000..1935492
+index 0000000..ea50254
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
-@@ -0,0 +1,1504 @@
+@@ -0,0 +1,1587 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -3719,6 +3730,10 @@ index 0000000..1935492
 +    const float *__restrict__ opacities,
 +    const float *__restrict__ backgrounds, // [I, CDIM] or nullptr
 +    // image geometry
++    const uint32_t tile_width,
++    const uint32_t tile_height,
++    const int32_t *__restrict__ active_tiles, // [AT] selected tile ids or nullptr (dense grid)
++    const bool skip_background_atomic,        // background grads handled by a separate kernel
 +    const uint32_t image_width,
 +    const uint32_t image_height,
 +    const uint32_t tile_size,
@@ -3738,14 +3753,25 @@ index 0000000..1935492
 +    float *__restrict__ v_backgrounds // [CDIM] (summed over all images)
 +)
 +{
-+    auto block              = cg::this_thread_block();
-+    const uint32_t tile_width  = gridDim.z;
-+    const uint32_t tile_height = gridDim.y;
++    auto block = cg::this_thread_block();
 +
-+    uint32_t image_id = block.group_index().x;
-+    uint32_t tile_id  = block.group_index().y * tile_width + block.group_index().z;
-+    uint32_t i        = block.group_index().y * tile_size + block.thread_index().y;
-+    uint32_t j        = block.group_index().z * tile_size + block.thread_index().x;
++    uint32_t image_id, tile_id;
++    if(active_tiles != nullptr)
++    {
++        // compacted grid: one block per selected tile, decoded from the list
++        const int32_t global_tile = active_tiles[blockIdx.x];
++        image_id = static_cast<uint32_t>(global_tile / (int32_t)(tile_width * tile_height));
++        tile_id  = static_cast<uint32_t>(global_tile % (int32_t)(tile_width * tile_height));
++    }
++    else
++    {
++        image_id = block.group_index().x;
++        tile_id  = block.group_index().y * tile_width + block.group_index().z;
++    }
++    const uint32_t tile_x = tile_id % tile_width;
++    const uint32_t tile_y = tile_id / tile_width;
++    uint32_t i            = tile_y * tile_size + block.thread_index().y;
++    uint32_t j            = tile_x * tile_size + block.thread_index().x;
 +
 +    tile_offsets    += (int64_t)image_id * tile_height * tile_width;
 +    render_alphas   += (int64_t)image_id * image_height * image_width;
@@ -3794,8 +3820,10 @@ index 0000000..1935492
 +    }
 +    const float v_render_a = v_render_alphas[pix_id];
 +
-+    // background gradient: d(render)/d(background) = T_final per pixel
-+    if(backgrounds != nullptr)
++    // background gradient: d(render)/d(background) = T_final per pixel. Skipped
++    // when the compacted grid runs a separate all-pixel background kernel (so
++    // active pixels are not double-counted).
++    if(backgrounds != nullptr && !skip_background_atomic)
 +    {
 +#pragma unroll
 +        for(uint32_t k = 0; k < CDIM; ++k)
@@ -3945,6 +3973,10 @@ index 0000000..1935492
 +    const float *__restrict__ colors,
 +    const float *__restrict__ opacities,
 +    const float *__restrict__ backgrounds,
++    const uint32_t tile_width,
++    const uint32_t tile_height,
++    const int32_t *__restrict__ active_tiles, // [AT] selected tile ids or nullptr (dense grid)
++    const bool skip_background_atomic,        // background grads handled by a separate kernel
 +    const uint32_t image_width,
 +    const uint32_t image_height,
 +    const uint32_t tile_size,
@@ -3962,14 +3994,25 @@ index 0000000..1935492
 +)
 +{
 +    static_assert(PX == 1 || PX == 2 || PX == 4 || PX == 8, "PX must be 1/2/4/8");
-+    auto block              = cg::this_thread_block();
-+    const uint32_t tile_width  = gridDim.z;
-+    const uint32_t tile_height = gridDim.y;
++    auto block = cg::this_thread_block();
 +
-+    uint32_t image_id = block.group_index().x;
-+    uint32_t tile_id  = block.group_index().y * tile_width + block.group_index().z;
-+    uint32_t i0       = block.group_index().y * tile_size;
-+    uint32_t j0       = block.group_index().z * tile_size;
++    uint32_t image_id, tile_id, i0, j0;
++    if(active_tiles != nullptr)
++    {
++        // compacted grid: one block per selected tile, decoded from the list
++        const int32_t global_tile = active_tiles[blockIdx.x];
++        image_id = static_cast<uint32_t>(global_tile / (int32_t)(tile_width * tile_height));
++        tile_id  = static_cast<uint32_t>(global_tile % (int32_t)(tile_width * tile_height));
++        j0       = (tile_id % tile_width) * tile_size;
++        i0       = (tile_id / tile_width) * tile_size;
++    }
++    else
++    {
++        image_id = block.group_index().x;
++        tile_id  = block.group_index().y * tile_width + block.group_index().z;
++        i0       = block.group_index().y * tile_size;
++        j0       = block.group_index().z * tile_size;
++    }
 +    const uint32_t ty = block.thread_index().y;
 +    const uint32_t tx = block.thread_index().x;
 +    constexpr uint32_t PX_ROWS = 16 / PX; // tile rows assigned per q (tile_size == 16)
@@ -4014,7 +4057,7 @@ index 0000000..1935492
 +            buffer[q][k]     = 0.f;
 +        }
 +        v_render_a[q] = v_render_alphas[pix_id[q]];
-+        if(backgrounds != nullptr)
++        if(backgrounds != nullptr && !skip_background_atomic)
 +        {
 +#pragma unroll
 +            for(uint32_t k = 0; k < CDIM; ++k)
@@ -4777,6 +4820,7 @@ index 0000000..1935492
 +    const at::optional<at::Tensor> &backgrounds,
 +    const at::Tensor &tile_offsets,
 +    const at::Tensor &flatten_ids,
++    const at::optional<at::Tensor> &active_tiles, // [AT] int32 selected tile ids or nullopt
 +    const at::Tensor &render_alphas,
 +    const at::Tensor &last_ids,
 +    const at::Tensor &means,
@@ -4808,6 +4852,11 @@ index 0000000..1935492
 +    check_float_cuda(opacities, "opacities");
 +    check_int_cuda(tile_offsets, "tile_offsets");
 +    check_int_cuda(flatten_ids, "flatten_ids");
++    if(active_tiles.has_value())
++    {
++        check_int_cuda(active_tiles.value(), "active_tiles");
++        TORCH_CHECK(active_tiles.value().dim() == 1, "active_tiles must be 1-D");
++    }
 +    check_float_cuda(render_alphas, "render_alphas");
 +    check_int_cuda(last_ids, "last_ids");
 +    check_float_cuda(means, "means");
@@ -4889,6 +4938,20 @@ index 0000000..1935492
 +    const int64_t tile_h   = tile_offsets.size(-2);
 +    const int64_t tile_w   = tile_offsets.size(-1);
 +    const int64_t n_isects = flatten_ids.size(0);
++
++    // Round 39: optional active-tile compaction. When the forward ran with a
++    // tile mask, the blend grid is launched only over the selected tiles (and
++    // the per-pixel background gradient is moved to a separate all-pixel
++    // kernel so active pixels are not double-counted). Dense callers pass
++    // nullopt and keep the original full-grid path byte-for-byte unchanged.
++    const int32_t *active_tiles_ptr = nullptr;
++    uint32_t n_active_tiles = 0;
++    if(active_tiles.has_value())
++    {
++        active_tiles_ptr = active_tiles.value().const_data_ptr<int32_t>();
++        n_active_tiles   = static_cast<uint32_t>(active_tiles.value().numel());
++    }
++    const bool compacted = (active_tiles_ptr != nullptr);
 +    // Channel layout of the captured colors_eval: 1 = depth-only, 3 = RGB,
 +    // 4 = RGB + depth (depth is the LAST channel). -1 means no depth channel.
 +    const int32_t depth_channel = (color_dim == 4) ? 3 : (color_dim == 1) ? 0 : -1;
@@ -4898,11 +4961,20 @@ index 0000000..1935492
 +    {
 +        const uint32_t threads_dim = static_cast<uint32_t>(tile_size);
 +        dim3 threads(threads_dim, threads_dim, 1);
-+        dim3 grid(
-+            static_cast<uint32_t>(I),
-+            static_cast<uint32_t>(tile_h),
-+            static_cast<uint32_t>(tile_w)
-+        );
++        dim3 grid;
++        if(active_tiles_ptr != nullptr)
++        {
++            // one block per selected tile
++            grid = dim3(n_active_tiles, 1, 1);
++        }
++        else
++        {
++            grid = dim3(
++                static_cast<uint32_t>(I),
++                static_cast<uint32_t>(tile_h),
++                static_cast<uint32_t>(tile_w)
++            );
++        }
 +#define LAUNCH_BLEND_BWD(CDIM)                                                                     \
 +    {                                                                                              \
 +        const char *px_env = std::getenv("HIGS_PX_RUNTIME");                                       \
@@ -4924,6 +4996,8 @@ index 0000000..1935492
 +                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
 +                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
 +                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(tile_w), static_cast<uint32_t>(tile_h),                       \
++                active_tiles_ptr, compacted,                                                        \
 +                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
 +                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
 +                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
@@ -4945,6 +5019,8 @@ index 0000000..1935492
 +                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
 +                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
 +                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(tile_w), static_cast<uint32_t>(tile_h),                       \
++                active_tiles_ptr, compacted,                                                        \
 +                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
 +                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
 +                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
@@ -4966,6 +5042,8 @@ index 0000000..1935492
 +                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
 +                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
 +                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(tile_w), static_cast<uint32_t>(tile_h),                       \
++                active_tiles_ptr, compacted,                                                        \
 +                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
 +                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
 +                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
@@ -4987,6 +5065,8 @@ index 0000000..1935492
 +                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
 +                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
 +                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(tile_w), static_cast<uint32_t>(tile_h),                       \
++                active_tiles_ptr, compacted,                                                        \
 +                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
 +                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
 +                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
@@ -5017,6 +5097,20 @@ index 0000000..1935492
 +            break;
 +        }
 +#undef LAUNCH_BLEND_BWD
++
++        if(compacted && backgrounds.has_value())
++        {
++            // The compacted blend grid skips the masked tiles' per-pixel
++            // background gradient (skip_background_atomic), so every pixel's
++            // d(render)/d(background) = T_final must be accumulated here. For
++            // masked tiles render == background (T_final == 1), which also
++            // covers LPIPS-style losses that backprop through all pixels.
++            const int64_t n_pixels = I * height * width;
++            const uint32_t threads = 256;
++            const uint32_t bg_grid = static_cast<uint32_t>((n_pixels + threads - 1) / threads);
++            higs_background_bwd_kernel<<<bg_grid, threads, 0, stream>>>(static_cast<uint32_t>(n_pixels), static_cast<uint32_t>(color_dim), render_alphas.const_data_ptr<float>(), v_render_colors.const_data_ptr<float>(), v_backgrounds.data_ptr<float>());
++            C10_CUDA_KERNEL_LAUNCH_CHECK();
++        }
 +    }
 +    else if(backgrounds.has_value())
 +    {
@@ -5155,10 +5249,10 @@ index 0000000..1935492
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
 new file mode 100644
-index 0000000..893872f
+index 0000000..c931655
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,95 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -5222,6 +5316,7 @@ index 0000000..893872f
 +        const at::optional<at::Tensor> &backgrounds, // [I, 3] float32 or nullopt
 +        const at::Tensor &tile_offsets, // [I, tile_h, tile_w] int32
 +        const at::Tensor &flatten_ids,  // [n_isects] int32
++        const at::optional<at::Tensor> &active_tiles, // [AT] int32 selected tile ids or nullopt
 +        const at::Tensor &render_alphas, // [I, H, W] float32
 +        const at::Tensor &last_ids,     // [I, H, W] int32
 +        // ---- projection VJP inputs ----
@@ -5307,7 +5402,7 @@ index 13097f3..dc14afe 100644
      return __cvt_pack_sat_u8_f32(a.x, a.y, a.z, a.w);
  }
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d1..fc28161 100644
+index 2eb26d1..426d402 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
 @@ -18,6 +18,8 @@
@@ -5319,7 +5414,7 @@ index 2eb26d1..fc28161 100644
  
  PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
  {
-@@ -52,9 +54,76 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+@@ -52,9 +54,77 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
          )
          .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
          .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
@@ -5339,6 +5434,7 @@ index 2eb26d1..fc28161 100644
 +        py::arg("backgrounds"),
 +        py::arg("tile_offsets"),
 +        py::arg("flatten_ids"),
++        py::arg("active_tiles"),
 +        py::arg("render_alphas"),
 +        py::arg("last_ids"),
 +        py::arg("means"),
@@ -5397,7 +5493,7 @@ index 2eb26d1..fc28161 100644
  TORCH_LIBRARY(experimental, m)
  {
      m.def(
-@@ -71,7 +140,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
+@@ -71,7 +141,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
  }
  
  // Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is

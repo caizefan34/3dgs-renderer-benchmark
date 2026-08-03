@@ -78,6 +78,20 @@
   M4 1.8x 的最后一块 forward 杠杆——端到端 wall-clock 待 EPIC-05 A100 复测（R37 后 r=0.5 每步
   -27..-29% 基础上叠加 forward isect 减量）。
 
+- **Round 38 本地实证（2026-08-04，本机 Windows + RTX，N=200k、C=4、1080p、frozen+native+culling）**：
+  total fwd r=1.0 39.90ms → r=0.5 21.69ms → r=0.25 11.02ms；isect_tile 7.476→4.742→2.469ms、
+  radix onesweep 23.505→10.977→5.280ms（近线性），rasterize_fwd 5.503→3.681→1.907ms（仍是全图发射）；
+  n_isects 42.95M→21.42M→10.56M。结论：forward 侧 isect+radix 已随 r 线性缩放，
+  rasterize_fwd 是全图固定项。
+- **Round 39 更新（2026-08-04，backward blend 网格按 active tile 压缩）**：blend backward
+  从全量 [I, th, tw] 网格压缩为 dim3(n_active_tiles,1,1)，掩码 tile 的每-tile 固定开销移除；
+  compacted+背景时 blend 跳过背景原子并另启动全像素背景内核（覆盖 LPIPS 式全帧损失），
+  dense 路径逐字节不变。新增 4 项 TestTileSampledBackward（采样 vs 同 mask 全量梯度精确一致、
+  多相机、未采样高斯精确零梯度、全帧损失背景梯度）；HiGS 109 passed、全仓 276 passed/1 skipped、
+  patch 对 pristine 77ab983 干净应用。本机 blend self-time：r=1 ≈33.5ms → r=0.5 ≈18.5ms（55%）
+  → r=0.25 ≈9.6ms（29% of dense），比率稳定、绝对数受 GPU 时钟波动 ±30%；
+  1.8x 墙钟门槛仍待 EPIC-05 A100 复测。
+
 - M5 扩展性：未做。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
