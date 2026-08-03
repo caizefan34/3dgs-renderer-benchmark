@@ -1,8 +1,100 @@
+diff --git a/gsplat/cuda/_torch_impl.py b/gsplat/cuda/_torch_impl.py
+index 7f1ee0f..11fe80a 100644
+--- a/gsplat/cuda/_torch_impl.py
++++ b/gsplat/cuda/_torch_impl.py
+@@ -361,6 +361,7 @@ def _isect_tiles(
+     tile_width: int,
+     tile_height: int,
+     sort: bool = True,
++    tile_mask: Optional[Tensor] = None,
+ ) -> Tuple[Tensor, Tensor, Tensor]:
+     """Pytorch implementation of `gsplat.cuda._wrapper.isect_tiles()`.
+ 
+@@ -392,6 +393,24 @@ def _isect_tiles(
+     tile_maxs[..., 1] = torch.clamp(tile_maxs[..., 1], 0, tile_height)
+     tiles_per_gauss = (tile_maxs - tile_mins).prod(dim=-1)  # [..., C, N]
+     tiles_per_gauss *= (radii > 0.0).all(dim=-1)
++    if tile_mask is not None:
++        # Restrict counts and emitted isects to the selected tiles (parity
++        # with the CUDA op's tile_mask path).
++        tile_mask = tile_mask.reshape(I, tile_height, tile_width)
++        masked = torch.zeros_like(tiles_per_gauss)
++        for image_id in range(I):
++            for gauss_id in range(N):
++                if radii[image_id, gauss_id, 0] <= 0.0 or radii[image_id, gauss_id, 1] <= 0.0:
++                    continue
++                y0, y1 = int(tile_mins[image_id, gauss_id, 1]), int(tile_maxs[image_id, gauss_id, 1])
++                x0, x1 = int(tile_mins[image_id, gauss_id, 0]), int(tile_maxs[image_id, gauss_id, 0])
++                c = 0
++                for y in range(y0, y1):
++                    for x in range(x0, x1):
++                        if tile_mask[image_id, y, x]:
++                            c += 1
++                masked[image_id, gauss_id] = c
++        tiles_per_gauss = masked
+ 
+     n_isects = tiles_per_gauss.sum().item()
+     # store in two int32 tensors instead, otherwise it will trigger out of bounds error
+@@ -424,6 +443,8 @@ def _isect_tiles(
+         tile_max = tile_maxs[image_id, gauss_id]
+         for y in range(tile_min[1], tile_max[1]):
+             for x in range(tile_min[0], tile_max[0]):
++                if tile_mask is not None and not tile_mask[image_id, y, x]:
++                    continue
+                 tile_id = y * tile_width + x
+                 # isect_ids[curr_idx] = (
+                 #     (image_id << (tile_n_bits + 32))
+diff --git a/gsplat/cuda/_wrapper.py b/gsplat/cuda/_wrapper.py
+index 762c3c5..fe6c172 100644
+--- a/gsplat/cuda/_wrapper.py
++++ b/gsplat/cuda/_wrapper.py
+@@ -1052,6 +1052,9 @@ def isect_tiles(
+     opacities: Optional[
+         Tensor
+     ] = None,  # [..., N] or [nnz], enables AccuTile when provided
++    tile_mask: Optional[
++        Tensor
++    ] = None,  # [I, tile_height, tile_width] bool, restrict enumeration to selected tiles
+ ) -> Tuple[Tensor, Tensor, Tensor]:
+     """Maps projected Gaussians to intersecting tiles.
+ 
+@@ -1073,6 +1076,10 @@ def isect_tiles(
+         gaussian_ids: The column indices of the projected Gaussians. Required if packed is True.
+         conics: Inverse of projected covariances (upper triangle). [..., N, 3] if packed is False, [nnz, 3] if packed is True. Enables AccuTile when provided together with opacities.
+         opacities: Gaussian opacities. [..., N] if packed is False, [nnz] if packed is True. Enables AccuTile when provided together with conics.
++        tile_mask: Optional bool tensor of shape [I, tile_height, tile_width]. When
++            provided, only intersections whose (image, tile) is selected are
++            counted/emitted and sorted, so both the radix sort and the output
++            sizes scale with the selected tile count (used by sparse training).
+ 
+     Returns:
+         A tuple:
+@@ -1102,6 +1109,7 @@ def isect_tiles(
+         tile_height,
+         sort,
+         segmented,
++        tile_mask.contiguous() if tile_mask is not None else None,
+     )
+     return tiles_per_gauss, isect_ids, flatten_ids
+ 
 diff --git a/gsplat/cuda/build.py b/gsplat/cuda/build.py
-index 1a3cbbf..9de859c 100644
+index 1a3cbbf..101e7f3 100644
 --- a/gsplat/cuda/build.py
 +++ b/gsplat/cuda/build.py
-@@ -123,6 +123,16 @@ def get_build_parameters():
+@@ -115,6 +115,12 @@ def get_build_parameters():
+                     p := os.path.join(CUDA_HOME, "targets", arch, "include", "cccl")
+                 ):
+                     extra_include_paths.append(p)
++    # Direct include/cccl layout (standard for CUDA 13.x on Windows): CCCL ships
++    # under <CUDA_HOME>/include/cccl, not targets/<arch>/include/cccl.
++    if CUDA_HOME:
++        p = os.path.join(CUDA_HOME, "include", "cccl")
++        if os.path.isdir(p) and p not in extra_include_paths:
++            extra_include_paths.append(p)
+ 
+     # Source files ------------------------------------
+     sources = (
+@@ -123,6 +129,19 @@ def get_build_parameters():
          + [os.path.join(PATH, "ext.cpp")]
      )
  
@@ -15,10 +107,414 @@ index 1a3cbbf..9de859c 100644
 +            s for s in sources
 +            if not (os.path.basename(s).startswith("RasterizeToPixelsFromWorld3DGS"))
 +        ]
++        # Link-time throwing stubs so Rasterization.cpp/Rendering.cpp still link
++        # without the three from-world TUs (see the stub file header for rationale).
++        sources.append(os.path.join(PATH, "csrc", "RasterizeToPixelsFromWorld3DGSStubs.cpp"))
 +
      # Compiler flags ----------------------------------
      extra_cflags = []
      extra_cuda_cflags = []
+diff --git a/gsplat/cuda/csrc/Intersect.cpp b/gsplat/cuda/csrc/Intersect.cpp
+index 4566974..4753e7e 100644
+--- a/gsplat/cuda/csrc/Intersect.cpp
++++ b/gsplat/cuda/csrc/Intersect.cpp
+@@ -180,7 +180,8 @@ TileIntersectResult intersect_tile(
+     int64_t tile_width,
+     int64_t tile_height,
+     bool sort,
+-    bool segmented
++    bool segmented,
++    const at::optional<at::Tensor> &tile_mask  // [I, tile_height, tile_width] bool, optional
+ )
+ {
+     DEVICE_GUARD(means2d);
+@@ -203,6 +204,21 @@ TileIntersectResult intersect_tile(
+     {
+         I = c10::multiply_integers(means2d.sizes().slice(0, means2d.dim() - 2));
+     }
++    if(tile_mask.has_value())
++    {
++        const at::Tensor &tm = tile_mask.value();
++        TORCH_CHECK(tm.scalar_type() == at::kBool, "intersect_tile: tile_mask must be bool");
++        TORCH_CHECK(
++            tm.dim() == 3 && tm.size(0) == static_cast<int64_t>(I) && tm.size(1) == tile_height
++                && tm.size(2) == tile_width,
++            "intersect_tile: tile_mask must be [I=%lld, tile_height=%lld, tile_width=%lld] bool, got %s",
++            static_cast<long long>(I),
++            static_cast<long long>(tile_height),
++            static_cast<long long>(tile_width),
++            c10::str(tm.sizes()).c_str()
++        );
++        TORCH_CHECK(!segmented, "intersect_tile: tile_mask is not supported with segmented sort");
++    }
+ 
+     // packed-mode `offsets` (below) reduce a 1-D [nnz] tiles_per_gauss and
+     // collapse to a single [0, total] segment, so a per-image segmented sort
+@@ -252,7 +268,8 @@ TileIntersectResult intersect_tile(
+             // outputs
+             at::optional<at::Tensor>(tiles_per_gauss),
+             c10::nullopt, // isect_ids
+-            c10::nullopt  // flatten_ids
++            c10::nullopt, // flatten_ids
++            tile_mask     // optional [I, tile_height, tile_width] bool
+         );
+         // Explicit int64 to match the kernel's int64 read of cum_tiles_per_gauss.
+         cum_tiles_per_gauss = at::cumsum(tiles_per_gauss.view({-1}), 0, at::kLong);
+@@ -291,7 +308,8 @@ TileIntersectResult intersect_tile(
+             // outputs
+             c10::nullopt, // tiles_per_gauss
+             at::optional<at::Tensor>(isect_ids),
+-            at::optional<at::Tensor>(flatten_ids)
++            at::optional<at::Tensor>(flatten_ids),
++            tile_mask // optional [I, tile_height, tile_width] bool
+         );
+     }
+ 
+@@ -341,7 +359,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_privateuseone(
+     int64_t tile_width,
+     int64_t tile_height,
+     bool sort,
+-    bool segmented
++    bool segmented,
++    const at::optional<at::Tensor> &tile_mask  // [I, tile_height, tile_width] bool, optional
+ )
+ {
+     DEVICE_GUARD(means2d);
+@@ -354,6 +373,18 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_privateuseone(
+     TORCH_CHECK(!segmented, "segmented mGPU intersect_tile is not supported");
+ 
+     int64_t I = packed ? n_images.value() : c10::multiply_integers(means2d.sizes().slice(0, means2d.dim() - 2));
++    if(tile_mask.has_value())
++    {
++        const at::Tensor &tm = tile_mask.value();
++        TORCH_CHECK(tm.scalar_type() == at::kBool, "intersect_tile: tile_mask must be bool");
++        TORCH_CHECK(
++            tm.dim() == 3 && tm.size(0) == I && tm.size(1) == tile_height && tm.size(2) == tile_width,
++            "intersect_tile: tile_mask must be [I=%lld, tile_height=%lld, tile_width=%lld] bool",
++            static_cast<long long>(I),
++            static_cast<long long>(tile_height),
++            static_cast<long long>(tile_width)
++        );
++    }
+ 
+     uint32_t n_tiles            = tile_width * tile_height;
+     const uint32_t image_n_bits = bits_for_count(I);
+@@ -381,7 +412,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_privateuseone(
+         tile_size,
+         tile_width,
+         tile_height,
+-        sort
++        sort,
++        tile_mask
+     );
+ }
+ 
+diff --git a/gsplat/cuda/csrc/Intersect.h b/gsplat/cuda/csrc/Intersect.h
+index 2b5cee5..4a82ac7 100644
+--- a/gsplat/cuda/csrc/Intersect.h
++++ b/gsplat/cuda/csrc/Intersect.h
+@@ -76,7 +76,8 @@ TileIntersectResult intersect_tile(
+     int64_t tile_width,
+     int64_t tile_height,
+     bool sort,
+-    bool segmented
++    bool segmented,
++    const at::optional<at::Tensor> &tile_mask  // [I, tile_height, tile_width] bool, optional
+ );
+ 
+ TileIntersectResult intersect_tile_lidar(
+@@ -181,7 +182,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+     const uint32_t tile_size,
+     const uint32_t tile_width,
+     const uint32_t tile_height,
+-    const bool sort
++    const bool sort,
++    const at::optional<at::Tensor> tile_mask // [I, tile_height, tile_width] bool, optional
+ );
+ 
+ void launch_intersect_tile_lidar_kernel(
+diff --git a/gsplat/cuda/csrc/IntersectTile.cu b/gsplat/cuda/csrc/IntersectTile.cu
+index 415d029..8f47d53 100644
+--- a/gsplat/cuda/csrc/IntersectTile.cu
++++ b/gsplat/cuda/csrc/IntersectTile.cu
+@@ -109,6 +109,7 @@ inline __device__ uint32_t accutile_process_tiles(
+     uint32_t tile_size,
+     uint32_t tile_width,
+     uint32_t n_tiles,
++    const bool *__restrict__ tile_mask, // [I, n_tiles] or null
+     bool isY,
+     int64_t image_id,
+     int64_t key_start,
+@@ -190,6 +191,10 @@ inline __device__ uint32_t accutile_process_tiles(
+             {
+                 continue;
+             }
++            if(tile_mask != nullptr && !tile_mask[image_id * n_tiles + tile_id])
++            {
++                continue;
++            }
+             ++tiles_count;
+ 
+             if(isect_ids != nullptr)
+@@ -353,6 +358,7 @@ __global__ void intersect_tile_kernel(
+             tile_size,
+             tile_width,
+             tile_width * tile_height,
++            tile_mask,
+             isY,
+             iid,
+             key_start,
+@@ -696,7 +702,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+     const uint32_t tile_size,
+     const uint32_t tile_width,
+     const uint32_t tile_height,
+-    const bool sort
++    const bool sort,
++    const at::optional<at::Tensor> tile_mask // [I, tile_height, tile_width] bool, optional
+ )
+ {
+     bool packed = means2d.dim() == 2;
+@@ -784,7 +791,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+                     image_n_bits,
+                     key_start,
+                     key_end,
+-                    nullptr,
++                    tile_mask.has_value() ? tile_mask.value().const_data_ptr<bool>() : nullptr,
+                     device_counts[device_id],
+                     nullptr,
+                     nullptr
+@@ -883,7 +890,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+                     image_n_bits,
+                     key_start,
+                     key_end,
+-                    nullptr,
++                    tile_mask.has_value() ? tile_mask.value().const_data_ptr<bool>() : nullptr,
+                     nullptr,
+                     isect_ids.data_ptr<int64_t>() + isect_offset,
+                     flatten_ids.data_ptr<int32_t>() + isect_offset
+diff --git a/gsplat/cuda/csrc/RasterizeToPixelsFromWorld3DGSStubs.cpp b/gsplat/cuda/csrc/RasterizeToPixelsFromWorld3DGSStubs.cpp
+new file mode 100644
+index 0000000..2364197
+--- /dev/null
++++ b/gsplat/cuda/csrc/RasterizeToPixelsFromWorld3DGSStubs.cpp
+@@ -0,0 +1,193 @@
++﻿// Link-time stubs for the RasterizeToPixelsFromWorld3DGS* kernels.
++//
++// When GSPLAT_SKIP_FROM_WORLD=1 the build drops the three
++// RasterizeToPixelsFromWorld3DGS*.cu translation units (they take 1.5-3.5h
++// each to compile under CUDA 13.x + sm_120 and are unused by the HiGS
++// training path). Rasterization.cpp still references the host helpers and
++// launch functions declared in RasterizeToPixelsFromWorld3DGS.h /
++// RasterizeCSR.cuh, so this TU provides throwing definitions that keep the
++// extension linkable. Any attempt to actually use
++// rasterize_to_pixels_from_world_3dgs in such a build fails fast with a
++// clear message instead of silently producing wrong output.
++
++#include <ATen/ATen.h>
++#include <c10/util/Optional.h>
++
++#include "RasterizeCSR.cuh"
++#include "RasterizeToPixelsFromWorld3DGS.h"
++
++namespace gsplat
++{
++
++namespace
++{
++[[noreturn]] void from_world_not_built()
++{
++    TORCH_CHECK(
++        false,
++        "rasterize_to_pixels_from_world_3dgs was not compiled into this gsplat build "
++        "(built with GSPLAT_SKIP_FROM_WORLD=1)."
++    );
++}
++} // namespace
++
++std::tuple<at::Tensor, at::Tensor, int64_t> compute_batch_csr(
++    const at::Tensor &tile_offsets,
++    int64_t n_isects,
++    uint32_t num_tiles,
++    int32_t pixels_per_tile,
++    at::TensorOptions dummy_options
++)
++{
++    from_world_not_built();
++}
++
++at::Tensor compute_bid_to_slot(
++    const at::Tensor &batches_per_tile,
++    const at::Tensor &batch_offsets,
++    int64_t total_batches,
++    at::TensorOptions dummy_options
++)
++{
++    from_world_not_built();
++}
++
++void launch_rasterize_to_pixels_from_world_3dgs_serial_batch_fwd_kernel(
++    const at::Tensor means,
++    const at::Tensor quats,
++    const at::Tensor scales,
++    const at::Tensor colors,
++    const at::Tensor opacities,
++    const at::optional<at::Tensor> backgrounds,
++    const at::optional<at::Tensor> masks,
++    const uint32_t image_width,
++    const uint32_t image_height,
++    const uint32_t tile_size,
++    const at::Tensor viewmats0,
++    const at::optional<at::Tensor> viewmats1,
++    const at::Tensor Ks,
++    const CameraModelType camera_model,
++    const c10::intrusive_ptr<UnscentedTransformParameters> &ut_params,
++    ShutterType rs_type,
++    const at::optional<at::Tensor> rays,
++    const at::optional<at::Tensor> radial_coeffs,
++    const at::optional<at::Tensor> tangential_coeffs,
++    const at::optional<at::Tensor> thin_prism_coeffs,
++    const c10::intrusive_ptr<FThetaCameraDistortionParameters> &ftheta_coeffs,
++    const at::optional<c10::intrusive_ptr<RowOffsetStructuredSpinningLidarModelParametersExt>> &lidar_coeffs,
++    const at::optional<c10::intrusive_ptr<extdist::BivariateWindshieldModelParameters>> &external_distortion_params,
++    const at::Tensor tile_offsets,
++    const at::Tensor flatten_ids,
++    const bool use_hit_distance,
++    const bool unsafe_masked_tile_outputs,
++    const at::Tensor batches_per_tile,
++    const at::Tensor batch_offsets,
++    const int64_t total_batches,
++    at::Tensor renders,
++    at::Tensor alphas,
++    at::Tensor last_ids,
++    at::optional<at::Tensor> sample_counts,
++    at::optional<at::Tensor> normals,
++    at::Tensor fwd_batch_state
++)
++{
++    from_world_not_built();
++}
++
++void launch_rasterize_to_pixels_from_world_3dgs_parallel_batch_fwd_kernel(
++    const at::Tensor means,
++    const at::Tensor quats,
++    const at::Tensor scales,
++    const at::Tensor colors,
++    const at::Tensor opacities,
++    const at::optional<at::Tensor> backgrounds,
++    const at::optional<at::Tensor> masks,
++    const uint32_t image_width,
++    const uint32_t image_height,
++    const uint32_t tile_size,
++    const at::Tensor viewmats0,
++    const at::optional<at::Tensor> viewmats1,
++    const at::Tensor Ks,
++    const CameraModelType camera_model,
++    const c10::intrusive_ptr<UnscentedTransformParameters> &ut_params,
++    ShutterType rs_type,
++    const at::optional<at::Tensor> rays,
++    const at::optional<at::Tensor> radial_coeffs,
++    const at::optional<at::Tensor> tangential_coeffs,
++    const at::optional<at::Tensor> thin_prism_coeffs,
++    const c10::intrusive_ptr<FThetaCameraDistortionParameters> &ftheta_coeffs,
++    const at::optional<c10::intrusive_ptr<RowOffsetStructuredSpinningLidarModelParametersExt>> &lidar_coeffs,
++    const at::optional<c10::intrusive_ptr<extdist::BivariateWindshieldModelParameters>> &external_distortion_params,
++    const at::Tensor tile_offsets,
++    const at::Tensor flatten_ids,
++    const bool use_hit_distance,
++    const bool unsafe_masked_tile_outputs,
++    const at::Tensor batches_per_tile,
++    const at::Tensor batch_offsets,
++    const at::Tensor bid_to_slot,
++    const int64_t total_batches,
++    bool fwd_only,
++    at::Tensor renders,
++    at::Tensor alphas,
++    at::Tensor last_ids,
++    at::optional<at::Tensor> sample_counts,
++    at::optional<at::Tensor> normals,
++    at::Tensor fwd_batch_state,
++    at::Tensor partials_meta,
++    at::Tensor batch_replay_preamble,
++    at::Tensor compose_c_stop,
++    at::Tensor priming_state
++)
++{
++    from_world_not_built();
++}
++
++void launch_rasterize_to_pixels_from_world_3dgs_parallel_batch_bwd_kernel(
++    const at::Tensor means,
++    const at::Tensor quats,
++    const at::Tensor scales,
++    const at::Tensor colors,
++    const at::Tensor opacities,
++    const at::optional<at::Tensor> backgrounds,
++    const at::optional<at::Tensor> masks,
++    const uint32_t image_width,
++    const uint32_t image_height,
++    const uint32_t tile_size,
++    const at::Tensor viewmats0,
++    const at::optional<at::Tensor> viewmats1,
++    const at::Tensor Ks,
++    const CameraModelType camera_model,
++    const c10::intrusive_ptr<UnscentedTransformParameters> &ut_params,
++    ShutterType rs_type,
++    const at::optional<at::Tensor> rays,
++    const at::optional<at::Tensor> radial_coeffs,
++    const at::optional<at::Tensor> tangential_coeffs,
++    const at::optional<at::Tensor> thin_prism_coeffs,
++    const c10::intrusive_ptr<FThetaCameraDistortionParameters> &ftheta_coeffs,
++    const at::optional<c10::intrusive_ptr<RowOffsetStructuredSpinningLidarModelParametersExt>> &lidar_coeffs,
++    const at::optional<c10::intrusive_ptr<extdist::BivariateWindshieldModelParameters>> &external_distortion_params,
++    const at::Tensor tile_offsets,
++    const at::Tensor flatten_ids,
++    const bool use_hit_distance,
++    const at::Tensor render_alphas,
++    const at::Tensor last_ids,
++    const at::Tensor v_render_colors,
++    const at::Tensor v_render_alphas,
++    const at::optional<at::Tensor> v_render_normals,
++    const at::Tensor batches_per_tile,
++    const at::Tensor batch_offsets,
++    const int64_t total_batches,
++    const at::Tensor fwd_batch_state,
++    const at::Tensor compose_c_stop,
++    at::Tensor v_means,
++    at::Tensor v_quats,
++    at::Tensor v_scales,
++    at::Tensor v_colors,
++    at::Tensor v_opacities,
++    at::optional<at::Tensor> v_rays
++)
++{
++    from_world_not_built();
++}
++
++} // namespace gsplat
+diff --git a/gsplat/cuda/csrc/Rendering.cpp b/gsplat/cuda/csrc/Rendering.cpp
+index 17d9125..a08b016 100644
+--- a/gsplat/cuda/csrc/Rendering.cpp
++++ b/gsplat/cuda/csrc/Rendering.cpp
+@@ -1401,7 +1401,8 @@ Rasterization3DGSResult rasterization_3dgs(
+                                                                                   tile_width,
+                                                                                   tile_height,
+                                                                                   true, // sort
+-                                                                                  segmented
++                                                                                  segmented,
++                                                                                  at::optional<at::Tensor>() // tile_mask
+                                                                               );
+ 
+     at::Tensor isect_offsets
+@@ -1923,7 +1924,8 @@ Rasterization2DGSResult rasterization_2dgs(
+         tile_width,
+         tile_height,
+         true, // sort
+-        false // segmented
++        false, // segmented
++        at::optional<at::Tensor>() // tile_mask
+     );
+     at::Tensor isect_offsets
+         = call_torch_op<&intersect_offset>("gsplat::intersect_offset", isects.isect_ids, I, tile_width, tile_height);
 diff --git a/gsplat/cuda/csrc/Utils.cpp b/gsplat/cuda/csrc/Utils.cpp
 index 06cba55..e27e715 100644
 --- a/gsplat/cuda/csrc/Utils.cpp
@@ -38,6 +534,19 @@ index 06cba55..e27e715 100644
      auto merge_stream = c10::cuda::getCurrentCUDAStream(merge_device_id);
      for(const auto device_id: c10::irange(c10::cuda::device_count()))
      {
+diff --git a/gsplat/cuda/ext.cpp b/gsplat/cuda/ext.cpp
+index 8f54b86..4601daa 100644
+--- a/gsplat/cuda/ext.cpp
++++ b/gsplat/cuda/ext.cpp
+@@ -1005,7 +1005,7 @@ TORCH_LIBRARY(gsplat, m)
+     m.def(
+         "intersect_tile(Tensor means2d, Tensor radii, Tensor depths, Tensor? conics, Tensor? opacities, Tensor? "
+         "image_ids, Tensor? gaussian_ids, int? n_images, int tile_size, int tile_width, int tile_height, bool sort, "
+-        "bool segmented) -> (Tensor, Tensor, Tensor)"
++        "bool segmented, Tensor? tile_mask) -> (Tensor, Tensor, Tensor)"
+     );
+     m.def("intersect_offset(Tensor isect_ids, int I, int tile_width, int tile_height) -> Tensor");
+     m.def(
 diff --git a/gsplat/cuda/include/Cameras.cuh b/gsplat/cuda/include/Cameras.cuh
 index abce151..d9a2dcf 100644
 --- a/gsplat/cuda/include/Cameras.cuh
@@ -189,7 +698,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..849f7df 100644
+index b6c1b13..7cc56d5 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -256,7 +765,7 @@ index b6c1b13..849f7df 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2397 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2394 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -1817,20 +2326,6 @@ index b6c1b13..849f7df 100644
 +            opacities_bc = torch.broadcast_to(
 +                opacities_b[..., None, :], (1, C, N)
 +            ).contiguous()  # [1, C, N]
-+            tiles_per_gauss, isect_ids, flatten_ids = isect_tiles(
-+                means2d,
-+                radii,
-+                depths,
-+                tile_size,
-+                tile_width,
-+                tile_height,
-+                packed=False,
-+                n_images=C,
-+                image_ids=None,
-+                gaussian_ids=None,
-+                conics=conics,
-+                opacities=opacities_bc,
-+            )
 +            n_tiles = tile_width * tile_height
 +            if tile_mask is not None:
 +                # Explicit harness-provided mask (e.g. error-guided sampling).
@@ -1877,22 +2372,33 @@ index b6c1b13..849f7df 100644
 +                sampled_ratio = 1.0
 +            ctx.tile_mask = mask.reshape(C, tile_height, tile_width)
 +            ctx.sampled_tile_ratio = sampled_ratio
-+            ctx.n_isects_full = int(isect_ids.numel())
-+            if sampled_ratio < 1.0:
-+                # High 32 bits of the sort key encode
-+                # image_id << tile_n_bits | tile_id, where tile_id is the
-+                # row-major (y * tile_width + x) tile index and tile_n_bits =
-+                # bits_for_count(n_tiles) (see gsplat MathUtils.h). Drop the
-+                # isects of unselected tiles and rebuild dense offsets so
-+                # unselected tiles get empty (zero-length) ranges.
-+                tile_n_bits = (n_tiles - 1).bit_length() if n_tiles > 1 else 0
-+                high32 = isect_ids >> 32
-+                img_ids = high32 >> tile_n_bits
-+                tile_ids = high32 & ((1 << tile_n_bits) - 1)
-+                keep = mask[img_ids.long(), tile_ids.long()]
-+                isect_ids = isect_ids[keep]
-+                flatten_ids = flatten_ids[keep]
++            # Round 38: pass the mask into isect_tiles so the CUDA op restricts
++            # the per-Gaussian counts AND the emitted isects to the selected
++            # tiles and sorts only the compacted list (the full-N radix sort
++            # and the Python-level mask filtering are both removed from the
++            # sampled path). The mask is computed before the intersection so
++            # the op never builds the full isect list.
++            tiles_per_gauss, isect_ids, flatten_ids = isect_tiles(
++                means2d,
++                radii,
++                depths,
++                tile_size,
++                tile_width,
++                tile_height,
++                packed=False,
++                n_images=C,
++                image_ids=None,
++                gaussian_ids=None,
++                conics=conics,
++                opacities=opacities_bc,
++                tile_mask=ctx.tile_mask if sampled_ratio < 1.0 else None,
++            )
 +            ctx.n_isects_sampled = int(isect_ids.numel())
++            # The op returns per-Gaussian counts restricted to the selected
++            # tiles, so the exact full-N count is not available from its
++            # outputs; the sampled isect fraction is recovered exactly at the
++            # tile level (isect_frac ~ sampled_tile_ratio).
++            ctx.n_isects_full = int(round(ctx.n_isects_sampled / sampled_ratio))
 +            isect_offsets = isect_offset_encode(
 +                isect_ids, C, tile_width, tile_height
 +            ).reshape((1, C, tile_height, tile_width))
@@ -4900,6 +5406,21 @@ index 2eb26d1..fc28161 100644
  // auto-registers an AutogradCUDA entry that wraps outputs in a grad_fn even
  // when no backward is available, which confuses callers that check grad_fn is None.
  TORCH_LIBRARY_IMPL(experimental, Autograd, m)
+diff --git a/gsplat/geometry/kernels/cuda/build.py b/gsplat/geometry/kernels/cuda/build.py
+index 6e57dbd..558591e 100644
+--- a/gsplat/geometry/kernels/cuda/build.py
++++ b/gsplat/geometry/kernels/cuda/build.py
+@@ -65,9 +65,8 @@ def get_build_parameters() -> SimpleNamespace:
+     extra_cflags += ["-g", "-O0"] if DEBUG else ["-O3", "-DNDEBUG"]
+     extra_cuda_cflags += ["-use_fast_math"] if FAST_MATH else []
+     extra_cuda_cflags += ["-lineinfo"] if DEBUG else []
+-    extra_cflags += ["-Wno-attributes"]
+     if os.name != "nt":
+-        extra_cflags += ["-Wno-sign-compare"]
++        extra_cflags += ["-Wno-attributes", "-Wno-sign-compare"]
+ 
+     if torch.version.hip:
+         extra_cflags += ["-DUSE_ROCM", "-U__HIP_NO_HALF_CONVERSIONS__"]
 diff --git a/gsplat/scene/kernels/cuda/build.py b/gsplat/scene/kernels/cuda/build.py
 index d76e669..a1fad3d 100644
 --- a/gsplat/scene/kernels/cuda/build.py

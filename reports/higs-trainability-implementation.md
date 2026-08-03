@@ -2014,6 +2014,36 @@ parity gate (3-seed, LPIPS within noise) but not bicycle. The quality-side
 lever works; the remaining open work for the 1.8x wall-clock gate is forward
 tile sampling (the forward currently costs the same at r=0.5).
 
+### Round 38 (2026-08-04): forward tile sampling — tile_mask 移入 isect_tiles CUDA 内核（M4 速度门槛最后一块）
+
+目标：前向改为**只在选中 tile 上构建 isect 并排序**，去掉"全量 isect + Python 后过滤"。此前
+`isect_tiles` 对全部 Gaussian×tile 枚举并 radix sort，tile 采样只是在 Python 侧丢弃未选中 tile 的
+isect——排序规模仍是全量。Round 38 把 mask 提前到 isect 之前，per-Gaussian 计数与排序输出都随选中
+tile 数近似线性下降。
+
+改动（均在 patched gsplat 源码树）：
+- `isect_tiles` op 新增第 14 参 `Tensor? tile_mask`：`ext.cpp` schema（`bool segmented, Tensor? tile_mask)`）、
+  `Intersect.h`/`Intersect.cpp` 宿主校验（bool、`[I, tile_height, tile_width]`、与 segmented 互斥），
+  内部 `call_torch_op<&intersect_tile>` 两处调用补空 optional（lidar 路径不接收 mask）。
+- `IntersectTile.cu` 内核：**AccuTile 与 AABB 两分支、first/second pass 均应用 mask**（上游仅在 AABB
+  分支有 mask_img；本轮为 AccuTile 路径 `accutile_process_tiles` 补 mask 检查，并把 mask 传入两次
+  launch，保证 `cum_tiles_per_gauss` 与发射一致）。
+- `_wrapper.py` `isect_tiles(..., tile_mask)` 透传（`tile_mask.contiguous()`）；`_torch_impl.py` fallback
+  同步实现 mask 限制的计数与发射（`[I, th, tw]` reshape 后逐 tile 统计）。
+- `gaussian_inference.py` HiGS 训练 forward：mask 在 isect **之前**计算（uniform/stratified/external），
+  `ctx.n_isects_sampled` 取自压缩后输出，`n_isects_full = round(n_isects_sampled / sampled_ratio)`
+  （tile 级精确，测试断言 `|n_i/n_f - ratio| < 0.15`）。
+- 构建修复：CUDA 13.x 的 CCCL 顶层 `include/cccl` 探测；`GSPLAT_SKIP_FROM_WORLD=1` 的链接缺口用
+  throwing stubs 补齐（新增 `RasterizeToPixelsFromWorld3DGSStubs.cpp`，3 个 from-world 巨核不编译时
+  `Rasterization.cpp` 仍可链接）；geometry JIT 的 `-Wno-attributes` 仅非 Windows 传入。
+
+验证：HiGS 全量 105 passed（含 `test_tile_sampling_ratio_multi_camera_filter`、
+`test_external_tile_mask_filters_isects` 等覆盖）；全仓 `pytest tests` 272 passed / 1 skipped 与 R37 基线
+持平；`patches/higs-differentiable.patch` 对 pristine `77ab983` `git apply --check` 通过。
+
+预期：isect 计数 + radix sort 规模随 r 线性下降，叠加 R37 已证的 backward 减量（r=0.5 每步 -27..-29%），
+补齐 M4 1.8x wall-clock 的 forward 侧杠杆；端到端数字待 EPIC-05 A100 复测。
+
 ### Round 37 (2026-08-04): culling refresh-interval cache (--cull-interval; ~2% train saving, quality-neutral at ci=25)
 
 New knob `--cull-interval N` (harness) and `cull_refresh_interval` (renderer):
