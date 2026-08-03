@@ -1878,6 +1878,61 @@ probe shows the frozen protocol itself (not sampling) is the quality ceiling
 at long horizons, so 30k-step M4 validation requires the full dynamic pipeline
 (densify/prune + schedule), which remains open.
 
+### Round 34 (2026-08-04): refresh cadence closed + dynamic 3000-step convergence probe (M4 partial; N-confounded speedup, protocol ceiling)
+
+Two experiment rounds on the Round-33 harness. Protocol: 4 train + 3 eval
+cams, 1080p, A100, seed 0, `--eval-every 300`.
+
+**Refresh cadence (frozen bicycle, r=0.5, alpha=1.0, lambda=1.0, 300 steps).**
+`--error-refresh-every` in {25, 50, 100}:
+
+| refresh | PSNR  | SSIM   | LPIPS  | train_ms |
+|---------|-------|--------|--------|----------|
+| 25      | 15.896| 0.4338 | 0.5553 | 61.4 |
+| 50      | 15.528| 0.4318 | 0.5575 | 60.8 |
+| 100     | 15.709| 0.4319 | 0.5585 | 60.2 |
+
+Quality differences are cross-process noise (the rf=25 rerun is +0.10 dB vs
+the Round-33 lambda=1.0 seed-0 run, same config); the timing saving is
+~1.2 ms/step (-2%). **Closed as a lever** - the full-res refresh is not what
+eats the bicycle margin; the sampled forward itself costs about as much as
+full (mask/isect machinery), with the savings concentrated in backward
+(47.7 -> 30.7 ms).
+
+**Dynamic 3000-step probe (`higs_dynamic_ts`, densify-every 5, eval each 300).**
+Full r=1.0 vs error-guided r=0.5 (alpha=1.0, lambda=1.0), plus
+`--anchor-densify` variants:
+
+| scene   | mode                              | step-3000 (PSNR/SSIM/LPIPS) | N(300)->N(3000) | train_ms |
+|---------|-----------------------------------|-----------------------------|-----------------|----------|
+| train   | full r=1.0                        | 15.975/0.5781/0.5187         | 505K -> 258K    | 20.7 |
+| train   | error-guided r=0.5                | 15.642/0.5768/0.5564         | 486K -> 203K    | 14.7 |
+| train   | error-guided r=0.5 + anchor       | 15.512/0.5751/0.5678         | 484K -> 213K    | 15.5 |
+| bicycle | full r=1.0                        | 15.283/0.3473/0.6412         | 3.17M -> 1.77M  | 40.2 |
+| bicycle | error-guided r=0.5                | 15.034/0.3471/0.7573         | 2.89M -> 1.31M  | 29.8 |
+| bicycle | error-guided r=0.5 + anchor       | 15.037/0.3498/0.7332         | 2.91M -> 1.36M  | 29.5 |
+
+Findings: (1) the dynamic protocol itself is not a stable long-horizon
+regime - both scenes degrade after ~step 300 while pruning drives N down
+(train 505K->258K, bicycle 3.17M->1.77M), so the per-step cost drop vs the
+frozen 3000-step runs (train 37.0->20.7 ms, bicycle 97.2->40.2 ms) is
+N-confounded, not an apples-to-apples speedup; (2) error-guided r=0.5 misses
+parity at 3000 steps (train -0.33 dB / +0.038 LPIPS; bicycle -0.25 dB /
++0.116 LPIPS) and prunes ~20-25% more N; (3) `--anchor-densify` (full-res
+densify steps) does not restore parity - N +5%, LPIPS -0.02 on bicycle, no
+PSNR change - because the prune-side opacity evolution still diverges under
+sampled gradients. Within-session r=0.5 vs full dynamic speedup is
+-29% (train) / -26% (bicycle), with the LPIPS gap as the honest cost.
+
+**Round 34 bottom line.** Refresh cadence is closed as a lever; the dynamic
+convergence probe shows the quality-parity gap persists at 3000 steps and is
+N-trajectory-driven (densify/prune corruption that anchor-densify alone does
+not fix). Combined with the Round-33 frozen-collapse data, the honest
+conclusion is that M4's "converged quality parity" cannot be established with
+the current fixed-LR protocols - it requires the full 3DGS training recipe
+(lr schedule, densify window, opacity reset), which is the remaining open
+work item.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
