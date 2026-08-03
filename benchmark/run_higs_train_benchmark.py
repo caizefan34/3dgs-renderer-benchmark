@@ -559,6 +559,7 @@ def run_backend(
 
     fwd_times, bwd_times, total_times, train_times = [], [], [], []
     culling_ratios, n_visibles, topo_rebuilt, isect_fracs = [], [], [], []
+    sampled_ratios = []
     refresh_times = []
     lpips_ms = []
     eval_curve = []
@@ -649,6 +650,13 @@ def run_backend(
                 culling_ratios.append(meta.get("culling_ratio", 0.0))
                 n_visibles.append(meta.get("n_visible", 0))
                 topo_rebuilt.append(float(meta.get("topology_rebuilt", False)))
+                # The rasterizer reports the ratio it actually used (a backend
+                # may force 1.0, e.g. ``higs_native`` even when the CLI asks for
+                # r<1); fall back to the harness-level step ratio when the
+                # metadata does not carry the field.
+                sampled_ratios.append(
+                    float(meta.get("sampled_tile_ratio", step_ratio))
+                )
                 n_isects_full = meta.get("n_isects_full", 0)
                 isect_fracs.append(
                     meta.get("n_isects", 0) / n_isects_full
@@ -658,6 +666,7 @@ def run_backend(
                 culling_ratios.append(0.0)
                 n_visibles.append(means.shape[0])
                 topo_rebuilt.append(0.0)
+                sampled_ratios.append(1.0)
 
             if lr_decay < 1.0:
                 _t = float(it + 1)
@@ -769,7 +778,10 @@ def run_backend(
         "lpips": l,
         "final_n": means.shape[0],
         "topology_rebuilt_frac": float(np.mean(topo_rebuilt)) if topo_rebuilt else 0.0,
-        "sampled_tile_ratio": float(tile_sampling_ratio),
+        "sampled_tile_ratio": (
+            float(np.mean(sampled_ratios)) if sampled_ratios
+            else float(tile_sampling_ratio)
+        ),
         "isect_frac": float(np.mean(isect_fracs)) if isect_fracs else 1.0,
         "refresh_ms": float(np.mean(refresh_times)) if refresh_times else 0.0,
         "lpips_loss_weight": float(lpips_loss_weight),

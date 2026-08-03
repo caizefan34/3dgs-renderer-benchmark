@@ -179,6 +179,28 @@ mv artifacts/renderer-sources/gsplat/pytest.ini.bak artifacts/renderer-sources/g
   is not installed in this env; temporarily moving `pytest.ini` aside avoids
   the import error.
 
+### Windows (local dev, patched source)
+
+On a Windows box the same suite runs against the locally-built patched tree.
+The one-command wrappers in [`scripts/higs/`](../scripts/higs/README.md) load
+the MSVC environment and set `PYTHONPATH` to the patched source (with the
+`.build_tmp/pyfix` sitecustomize shim when present):
+
+```bat
+scripts\higs\run_tests.cmd                                   :: full repo suite (276 passed / 1 skipped on the local RTX box)
+scripts\higs\run_tests.cmd tests/test_higs_native_backward.py::TestTileSampledBackward -q
+scripts\higs\run_benchmark.cmd --scene tanks_and_temples/train --backends std higs_native higs_native_ts --tile-sampling-ratio 0.5
+```
+
+Two Windows gotchas worth knowing:
+- Without `vcvars64.bat` loaded, torch's JIT fallback for `gsplat_scene_cuda`
+  cannot find `cl` and 15 HiGS tests fail with
+  `Failed to load gsplat_scene_cuda via JIT build/load`; the wrappers call
+  vcvars (detected via `vswhere`) automatically.
+- `GSPLAT_SKIP_FROM_WORLD=1` must be set while building/importing the patched
+  tree (it selects the CUDA-13-compatible `RasterizeToPixelsFromWorld3DGS`
+  link stub); the wrappers set it too.
+
 ## Training benchmark
 
 `benchmark/run_higs_train_benchmark.py` runs, per scene (small + large) and per

@@ -91,6 +91,27 @@
   patch 对 pristine 77ab983 干净应用。本机 blend self-time：r=1 ≈33.5ms → r=0.5 ≈18.5ms（55%）
   → r=0.25 ≈9.6ms（29% of dense），比率稳定、绝对数受 GPU 时钟波动 ±30%；
   1.8x 墙钟门槛仍待 EPIC-05 A100 复测。
+- **Round 40 更新（2026-08-04，本地端到端配对复测）**：train 场景
+  （N=1,026,508）、960x540、4 train + 3 eval cams、20 步、同会话顺序 3 轮取中位数，
+  frozen + native + culling（uniform 采样）：
+
+  | config | fwd ms | bwd ms | total ms | vs std | PSNR | LPIPS |
+  |---|---|---|---|---|---|---|
+  | std | 22.8 | 55.2 | 78.6 | 1.00x | 19.24 | 0.2968 |
+  | higs_native (r=1.0) | 26.1 | 42.2 | 69.7 | 1.13x | 19.24 | 0.2970 |
+  | higs_native_ts (r=0.5) | 18.9 | 27.2 | 48.1 | **1.63x** | 19.04 | 0.3332 |
+  | higs_native_ts (r=0.25) | 15.1 | 20.5 | 36.9 | **2.13x** | 18.39 | 0.4066 |
+
+  bwd 随 r 近线性（42.2→27.2→20.5 ms），fwd 18.9→15.1 ms（r=0.25 时 rasterize_fwd
+  全图发射成为 fwd 固定底）；质量代价与 Round 31-39 一致（r=0.5 PSNR -0.20 dB、
+  LPIPS +0.036，r=0.25 PSNR -0.85 dB、LPIPS +0.110——诚实标注，M4 收敛持平仍以
+  300 步/长 horizon 协议为准）。**结论：R38 forward isect+radix 减量与 R39 backward
+  blend 压缩叠加后，本机端到端 r=0.5 = 1.63x、r=0.25 = 2.13x（vs std，20 步协议）；
+  按 total 随 r 近似线性内插，1.8x 墙钟点约在 r≈0.4——但 M4 的收敛质量持平目前只在
+  r=0.5（+LPIPS 正则）被验证过，r≤0.5 且 ≥1.8x 的操作点尚无质量证据，EPIC-05 A100
+  长 horizon 复测仍待执行。** 另修复
+  `sampled_tile_ratio` 报告字段：现取 op metadata 实际值（std/higs_native 恒为 1.0，
+  采样后端为实际均值），此前 CLI 配置值会在非采样后端上误报 r<1。
 
 - M5 扩展性：未做。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
@@ -103,5 +124,6 @@
 ## 7. 里程碑与验证标准（论文门槛）
 - M2 完成 = 可演示 r=1/4 时总时间降 ~35-45%（若 blend 主导成立）；这是"明显加快"的第一实证。（**Round 31 已达成**：r=0.25 总时间 -33..-41%，bwd 近线性。）
 - M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。（**部分**：r=0.5 dynamic + LPIPS 正则化（w=0.1 every 25）在 train 3-seed 达成 PSNR/SSIM 反超（+0.64 dB/+0.009）、LPIPS 差距缩至噪声级（+0.0046±0.0063），bicycle 仍 +0.038 未关闭；r=0.25 未做；1.8x wall-clock 未达到——采样 forward 仍渲染全部 tile，r=0.5 每步仅 -27..-29%。）
+- M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。（**部分**：r=0.5 dynamic + LPIPS 正则化（w=0.1 every 25）在 train 3-seed 达成 PSNR/SSIM 反超（+0.64 dB/+0.009）、LPIPS 差距缩至噪声级（+0.0046±0.0063），bicycle 仍 +0.038 未关闭；r=0.25 收敛未做。**Round 40 本地 20 步配对复测：r=0.5 = 1.63x、r=0.25 = 2.13x vs std**（R38 forward + R39 backward 叠加），1.8x 内插点约 r≈0.4 但该 r 无质量持平证据；EPIC-05 A100 长 horizon 复测是 M4 剩余验证项。）
 - M6 完成 = 可投稿（目标 CVPR/ICCV/ECCV 或 SIGGRAPH Asia）。
 - 负结果必须诚实报告（宏块 backward 上限、共享内存累加负收益等已有关闭杠杆）。
