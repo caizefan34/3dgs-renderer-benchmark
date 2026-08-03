@@ -150,11 +150,16 @@
   （实际 sr≈0.24-0.27）。bicycle（高 N 场景，seed 0）：full PSNR 15.947/SSIM
   0.3906/LPIPS 0.4783 vs eg r=0.35 15.124/0.3871/0.5341 vs eg r=0.30
   15.756/0.3876/0.5431——PSNR 接近（r=0.30 -0.19 dB）但 LPIPS 差距 +0.056..+0.065
-  仍开口（eval 曲线 1500 步后 eg 继续下滑）。**结论：M4 核心门槛在 train 达成
-  （3-seed：1.8x 操作点 r=0.35 同时获得 1.82x 端到端加速与 PSNR/SSIM 反超）；
-  LPIPS 在低 ratio 重新开口（+0.024，r=0.5 时曾缩至噪声级），bicycle 单 seed
-  LPIPS 差距为剩余诚实上界。** 复现：scripts/higs/run_m4_a100_retest.sh、
-  聚合结果 results/higs-round41b/m4-summary.json。
+  仍开口（eval 曲线 1500 步后 eg 继续下滑）。**λ-mix 补测（R33 的 --error-lambda
+  旋钮，λ=0.7 uniform-mix）在 r=0.35 上显著缓解：train 3-seed PSNR 17.074
+  （+0.40 vs full）、SSIM 0.6295（+0.003）、LPIPS 0.3870（+0.019，较 λ=1.0 的
+  +0.024 收窄）、1.82x；bicycle 2-seed PSNR 15.878/15.908（-0.07/-0.04 dB，基本
+  持平 full）、SSIM 持平、LPIPS 0.536/0.525（+0.058/+0.047）——bicycle PSNR 上界
+  首次关闭，LPIPS 为唯一剩余开口。**结论：M4 核心门槛在 train 达成（3-seed：
+  1.8x 操作点 r=0.35 + λ=0.7 同时获得 1.82x 端到端加速与 PSNR/SSIM 反超、LPIPS
+  +0.019）；bicycle PSNR/SSIM 持平、LPIPS +0.05 为剩余诚实上界（单/双 seed）。
+  操作点推荐：error_guided r=0.35（实际 sr≈0.27）、error-lambda=0.7。** 复现：
+  scripts/higs/run_m4_a100_retest.sh、聚合结果 results/higs-round41b/m4-summary.json。
 
 
 - M5 扩展性：未做。
@@ -167,6 +172,6 @@
 
 ## 7. 里程碑与验证标准（论文门槛）
 - M2 完成 = 可演示 r=1/4 时总时间降 ~35-45%（若 blend 主导成立）；这是"明显加快"的第一实证。（**Round 31 已达成**：r=0.25 总时间 -33..-41%，bwd 近线性。）
-- M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。（**部分→主要达成（train）**：r=0.5 dynamic + LPIPS 正则化（w=0.1 every 25）在 train 3-seed 达成 PSNR/SSIM 反超（+0.64 dB/+0.009）、LPIPS 差距缩至噪声级（+0.0046±0.0063），bicycle 仍 +0.038 未关闭；r=0.25 收敛未做。**Round 40 本地 20 步配对复测：r=0.5 = 1.63x、r=0.25 = 2.13x vs std**（R38 forward + R39 backward 叠加）。**Round 41 本地 3000 步质量探针：error_guided r=0.5/0.4/0.35 均方向性持平或反超 full（PSNR +0.33..+0.54 dB、LPIPS +0.005..+0.008），1.8x 计时点在名义 r≈0.36（实际 sr≈0.26）。**Round 41b EPIC-05 A100 多 seed 复测完成：train 3-seed 在名义 r=0.35（实际 sr≈0.27）达成 1.82x 端到端加速且 PSNR/SSIM 反超（+0.42 dB/+0.004），r=0.30 达 1.90x——M4 主要门槛达成；LPIPS +0.024 重新开口、bicycle 单 seed LPIPS +0.056..+0.065 为投稿前补强项。**）
+- M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。（**部分→主要达成（train）**：r=0.5 dynamic + LPIPS 正则化（w=0.1 every 25）在 train 3-seed 达成 PSNR/SSIM 反超（+0.64 dB/+0.009）、LPIPS 差距缩至噪声级（+0.0046±0.0063），bicycle 仍 +0.038 未关闭；r=0.25 收敛未做。**Round 40 本地 20 步配对复测：r=0.5 = 1.63x、r=0.25 = 2.13x vs std**（R38 forward + R39 backward 叠加）。**Round 41 本地 3000 步质量探针：error_guided r=0.5/0.4/0.35 均方向性持平或反超 full（PSNR +0.33..+0.54 dB、LPIPS +0.005..+0.008），1.8x 计时点在名义 r≈0.36（实际 sr≈0.26）。**Round 41b EPIC-05 A100 多 seed 复测完成：train 3-seed 在名义 r=0.35（实际 sr≈0.27）达成 1.82x 端到端加速且 PSNR/SSIM 反超（+0.42 dB/+0.004），r=0.30 达 1.90x——M4 主要门槛达成；LPIPS +0.024 重新开口、bicycle λ=0.7 下 PSNR/SSIM 持平（-0.04..-0.07 dB）、LPIPS +0.047..+0.058 为剩余诚实上界；train LPIPS +0.019（λ=0.7）——M4 主要门槛达成，bicycle LPIPS 为投稿前补强项。**）
 - M6 完成 = 可投稿（目标 CVPR/ICCV/ECCV 或 SIGGRAPH Asia）。
 - 负结果必须诚实报告（宏块 backward 上限、共享内存累加负收益等已有关闭杠杆）。
