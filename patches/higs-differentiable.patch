@@ -189,7 +189,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..46a3942 100644
+index b6c1b13..d460c16 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -256,7 +256,7 @@ index b6c1b13..46a3942 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2172 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2283 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -1384,6 +1384,8 @@ index b6c1b13..46a3942 100644
 +        enable_culling, use_higs_culling,
 +        backward_mode="higs_native", renderer_handle=None,
 +        sh_compression_mode="none",
++        tile_sampling_ratio=1.0,
++        sampling_mode="uniform",
 +    ):
 +        if backward_mode not in ("higs_native", "gsplat_recompute"):
 +            raise ValueError(
@@ -1415,6 +1417,21 @@ index b6c1b13..46a3942 100644
 +        ctx.native = native
 +        ctx.backward_backend = "higs_native" if native else "gsplat_recompute"
 +        ctx.native_available = _higs_backend_available()
++        if not (0.0 < float(tile_sampling_ratio) <= 1.0):
++            raise ValueError(
++                "tile_sampling_ratio must be in (0, 1], got %r" % (tile_sampling_ratio,)
++            )
++        ctx.tile_sampling_ratio = float(tile_sampling_ratio)
++        if sampling_mode not in ("uniform", "stratified"):
++            raise ValueError(
++                f"sampling_mode must be 'uniform' or 'stratified', got {sampling_mode!r}"
++            )
++        ctx.sampling_mode = sampling_mode
++        if ctx.tile_sampling_ratio < 1.0 and not native:
++            raise ValueError(
++                "tile_sampling_ratio < 1.0 requires backward_mode='higs_native' "
++                "(tile sampling is implemented in the native capture path)."
++            )
 +
 +        if native:
 +            if render_mode not in ("RGB", "D", "ED", "RGB+D", "RGB+ED"):
@@ -1569,6 +1586,11 @@ index b6c1b13..46a3942 100644
 +                "sh_compression_mode": getattr(ctx, "sh_compression_mode", "none"),
 +                "render_mode": render_mode,
 +                "scene_version": ctx.scene_version,
++                "sampled_tile_ratio": 1.0,
++                "sampling_mode": "uniform",
++                "tile_mask": None,
++                "n_isects": 0,
++                "n_isects_full": 0,
 +            }
 +            if C == 1:
 +                return frame.squeeze(0)[None], alpha_ch.squeeze(0)[None]  # [1,H,W,3], [1,H,W,1]
@@ -1590,6 +1612,8 @@ index b6c1b13..46a3942 100644
 +                    v_colors_input, viewmats, Ks, width, height, sh_degree,
 +                    tile_size, near_plane, far_plane, radius_clip, eps2d,
 +                    backgrounds_b, camera_model, render_mode,
++                    ctx.tile_sampling_ratio,
++                    ctx.sampling_mode,
 +                )
 +            )
 +        else:
@@ -1647,6 +1671,11 @@ index b6c1b13..46a3942 100644
 +            "sh_compression_mode": getattr(ctx, "sh_compression_mode", "none"),
 +            "render_mode": render_mode,
 +            "scene_version": ctx.scene_version,
++            "sampled_tile_ratio": getattr(ctx, "sampled_tile_ratio", 1.0),
++            "sampling_mode": getattr(ctx, "sampling_mode", "uniform"),
++            "tile_mask": getattr(ctx, "tile_mask", None),
++            "n_isects": getattr(ctx, "n_isects_sampled", 0),
++            "n_isects_full": getattr(ctx, "n_isects_full", 0),
 +        }
 +        return frame[None], alpha_ch[None]
 +
@@ -1657,6 +1686,8 @@ index b6c1b13..46a3942 100644
 +        viewmats, Ks, width, height, sh_degree,
 +        tile_size, near_plane, far_plane, radius_clip, eps2d,
 +        backgrounds_b, camera_model, render_mode,
++        tile_sampling_ratio=1.0,
++        sampling_mode="uniform",
 +    ):
 +        """Run the standard gsplat CUDA forward on the visible subset and
 +        capture every tensor the native backward consumes, in ONE pass."""
@@ -1708,6 +1739,62 @@ index b6c1b13..46a3942 100644
 +                conics=conics,
 +                opacities=opacities_bc,
 +            )
++            n_tiles = tile_width * tile_height
++            if 0.0 < tile_sampling_ratio < 1.0:
++                # Tile sampling without replacement. The mean over the sampled
++                # tiles is an unbiased estimator of the full-frame mean loss,
++                # so the harness needs no 1/r rescale -- only a mask over the
++                # sampled tiles.
++                if sampling_mode == "stratified":
++                    # One tile per stratum of size round(1/r) (consecutive
++                    # tiles in row-major order). Every region of the frame
++                    # keeps a sample, which reduces gradient-estimator
++                    # variance vs iid uniform sampling at the same r.
++                    stratum_size = max(1, int(round(1.0 / tile_sampling_ratio)))
++                    n_strata = (n_tiles + stratum_size - 1) // stratum_size
++                    rnd = torch.rand((C, n_strata), device=means_b.device)
++                    pick = (rnd * stratum_size).long().clamp(max=stratum_size - 1)
++                    base = (
++                        torch.arange(n_strata, device=means_b.device)[None, :]
++                        * stratum_size
++                    )
++                    sel = (base + pick).clamp(max=n_tiles - 1)  # [C, n_strata]
++                    mask = torch.zeros(
++                        (C, n_tiles), dtype=torch.bool, device=means_b.device
++                    )
++                    mask.scatter_(1, sel, True)
++                else:
++                    k = max(1, int(round(n_tiles * tile_sampling_ratio)))
++                    rnd = torch.rand((C, n_tiles), device=means_b.device)
++                    _, top_idx = torch.topk(rnd, k, dim=1)  # [C, k]
++                    mask = torch.zeros(
++                        (C, n_tiles), dtype=torch.bool, device=means_b.device
++                    )
++                    mask.scatter_(1, top_idx, True)
++                sampled_ratio = float(mask.float().mean())
++            else:
++                mask = torch.ones(
++                    (C, n_tiles), dtype=torch.bool, device=means_b.device
++                )
++                sampled_ratio = 1.0
++            ctx.tile_mask = mask.reshape(C, tile_height, tile_width)
++            ctx.sampled_tile_ratio = sampled_ratio
++            ctx.n_isects_full = int(isect_ids.numel())
++            if sampled_ratio < 1.0:
++                # High 32 bits of the sort key encode
++                # image_id << tile_n_bits | tile_id, where tile_id is the
++                # row-major (y * tile_width + x) tile index and tile_n_bits =
++                # bits_for_count(n_tiles) (see gsplat MathUtils.h). Drop the
++                # isects of unselected tiles and rebuild dense offsets so
++                # unselected tiles get empty (zero-length) ranges.
++                tile_n_bits = (n_tiles - 1).bit_length() if n_tiles > 1 else 0
++                high32 = isect_ids >> 32
++                img_ids = high32 >> tile_n_bits
++                tile_ids = high32 & ((1 << tile_n_bits) - 1)
++                keep = mask[img_ids.long(), tile_ids.long()]
++                isect_ids = isect_ids[keep]
++                flatten_ids = flatten_ids[keep]
++            ctx.n_isects_sampled = int(isect_ids.numel())
 +            isect_offsets = isect_offset_encode(
 +                isect_ids, C, tile_width, tile_height
 +            ).reshape((1, C, tile_height, tile_width))
@@ -1998,7 +2085,7 @@ index b6c1b13..46a3942 100644
 +                    tracked[name] = t.detach().requires_grad_(True)
 +
 +            if not tracked:
-+                return (None,) * 23
++                return (None,) * 25
 +
 +            alpha_final = None
 +            if ctx.N_visible == 0:
@@ -2092,6 +2179,8 @@ index b6c1b13..46a3942 100644
 +            None, None,  # render_mode, camera_model
 +            None, None,  # enable_culling, use_higs_culling
 +            None, None, None,  # backward_mode, renderer_handle, sh_compression_mode
++            None,  # tile_sampling_ratio (non-tensor input)
++            None,  # sampling_mode (non-tensor input)
 +        )
 +
 +def _higs_frozen_forward(
@@ -2120,6 +2209,8 @@ index b6c1b13..46a3942 100644
 +    freeze_topology: bool = True,
 +    backward_mode: str = "higs_native",
 +    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
 +    scene=None,
 +) -> dict:
 +    """Forward pass for frozen-topology HiGS diff. path (Stage B).
@@ -2148,7 +2239,8 @@ index b6c1b13..46a3942 100644
 +        near_plane, far_plane, radius_clip, eps2d, background,
 +        render_mode, camera_model,
 +        enable_culling, use_higs_culling,
-+        backward_mode, scene, sh_compression_mode,
++        backward_mode, scene, sh_compression_mode, tile_sampling_ratio,
++        sampling_mode,
 +    )
 +    fwd_meta = dict(_HigsAutogradFunction.last_forward_metadata)
 +    N_total = fwd_meta["n_gaussians"]
@@ -2199,6 +2291,10 @@ index b6c1b13..46a3942 100644
 +            "higs_preview": higs_preview,
 +            "freeze_topology": freeze_topology,
 +            "render_count": _HIGS_FROZEN_TRACKER.render_count,
++            "sampled_tile_ratio": fwd_meta.get("sampled_tile_ratio", 1.0),
++            "tile_mask": fwd_meta.get("tile_mask"),
++            "n_isects": fwd_meta.get("n_isects", 0),
++            "n_isects_full": fwd_meta.get("n_isects_full", 0),
 +        },
 +    }
 +
@@ -2228,6 +2324,8 @@ index b6c1b13..46a3942 100644
 +    freeze_topology: bool = True,
 +    backward_mode: str = "higs_native",
 +    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
 +    scene=None,
 +) -> dict:
 +    """Differentiable HiGS rendering with per-frame visibility culling (Stage B).
@@ -2265,6 +2363,8 @@ index b6c1b13..46a3942 100644
 +        freeze_topology=freeze_topology,
 +        backward_mode=backward_mode,
 +        sh_compression_mode=sh_compression_mode,
++        tile_sampling_ratio=tile_sampling_ratio,
++        sampling_mode=sampling_mode,
 +        scene=scene,
 +    )
 +
@@ -2293,6 +2393,8 @@ index b6c1b13..46a3942 100644
 +    return_higs_preview: bool = False,
 +    backward_mode: str = "higs_native",
 +    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
 +    scene=None,
 +) -> dict:
 +    """Forward pass for dynamic-topology HiGS diff. path (Stage C).
@@ -2320,7 +2422,8 @@ index b6c1b13..46a3942 100644
 +        near_plane, far_plane, radius_clip, eps2d, background,
 +        render_mode, camera_model,
 +        enable_culling, use_higs_culling,
-+        backward_mode, handle, sh_compression_mode,
++        backward_mode, handle, sh_compression_mode, tile_sampling_ratio,
++        sampling_mode,
 +    )
 +
 +    scene_version = _HIGS_DYNAMIC_SCENE.next_version(means.shape[0])
@@ -2367,6 +2470,10 @@ index b6c1b13..46a3942 100644
 +            "render_mode": render_mode,
 +            "use_higs_culling": use_higs_culling,
 +            "higs_preview": higs_preview,
++            "sampled_tile_ratio": fwd_meta.get("sampled_tile_ratio", 1.0),
++            "tile_mask": fwd_meta.get("tile_mask"),
++            "n_isects": fwd_meta.get("n_isects", 0),
++            "n_isects_full": fwd_meta.get("n_isects_full", 0),
 +        },
 +    }
 +
@@ -2396,6 +2503,8 @@ index b6c1b13..46a3942 100644
 +    return_higs_preview: bool = False,
 +    backward_mode: str = "higs_native",
 +    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
 +    scene=None,
 +) -> dict:
 +    """Differentiable HiGS rendering with dynamic-topology support (Stage C).
@@ -2427,6 +2536,8 @@ index b6c1b13..46a3942 100644
 +        return_higs_preview=return_higs_preview,
 +        backward_mode=backward_mode,
 +        sh_compression_mode=sh_compression_mode,
++        tile_sampling_ratio=tile_sampling_ratio,
++        sampling_mode=sampling_mode,
 +        scene=scene,
 +    )
 diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py

@@ -1,8 +1,7 @@
-﻿import pytest
 import torch
 
 device = torch.device("cuda:0")
-_skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+from higs_skip_helpers import skipif_higs_unavailable as _skip_no_cuda
 
 def _make_gaussians(N, device, seed=42):
     torch.manual_seed(seed)

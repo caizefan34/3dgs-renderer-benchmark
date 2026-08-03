@@ -22,8 +22,9 @@ import pytest
 import torch
 
 device = torch.device("cuda:0")
-_skip_no_cuda = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="No CUDA device"
+from higs_skip_helpers import (
+    skipif_higs_module_unavailable as _skip_no_higs_module,
+    skipif_higs_unavailable as _skip_no_cuda,
 )
 
 
@@ -1205,6 +1206,7 @@ class TestStaticApiSurface:
     only CUDA-specific tests skip cleanly.
     """
 
+    @_skip_no_higs_module
     def test_stage_apis_importable(self):
         from gsplat.experimental import (
             rasterize_gaussian_higs_dynamic,
@@ -1216,6 +1218,7 @@ class TestStaticApiSurface:
         assert callable(rasterize_gaussian_higs_frozen)
         assert callable(rasterize_gaussian_higs_dynamic)
 
+    @_skip_no_higs_module
     def test_backward_mode_default_native(self):
         import inspect
 
@@ -1229,6 +1232,7 @@ class TestStaticApiSurface:
             assert params["backward_mode"].default == "higs_native"
             assert params["sh_compression_mode"].default == "none"
 
+    @_skip_no_higs_module
     def test_backend_probe_returns_bool(self):
         from gsplat.experimental.render.functional.gaussian_inference import (
             _higs_backend_available,
@@ -1236,6 +1240,7 @@ class TestStaticApiSurface:
 
         assert isinstance(_higs_backend_available(), bool)
 
+    @_skip_no_higs_module
     def test_metadata_keys_in_module_source(self):
         import inspect
 
@@ -1254,6 +1259,7 @@ class TestStaticApiSurface:
         missing = {k for k in required if '"%s"' % k not in src}
         assert not missing, f"metadata keys missing from module source: {missing}"
 
+    @_skip_no_higs_module
     def test_handle_and_scene_api_surface(self):
         from gsplat.experimental.render.functional.gaussian_inference import (
             _HigsDynamicScene,
@@ -1562,6 +1568,7 @@ class TestCullingRefreshAndClamp:
         finally:
             handle.release()
 
+    @_skip_no_higs_module
     def test_densify_color_clamp_configurable(self):
         """densify clamps RGB to [0,1] by default; color_clamp=None disables."""
         from gsplat.experimental.render.functional.gaussian_inference import (

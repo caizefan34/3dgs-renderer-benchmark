@@ -2,7 +2,7 @@ import pytest
 import torch
 
 device = torch.device("cuda:0")
-_skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+from higs_skip_helpers import skipif_higs_unavailable as _skip_no_cuda
 
 def _make_gaussians(N, device, seed=42):
     torch.manual_seed(seed)
@@ -336,3 +336,41 @@ class TestHigsAutogradFunction:
         torch.testing.assert_close(frame_fn, result["frame"], atol=1e-5, rtol=1e-5)
         torch.testing.assert_close(alpha_fn, result["alpha"], atol=1e-5, rtol=1e-5)
 
+
+    @_skip_no_cuda
+    def test_tile_sampling_ratio_multi_camera_filter(self):
+        """Multi-camera tile sampling actually filters isects (regression).
+
+        sampled_ratio is computed as mask.mean() over the full [C, n_tiles]
+        mask; an earlier version divided by n_tiles only, which made
+        sampled_ratio >= 1.0 whenever C * ratio >= 1 and silently skipped the
+        isect filtering for multi-camera batches (e.g. C=2, r=0.5).
+        """
+        from gsplat.experimental import rasterize_gaussian_higs_frozen
+        N = 80
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+        C = 2
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0).repeat(1, C, 1, 1)
+        Ks = K.unsqueeze(0).unsqueeze(0).repeat(1, C, 1, 1)
+        for ratio in (0.5, 0.25):
+            result = rasterize_gaussian_higs_frozen(
+                means, quats, scales, opacities, colors,
+                viewmats=viewmats, Ks=Ks, width=w, height=h,
+                tile_sampling_ratio=ratio, sampling_mode="stratified",
+            )
+            meta = result["metadata"]
+            sr = meta.get("sampled_tile_ratio", 1.0)
+            n_i = meta.get("n_isects", 0)
+            n_f = meta.get("n_isects_full", 0)
+            tm = meta.get("tile_mask")
+            assert tm is not None, "tile_mask missing from metadata"
+            frac = float(tm.float().mean())
+            assert abs(frac - ratio) < 0.05, f"mask frac {frac} != {ratio}"
+            assert abs(sr - ratio) < 0.05, f"sampled_tile_ratio {sr} != {ratio}"
+            assert n_f > 0 and n_i < n_f, (
+                f"isect filter skipped: n_isects={n_i} n_isects_full={n_f}"
+            )
+            assert abs(n_i / n_f - ratio) < 0.15, (
+                f"isect reduction {n_i/n_f:.3f} far from {ratio}"
+            )

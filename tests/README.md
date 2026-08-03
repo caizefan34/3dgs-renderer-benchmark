@@ -1,13 +1,15 @@
 # Tests
 
-`unittest` suite (no pytest dependency). Run:
+Two runners cover the suite:
 
-```bash
-python -m unittest discover -s tests -v
-```
+- `unittest` (default, CPU-safe, runs in CI): `python -m unittest discover -s tests -v`
+- `pytest` (also runs the pytest-style HiGS + presentation tests):
+  `python -m pytest tests -q`
 
-CUDA-specific HiGS tests skip cleanly when the CUDA extension is unavailable;
-the rest are CPU-safe.
+The pytest-style files (`test_higs_*.py`, `test_goal_results_presentation.py`)
+are not collected by `unittest` because they use pytest idioms. HiGS tests skip
+cleanly when the patched gsplat (see `patches/`) or CUDA is unavailable; the
+rest of the suite is CPU-safe.
 
 ## Inventory by area
 - **HiGS trainability**: `test_higs_trainable.py`, `test_higs_frozen.py`, `test_higs_dynamic.py`, `test_higs_native_backward.py`

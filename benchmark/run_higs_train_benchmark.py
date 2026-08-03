@@ -32,6 +32,7 @@ from plyfile import PlyData
 
 _SH_DEGREE = 3
 _K = (_SH_DEGREE + 1) ** 2  # 16
+_TILE_SIZE = 16  # HiGS macro-tile edge (px); must match the render tile_size.
 
 
 # --------------------------------------------------------------------------
@@ -209,6 +210,23 @@ def _l1_loss(frame, ref):
     return (frame - ref).abs().mean()
 
 
+def _masked_l1_loss(frame, ref, tile_mask, tile_size, width, height):
+    """Unbiased sampled-tile L1: mean |diff| over the sampled tiles only.
+
+    Uniform fixed-count tile sampling makes the sampled-tile mean an unbiased
+    estimator of the full-frame mean, so no 1/r rescale is needed here.
+    ``frame`` is [1, C, H, W, 3], ``ref`` is [C, H, W, 3], ``tile_mask`` is
+    [C, th, tw] bool.
+    """
+    diff = (frame.squeeze(0) - ref).abs()  # [C, H, W, 3]
+    pm = (
+        tile_mask.repeat_interleave(tile_size, dim=1)
+        .repeat_interleave(tile_size, dim=2)[:, :height, :width]
+        .unsqueeze(-1)
+    )  # [C, H, W, 1]
+    return diff.masked_select(pm.expand_as(diff)).mean()
+
+
 def _std_ll_forward(means, quats, scales, opacities, colors, viewmats, Ks,
                    width, height, sh_degree, radius_clip=0.0):
     """Low-level standard gsplat forward (raw CUDA kernels, no culling).
@@ -284,13 +302,16 @@ def _std_ll_forward(means, quats, scales, opacities, colors, viewmats, Ks,
     return render_colors, render_alphas
 
 
-def make_forward_fn(backend, width, height, handle, viewmats, Ks, radius_clip=0.0):
+def make_forward_fn(backend, width, height, handle, viewmats, Ks,
+                     radius_clip=0.0, tile_sampling_ratio=1.0,
+                     sampling_mode="uniform"):
     from gsplat.rendering import rasterization
 
-    def forward_fn(params_in, cam_ids):
+    def forward_fn(params_in, cam_ids, sampling_ratio=None):
         m, q, s, o, c = params_in
         vm = viewmats[:, cam_ids]
         K = Ks[:, cam_ids]
+        ratio = tile_sampling_ratio if sampling_ratio is None else sampling_ratio
         if backend == "std":
             out = rasterization(
                 means=m.unsqueeze(0), quats=q.unsqueeze(0),
@@ -310,17 +331,26 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks, radius_clip=0.
             viewmats=vm, Ks=K, width=width, height=height,
             sh_degree=_SH_DEGREE, use_higs_culling=True, radius_clip=radius_clip,
         )
-        if backend in ("higs_native", "higs_recompute"):
+        if backend in ("higs_native", "higs_recompute", "higs_native_ts"):
             from gsplat.experimental import rasterize_gaussian_higs_frozen
-            mode = "higs_native" if backend == "higs_native" else "gsplat_recompute"
+            if backend == "higs_recompute":
+                mode, ratio = "gsplat_recompute", 1.0
+            else:
+                mode = "higs_native"
+                if backend == "higs_native":
+                    ratio = 1.0  # full-resolution baseline backend
             res = rasterize_gaussian_higs_frozen(
                 m, q, s, o, c, backward_mode=mode, scene=handle,
-                freeze_topology=True, **kw,
+                freeze_topology=True, tile_sampling_ratio=ratio,
+                sampling_mode=sampling_mode, **kw,
             )
             return res["frame"], res["alpha"], res["metadata"]
         from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        dyn_ratio = ratio if backend == "higs_dynamic_ts" else 1.0
         res = rasterize_gaussian_higs_dynamic(
-            m, q, s, o, c, backward_mode="higs_native", **kw,
+            m, q, s, o, c, backward_mode="higs_native",
+            tile_sampling_ratio=dyn_ratio,
+            sampling_mode=sampling_mode, **kw,
         )
         return res["frame"], res["alpha"], res["metadata"]
 
@@ -383,7 +413,8 @@ def run_backend(
     backend, params0, viewmats, Ks, train_idx, refs_train,
     eval_idx, refs_eval, width, height, steps, seed, device,
     densify_every, densify_threshold, prune_threshold, lpips_model,
-    radius_clip=0.0, fused_adam=True,
+    radius_clip=0.0, fused_adam=True, tile_sampling_ratio=1.0,
+    anchor_densify=False, sampling_mode="uniform",
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -396,14 +427,14 @@ def run_backend(
 
     handle = None
     dynamic_scene = None
-    if backend in ("higs_native", "higs_recompute"):
+    if backend in ("higs_native", "higs_recompute", "higs_native_ts"):
         from gsplat.experimental.render.functional.gaussian_inference import (
             create_higs_renderer,
         )
         handle = create_higs_renderer(
             means, quats, scales, opacities, sh, sh_degree=_SH_DEGREE,
         )
-    elif backend == "higs_dynamic":
+    elif backend in ("higs_dynamic", "higs_dynamic_ts"):
         from gsplat.experimental.render.functional.gaussian_inference import (
             _HIGS_DYNAMIC_SCENE,
         )
@@ -412,11 +443,13 @@ def run_backend(
 
     forward_fn = make_forward_fn(
         backend, width, height, handle, viewmats, Ks, radius_clip=radius_clip,
+        tile_sampling_ratio=tile_sampling_ratio,
+        sampling_mode=sampling_mode,
     )
     torch.cuda.reset_peak_memory_stats(device)
 
     fwd_times, bwd_times, total_times, train_times = [], [], [], []
-    culling_ratios, n_visibles, topo_rebuilt = [], [], []
+    culling_ratios, n_visibles, topo_rebuilt, isect_fracs = [], [], [], []
     ref = refs_train
 
     try:
@@ -427,11 +460,23 @@ def run_backend(
             ev0 = torch.cuda.Event(enable_timing=True)
             ev1 = torch.cuda.Event(enable_timing=True)
             ev0.record()
-            frame, alpha, meta = forward_fn(params, cam_ids)
+            is_densify_step = (
+                backend in ("higs_dynamic", "higs_dynamic_ts")
+                and densify_every > 0
+                and (it + 1) % densify_every == 0
+            )
+            step_ratio = 1.0 if (anchor_densify and is_densify_step) else tile_sampling_ratio
+            frame, alpha, meta = forward_fn(params, cam_ids, sampling_ratio=step_ratio)
             ev1.record()
             torch.cuda.synchronize(device)
             fwd_ms = ev0.elapsed_time(ev1)
-            loss = _l1_loss(frame, ref)
+            tile_mask = meta.get("tile_mask") if meta else None
+            if step_ratio < 1.0 and tile_mask is not None:
+                loss = _masked_l1_loss(
+                    frame, ref, tile_mask, _TILE_SIZE, width, height,
+                )
+            else:
+                loss = _l1_loss(frame, ref)
 
             ev2 = torch.cuda.Event(enable_timing=True)
             ev3 = torch.cuda.Event(enable_timing=True)
@@ -449,6 +494,11 @@ def run_backend(
                 culling_ratios.append(meta.get("culling_ratio", 0.0))
                 n_visibles.append(meta.get("n_visible", 0))
                 topo_rebuilt.append(float(meta.get("topology_rebuilt", False)))
+                n_isects_full = meta.get("n_isects_full", 0)
+                isect_fracs.append(
+                    meta.get("n_isects", 0) / n_isects_full
+                    if n_isects_full else 1.0
+                )
             else:
                 culling_ratios.append(0.0)
                 n_visibles.append(means.shape[0])
@@ -456,7 +506,7 @@ def run_backend(
 
             opt.step()
 
-            if backend == "higs_dynamic" and (it + 1) % densify_every == 0:
+            if backend in ("higs_dynamic", "higs_dynamic_ts") and (it + 1) % densify_every == 0:
                 from gsplat.experimental.render.functional.gaussian_inference import (
                     _densify_gaussians,
                     _prune_gaussians,
@@ -508,7 +558,7 @@ def run_backend(
         peak = torch.cuda.max_memory_allocated(device) / 1e9
 
         with torch.no_grad():
-            ev_frame, _, _ = forward_fn(params, eval_idx)
+            ev_frame, _, _ = forward_fn(params, eval_idx, sampling_ratio=1.0)
             ev_frame = ev_frame.reshape(len(eval_idx), height, width, 3)
             p = psnr(ev_frame, refs_eval)
             s = ssim(ev_frame.permute(0, 3, 1, 2), refs_eval.permute(0, 3, 1, 2))
@@ -534,6 +584,8 @@ def run_backend(
         "lpips": l,
         "final_n": means.shape[0],
         "topology_rebuilt_frac": float(np.mean(topo_rebuilt)) if topo_rebuilt else 0.0,
+        "sampled_tile_ratio": float(tile_sampling_ratio),
+        "isect_frac": float(np.mean(isect_fracs)) if isect_fracs else 1.0,
     }
 
 
@@ -562,6 +614,19 @@ def main():
     ap.add_argument("--prune-threshold", type=float, default=0.01)
     ap.add_argument("--out", default=None)
     ap.add_argument("--radius-clip", type=float, default=0.0)
+    ap.add_argument(
+        "--anchor-densify",
+        action="store_true",
+        help="dynamic HiGS: run densify steps at full resolution (r=1.0)",
+    )
+    ap.add_argument(
+        "--tile-sampling-ratio", type=float, default=1.0,
+        help="HiGS native tile sampling ratio in (0, 1] (1.0 = full frame)",
+    )
+    ap.add_argument(
+        "--sampling-mode", choices=("uniform", "stratified"), default="uniform",
+        help="tile sampling: uniform iid or stratified (one tile per round(1/r)-tile stratum)",
+    )
     ap.add_argument(
         "--no-fused-adam",
         action="store_false",
@@ -614,6 +679,9 @@ def main():
                     args.densify_threshold, args.prune_threshold,
                     lpips_model, radius_clip=args.radius_clip,
                     fused_adam=args.fused_adam,
+                    tile_sampling_ratio=args.tile_sampling_ratio,
+                    anchor_densify=args.anchor_densify,
+                    sampling_mode=args.sampling_mode,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
@@ -651,6 +719,7 @@ def main():
                 f"bwd={r['bwd_ms']:8.1f}ms tot={r['total_ms']:8.1f}ms "
                 f"train={r['train_ms']:8.1f}ms "
                 f"vram={r['peak_vram_gb']:5.2f}GB cull={r['culling_ratio']:6.1%} "
+                f"sr={r['sampled_tile_ratio']:g} isect={r['isect_frac']:6.1%} "
                 f"PSNR={r['psnr']:5.2f} SSIM={r['ssim']:.4f} LPIPS={r['lpips']:.4f} "
                 f"N={r['final_n']}"
             )

@@ -59,13 +59,13 @@
 - 判定标准：收敛 PSNR 差距 < 0.05-0.1 dB 且 SSIM/LPIPS 持平（配对 t-test / Wilcoxon 无显著差异）；同 wall-clock 下质量曲线不劣于全量。
 - 每步梯度余弦相似度（采样估计 vs 全量）作为估计器保真度指标。
 - 质量-速度帕累托曲线：r 扫描（1/2, 1/4, 1/8），标注质量持平的最大 r 与对应加速。
-## 5. 实验矩阵
-- M1 基线量化（大部分已完成）：成本分解；per-pixel VJP 量随分辨率 / 相机数 / 高斯数缩放曲线。
-- M2 原型（当前里程碑）：tile mask 支持（forward + backward）+ 均匀随机采样，验证 r=1/4 时 blend bwd ~= 1/4、总 iteration 按预期下降。
-- M3 采样策略消融：均匀 vs 误差引导 vs 分层；tile_size 8 vs 16；r 扫描（1/2, 1/4, 1/8）。
-- M4 质量验证：30k 收敛协议（Mip-NeRF 360 子集 / Tanks&Temples / DeepBlending），PSNR/SSIM/LPIPS vs 全量训练，到达目标 PSNR 的 wall-clock。
-- M5 扩展性：4K、千万级高斯、多相机；收益-规模曲线（HiGS 优势在大场景）。
-- M6 对照：gsplat 全量训练、LiteGS（如可复现）、Turbo-GS（像素采样）、随机 tile 训练（ICCV 2025 基线）。
+## 5. 实验矩阵与状态（2026-08-03 Round 31 更新）
+- M1 基线量化（已完成）：成本分解；per-pixel VJP 量随分辨率 / 相机数 / 高斯数缩放曲线（blend bwd 26-29 ms、6.23G evals 为不可约部分）。
+- M2 原型（**已完成**）：`tile_sampling_ratio`（1.0 默认）+ `sampling_mode`（uniform/stratified）已进 native capture 路径；isect 按 tile mask 过滤、blend backward 随 r 近线性下降；**顺序（无争抢）测量** 5 场景 1080p×4cam×20 步：r=0.5 总时间 -15..-25%、r=0.25 -33..-41%、r=0.125 -43..-50%；bwd 在 r=0.5/0.25/0.125 约为全量的 64%/45%/35%（存在 ~5-6 ms 固定底：projection/SH VJP + 归零填充）。并发现/修复多相机 isect 过滤 bug（`sampled_ratio` 未除 C）。
+- M3 采样策略消融（**部分**）：stratified vs uniform 已在 300 步协议 train/bicycle r=0.5/0.25 对比；stratified 在 train 显著更好（r=0.5 PSNR -0.02 vs -0.20 dB），bicycle 上 uniform 反而 PSNR 更高（+0.13 vs -0.11 dB，单 seed 属噪声级）；误差引导采样与 densify 锚定步尚未做。
+- M4 质量验证（**部分/负结果需诚实报告**）：300 步协议 train/bicycle 完成（frozen r=0.5 PSNR/SSIM 持平、LPIPS +0.02-0.04；r=0.25 PSNR -0.20/-0.57 dB 未持平；dynamic r=0.5 -0.21/-0.37 dB 未持平）；30k 收敛协议 + 多 seed 未做；1200 步 r=1.0 对照显示 train N 坍缩（354K）为协议固有而非采样引入。
+- M5 扩展性：未做。
+- M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
 ## 6. 风险与对策
 - 采样训练改变密度化动力学（梯度稀疏 -> densify 信号变化）：对策 = 梯度累积 / 密度化专用全分辨率步 / 调 densify 阈值。
@@ -73,7 +73,7 @@
 - 与 tile-wise training 的区分度：需要实验证明（质量保持 + 明确速度收益 + 宏块结构利用）。
 
 ## 7. 里程碑与验证标准（论文门槛）
-- M2 完成 = 可演示 r=1/4 时总时间降 ~35-45%（若 blend 主导成立）；这是"明显加快"的第一实证。
-- M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。
+- M2 完成 = 可演示 r=1/4 时总时间降 ~35-45%（若 blend 主导成立）；这是"明显加快"的第一实证。（**Round 31 已达成**：r=0.25 总时间 -33..-41%，bwd 近线性。）
+- M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。（**未达成**：r=0.25 与 dynamic 均未持平，r=0.5 frozen 仅 PSNR/SSIM 持平；1.8x wall-clock 也未达到，因 fwd/culling 固定成本占比高。）
 - M6 完成 = 可投稿（目标 CVPR/ICCV/ECCV 或 SIGGRAPH Asia）。
 - 负结果必须诚实报告（宏块 backward 上限、共享内存累加负收益等已有关闭杠杆）。

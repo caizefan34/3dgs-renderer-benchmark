@@ -48,7 +48,7 @@ python benchmark.py run gsplat_higs --dataset garden   # any renderer in benchma
 
 That's it — the CLI downloads the scene, runs the suite, and writes results under `results/`. Want the full tour first? Browse the [live dashboard](https://caizefan34.github.io/3dgs-renderer-benchmark/) or start with [docs/README.md](docs/README.md).
 
-> **Run the test suite:** `python -m unittest discover -s tests -v` (155 tests; CUDA-specific HiGS tests skip cleanly when the extension is unavailable).
+> **Run the test suite:** `python -m unittest discover -s tests -v` (155 tests, CPU-safe). For the full suite including the pytest-style HiGS tests, run `python -m pytest tests -q` (HiGS tests skip cleanly when the CUDA extension is unavailable).
 
 
 ## ⚡ TL;DR — Key Results
@@ -146,7 +146,7 @@ data/                     Curated inputs committed to git: camera_presets/, exam
 datasets/                 Local download/processing cache (mostly git-ignored), see datasets/README.md
 src/                      Python package: CLI, framework, adapters, analysis, workers, see src/README.md
 scripts/                  Linux/EPIC-05 shell scripts and environment setup, see scripts/README.md
-tests/                    unittest suite (CPU-safe), see tests/README.md
+tests/                    unittest + pytest suites (CPU-safe), see tests/README.md
 docs/                     Human documentation + generated leaderboard (GitHub Pages), see docs/README.md
 reports/                  Run reports + HiGS research/round logs, see reports/README.md
 results/                  Measured/reproduced/paper evidence artifacts, see results/README.md

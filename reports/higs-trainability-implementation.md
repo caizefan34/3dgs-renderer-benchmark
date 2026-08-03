@@ -1643,6 +1643,96 @@ Round-28/29 conclusions (mt-backward ~4-6 ms ceiling, tile-LOD forward
 ~4-5 ms ceiling, per-pixel eval volume format-independent) hold on the rebuilt
 environment.
 
+### Round 31 (2026-08-03): tile-sampled training - M2 done, M3 partial, M4 negative for r<=0.25 (honest quality bounds for the speedup lever)
+
+**Lever implemented and verified.** Rounds 21-29 established that the HiGS
+backward is dominated by per-pixel VJP volume (6.2G evals on bicycle 1080p x 4
+cams) and that no backward-format change can reduce it (Round 28: macro-tile
+format ceiling ~4-6 ms). Tile-sampled training is the lever that cuts the
+volume: an optional `tile_sampling_ratio` (default 1.0 = full frame) plus
+`sampling_mode` (`uniform` | `stratified`) was added to the native capture
+path (`_HigsAutogradFunction._native_forward_capture`). The isect buffer is
+masked to the sampled tiles before the dense-offset re-encode, so forward
+intersect + blend and the blend backward only touch the selected tiles. The
+sampled-tile mean is an unbiased estimator of the full-frame mean, so the
+harness loss needs no 1/r rescale - it masks the L1 loss over the sampled
+tiles (`_masked_l1_loss`; new benchmark backends `higs_native_ts` /
+`higs_dynamic_ts`, new CLI flags `--tile-sampling-ratio` and
+`--sampling-mode`).
+
+**Bug found and fixed (multi-camera isect filtering).** `sampled_ratio` was
+computed as `mask.sum() / n_tiles` over a `[C, n_tiles]` mask, so C=2 + r=0.5
+gave 1.0 and silently skipped the isect filtering (old stratified runs all
+reported `isect_frac=1.0`). Fixed to `float(mask.float().mean())`.
+Regression test `test_tile_sampling_ratio_multi_camera_filter` (C=2,
+r=0.5/0.25, mask fraction and isect fraction match r) passes on EPIC-05.
+
+**Speed (sequential, uncontended runs, frozen 1080p x 4 cams x 20 steps; the
+earlier parallel matrix was discarded - concurrent runs inflated every cell
+by 2-4x, e.g. train r=1.0 measured 121 ms vs 32.4 ms when run alone).**
+
+| scene | r=1.0 | r=0.5 | r=0.25 | r=0.125 |
+|---|---|---|---|---|
+| train | 32.4 / 19.8 | 27.4 / 13.0 | 21.8 / 9.2 | 18.5 / 7.3 |
+| truck | 39.0 / 24.6 | 31.5 / 16.2 | 21.3* / 11.5 | 21.3 / 8.7 |
+| bicycle | 66.4 / 39.4 | 52.3 / 25.3 | 40.6 / 17.7 | 34.2 / 13.8 |
+| bonsai | 26.1 / 16.2 | 22.7 / 10.6 | 17.3 / 7.2 | 14.6 / 5.2 |
+| garden | 64.5 / 40.6 | 48.3 / 26.0 | 38.2 / 18.7 | 32.2 / 14.6 |
+
+`total / bwd` ms per step. *truck r=0.25 fwd was a one-off outlier (fwd 30.8
+vs ~14 in the other truck cells); bwd 11.5 scales correctly. Total savings
+(median, excluding the truck outlier): r=0.5 ~-15..-25%, r=0.25 ~-33..-41%,
+r=0.125 ~-43..-50%. The blend backward scales ~linearly (bwd at r=0.5 is
+~64% of full, r=0.25 ~45%, r=0.125 ~35%) but a fixed floor of ~5-6 ms
+(projection VJP + SH VJP + grad-zero fills + culling) does not shrink, so
+total iteration saves are well below 1/r.
+
+**Quality (300-step protocol, seed 0, 4 train + 3 eval cams; PSNR / SSIM /
+LPIPS).**
+
+Frozen (`higs_native_ts`):
+
+| r | sampling | train | bicycle |
+|---|---|---|---|
+| 1.0 | - | 16.013 / 0.6329 / 0.3968 | 16.135 / 0.4364 / 0.4747 |
+| 0.5 | uniform | 15.808 / 0.6271 / 0.4264 | 16.262 / 0.4432 / 0.5132 |
+| 0.5 | stratified | 15.995 / 0.6290 / 0.4189 | 16.027 / 0.4436 / 0.5120 |
+| 0.25 | stratified | 15.812 / 0.6161 / 0.4675 | 15.567 / 0.4291 / 0.5775 |
+
+Dynamic (`higs_dynamic_ts`):
+
+| r | sampling | train | bicycle |
+|---|---|---|---|
+| 1.0 | - | 17.742 / 0.6466 / 0.4272 | 16.283 / 0.4061 / 0.5835 |
+| 0.5 | stratified | 17.371 / 0.6329 / 0.4671 | 16.074 / 0.3972 / 0.6320 |
+
+**Honest quality conclusion.** At r=0.5, PSNR/SSIM stay within single-seed
+noise of full for both frozen scenes (train -0.02 dB / SSIM -0.004; bicycle
+-0.11 dB / SSIM +0.007) but LPIPS degrades consistently (+0.022 train,
++0.037 bicycle). Stratified clearly beats uniform on train (PSNR -0.02 dB vs
+-0.20 dB at r=0.5) but not on bicycle, where uniform r=0.5 even wins PSNR
+(+0.13 dB) - single-seed, so the direction is noise-level. r=0.25 fails the
+parity bar everywhere (train -0.20 dB, bicycle -0.57 dB; LPIPS +0.07/+0.10),
+and dynamic r=0.5 loses 0.21-0.37 dB PSNR plus +0.04-0.05 LPIPS. The repo's
+"quality must hold" constraint is therefore satisfied only for frozen r=0.5
+PSNR/SSIM (single seed); the lever ships as opt-in with these documented
+bounds, not as a default.
+
+**Long-run check (1200 steps, dynamic, r=1.0).** train collapses to N=354K
+(16.651 / 0.6019 / 0.4730 vs 17.742 at 300 steps) and bicycle to N=2.34M
+(15.946 / 0.3715 / 0.6133) - the 300-step protocol is where the repo's
+numbers live, and the N collapse is a protocol property (densify_every=5 /
+fixed thresholds over-prune), not a tile-sampling artifact (measured at
+r=1.0).
+
+**Status.** M2 complete (blend bwd scales ~linearly, total iteration drops at
+every r; r=0.5 total -15..-25%, r=0.25 -33..-41%). M3 partial: stratified
+beats uniform on train at r=0.5 (-0.20 -> -0.02 dB); uniform beats stratified
+on bicycle (+0.13 vs -0.11 dB PSNR); error-guided sampling and
+densify-anchored steps are the obvious next experiments. M4 not met for
+r<=0.25 or dynamic; the safe operating point is frozen r=0.5 stratified
+(PSNR/SSIM parity, LPIPS +0.02).
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
