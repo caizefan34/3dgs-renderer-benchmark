@@ -392,7 +392,7 @@ def _std_ll_forward(means, quats, scales, opacities, colors, viewmats, Ks,
 
 def make_forward_fn(backend, width, height, handle, viewmats, Ks,
                      radius_clip=0.0, tile_sampling_ratio=1.0,
-                     sampling_mode="uniform"):
+                     sampling_mode="uniform", cull_interval=1):
     from gsplat.rendering import rasterization
 
     # "error_guided" is a harness-level strategy: the harness computes an
@@ -423,6 +423,7 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks,
         kw = dict(
             viewmats=vm, Ks=K, width=width, height=height,
             sh_degree=_SH_DEGREE, use_higs_culling=True, radius_clip=radius_clip,
+            cull_refresh_interval=cull_interval,
         )
         if backend in ("higs_native", "higs_recompute", "higs_native_ts"):
             from gsplat.experimental import rasterize_gaussian_higs_frozen
@@ -519,6 +520,7 @@ def run_backend(
     error_alpha=1.0, error_refresh_every=25, error_lambda=1.0,
     eval_every=0, lr_decay=1.0, densify_window=None,
     lpips_loss_weight=0.0, lpips_loss_every=0,
+    cull_interval=1,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -551,6 +553,7 @@ def run_backend(
         backend, width, height, handle, viewmats, Ks, radius_clip=radius_clip,
         tile_sampling_ratio=tile_sampling_ratio,
         sampling_mode=sampling_mode,
+        cull_interval=cull_interval,
     )
     torch.cuda.reset_peak_memory_stats(device)
 
@@ -774,6 +777,7 @@ def run_backend(
         "lpips_ms_avg": float(np.mean(lpips_ms)) if lpips_ms else 0.0,
         "lpips_steps": len(lpips_ms),
         "sampling_mode": sampling_mode,
+        "cull_interval": int(cull_interval),
         "eval_curve": eval_curve,
     }
 
@@ -852,6 +856,11 @@ def build_arg_parser():
         help="apply the LPIPS loss term every N steps (0 = off; needs weight > 0)",
     )
     ap.add_argument(
+        "--cull-interval", type=int, default=1,
+        help="dynamic HiGS: refresh the union-visibility cull every N steps "
+        "(1 = every step; the cache is invalidated by densify/prune)",
+    )
+    ap.add_argument(
         "--no-fused-adam",
         action="store_false",
         dest="fused_adam",
@@ -925,6 +934,7 @@ def main():
                     ),
                     lpips_loss_weight=args.lpips_loss_weight,
                     lpips_loss_every=args.lpips_loss_every,
+                    cull_interval=args.cull_interval,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity

@@ -189,7 +189,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..0f60471 100644
+index b6c1b13..849f7df 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -256,7 +256,7 @@ index b6c1b13..0f60471 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2318 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2397 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -572,6 +572,51 @@ index b6c1b13..0f60471 100644
 +    visible_ids = torch.where(visible_mask)[0]
 +    culling_ratio = 1.0 - (visible_ids.numel() / max(radii.shape[-2], 1))
 +    return visible_ids, visible_mask, culling_ratio
++
++
++def _cull_visible_cached(
++    handle,
++    interval: int,
++    means, quats, scales, viewmats, Ks,
++    width, height, eps2d=0.3,
++    near_plane=0.01, far_plane=1e10, radius_clip=0.0,
++    camera_model="pinhole",
++):
++    """Union-visibility culling with a refresh-interval cache.
++
++    The batched full-N projection is the only forward stage that touches every
++    Gaussian (isect/rasterize already run on the visible subset), so on the
++    dynamic training loop reusing its result for ``interval`` forwards removes
++    one full-N projection (and the union-mask bookkeeping) per step. The
++    visible set changes slowly under optimizer steps (~lr * grad per step), and
++    every topology change (densify/prune -> ``mark_dirty`` / ``rebuild``)
++    invalidates the cache, so a fresh cull is guaranteed exactly when the
++    Gaussian count changes.
++
++    Args:
++        handle: :class:`HigsRendererHandle` owning ``_cull_visible_ids`` /
++            ``_fwd_count`` state (must be non-None).
++        interval: refresh cadence in forwards; 1 reproduces per-step culling.
++    Returns:
++        visible_ids: 1D int64 tensor of visible Gaussian indices.
++    """
++    interval = max(1, int(interval))
++    cached = handle._cull_visible_ids
++    if (
++        cached is not None
++        and (handle._fwd_count - handle._cull_fwd_count) < interval
++    ):
++        return cached
++    vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
++        means, quats, scales, viewmats, Ks,
++        width, height,
++        eps2d=eps2d, near_plane=near_plane,
++        far_plane=far_plane, radius_clip=radius_clip,
++        camera_model=camera_model,
++    )
++    handle._cull_visible_ids = vis_ids
++    handle._cull_fwd_count = handle._fwd_count
++    return vis_ids
 +
 +
 +def _gather_rows_fast(t, row_ids):
@@ -963,6 +1008,9 @@ index b6c1b13..0f60471 100644
 +        self._topology_rebuilt: bool = False
 +        self._pending_backward: bool = False
 +        self._packed_stale: bool = False
++        self._fwd_count: int = 0
++        self._cull_visible_ids = None
++        self._cull_fwd_count: int = -1
 +        if means is not None:
 +            self._param_versions = self._capture_param_versions(
 +                (means, quats, scales, opacities, colors)
@@ -1008,6 +1056,8 @@ index b6c1b13..0f60471 100644
 +        self._dirty = True
 +        self._topology_rebuilt = False
 +        self._packed_stale = True
++        self._cull_visible_ids = None
++        self._cull_fwd_count = -1
 +
 +    def rebuild(self, means_planar, qso_packed, colors_packed, n_gaussians: int, packed_dtype: str, renderer=None, means=None, quats=None, scales=None, opacities=None, colors=None) -> None:
 +        """Replace the packed buffers + renderer after a topology change."""
@@ -1022,6 +1072,8 @@ index b6c1b13..0f60471 100644
 +        self._topology_rebuilt = True
 +        self._packed_stale = False
 +        self._version += 1
++        self._cull_visible_ids = None
++        self._cull_fwd_count = -1
 +        if means is not None:
 +            self._param_versions = self._capture_param_versions(
 +                (means, quats, scales, opacities, colors)
@@ -1048,6 +1100,7 @@ index b6c1b13..0f60471 100644
 +
 +    def _begin_forward(self) -> None:
 +        self._pending_backward = True
++        self._fwd_count += 1
 +
 +    def _end_backward(self, expected_version: int) -> None:
 +        if expected_version != self._version:
@@ -1387,6 +1440,7 @@ index b6c1b13..0f60471 100644
 +        tile_sampling_ratio=1.0,
 +        sampling_mode="uniform",
 +        tile_mask=None,
++        cull_refresh_interval=1,
 +    ):
 +        if backward_mode not in ("higs_native", "gsplat_recompute"):
 +            raise ValueError(
@@ -1447,6 +1501,7 @@ index b6c1b13..0f60471 100644
 +                       math.ceil(width / tile_size))
 +                )
 +        ctx.tile_mask_external = tile_mask
++        ctx.cull_refresh_interval = max(1, int(cull_refresh_interval))
 +        if ctx.tile_sampling_ratio < 1.0 and not native:
 +            raise ValueError(
 +                "tile_sampling_ratio < 1.0 requires backward_mode='higs_native' "
@@ -1512,13 +1567,26 @@ index b6c1b13..0f60471 100644
 +                # render path, but ~C full HiGS renders cheaper (no
 +                # intersect/rasterize pass). The camera model is passed through
 +                # so the mask is projection-consistent for ortho/fisheye too.
-+                vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
-+                    means, quats, scales, viewmats, Ks,
-+                    width, height,
-+                    eps2d=eps2d, near_plane=near_plane,
-+                    far_plane=far_plane, radius_clip=radius_clip,
-+                    camera_model=camera_model,
-+                )
++                # With a renderer handle (dynamic training) the result is
++                # cached for cull_refresh_interval forwards; the cache is
++                # invalidated by any topology change (mark_dirty/rebuild).
++                if renderer_handle is not None:
++                    vis_ids = _cull_visible_cached(
++                        renderer_handle, ctx.cull_refresh_interval,
++                        means, quats, scales, viewmats, Ks,
++                        width, height,
++                        eps2d=eps2d, near_plane=near_plane,
++                        far_plane=far_plane, radius_clip=radius_clip,
++                        camera_model=camera_model,
++                    )
++                else:
++                    vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
++                        means, quats, scales, viewmats, Ks,
++                        width, height,
++                        eps2d=eps2d, near_plane=near_plane,
++                        far_plane=far_plane, radius_clip=radius_clip,
++                        camera_model=camera_model,
++                    )
 +                visible_ids = vis_ids
 +
 +        if visible_ids is not None and visible_ids.numel() > 0:
@@ -1635,6 +1703,7 @@ index b6c1b13..0f60471 100644
 +                    ctx.tile_sampling_ratio,
 +                    ctx.sampling_mode,
 +                    ctx.tile_mask_external,
++                    ctx.cull_refresh_interval,
 +                )
 +            )
 +        else:
@@ -1710,6 +1779,7 @@ index b6c1b13..0f60471 100644
 +        tile_sampling_ratio=1.0,
 +        sampling_mode="uniform",
 +        tile_mask=None,
++        cull_refresh_interval=1,
 +    ):
 +        """Run the standard gsplat CUDA forward on the visible subset and
 +        capture every tensor the native backward consumes, in ONE pass."""
@@ -2210,6 +2280,7 @@ index b6c1b13..0f60471 100644
 +            None,  # tile_sampling_ratio (non-tensor input)
 +            None,  # sampling_mode (non-tensor input)
 +            None,  # tile_mask (bool tensor, non-differentiable input)
++            None,  # cull_refresh_interval (non-tensor input)
 +        )
 +
 +def _higs_frozen_forward(
@@ -2241,6 +2312,7 @@ index b6c1b13..0f60471 100644
 +    tile_sampling_ratio: float = 1.0,
 +    sampling_mode: str = "uniform",
 +    tile_mask=None,
++    cull_refresh_interval: int = 1,
 +    scene=None,
 +) -> dict:
 +    """Forward pass for frozen-topology HiGS diff. path (Stage B).
@@ -2270,7 +2342,7 @@ index b6c1b13..0f60471 100644
 +        render_mode, camera_model,
 +        enable_culling, use_higs_culling,
 +        backward_mode, scene, sh_compression_mode, tile_sampling_ratio,
-+        sampling_mode, tile_mask,
++        sampling_mode, tile_mask, cull_refresh_interval,
 +    )
 +    fwd_meta = dict(_HigsAutogradFunction.last_forward_metadata)
 +    N_total = fwd_meta["n_gaussians"]
@@ -2325,6 +2397,7 @@ index b6c1b13..0f60471 100644
 +            "tile_mask": fwd_meta.get("tile_mask"),
 +            "n_isects": fwd_meta.get("n_isects", 0),
 +            "n_isects_full": fwd_meta.get("n_isects_full", 0),
++            "cull_refresh_interval": cull_refresh_interval,
 +        },
 +    }
 +
@@ -2357,6 +2430,7 @@ index b6c1b13..0f60471 100644
 +    tile_sampling_ratio: float = 1.0,
 +    sampling_mode: str = "uniform",
 +    tile_mask=None,
++    cull_refresh_interval: int = 1,
 +    scene=None,
 +) -> dict:
 +    """Differentiable HiGS rendering with per-frame visibility culling (Stage B).
@@ -2397,6 +2471,7 @@ index b6c1b13..0f60471 100644
 +        tile_sampling_ratio=tile_sampling_ratio,
 +        sampling_mode=sampling_mode,
 +        tile_mask=tile_mask,
++        cull_refresh_interval=cull_refresh_interval,
 +        scene=scene,
 +    )
 +
@@ -2428,6 +2503,7 @@ index b6c1b13..0f60471 100644
 +    tile_sampling_ratio: float = 1.0,
 +    sampling_mode: str = "uniform",
 +    tile_mask=None,
++    cull_refresh_interval: int = 1,
 +    scene=None,
 +) -> dict:
 +    """Forward pass for dynamic-topology HiGS diff. path (Stage C).
@@ -2456,7 +2532,7 @@ index b6c1b13..0f60471 100644
 +        render_mode, camera_model,
 +        enable_culling, use_higs_culling,
 +        backward_mode, handle, sh_compression_mode, tile_sampling_ratio,
-+        sampling_mode, tile_mask,
++        sampling_mode, tile_mask, cull_refresh_interval,
 +    )
 +
 +    scene_version = _HIGS_DYNAMIC_SCENE.next_version(means.shape[0])
@@ -2507,6 +2583,7 @@ index b6c1b13..0f60471 100644
 +            "tile_mask": fwd_meta.get("tile_mask"),
 +            "n_isects": fwd_meta.get("n_isects", 0),
 +            "n_isects_full": fwd_meta.get("n_isects_full", 0),
++            "cull_refresh_interval": cull_refresh_interval,
 +        },
 +    }
 +
@@ -2539,6 +2616,7 @@ index b6c1b13..0f60471 100644
 +    tile_sampling_ratio: float = 1.0,
 +    sampling_mode: str = "uniform",
 +    tile_mask=None,
++    cull_refresh_interval: int = 1,
 +    scene=None,
 +) -> dict:
 +    """Differentiable HiGS rendering with dynamic-topology support (Stage C).
@@ -2573,6 +2651,7 @@ index b6c1b13..0f60471 100644
 +        tile_sampling_ratio=tile_sampling_ratio,
 +        sampling_mode=sampling_mode,
 +        tile_mask=tile_mask,
++        cull_refresh_interval=cull_refresh_interval,
 +        scene=scene,
 +    )
 diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py
@@ -4668,6 +4747,59 @@ index 0000000..893872f
 +    );
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
+index 13097f3..dc14afe 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
+@@ -28,21 +28,21 @@ __device__ __forceinline__ void AssignAs(U &u, const V &v)
+ }
+ 
+ // Round-to-nearest (ties away from zero) __half2 pair to the M bits of mantissa
+-template<uint M, bool MASK_OUT_OUTPUT = true>
++template<unsigned int M, bool MASK_OUT_OUTPUT = true>
+ __device__ __forceinline__ __half2 RoundToNearest(const __half2 &v)
+ {
+-    constexpr uint MANTISSA_MASK = 0x03FF03FF;
+-    constexpr uint TRUNC_MASK    = ~(((1u << (10 - M)) - 1) * 0x10001u);
++    constexpr unsigned int MANTISSA_MASK = 0x03FF03FF;
++    constexpr unsigned int TRUNC_MASK    = ~(((1u << (10 - M)) - 1) * 0x10001u);
+     // get rounding offset scale s*2^e (input float with mantissa zeroed out)
+-    const uint vn                = reinterpret_cast<const uint &>(v) & ~MANTISSA_MASK;
++    const unsigned int vn                = reinterpret_cast<const unsigned int &>(v) & ~MANTISSA_MASK;
+     const __half2 vb             = reinterpret_cast<const __half2 &>(vn);
+     // get rounding offset
+     const __half2 vs             = __float2half2_rn((1 << (10 - M)) / 2048.0f);
+     // add to float a scaled rounding offset
+     const __half2 v_r            = __hfma2(vb, vs, v);
+     // return masked __half2
+-    const uint vi_r
+-        = MASK_OUT_OUTPUT ? (reinterpret_cast<const uint &>(v_r) & TRUNC_MASK) : reinterpret_cast<const uint &>(v_r);
++    const unsigned int vi_r
++        = MASK_OUT_OUTPUT ? (reinterpret_cast<const unsigned int &>(v_r) & TRUNC_MASK) : reinterpret_cast<const unsigned int &>(v_r);
+     return reinterpret_cast<const __half2 &>(vi_r);
+ }
+ 
+@@ -137,9 +137,9 @@ __forceinline__ __device__ __half2 __uint8x2_to_half2(uint32_t src)
+     return dp.f;
+ }
+ 
+-__forceinline__ __device__ uint __cvt_pack_sat_u8_f32(float a0, float a1, float a2, float a3)
++__forceinline__ __device__ unsigned int __cvt_pack_sat_u8_f32(float a0, float a1, float a2, float a3)
+ {
+-    uint rval;
++    unsigned int rval;
+     asm volatile(
+         "{.reg .u32 tmp, i0, i1;\n"
+         "cvt.rni.s32.f32 i0, %1;\n"
+@@ -154,7 +154,7 @@ __forceinline__ __device__ uint __cvt_pack_sat_u8_f32(float a0, float a1, float
+     return rval;
+ }
+ 
+-__forceinline__ __device__ uint __cvt_pack_sat_u8_f32(const float4 &a)
++__forceinline__ __device__ unsigned int __cvt_pack_sat_u8_f32(const float4 &a)
+ {
+     return __cvt_pack_sat_u8_f32(a.x, a.y, a.z, a.w);
+ }
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
 index 2eb26d1..fc28161 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
@@ -4768,6 +4900,27 @@ index 2eb26d1..fc28161 100644
  // auto-registers an AutogradCUDA entry that wraps outputs in a grad_fn even
  // when no backward is available, which confuses callers that check grad_fn is None.
  TORCH_LIBRARY_IMPL(experimental, Autograd, m)
+diff --git a/gsplat/scene/kernels/cuda/build.py b/gsplat/scene/kernels/cuda/build.py
+index d76e669..a1fad3d 100644
+--- a/gsplat/scene/kernels/cuda/build.py
++++ b/gsplat/scene/kernels/cuda/build.py
+@@ -49,7 +49,7 @@ def get_build_parameters() -> SimpleNamespace:
+     extra_ldflags: list[str] = []
+ 
+     if sys.platform == "win32":
+-        extra_cflags = ["/std:c++17", "-DWIN32_LEAN_AND_MEAN"]
++        extra_cflags = ["/std:c++20", "-DWIN32_LEAN_AND_MEAN"]
+     else:
+         extra_cflags = ["-std=c++17"]
+ 
+@@ -155,6 +155,7 @@ def build_and_load_scene_cuda():
+                 extra_cflags=build_params.extra_cflags,
+                 extra_include_paths=build_params.extra_include_paths,
+                 extra_ldflags=build_params.extra_ldflags,
++                with_cuda=True,
+                 build_directory=build_dir,
+                 verbose=VERBOSE,
+             )
 diff --git a/tests/experimental/render/test_trainable.py b/tests/experimental/render/test_trainable.py
 new file mode 100644
 index 0000000..5d8d595

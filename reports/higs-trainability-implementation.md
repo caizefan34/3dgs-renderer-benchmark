@@ -2014,6 +2014,50 @@ parity gate (3-seed, LPIPS within noise) but not bicycle. The quality-side
 lever works; the remaining open work for the 1.8x wall-clock gate is forward
 tile sampling (the forward currently costs the same at r=0.5).
 
+### Round 37 (2026-08-04): culling refresh-interval cache (--cull-interval; ~2% train saving, quality-neutral at ci=25)
+
+New knob `--cull-interval N` (harness) and `cull_refresh_interval` (renderer):
+the batched full-N union-visibility projection is the only forward stage that
+touches every Gaussian, so its result is cached per `HigsRendererHandle` for
+`N` forwards. The cache is invalidated by any topology change
+(`mark_dirty()`/`rebuild`), so a fresh cull is guaranteed exactly when the
+Gaussian count changes; `interval=1` reproduces per-step culling (default).
+
+Implementation: `_cull_visible_cached` helper plus `_fwd_count` /
+`_cull_visible_ids` / `_cull_fwd_count` state on `HigsRendererHandle`,
+invalidated in `mark_dirty()`/`rebuild()`; the interval is threaded through
+`_HigsAutogradFunction`, both forwards and the public wrappers, and recorded in
+metadata. `tests/test_higs_dynamic.py::TestCullCache` (3 tests) covers cadence
+counting (interval 3 -> 2 fresh culls over 5 forwards), invalidation on
+densify (stale cache must not be reused after a count change), and exact frame
+parity with static parameters. Full HiGS suite 44 passed; full repo suite
+272 passed / 1 skipped.
+
+Benchmark (EPIC-05, native backend; 3000 steps, Round-36 recipe: LPIPS w=0.1
+every 25, lr-decay, densify-window 1500, error_guided r=0.5, 4x1080p):
+
+| run (train)                    | ci  | fwd_ms | train_ms | PSNR  | SSIM   | LPIPS  |
+|--------------------------------|-----|--------|----------|-------|--------|--------|
+| seed 0                         | 1   | 7.08   | 18.04    | 17.278| 0.6281 | 0.3812 |
+| seed 0                         | 25  | 6.75   | 17.66    | 17.167| 0.6334 | 0.3784 |
+| seeds 0/1/2 (mean)             | 25  | -      | 17.60    | 16.79 | 0.626  | 0.385  |
+| seed 0                         | 100 | 6.74   | 17.52    | 16.919| 0.6224 | 0.3915 |
+
+Findings: (1) ci=25 saves ~0.3 ms/step forward (-4.7%) and ~0.4 ms/step
+end-to-end (-2.1%) with quality parity at seed 0 and across 3 seeds; (2) ci=100
+adds nothing (17.52 vs 17.66 ms) and costs PSNR (-0.36 dB) - the stale visible
+set lags the optimizer drift; (3) paired same-session wall-clock (800 steps,
+r=0.5): ci=50 vs ci=1 is -0.07 ms/step (-0.4%, noise) with PSNR -0.36; (4)
+bicycle ci=25 35.00 vs R36b ci=1 35.64 ms (-1.8%); single-seed PSNR is seed-
+noise dominated (14.24 vs 15.85), no quality conclusion.
+
+**Round 37 bottom line.** The full-N cull projection is a small share of the
+step (~0.3-0.5 ms of a 17-35 ms step dominated by the visible render and the
+LPIPS amortization), so caching it is a real but modest lever: ~2% end-to-end
+at ci=25 with quality parity, nothing further at ci=50/100 plus a PSNR cost
+from stale visibility. The lever is closed as a safe default; the 1.8x
+wall-clock gate still requires forward tile sampling (M4 speed unmet).
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
@@ -2080,3 +2124,9 @@ tile sampling (the forward currently costs the same at r=0.5).
   `higs_gather_visible` and `higs_union_visible_mask` bindings.
 - `tests/test_higs_native_backward.py` — new native-backward test suite.
 - `benchmark/run_higs_train_benchmark.py` — new training benchmark.
+- `gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h` — replace the
+  CUDA-13-removed `uint` scalar typedef with `unsigned int` (kernel code now
+  compiles on CUDA 13.3 toolchains).
+- `gsplat/scene/kernels/cuda/build.py` — Windows torch-2.13 build compat:
+  `/std:c++20` (torch 2.13 headers require C++20) and `with_cuda=True` so the
+  pure-C++ scene-pack op links `cudart.lib`.
