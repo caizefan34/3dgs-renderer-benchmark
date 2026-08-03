@@ -150,3 +150,28 @@ class TestLrSchedule:
     def test_no_decay_is_constant(self):
         for it in (0, 7, 299):
             assert _mod._lr_at_step(5e-3, 1.0, it, 300) == 5e-3
+
+
+class TestLpipsLoss:
+    def test_normalize_shape_and_range(self):
+        torch.manual_seed(3)
+        frame = torch.rand(1, 2, 8, 8, 3)
+        ref = torch.rand(2, 8, 8, 3)
+        xa, ya = _mod._lpips_normalize(frame, ref)
+        assert xa.shape == (2, 3, 8, 8) and ya.shape == (2, 3, 8, 8)
+        assert xa.min() >= -1.0 - 1e-5 and xa.max() <= 1.0 + 1e-5
+        assert ya.min() >= -1.0 - 1e-5 and ya.max() <= 1.0 + 1e-5
+
+    def test_normalize_identity_is_zero_input(self):
+        torch.manual_seed(3)
+        x = torch.rand(1, 2, 8, 8, 3)
+        xa, ya = _mod._lpips_normalize(x, x.squeeze(0))
+        assert torch.allclose(xa, ya)
+
+    def test_cli_args_exposed(self):
+        ap = _mod.build_arg_parser()
+        ns = ap.parse_args(
+            ["--lpips-loss-weight", "0.1", "--lpips-loss-every", "25"]
+        )
+        assert ns.lpips_loss_weight == 0.1 and ns.lpips_loss_every == 25
+        assert ns.lr_decay == 1.0 and ns.densify_window == 0  # defaults

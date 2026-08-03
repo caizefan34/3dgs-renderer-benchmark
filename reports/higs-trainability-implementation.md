@@ -1974,6 +1974,46 @@ LPIPS-targeted loss (perceptual-tile weighting), a prune-side signal fix
 (window-accumulated gradients, anchoring both densify and prune), or a full
 30k-step run with the complete schedule.
 
+### Round 36 (2026-08-04): LPIPS-regularized training closes the train r=0.5 LPIPS gap (M4 quality partial; bicycle bound persists)
+
+New knobs `--lpips-loss-weight` + `--lpips-loss-every`: a differentiable
+full-res LPIPS (AlexNet) term is added to the sampled L1 loss every K steps
+(model weights frozen; gradient flows to the render output only). Cost:
+16-17 ms per LPIPS step at 4x1080p, amortized ~+0.65 ms/step (+3%), VRAM
+3.4 -> 5.1 GB. Protocol: dynamic, 3000 steps, Round-35 recipe, eval each 300,
+sequential sessions.
+
+Weight sweep (train, seed 0):
+
+| w (every 25)          | step-3000 (PSNR/SSIM/LPIPS) | N      | train_ms |
+|-----------------------|-----------------------------|--------|----------|
+| full r=1.0, w=0.1     | 16.286/0.6208/0.3724        | 452K   | 24.23 |
+| r=0.5, w=0.1          | 16.803/0.6298/0.3801        | 418K   | 17.72 |
+| r=0.5, w=0.2          | 17.016/0.6304/0.3902        | 417K   | 17.86 |
+| r=0.5, w=0.5          | 16.848/0.6292/0.3859        | 412K   | 18.03 |
+
+Findings: (1) w=0.1 is the LPIPS-optimal point - the r=0.5 LPIPS gap vs the
+same-objective full reference drops from +0.020 (Round 35) to +0.008, with
+PSNR/SSIM now exceeding full (+0.52 dB / +0.009); (2) 3-seed verification
+(0/1/2) on train: full 16.232±0.192/0.6207/0.3762±0.0050, r=0.5
+16.872±0.069/0.6301/0.3808±0.0018 -> gap PSNR +0.64±0.25 dB, SSIM
++0.009±0.001, LPIPS +0.0046±0.0063 (within seed noise) - the first round
+where train r=0.5 closes the LPIPS bound at the 3000-step horizon; (3) honest
+cost: the LPIPS term shifts the objective - full-res PSNR drops
+(16.590 -> 16.232 3-seed avg vs Round 35 no-LPIPS) and bicycle full LPIPS
+worsens slightly (0.4736 -> 0.4814); (4) bicycle r=0.5 gap only shrinks:
+PSNR -0.37 dB (was -0.50), LPIPS +0.038 (was +0.048) - the perceptual bound
+persists on the high-N scene.
+
+Per-step speedup at r=0.5 within-session: -27% (train) / -29% (bicycle) -
+unchanged from Round 35, because the sampled forward still renders all tiles;
+the LPIPS amortized overhead (+3%) roughly offsets the saving.
+
+**Round 36 bottom line.** LPIPS-regularized training closes the train r=0.5
+parity gate (3-seed, LPIPS within noise) but not bicycle. The quality-side
+lever works; the remaining open work for the 1.8x wall-clock gate is forward
+tile sampling (the forward currently costs the same at r=0.5).
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`

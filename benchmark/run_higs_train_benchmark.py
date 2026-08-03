@@ -178,6 +178,21 @@ def lpips_score(lpips_model, x, y):
         return lpips_model(xa, ya).mean().item()
 
 
+def _lpips_normalize(frame, ref):
+    """Training-loss input prep: ``frame`` [1, C, H, W, 3] + ``ref`` [C, H, W, 3]
+    (both [0, 1]) -> ([C, 3, H, W], [C, 3, H, W]) in [-1, 1]."""
+    xa = (frame.squeeze(0).permute(0, 3, 1, 2) * 2 - 1).contiguous()
+    ya = (ref.permute(0, 3, 1, 2) * 2 - 1).contiguous()
+    return xa, ya
+
+
+def _lpips_train_loss(lpips_model, frame, ref):
+    """Differentiable full-res LPIPS loss term (model weights frozen; the
+    gradient flows to the render output only)."""
+    xa, ya = _lpips_normalize(frame, ref)
+    return lpips_model(xa, ya).mean()
+
+
 # --------------------------------------------------------------------------
 # Forward helpers
 # --------------------------------------------------------------------------
@@ -503,6 +518,7 @@ def run_backend(
     anchor_densify=False, sampling_mode="uniform",
     error_alpha=1.0, error_refresh_every=25, error_lambda=1.0,
     eval_every=0, lr_decay=1.0, densify_window=None,
+    lpips_loss_weight=0.0, lpips_loss_every=0,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -541,6 +557,7 @@ def run_backend(
     fwd_times, bwd_times, total_times, train_times = [], [], [], []
     culling_ratios, n_visibles, topo_rebuilt, isect_fracs = [], [], [], []
     refresh_times = []
+    lpips_ms = []
     eval_curve = []
     tile_err_cache = None
     ref = refs_train
@@ -601,6 +618,17 @@ def run_backend(
                 )
             else:
                 loss = _l1_loss(frame, ref)
+
+            if lpips_loss_weight > 0.0 and lpips_loss_every > 0 and (it + 1) % lpips_loss_every == 0:
+                evL0 = torch.cuda.Event(enable_timing=True)
+                evL1 = torch.cuda.Event(enable_timing=True)
+                evL0.record()
+                loss = loss + lpips_loss_weight * _lpips_train_loss(
+                    lpips_model, frame, ref,
+                )
+                evL1.record()
+                torch.cuda.synchronize(device)
+                lpips_ms.append(evL0.elapsed_time(evL1))
 
             ev2 = torch.cuda.Event(enable_timing=True)
             ev3 = torch.cuda.Event(enable_timing=True)
@@ -741,12 +769,16 @@ def run_backend(
         "sampled_tile_ratio": float(tile_sampling_ratio),
         "isect_frac": float(np.mean(isect_fracs)) if isect_fracs else 1.0,
         "refresh_ms": float(np.mean(refresh_times)) if refresh_times else 0.0,
+        "lpips_loss_weight": float(lpips_loss_weight),
+        "lpips_loss_every": int(lpips_loss_every),
+        "lpips_ms_avg": float(np.mean(lpips_ms)) if lpips_ms else 0.0,
+        "lpips_steps": len(lpips_ms),
         "sampling_mode": sampling_mode,
         "eval_curve": eval_curve,
     }
 
 
-def main():
+def build_arg_parser():
     ap = argparse.ArgumentParser(description="HiGS training-path benchmark")
     ap.add_argument(
         "--base-dir",
@@ -812,12 +844,27 @@ def main():
         help="dynamic: run densify/prune only while step < window (0 = whole run)",
     )
     ap.add_argument(
+        "--lpips-loss-weight", type=float, default=0.0,
+        help="add full-res LPIPS loss * weight to the sampled L1 loss (0 = off)",
+    )
+    ap.add_argument(
+        "--lpips-loss-every", type=int, default=0,
+        help="apply the LPIPS loss term every N steps (0 = off; needs weight > 0)",
+    )
+    ap.add_argument(
         "--no-fused-adam",
         action="store_false",
         dest="fused_adam",
         help="disable fused Adam (fall back to the foreach optimizer)",
     )
+    return ap
+
+
+def main():
+    ap = build_arg_parser()
     args = ap.parse_args()
+    if args.lpips_loss_weight > 0.0 and args.lpips_loss_every <= 0:
+        ap.error("--lpips-loss-weight > 0 requires --lpips-loss-every > 0")
 
     import lpips
 
@@ -825,6 +872,8 @@ def main():
     torch.cuda.set_device(device)
     print(f"device={torch.cuda.get_device_name(0)} torch={torch.__version__}")
     lpips_model = lpips.LPIPS(net="alex").to(device).eval()
+    for p in lpips_model.parameters():
+        p.requires_grad_(False)
 
     all_results = {}
     for scene in args.scene:
@@ -874,6 +923,8 @@ def main():
                     densify_window=(
                         None if args.densify_window == 0 else args.densify_window
                     ),
+                    lpips_loss_weight=args.lpips_loss_weight,
+                    lpips_loss_every=args.lpips_loss_every,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
