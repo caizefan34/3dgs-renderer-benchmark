@@ -127,6 +127,33 @@ quality unchanged, 100 tests pass. Round 19 (2026-08-02) re-ran the 1080p benchm
 
 ---
 
+## 🗂️ Repository Layout
+
+```text
+benchmark.py              CLI entry point (`benchmark run|report|prepare|...`); implemented by src/benchmark_cli.py
+benchmark/                Matrix v2 configuration: suite.json, protocol.json, datasets/, schemas/ (see benchmark/README.md)
+benchmark_suite/          Legacy compatibility copy of the suite config (deprecated -> benchmark/)
+data/                     Curated inputs committed to git: camera_presets/, examples/, official training datasets
+datasets/                 Local download/processing cache (mostly git-ignored), see datasets/README.md
+src/                      Python package: CLI, framework, adapters, analysis, workers, see src/README.md
+scripts/                  Linux/EPIC-05 shell scripts and environment setup, see scripts/README.md
+tests/                    unittest suite (CPU-safe), see tests/README.md
+docs/                     Human documentation + generated leaderboard (GitHub Pages), see docs/README.md
+reports/                  Run reports + HiGS research/round logs, see reports/README.md
+results/                  Measured/reproduced/paper evidence artifacts, see results/README.md
+plots/                    Generated publication plots, see plots/README.md
+patches/                  HiGS differentiable patch (gsplat source), see patches/README.md
+artifacts/                Environment setup + training configs; renderer sources git-ignored, see artifacts/README.md
+baselines/                Regression threshold baselines
+community/                Submission template for external contributors
+third_party_patches/      Patches applied to third-party renderer code
+schemas/                  Top-level JSON schemas (benchmark_result, leaderboard, regression_report)
+docker/ + docker-compose.yml  Reproducible container definition
+.github/                  CI workflows: ci.yml, benchmark-regression.yml, deploy-pages.yml
+```
+
+Deep dive: [docs/repository-architecture.md](docs/repository-architecture.md).
+
 ## Tier A comparison charts
 
 The benchmark provides **complete Tier A coverage** across 5 renderers × 5 scenes = 25 runs. All measured FPS, PSNR, SSIM, LPIPS, and VRAM charts are below.
