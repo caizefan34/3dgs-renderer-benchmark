@@ -31,7 +31,7 @@
 
 **A reproducible benchmark of 3D Gaussian Splatting renderers and compression codecs — measured on identical hardware, scenes, and protocol, so the speed-vs-quality trade-offs are real and directly comparable.**
 
-- **What** — 5+ renderers (gsplat, HiGS, Speedy-Splat, TC-GS, Original 3DGS) × 5 scenes, plus 10 compression codecs (SPZ, FCGS, …), all on one A100-80GB with the same checkpoints and camera trajectories.
+- **What** — 5 renderer families × 5 scenes (7 HiGS variants + Speedy-Splat + TC-GS + Original 3DGS) and 10 compression codecs (SPZ, FCGS, …), all on one A100-80GB with the same checkpoints and camera trajectories.
 - **Why** — papers report numbers on different GPUs and datasets, so you can never trust a head-to-head. This repo normalizes everything (evidence tiers A/B/C) and publishes raw data + charts.
 - **Who** — researchers picking a renderer or compression method, engineers deploying 3DGS, and anyone who wants to **train HiGS end-to-end** (native CUDA backward, see below).
 
@@ -69,7 +69,7 @@ That's it — the CLI downloads the scene, runs the suite, and writes results un
 
 **Optimization goals and delivery status** — three research objectives, all measured and delivered.
 
-This is the **first comprehensive, reproducible benchmark** for 3D Gaussian Splatting that measures **every renderer on identical hardware, scenes, and protocol**. No cherry-picking. No apples-to-oranges comparisons. Just real data.
+This is the **independent, reproducible benchmark** for 3D Gaussian Splatting: every renderer is measured on identical hardware, scenes, and protocol. No cherry-picking. No apples-to-oranges comparisons. Just real data.
 
 **Three research goals, all delivered with measured evidence:**
 
@@ -194,6 +194,15 @@ The benchmark provides **complete Tier A coverage** across 5 renderers × 5 scen
 
 ---
 
+## 🗺️ Project status & roadmap
+
+- ✅ **Benchmark (Tier A)** — 5 renderers × 5 scenes measured on EPIC-05 A100; charts and raw data published ([leaderboard](docs/leaderboard/)).
+- ✅ **Compression qualification** — SPZ 8/8 wins at 5.73x with < 0.02 dB PSNR drop; full Pareto frontier in the [compression reports](reports/README.md).
+- ✅ **HiGS trainable end-to-end** — native CUDA backward, 100 tests, -9% ~ -24% training speedup vs std gsplat ([implementation report](reports/higs-trainability-implementation.md)).
+- 🚧 **Next: significant training speedup** — tile-sampled training with quality guarantees ([research plan](reports/higs-training-speedup-research-2026-08-03.md)).
+
+---
+
 ## FAQ
 
 **Does this run on my GPU?**
@@ -220,10 +229,28 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
+## 🖋️ Citation
+
+If this benchmark helps your research, please cite it:
+
+```bibtex
+@misc{cai2026gsrendererbenchmark,
+  title        = {{3DGS Renderer Benchmark}: A Reproducible Benchmark Suite for 3D Gaussian Splatting Renderers},
+  author       = {Cai, Zefan},
+  year         = {2026},
+  howpublished = {\url{https://github.com/caizefan34/3dgs-renderer-benchmark}},
+  note         = {MIT License}
+}
+```
+
+Machine-readable metadata: [`CITATION.cff`](CITATION.cff).
+
+---
+
 ## References
 
 - Kerbl, B., et al. (2023). *3D Gaussian Splatting for Real-Time Radiance Field Rendering.* ACM TOG 42(4).
-- Niemeyer, M., et al. (2024). *HiGS.* NVIDIA/gsplat.
+- *HiGS: A Hierarchical Rendering Architecture for Real-Time 3D Gaussian Splatting.* NVIDIA Research / gsplat. arXiv:2606.00352 (2026).
 - Niantic Labs (2024). *SPZ.* https://github.com/nianticlabs/spz
 - PlayCanvas (2024). *Splat-transform.* https://github.com/playcanvas/splat-transform
 
