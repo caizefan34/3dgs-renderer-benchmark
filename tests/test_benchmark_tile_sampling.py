@@ -73,3 +73,61 @@ class TestImportanceL1Unbiased:
             # and > 0; the exact isect fraction is reported in benchmark metadata.
             assert 0.0 < frac <= ratio + 1e-6, f"mask frac {frac} outside (0, {ratio}]"
             assert torch.isfinite(weights).all() and (weights >= 0).all()
+
+
+class TestErrorGuidedLambdaMix:
+    def test_lambda_zero_estimator_still_unbiased(self):
+        torch.manual_seed(11)
+        C, H, W = 2, 64, 96
+        ts = 16
+        ref = torch.rand(C, H, W, 3)
+        frame = torch.rand(1, C, H, W, 3) * 0.5
+        full = (frame.squeeze(0) - ref).abs().mean()
+        tile_err = _tile_mean_errors(frame, ref, ts)
+        ratio = 0.5
+        ests = []
+        for seed in range(40):
+            torch.manual_seed(seed)
+            mask, weights = _error_guided_mask(
+                tile_err, ratio, 1.0, torch.device("cpu"), lambda_mix=0.0
+            )
+            loss = _importance_l1_loss(frame, ref, mask, weights, ts, W, H)
+            ests.append(loss.item())
+        mean_est = float(np.mean(ests))
+        # uniform-mix (lambda=0) still gives an unbiased estimator: the mean of
+        # many draws must approach the full mean and beat a single draw.
+        assert abs(mean_est - full.item()) < 0.02 * full.item() + 1e-4, (
+            f"lambda=0 estimator biased: mean {mean_est:.5f} vs full {full.item():.5f}"
+        )
+        assert abs(mean_est - full.item()) < abs(ests[0] - full.item())
+
+    def test_lambda_zero_mask_fraction_and_weights(self):
+        torch.manual_seed(13)
+        C, H, W = 1, 32, 64
+        ts = 16
+        tile_err = torch.rand(C, 2, 4) * 10  # strongly non-uniform
+        ratio = 0.5
+        mask, weights = _error_guided_mask(
+            tile_err, ratio, 1.0, torch.device("cpu"), lambda_mix=0.0
+        )
+        frac = float(mask.float().mean())
+        assert 0.0 < frac <= ratio + 1e-6, f"mask frac {frac} outside (0, {ratio}]"
+        assert torch.isfinite(weights).all() and (weights >= 0).all()
+        # p = uniform -> weights = m * n / k, i.e. integer counts scaled by n/k
+        n = tile_err.shape[1] * tile_err.shape[2]
+        k = int(round(n * ratio))
+        cnt = weights * k / n
+        assert torch.allclose(cnt, cnt.round(), atol=1e-5), "uniform-mix weights not m*n/k"
+        assert (cnt >= 0).all() and (cnt[mask] > 0).all()
+
+    def test_lambda_one_is_default_unchanged(self):
+        torch.manual_seed(17)
+        tile_err = torch.rand(1, 2, 4) * 5
+        ratio = 0.5
+        torch.manual_seed(17)
+        m1, w1 = _error_guided_mask(tile_err, ratio, 1.0, torch.device("cpu"))
+        torch.manual_seed(17)
+        m2, w2 = _error_guided_mask(
+            tile_err, ratio, 1.0, torch.device("cpu"), lambda_mix=1.0
+        )
+        assert torch.equal(m1, m2) and torch.allclose(w1, w2)

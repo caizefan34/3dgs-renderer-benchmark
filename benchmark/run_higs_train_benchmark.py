@@ -272,10 +272,13 @@ def _importance_l1_loss(frame, ref, mask, weights, tile_size, width, height):
     return (m * w * tile_sum).sum() / p_total
 
 
-def _error_guided_mask(tile_err, ratio, alpha, device):
+def _error_guided_mask(tile_err, ratio, alpha, device, lambda_mix=1.0):
     """Importance-sample ``k`` tiles per image with p proportional to error.
 
     ``tile_err`` is [C, th, tw] (per-tile mean |diff| from the last refresh).
+    ``lambda_mix`` in [0, 1] blends the error distribution with the uniform
+    distribution (``p = (1 - lambda_mix) / n + lambda_mix * p_err``); 0.0 is
+    exactly uniform, 1.0 is pure error-guided (default).
     Returns ``(mask [C, n_tiles] bool, weights [C, n_tiles] float)`` with
     ``weights = m / (k * p)`` (with-replacement multinomial draws), which makes
     the sampled estimator unbiased for any p > 0.
@@ -287,6 +290,8 @@ def _error_guided_mask(tile_err, ratio, alpha, device):
     floor = (1e-3 * e.mean(dim=1, keepdim=True)).clamp_min(1e-6)
     p = (e + floor) ** alpha
     p = p / p.sum(dim=1, keepdim=True)
+    if 0.0 <= lambda_mix < 1.0:
+        p = (1.0 - lambda_mix) / n + lambda_mix * p
     idx = torch.multinomial(p, k, replacement=True)  # [C, k]
     m = torch.zeros(C, n, dtype=torch.float32, device=e.device)
     m.scatter_add_(1, idx, torch.ones_like(idx, dtype=torch.float32))
@@ -488,7 +493,8 @@ def run_backend(
     densify_every, densify_threshold, prune_threshold, lpips_model,
     radius_clip=0.0, fused_adam=True, tile_sampling_ratio=1.0,
     anchor_densify=False, sampling_mode="uniform",
-    error_alpha=1.0, error_refresh_every=25,
+    error_alpha=1.0, error_refresh_every=25, error_lambda=1.0,
+    eval_every=0,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -525,6 +531,7 @@ def run_backend(
     fwd_times, bwd_times, total_times, train_times = [], [], [], []
     culling_ratios, n_visibles, topo_rebuilt, isect_fracs = [], [], [], []
     refresh_times = []
+    eval_curve = []
     tile_err_cache = None
     ref = refs_train
 
@@ -560,6 +567,7 @@ def run_backend(
                         refresh_times.append(r0.elapsed_time(r1))
                 eg_mask, eg_weights = _error_guided_mask(
                     tile_err_cache, step_ratio, error_alpha, device,
+                    lambda_mix=error_lambda,
                 )
                 eg_mask = eg_mask.reshape(
                     tile_err_cache.shape[0], tile_err_cache.shape[1],
@@ -653,6 +661,27 @@ def run_backend(
                     )
                     dynamic_scene.mark_dirty()
 
+            if eval_every > 0 and (it + 1) % eval_every == 0:
+                with torch.no_grad():
+                    ev_frame, _, _ = forward_fn(
+                        params, eval_idx, sampling_ratio=1.0,
+                    )
+                    ev_frame = ev_frame.reshape(
+                        len(eval_idx), height, width, 3,
+                    )
+                    eval_curve.append({
+                        "step": int(it + 1),
+                        "psnr": float(psnr(ev_frame, refs_eval)),
+                        "ssim": float(ssim(
+                            ev_frame.permute(0, 3, 1, 2),
+                            refs_eval.permute(0, 3, 1, 2),
+                        )),
+                        "lpips": float(lpips_score(
+                            lpips_model, ev_frame, refs_eval,
+                        )),
+                        "n_gaussians": int(means.shape[0]),
+                    })
+
             opt.zero_grad(set_to_none=True)
             ev4 = torch.cuda.Event(enable_timing=True)
             ev4.record()
@@ -693,6 +722,7 @@ def run_backend(
         "isect_frac": float(np.mean(isect_fracs)) if isect_fracs else 1.0,
         "refresh_ms": float(np.mean(refresh_times)) if refresh_times else 0.0,
         "sampling_mode": sampling_mode,
+        "eval_curve": eval_curve,
     }
 
 
@@ -743,6 +773,15 @@ def main():
     ap.add_argument(
         "--error-refresh-every", type=int, default=25,
         help="error-guided sampling: refresh the full-res per-tile error map every N steps",
+    )
+    ap.add_argument(
+        "--error-lambda", type=float, default=1.0,
+        help="error-guided sampling: blend error distribution with uniform, "
+        "p = (1-lambda)/n + lambda*p_err (1.0 = pure error-guided, 0.0 = uniform)",
+    )
+    ap.add_argument(
+        "--eval-every", type=int, default=0,
+        help="record full-res eval PSNR/SSIM/LPIPS every N steps (0 = only final)",
     )
     ap.add_argument(
         "--no-fused-adam",
@@ -801,6 +840,8 @@ def main():
                     sampling_mode=args.sampling_mode,
                     error_alpha=args.error_alpha,
                     error_refresh_every=args.error_refresh_every,
+                    error_lambda=args.error_lambda,
+                    eval_every=args.eval_every,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity

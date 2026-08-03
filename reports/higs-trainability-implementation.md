@@ -1818,6 +1818,66 @@ on train at both r=0.5 and r=0.25, but is a loss on bicycle; and **LPIPS
 degrades in every r<1 mode on both scenes (+0.02..+0.08) - the honest quality
 bound that still prevents M4 from being fully green.**
 
+### Round 33 (2026-08-04): uniform-mix lambda knob + 3000-step horizon probe (M4 partial; LPIPS bound unchanged)
+
+Two harness additions: (1) `--error-lambda` blends the error-guided tile
+distribution with the uniform distribution (`p = (1-lambda)/n + lambda*p_err`;
+default 1.0 = pure error-guided, 0.0 = uniform), keeping the importance
+estimator unbiased for any lambda; (2) `--eval-every N` records an `eval_curve`
+(step / PSNR / SSIM / LPIPS / n_gaussians) at full resolution during training,
+enabling horizon studies. `tests/test_benchmark_tile_sampling.py` gains 3 CPU
+tests for the mix (lambda=0 estimator unbiased, mask fraction and
+`m*n/k`-shaped weights, lambda=1 default unchanged); 6/6 pass on local CPU and
+on EPIC-05.
+
+**Lambda sweep (bicycle, r=0.5, alpha=1.0, 300-step protocol, seed 0).**
+PSNR / SSIM / LPIPS:
+
+| lambda | PSNR  | SSIM   | LPIPS  |
+|--------|-------|--------|--------|
+| 0.70   | 15.964| 0.4376 | 0.5492 |
+| 0.85   | 15.826| 0.4325 | 0.5574 |
+| 0.90   | 16.056| 0.4339 | 0.5575 |
+| 1.00   | 15.794| 0.4333 | 0.5567 |
+
+lambda=0.70 is best and was repeated on seed 1 (15.756/0.4328/0.5575): the
+2-seed mean 15.860/0.4352/0.5534 vs the Round-32 lambda=1.0 2-seed mean
+15.691/0.4327/0.5587 is +0.17 dB PSNR and -0.005 LPIPS - a small,
+seed-dependent recovery that does **not** close the gap to stratified (0.5117)
+or full (0.4745) LPIPS. On train the mix does not help: lambda=0.70 (2 seeds)
+16.678/0.6382/0.4183 is -0.14 dB / +0.004 LPIPS vs lambda=1.0 (4 seeds)
+16.816/0.6390/0.4142, so pure error-guided remains the train operating point.
+
+**3000-step horizon probe (seed 0, eval every 300 steps).** The frozen
+topology + L1-only protocol is **not** a stable long-horizon regime: both modes
+collapse on train after ~300 steps, and the sampled variant collapses more
+slowly (step-300 / step-3000 = PSNR/SSIM/LPIPS):
+
+| scene   | mode                          | step-300               | step-3000              | train_ms |
+|---------|-------------------------------|------------------------|------------------------|----------|
+| train   | full (r=1.0)                  | 16.024/0.6318/0.3989   | 12.499/0.5416/0.5638   | 37.0 |
+| train   | error-guided r=0.5            | 17.009/0.6390/0.4170   | 13.197/0.5756/0.5454   | 31.6 |
+| bicycle | full (r=1.0)                  | 16.162/0.4368/0.4733   | 15.433/0.4023/0.4904   | 97.2 |
+| bicycle | error-guided r=0.5 (lambda=.7)| 16.093/0.4379/0.5461   | 14.290/0.4169/0.5424   | 88.6 |
+
+At 3000 steps error-guided is still +0.70 dB / -0.018 LPIPS better than full
+on train but -1.14 dB / +0.052 LPIPS worse on bicycle; the step-300 points
+reproduce the Round-32 300-step protocol within seed noise (+-0.13 dB),
+validating `eval_curve`. The r<1 LPIPS bound is unchanged: the bicycle gap
+(0.542-0.558 vs 0.4745 full) is a property of the importance-weighted loss at
+any tested lambda and horizon. Timing at 3000 steps (within-session,
+sequential): train 37.0 -> 31.6 ms (-14.6%), bicycle 97.2 -> 88.6 ms (-8.9%);
+absolute ms are inflated vs the 300-step protocol by sustained-load clock
+throttle, and the full-res error refresh (57.2 ms on bicycle every 25 steps)
+eats most of the bicycle margin (backward still saves 17 ms/step there).
+
+**Round 33 bottom line.** The uniform-mix lambda knob is a weak, honest
+mitigation for bicycle LPIPS (+0.17 dB PSNR / -0.005 LPIPS at lambda=0.70,
+seed-dependent) and does not change the train operating point; the 3000-step
+probe shows the frozen protocol itself (not sampling) is the quality ceiling
+at long horizons, so 30k-step M4 validation requires the full dynamic pipeline
+(densify/prune + schedule), which remains open.
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
