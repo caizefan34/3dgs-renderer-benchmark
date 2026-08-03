@@ -1733,6 +1733,91 @@ densify-anchored steps are the obvious next experiments. M4 not met for
 r<=0.25 or dynamic; the safe operating point is frozen r=0.5 stratified
 (PSNR/SSIM parity, LPIPS +0.02).
 
+
+### Round 32 (2026-08-03): anchor-densify, multi-seed quality, and error-guided tile sampling (M3 lever; honest LPIPS bound)
+
+Three additions landed on top of Round 31's `tile_sampling_ratio` + uniform/
+stratified machinery: (1) anchor-densify (full-res forward+backward on
+densify steps), (2) multi-seed quality verification of the frozen r=0.5
+operating point, and (3) error-guided tile sampling with an unbiased
+importance-weighted loss. Protocol is unchanged: 300 steps, 4 train + 3 eval
+cams, 1080p, A100; results below are PSNR / SSIM / LPIPS.
+
+**Anchor-densify (`--anchor-densify`, dynamic backend, single seed 0).**
+Densify/prune steps (every 5) run at `sampling_ratio=1.0` so the topology
+signal is full-res, while ordinary steps stay at r. On train this closes most
+of the PSNR gap: r=0.5 anchor 17.827 / 0.6385 / 0.4596 vs dynamic full
+17.742 / 0.6466 / 0.4272 (+0.09 dB, SSIM -0.008, LPIPS +0.032); r=0.25 anchor
+17.463 / 0.6220 / 0.5068 (PSNR -0.28 dB vs full, SSIM -0.025, LPIPS +0.080),
+vs -0.67 dB for the non-anchor r=0.25 run. On bicycle it does not recover:
+r=0.5 anchor 16.080 / 0.3997 / 0.6201 (-0.20 dB, LPIPS +0.037 vs dynamic
+full) and r=0.25 anchor 15.656 / 0.3848 / 0.6833 (-0.63 dB, LPIPS +0.100).
+Directional only (seed 0): anchor-densify helps train PSNR but never
+recovers LPIPS, which stays the binding quality limit.
+
+**Multi-seed frozen r=0.5 vs full (seeds 0, 1, 2; stratified).**
+
+| scene | full r=1.0 | r=0.5 stratified | delta |
+|---|---|---|---|
+| train | 16.006 / 0.6316 / 0.3987 | 16.017 / 0.6308 / 0.4203 | PSNR +0.01, SSIM -0.001, LPIPS +0.022 |
+| bicycle | 16.178 / 0.4363 / 0.4745 | 16.083 / 0.4424 / 0.5117 | PSNR -0.10, SSIM +0.006, LPIPS +0.037 |
+
+So frozen r=0.5 stratified holds PSNR/SSIM parity on both scenes across
+seeds; **LPIPS degrades +0.02..+0.04 and is the consistent, honest quality
+bound of tile-sampled training at r=0.5.**
+
+**Error-guided sampling (`--sampling-mode error_guided`).** The harness
+refreshes an exact per-tile mean-|diff| map every `--error-refresh-every`
+(default 25) steps with a full-res forward, then draws k tiles per image with
+replacement with p proportional to (err + floor)^alpha (`--error-alpha`). The
+explicit `tile_mask` (bool [C, th, tw]) is passed to the rasterizer (new
+optional argument on the frozen/dynamic public APIs; applied verbatim to the
+isect buffer) and the loss is the exact unbiased importance estimate
+`(1/P) sum_t m_t w_t S_t`, `w_t = m_t/(k p_t)`, `P = C*W*H*3`. The estimator
+is unbiased for any p>0 (verified by a CPU test: 40 draws mean approx full-frame
+mean).
+
+| scene | mode | train | bicycle |
+|---|---|---|---|
+| train | full r=1.0 (3 seeds) | 16.006 / 0.6316 / 0.3987 | - |
+| train | error-guided r=0.5, alpha=1.0 (4 seeds) | **16.816 / 0.6390 / 0.4142** | - |
+| train | error-guided r=0.25, alpha=1.0 (3 seeds) | **16.848 / 0.6299 / 0.4455** | - |
+| train | error-guided r=0.5, alpha=0.5 (2 seeds) | 15.972 / 0.6254 / 0.4375 | - |
+| train | error-guided r=0.25, alpha=0.5 (3 seeds) | 16.535 / 0.6254 / 0.4536 | - |
+| bicycle | full r=1.0 (3 seeds) | - | 16.178 / 0.4363 / 0.4745 |
+| bicycle | error-guided r=0.5, alpha=0.5 (3 seeds) | - | 15.897 / 0.4356 / 0.5517 |
+| bicycle | error-guided r=0.5, alpha=1.0 (2 seeds) | - | 15.691 / 0.4327 / 0.5587 |
+
+On train, alpha=1.0 (the variance-optimal exponent for L1) is the first
+sampling mode to beat full-res training on PSNR at r<1: r=0.5 +0.81 dB and
+r=0.25 +0.84 dB over the 3-seed full baseline, every seed above every full
+seed (all four r=0.5 seeds and all three r=0.25 seeds >= 16.35). SSIM stays at
+parity-or-better; LPIPS is +0.016 (r=0.5) / +0.047 (r=0.25). The earlier
+single-seed +1.09 dB at r=0.25 alpha=0.5 did not replicate (seed 2 = 15.765,
+below the full mean) - alpha=1.0 is the robust setting on train. On bicycle
+error-guided is the worst mode (PSNR -0.28..-0.49, LPIPS +0.08): the
+importance emphasis on high-error tiles hurts the outdoor scene, so the mode
+is scene-dependent and reported as a negative there. Per-step wall-clock at
+these settings: train r=0.5 25.2 ms vs full 34.3 ms (-26%), r=0.25 21.7 ms
+(-37%); the full-res refresh adds ~14.5 ms every 25 steps (~0.6 ms/step
+amortized) on train and ~32.6 ms on bicycle.
+
+**Tests.** New `tests/test_benchmark_tile_sampling.py` (3 CPU tests: exact
+border-tile errors, unbiased estimator across 40 draws, mask fraction <= ratio
+with finite weights); `tests/test_higs_frozen.py` gains
+`test_external_tile_mask_filters_isects` (2-camera CUDA: mask applied
+verbatim, isect fraction matches the mask, backward succeeds) and an autouse
+`_reset_frozen_tracker` fixture that fixes a module-level Gaussian-count
+tracker leak across tests (50 -> 80 was contaminating later assertions).
+Remote EPIC-05 suite: 105 passed; local Windows: pytest 158 passed / 103
+skipped, unittest 155 OK.
+
+**Round 32 bottom line.** PSNR/SSIM parity at frozen r=0.5 is now verified
+across seeds; error-guided alpha=1.0 turns sampled training into a PSNR win
+on train at both r=0.5 and r=0.25, but is a loss on bicycle; and **LPIPS
+degrades in every r<1 mode on both scenes (+0.02..+0.08) - the honest quality
+bound that still prevents M4 from being fully green.**
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`

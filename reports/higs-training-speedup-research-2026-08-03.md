@@ -59,11 +59,11 @@
 - 判定标准：收敛 PSNR 差距 < 0.05-0.1 dB 且 SSIM/LPIPS 持平（配对 t-test / Wilcoxon 无显著差异）；同 wall-clock 下质量曲线不劣于全量。
 - 每步梯度余弦相似度（采样估计 vs 全量）作为估计器保真度指标。
 - 质量-速度帕累托曲线：r 扫描（1/2, 1/4, 1/8），标注质量持平的最大 r 与对应加速。
-## 5. 实验矩阵与状态（2026-08-03 Round 31 更新）
+## 5. 实验矩阵与状态（2026-08-03 Round 32 更新）
 - M1 基线量化（已完成）：成本分解；per-pixel VJP 量随分辨率 / 相机数 / 高斯数缩放曲线（blend bwd 26-29 ms、6.23G evals 为不可约部分）。
 - M2 原型（**已完成**）：`tile_sampling_ratio`（1.0 默认）+ `sampling_mode`（uniform/stratified）已进 native capture 路径；isect 按 tile mask 过滤、blend backward 随 r 近线性下降；**顺序（无争抢）测量** 5 场景 1080p×4cam×20 步：r=0.5 总时间 -15..-25%、r=0.25 -33..-41%、r=0.125 -43..-50%；bwd 在 r=0.5/0.25/0.125 约为全量的 64%/45%/35%（存在 ~5-6 ms 固定底：projection/SH VJP + 归零填充）。并发现/修复多相机 isect 过滤 bug（`sampled_ratio` 未除 C）。
-- M3 采样策略消融（**部分**）：stratified vs uniform 已在 300 步协议 train/bicycle r=0.5/0.25 对比；stratified 在 train 显著更好（r=0.5 PSNR -0.02 vs -0.20 dB），bicycle 上 uniform 反而 PSNR 更高（+0.13 vs -0.11 dB，单 seed 属噪声级）；误差引导采样与 densify 锚定步尚未做。
-- M4 质量验证（**部分/负结果需诚实报告**）：300 步协议 train/bicycle 完成（frozen r=0.5 PSNR/SSIM 持平、LPIPS +0.02-0.04；r=0.25 PSNR -0.20/-0.57 dB 未持平；dynamic r=0.5 -0.21/-0.37 dB 未持平）；30k 收敛协议 + 多 seed 未做；1200 步 r=1.0 对照显示 train N 坍缩（354K）为协议固有而非采样引入。
+- M3 采样策略消融（**部分**）：stratified vs uniform 已在 300 步协议 train/bicycle r=0.5/0.25 对比；stratified 在 train 显著更好（r=0.5 PSNR -0.02 vs -0.20 dB），bicycle 上 uniform 反而 PSNR 更高（+0.13 vs -0.11 dB，单 seed 属噪声级）；**Round 32 新增误差引导采样（error_guided，p 正比于 tile 误差^alpha + 无偏重要性加权损失）与 anchor-densify**：train 上 alpha=1.0 在 r=0.5/0.25 均反超全量 PSNR（+0.81/+0.84 dB，4/3 seed 全高于 full），bicycle 上为最差模式（-0.28..-0.49 dB）——场景相关，诚实标注；anchor-densify 收敛 train r=0.25 PSNR 差距（-0.67到-0.28 dB）但未恢复 LPIPS。
+- M4 质量验证（**部分/负结果需诚实报告**）：300 步协议 train/bicycle 完成（frozen r=0.5 PSNR/SSIM 持平、LPIPS +0.02-0.04；r=0.25 PSNR -0.20/-0.57 dB 未持平；dynamic r=0.5 -0.21/-0.37 dB 未持平）；**Round 32 多 seed（0/1/2）验证 frozen r=0.5 持平结论成立，且所有 r<1 模式 LPIPS 均 +0.02..+0.08（唯一一致的负面指标）**；30k 收敛协议 + 多 seed 未做；1200 步 r=1.0 对照显示 train N 坍缩（354K）为协议固有而非采样引入。
 - M5 扩展性：未做。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 

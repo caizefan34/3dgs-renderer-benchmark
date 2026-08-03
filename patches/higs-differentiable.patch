@@ -189,7 +189,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..d460c16 100644
+index b6c1b13..0f60471 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -256,7 +256,7 @@ index b6c1b13..d460c16 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2283 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2318 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -1386,6 +1386,7 @@ index b6c1b13..d460c16 100644
 +        sh_compression_mode="none",
 +        tile_sampling_ratio=1.0,
 +        sampling_mode="uniform",
++        tile_mask=None,
 +    ):
 +        if backward_mode not in ("higs_native", "gsplat_recompute"):
 +            raise ValueError(
@@ -1427,6 +1428,25 @@ index b6c1b13..d460c16 100644
 +                f"sampling_mode must be 'uniform' or 'stratified', got {sampling_mode!r}"
 +            )
 +        ctx.sampling_mode = sampling_mode
++        if tile_mask is not None:
++            if not native:
++                raise ValueError(
++                    "tile_mask requires backward_mode='higs_native' "
++                    "(masked isect filtering is implemented in the native capture path)."
++                )
++            if tile_mask.dtype != torch.bool or tile_mask.dim() != 3:
++                raise ValueError(
++                    "tile_mask must be a bool tensor of shape [C, tile_h, tile_w], "
++                    "got dtype=%s dim=%d" % (tile_mask.dtype, tile_mask.dim())
++                )
++            n_tiles_check = math.ceil(width / tile_size) * math.ceil(height / tile_size)
++            if tile_mask.shape[1] * tile_mask.shape[2] != n_tiles_check:
++                raise ValueError(
++                    "tile_mask shape %s does not match [C, th=%d, tw=%d]"
++                    % (tuple(tile_mask.shape), math.ceil(height / tile_size),
++                       math.ceil(width / tile_size))
++                )
++        ctx.tile_mask_external = tile_mask
 +        if ctx.tile_sampling_ratio < 1.0 and not native:
 +            raise ValueError(
 +                "tile_sampling_ratio < 1.0 requires backward_mode='higs_native' "
@@ -1614,6 +1634,7 @@ index b6c1b13..d460c16 100644
 +                    backgrounds_b, camera_model, render_mode,
 +                    ctx.tile_sampling_ratio,
 +                    ctx.sampling_mode,
++                    ctx.tile_mask_external,
 +                )
 +            )
 +        else:
@@ -1688,6 +1709,7 @@ index b6c1b13..d460c16 100644
 +        backgrounds_b, camera_model, render_mode,
 +        tile_sampling_ratio=1.0,
 +        sampling_mode="uniform",
++        tile_mask=None,
 +    ):
 +        """Run the standard gsplat CUDA forward on the visible subset and
 +        capture every tensor the native backward consumes, in ONE pass."""
@@ -1740,7 +1762,13 @@ index b6c1b13..d460c16 100644
 +                opacities=opacities_bc,
 +            )
 +            n_tiles = tile_width * tile_height
-+            if 0.0 < tile_sampling_ratio < 1.0:
++            if tile_mask is not None:
++                # Explicit harness-provided mask (e.g. error-guided sampling).
++                # The mask is applied verbatim; the harness is responsible for
++                # the estimator (e.g. importance weights on the loss).
++                mask = tile_mask.reshape(C, n_tiles)
++                sampled_ratio = float(mask.float().mean())
++            elif 0.0 < tile_sampling_ratio < 1.0:
 +                # Tile sampling without replacement. The mean over the sampled
 +                # tiles is an unbiased estimator of the full-frame mean loss,
 +                # so the harness needs no 1/r rescale -- only a mask over the
@@ -2085,7 +2113,7 @@ index b6c1b13..d460c16 100644
 +                    tracked[name] = t.detach().requires_grad_(True)
 +
 +            if not tracked:
-+                return (None,) * 25
++                return (None,) * 26
 +
 +            alpha_final = None
 +            if ctx.N_visible == 0:
@@ -2181,6 +2209,7 @@ index b6c1b13..d460c16 100644
 +            None, None, None,  # backward_mode, renderer_handle, sh_compression_mode
 +            None,  # tile_sampling_ratio (non-tensor input)
 +            None,  # sampling_mode (non-tensor input)
++            None,  # tile_mask (bool tensor, non-differentiable input)
 +        )
 +
 +def _higs_frozen_forward(
@@ -2211,6 +2240,7 @@ index b6c1b13..d460c16 100644
 +    sh_compression_mode="none",
 +    tile_sampling_ratio: float = 1.0,
 +    sampling_mode: str = "uniform",
++    tile_mask=None,
 +    scene=None,
 +) -> dict:
 +    """Forward pass for frozen-topology HiGS diff. path (Stage B).
@@ -2240,7 +2270,7 @@ index b6c1b13..d460c16 100644
 +        render_mode, camera_model,
 +        enable_culling, use_higs_culling,
 +        backward_mode, scene, sh_compression_mode, tile_sampling_ratio,
-+        sampling_mode,
++        sampling_mode, tile_mask,
 +    )
 +    fwd_meta = dict(_HigsAutogradFunction.last_forward_metadata)
 +    N_total = fwd_meta["n_gaussians"]
@@ -2326,6 +2356,7 @@ index b6c1b13..d460c16 100644
 +    sh_compression_mode="none",
 +    tile_sampling_ratio: float = 1.0,
 +    sampling_mode: str = "uniform",
++    tile_mask=None,
 +    scene=None,
 +) -> dict:
 +    """Differentiable HiGS rendering with per-frame visibility culling (Stage B).
@@ -2365,6 +2396,7 @@ index b6c1b13..d460c16 100644
 +        sh_compression_mode=sh_compression_mode,
 +        tile_sampling_ratio=tile_sampling_ratio,
 +        sampling_mode=sampling_mode,
++        tile_mask=tile_mask,
 +        scene=scene,
 +    )
 +
@@ -2395,6 +2427,7 @@ index b6c1b13..d460c16 100644
 +    sh_compression_mode="none",
 +    tile_sampling_ratio: float = 1.0,
 +    sampling_mode: str = "uniform",
++    tile_mask=None,
 +    scene=None,
 +) -> dict:
 +    """Forward pass for dynamic-topology HiGS diff. path (Stage C).
@@ -2423,7 +2456,7 @@ index b6c1b13..d460c16 100644
 +        render_mode, camera_model,
 +        enable_culling, use_higs_culling,
 +        backward_mode, handle, sh_compression_mode, tile_sampling_ratio,
-+        sampling_mode,
++        sampling_mode, tile_mask,
 +    )
 +
 +    scene_version = _HIGS_DYNAMIC_SCENE.next_version(means.shape[0])
@@ -2505,6 +2538,7 @@ index b6c1b13..d460c16 100644
 +    sh_compression_mode="none",
 +    tile_sampling_ratio: float = 1.0,
 +    sampling_mode: str = "uniform",
++    tile_mask=None,
 +    scene=None,
 +) -> dict:
 +    """Differentiable HiGS rendering with dynamic-topology support (Stage C).
@@ -2538,6 +2572,7 @@ index b6c1b13..d460c16 100644
 +        sh_compression_mode=sh_compression_mode,
 +        tile_sampling_ratio=tile_sampling_ratio,
 +        sampling_mode=sampling_mode,
++        tile_mask=tile_mask,
 +        scene=scene,
 +    )
 diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py

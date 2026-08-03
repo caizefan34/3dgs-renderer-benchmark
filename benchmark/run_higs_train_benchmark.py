@@ -227,6 +227,74 @@ def _masked_l1_loss(frame, ref, tile_mask, tile_size, width, height):
     return diff.masked_select(pm.expand_as(diff)).mean()
 
 
+def _tile_mean_errors(frame, ref, tile_size):
+    """Exact per-tile mean |diff| (border tiles counted by real pixels only).
+
+    ``frame`` is [1, C, H, W, 3], ``ref`` is [C, H, W, 3]. Returns [C, th, tw].
+    Zero padding only pads the sum (zeros add nothing), so per-tile sums are
+    exact; counts are computed from the true tile extents.
+    """
+    diff = (frame.squeeze(0) - ref).abs()  # [C, H, W, 3]
+    C, H, W, _ = diff.shape
+    th = (H + tile_size - 1) // tile_size
+    tw = (W + tile_size - 1) // tile_size
+    Hp, Wp = th * tile_size, tw * tile_size
+    pad = (0, 0, 0, Wp - W, 0, Hp - H)
+    diff_pad = torch.nn.functional.pad(diff, pad)
+    tile_sum = diff_pad.reshape(C, th, tile_size, tw, tile_size, 3).sum(dim=(2, 4, 5))
+    rows = torch.full((th,), tile_size, dtype=torch.long, device=diff.device)
+    cols = torch.full((tw,), tile_size, dtype=torch.long, device=diff.device)
+    rows[-1] = H - (th - 1) * tile_size
+    cols[-1] = W - (tw - 1) * tile_size
+    count = (rows[:, None] * cols[None, :] * 3).to(diff.dtype)  # [th, tw]
+    return tile_sum / count  # [C, th, tw]
+
+
+def _importance_l1_loss(frame, ref, mask, weights, tile_size, width, height):
+    """Exact unbiased tile-level importance estimate of the full-frame L1.
+
+    Sampled tiles are drawn iid (with replacement) with probabilities ``p``;
+    ``mask`` is the set of tiles hit and ``weights = m / (k * p)`` where ``m``
+    is the per-tile draw count. The estimator
+    ``(1/P) sum_t mask_t * w_t * S_t`` (S_t = per-tile |diff| pixel sum,
+    P = total pixels) is unbiased for the full-frame mean regardless of ``p``.
+    """
+    diff = (frame.squeeze(0) - ref).abs()  # [C, H, W, 3]
+    C, H, W, _ = diff.shape
+    th = (H + tile_size - 1) // tile_size
+    tw = (W + tile_size - 1) // tile_size
+    Hp, Wp = th * tile_size, tw * tile_size
+    diff_pad = torch.nn.functional.pad(diff, (0, 0, 0, Wp - W, 0, Hp - H))
+    tile_sum = diff_pad.reshape(C, th, tile_size, tw, tile_size, 3).sum(dim=(2, 4, 5))
+    p_total = C * width * height * 3
+    m = mask.reshape(C, th, tw).to(diff.dtype)
+    w = weights.reshape(C, th, tw)
+    return (m * w * tile_sum).sum() / p_total
+
+
+def _error_guided_mask(tile_err, ratio, alpha, device):
+    """Importance-sample ``k`` tiles per image with p proportional to error.
+
+    ``tile_err`` is [C, th, tw] (per-tile mean |diff| from the last refresh).
+    Returns ``(mask [C, n_tiles] bool, weights [C, n_tiles] float)`` with
+    ``weights = m / (k * p)`` (with-replacement multinomial draws), which makes
+    the sampled estimator unbiased for any p > 0.
+    """
+    C, th, tw = tile_err.shape
+    n = th * tw
+    k = max(1, int(round(n * ratio)))
+    e = tile_err.reshape(C, n)
+    floor = (1e-3 * e.mean(dim=1, keepdim=True)).clamp_min(1e-6)
+    p = (e + floor) ** alpha
+    p = p / p.sum(dim=1, keepdim=True)
+    idx = torch.multinomial(p, k, replacement=True)  # [C, k]
+    m = torch.zeros(C, n, dtype=torch.float32, device=e.device)
+    m.scatter_add_(1, idx, torch.ones_like(idx, dtype=torch.float32))
+    mask = m > 0
+    weights = m / (k * p)
+    return mask, weights
+
+
 def _std_ll_forward(means, quats, scales, opacities, colors, viewmats, Ks,
                    width, height, sh_degree, radius_clip=0.0):
     """Low-level standard gsplat forward (raw CUDA kernels, no culling).
@@ -307,7 +375,12 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks,
                      sampling_mode="uniform"):
     from gsplat.rendering import rasterization
 
-    def forward_fn(params_in, cam_ids, sampling_ratio=None):
+    # "error_guided" is a harness-level strategy: the harness computes an
+    # explicit tile_mask (with importance weights) and passes it in; the
+    # rasterizer itself only knows uniform/stratified internal sampling.
+    raster_sampling_mode = "uniform" if sampling_mode == "error_guided" else sampling_mode
+
+    def forward_fn(params_in, cam_ids, sampling_ratio=None, tile_mask=None):
         m, q, s, o, c = params_in
         vm = viewmats[:, cam_ids]
         K = Ks[:, cam_ids]
@@ -342,7 +415,7 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks,
             res = rasterize_gaussian_higs_frozen(
                 m, q, s, o, c, backward_mode=mode, scene=handle,
                 freeze_topology=True, tile_sampling_ratio=ratio,
-                sampling_mode=sampling_mode, **kw,
+                sampling_mode=raster_sampling_mode, tile_mask=tile_mask, **kw,
             )
             return res["frame"], res["alpha"], res["metadata"]
         from gsplat.experimental import rasterize_gaussian_higs_dynamic
@@ -350,7 +423,7 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks,
         res = rasterize_gaussian_higs_dynamic(
             m, q, s, o, c, backward_mode="higs_native",
             tile_sampling_ratio=dyn_ratio,
-            sampling_mode=sampling_mode, **kw,
+            sampling_mode=raster_sampling_mode, tile_mask=tile_mask, **kw,
         )
         return res["frame"], res["alpha"], res["metadata"]
 
@@ -415,6 +488,7 @@ def run_backend(
     densify_every, densify_threshold, prune_threshold, lpips_model,
     radius_clip=0.0, fused_adam=True, tile_sampling_ratio=1.0,
     anchor_densify=False, sampling_mode="uniform",
+    error_alpha=1.0, error_refresh_every=25,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -450,6 +524,8 @@ def run_backend(
 
     fwd_times, bwd_times, total_times, train_times = [], [], [], []
     culling_ratios, n_visibles, topo_rebuilt, isect_fracs = [], [], [], []
+    refresh_times = []
+    tile_err_cache = None
     ref = refs_train
 
     try:
@@ -466,12 +542,41 @@ def run_backend(
                 and (it + 1) % densify_every == 0
             )
             step_ratio = 1.0 if (anchor_densify and is_densify_step) else tile_sampling_ratio
-            frame, alpha, meta = forward_fn(params, cam_ids, sampling_ratio=step_ratio)
+            eg_mask = eg_weights = None
+            if sampling_mode == "error_guided" and step_ratio < 1.0:
+                if tile_err_cache is None or (it + 1) % error_refresh_every == 0:
+                    with torch.no_grad():
+                        r0 = torch.cuda.Event(enable_timing=True)
+                        r1 = torch.cuda.Event(enable_timing=True)
+                        r0.record()
+                        frame_full, _, _ = forward_fn(
+                            params, cam_ids, sampling_ratio=1.0,
+                        )
+                        tile_err_cache = _tile_mean_errors(
+                            frame_full, ref, _TILE_SIZE,
+                        )
+                        r1.record()
+                        torch.cuda.synchronize(device)
+                        refresh_times.append(r0.elapsed_time(r1))
+                eg_mask, eg_weights = _error_guided_mask(
+                    tile_err_cache, step_ratio, error_alpha, device,
+                )
+                eg_mask = eg_mask.reshape(
+                    tile_err_cache.shape[0], tile_err_cache.shape[1],
+                    tile_err_cache.shape[2],
+                )
+            frame, alpha, meta = forward_fn(
+                params, cam_ids, sampling_ratio=step_ratio, tile_mask=eg_mask,
+            )
             ev1.record()
             torch.cuda.synchronize(device)
             fwd_ms = ev0.elapsed_time(ev1)
             tile_mask = meta.get("tile_mask") if meta else None
-            if step_ratio < 1.0 and tile_mask is not None:
+            if eg_mask is not None and eg_weights is not None:
+                loss = _importance_l1_loss(
+                    frame, ref, eg_mask, eg_weights, _TILE_SIZE, width, height,
+                )
+            elif step_ratio < 1.0 and tile_mask is not None:
                 loss = _masked_l1_loss(
                     frame, ref, tile_mask, _TILE_SIZE, width, height,
                 )
@@ -586,6 +691,8 @@ def run_backend(
         "topology_rebuilt_frac": float(np.mean(topo_rebuilt)) if topo_rebuilt else 0.0,
         "sampled_tile_ratio": float(tile_sampling_ratio),
         "isect_frac": float(np.mean(isect_fracs)) if isect_fracs else 1.0,
+        "refresh_ms": float(np.mean(refresh_times)) if refresh_times else 0.0,
+        "sampling_mode": sampling_mode,
     }
 
 
@@ -624,8 +731,18 @@ def main():
         help="HiGS native tile sampling ratio in (0, 1] (1.0 = full frame)",
     )
     ap.add_argument(
-        "--sampling-mode", choices=("uniform", "stratified"), default="uniform",
-        help="tile sampling: uniform iid or stratified (one tile per round(1/r)-tile stratum)",
+        "--sampling-mode", choices=("uniform", "stratified", "error_guided"), default="uniform",
+        help="tile sampling: uniform iid, stratified (one tile per round(1/r)-tile "
+        "stratum), or error_guided (importance-sample tiles proportional to the "
+        "cached per-tile error, with unbiased importance weights)",
+    )
+    ap.add_argument(
+        "--error-alpha", type=float, default=1.0,
+        help="error-guided sampling: p ~ (tile_err + floor)^alpha (1.0 = variance-optimal for L1)",
+    )
+    ap.add_argument(
+        "--error-refresh-every", type=int, default=25,
+        help="error-guided sampling: refresh the full-res per-tile error map every N steps",
     )
     ap.add_argument(
         "--no-fused-adam",
@@ -682,6 +799,8 @@ def main():
                     tile_sampling_ratio=args.tile_sampling_ratio,
                     anchor_densify=args.anchor_densify,
                     sampling_mode=args.sampling_mode,
+                    error_alpha=args.error_alpha,
+                    error_refresh_every=args.error_refresh_every,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
