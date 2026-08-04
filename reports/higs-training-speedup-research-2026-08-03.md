@@ -422,8 +422,38 @@
   扩展），加速/质量的分辨率依赖关系已量化；投稿建议在 1080p 主张 ≥1.8x，
   低/中 N 场景可下沉到 720p。** 结果 results/higs-round56/（r56-summary.json；
   脚本 scripts/higs/run_round56_multi_res.sh）。
+- **Round 57 更新（2026-08-04，M6 收尾：渲染器级稀疏像素光栅化——train/garden/bicycle，3-seed 3000 步）**：
+  新增后端 `higs_sparse_px` 与 `--pixel-raster-ratio`：用上游 gsplat 的稀疏内核
+  （`build_sparse_tile_layout` + `isect_tiles_sparse` + `rasterize_to_pixels_sparse`）
+  在渲染器内只光栅化每步 iid Bernoulli 掩码选中的像素（打包输出），即 Speedy-Splat
+  式像素级稀疏渲染——R53 证明该训练信号可恢复近全质量，R57 第一次落地到渲染器本身。
+  18 次运行（3 场景 × 3 seed × 2 arm），配方与 R53 相同（full-res LPIPS every 25、
+  lr-decay、densify-window 1500、high-N + anchor every2、train 无 anchor）；对照臂
+  是同一组合管线自己的稠密基线（px100 = 同一后端 ratio 1.0），隔离像素粒度单一变量：
+
+  | 场景 | px100 PSNR/SSIM/LPIPS | px035 PSNR/SSIM/LPIPS | ΔPSNR | ΔLPIPS | 加速 |
+  |---|---|---|---|---|---|
+  | train | 16.586±0.316 / 0.6216 / 0.3711±0.0067 | 16.306±0.182 / 0.6211 / 0.3813±0.0083 | -0.28 | +0.010 | **1.06x** |
+  | garden | 18.753±0.015 / 0.5011 / 0.3978±0.0005 | 18.554±0.030 / 0.4973 / 0.4092±0.0012 | -0.20 | +0.011 | **1.09x** |
+  | bicycle | 15.727±0.276 / 0.3907 / 0.4845±0.0032 | 16.237±0.044 / 0.3929 / 0.4846±0.0022 | **+0.51** | +0.0001 | **1.06x** |
+
+  **关键发现**：① 质量——渲染器级像素稀疏在 ~40% 像素覆盖下恢复近全质量，高 N
+  场景尤其显著：bicycle PSNR 反超稠密基线 +0.51 dB 且 LPIPS 持平（+0.0001），
+  garden LPIPS +0.011（对比 tile 级 eg/every2 的 +0.044 收窄 4 倍），与 R53 的信号
+  结论端到端一致；train（低 N）小幅退化 -0.28 dB / +0.010（3-seed，dense 臂自身
+  sd ±0.32，约 0.8 sd，方向性弱）。② 速度——**墙钟杠杆结构性收窄：仅 1.06-1.09x**
+  （fwd 1.06-1.09x、bwd 1.04-1.09x）。原因：iid 像素掩码在 40% 覆盖下几乎不跳过任何
+  tile，相交（isect）成本不变；投影/SH/求交及反向都是像素数不变成本，只有逐像素
+  混合循环随像素数缩放（实测该部分仅占组合管线步骤的 ~5-10%）。**结论：M6 的
+  "渲染器级更细粒度采样" 问题闭环——像素级稀疏渲染在渲染器层面确认恢复近全质量
+  （质量杠杆成立），但墙钟提速被非像素缩放阶段（投影/SH/相交）上界钉在 ~1.1x，
+  达不到 tile 级 1.8x+；投稿叙事：像素稀疏 = 质量恢复杠杆，tile 采样 = 速度杠杆，
+  二者正交，1.8x 操作点仍由 error_guided tile 采样提供。** 结果
+  results/higs-round57/（r57-summary.json；脚本 scripts/higs/run_round57_sparse_px.sh；
+  新增后端 `higs_sparse_px`、`--pixel-raster-ratio` 与 10 项测试
+  tests/test_higs_sparse_pixel_raster.py）。
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵 Round 56 完成（540p/720p/1080p × train/garden/bicycle × 3 seed，36 次运行，见上表）**。
-- M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量）。R53/R54 联合结论：高 N tile 采样质量界为 tile 粒度相关性噪声（去相关化分层采样 R54 为负面，与 uniform 匹配 sr 等价）；恢复质量需渲染器级更细粒度采样。下一步：多分辨率矩阵 + 渲染器级细粒度采样**。
+- M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量）。R53/R54 联合结论：高 N tile 采样质量界为 tile 粒度相关性噪声（去相关化分层采样 R54 为负面，与 uniform 匹配 sr 等价）。渲染器级细粒度采样已闭环（R57）：像素级稀疏光栅化（higs_sparse_px）在 ~40% 覆盖下恢复近全质量（bicycle PSNR +0.51 dB / LPIPS 持平，garden LPIPS +0.011），但墙钟仅 1.06-1.09x——相交/投影/SH 为像素数不变成本，像素稀疏只省逐像素混合循环，速度杠杆结构性上界 ~1.1x，1.8x 操作点仍由 tile 采样提供。**
 
 ## 6. 风险与对策
 - 采样训练改变密度化动力学（梯度稀疏 -> densify 信号变化）：对策 = 梯度累积 / 密度化专用全分辨率步 / 调 densify 阈值。

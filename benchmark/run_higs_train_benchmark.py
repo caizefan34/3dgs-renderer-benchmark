@@ -263,6 +263,19 @@ def _masked_pixel_l1_loss(frame, ref, ratio, device):
     return diff.masked_select(mask.expand_as(diff)).mean()
 
 
+def _packed_pixel_l1_loss(frame, ref, pixel_image_ids, pixel_flat):
+    """Unbiased packed-pixel L1: mean |diff| over renderer-sampled pixels.
+
+    ``frame`` is the packed render output [P, 3] (pixels in the same
+    (image_id, row, col) order as ``pixel_flat``), ``ref`` is [C, H, W, 3]
+    channel-last, and ``pixel_flat`` holds the flat ``image_id*H*W + row*W +
+    col`` indices into ``ref.reshape(-1, 3)``. The mean over the sampled
+    pixels is an unbiased estimate of the full-frame mean (same argument as
+    the tile-masked loss), so no reweighting is needed.
+    """
+    return (frame - ref.reshape(-1, 3)[pixel_flat]).abs().mean()
+
+
 def _tile_mean_errors(frame, ref, tile_size):
     """Exact per-tile mean |diff| (border tiles counted by real pixels only).
 
@@ -411,9 +424,110 @@ def _std_ll_forward(means, quats, scales, opacities, colors, viewmats, Ks,
     return render_colors, render_alphas
 
 
+def _sparse_px_forward(means, quats, scales, opacities, colors, viewmats, Ks,
+                       width, height, pixel_ratio, radius_clip=0.0,
+                       tile_size=_TILE_SIZE, eps2d=0.3):
+    """Renderer-level sparse-pixel forward via upstream gsplat sparse kernels.
+
+    Speedy-Splat-style pixel-sparse rasterization at the renderer level: the
+    full Gaussian projection + SH evaluation run for every camera, but
+    ``isect_tiles_sparse`` + ``rasterize_to_pixels_sparse`` touch only the
+    tiles/pixels drawn in the per-step iid Bernoulli mask (matching the R53
+    ``sparse_pixel`` loss-signal arm at the same pixel fraction). Outputs are
+    packed ``[P, 3]`` in the same (image_id, row, col) order as the mask, so
+    the harness gathers the reference at ``meta["pixel_flat"]``.
+
+    ``pixel_ratio >= 1.0`` renders the full grid and returns the dense frame
+    ``[1, C, H, W, 3]`` (packed -> dense via reshape, no scatter), so eval and
+    full-res LPIPS steps share one code path. Returns (frame, alpha, meta);
+    ``meta["packed"]`` is True only when ``pixel_ratio < 1.0``.
+    """
+    from gsplat.cuda._wrapper import (
+        build_sparse_tile_layout,
+        fully_fused_projection,
+        isect_tiles_sparse,
+        _make_lazy_cuda_func,
+    )
+    from gsplat.rendering import _maybe_evaluate_sh
+
+    C = viewmats.shape[-3]
+    N = means.shape[0]
+    tile_width = (width + tile_size - 1) // tile_size
+    tile_height = (height + tile_size - 1) // tile_size
+    device = means.device
+
+    radii, means2d, depths, conics, _comp = fully_fused_projection(
+        means=means.contiguous(), covars=None, quats=quats.contiguous(),
+        scales=scales.contiguous(), viewmats=viewmats.contiguous(),
+        Ks=Ks.contiguous(), width=width, height=height, eps2d=eps2d,
+        radius_clip=radius_clip, packed=False, calc_compensations=False,
+        camera_model="pinhole",
+    )  # [C, N, 2], [C, N, 2], [C, N], [C, N, 3]
+    colors_eval = _maybe_evaluate_sh(
+        _SH_DEGREE, colors, means, radii, viewmats, (1,), C, N, True,
+    ).contiguous()  # [C, N, 3]
+    opac_bc = torch.broadcast_to(opacities[None, :], (C, N)).contiguous()
+
+    n_pix_per_img = height * width
+    if pixel_ratio >= 1.0:
+        # Full grid in row-major (image_id, row, col) order so the packed
+        # output reshapes directly to the dense frame.
+        flat = torch.arange(C * n_pix_per_img, device=device, dtype=torch.int64)
+        image_ids = flat // n_pix_per_img
+        inside = flat % n_pix_per_img
+        rows = inside // width
+        cols = inside % width
+    else:
+        sel = torch.rand((C, height, width), device=device) < pixel_ratio
+        image_ids, rows, cols = sel.nonzero(as_tuple=True)
+        image_ids = image_ids.to(torch.int64)
+        rows = rows.to(torch.int64)
+        cols = cols.to(torch.int64)
+        flat = image_ids * n_pix_per_img + rows * width + cols
+    pixels = torch.stack([rows, cols], dim=1).to(torch.int64)
+    active_tiles, active_tile_mask, tile_pixel_mask, tile_pixel_cumsum, pixel_map = (
+        build_sparse_tile_layout(
+            pixels, image_ids, C, tile_size, tile_width, tile_height,
+        )
+    )
+    tile_offsets, flatten_ids = isect_tiles_sparse(
+        means2d, radii, depths, active_tile_mask, active_tiles,
+        C, tile_size, tile_width, tile_height,
+    )
+    bg = torch.zeros((C, 3), device=device)
+    render_colors, render_alphas, _absgrad, _last_ids = (
+        _make_lazy_cuda_func("rasterize_to_pixels_sparse")(
+            means2d.contiguous(), conics.contiguous(),
+            colors_eval.contiguous(), opac_bc.contiguous(),
+            bg, active_tile_mask.contiguous(), image_ids.contiguous(),
+            width, height, tile_size, tile_width, tile_height,
+            active_tiles.contiguous(), tile_offsets.contiguous(),
+            flatten_ids.contiguous(), tile_pixel_mask.contiguous(),
+            tile_pixel_cumsum.contiguous(), pixel_map.contiguous(),
+            False, False,
+        )
+    )
+    if pixel_ratio >= 1.0:
+        frame = render_colors.reshape(1, C, height, width, 3)
+        alpha = render_alphas.reshape(1, C, height, width, 1)
+        meta = {"packed": False, "sampled_tile_ratio": 1.0}
+    else:
+        frame = render_colors
+        alpha = render_alphas
+        meta = {
+            "packed": True,
+            "pixel_image_ids": image_ids,
+            "pixel_flat": flat,
+            "pixel_ratio": float(sel.float().mean()),
+            "sampled_tile_ratio": float(sel.float().mean()),
+        }
+    return frame, alpha, meta
+
+
 def make_forward_fn(backend, width, height, handle, viewmats, Ks,
                      radius_clip=0.0, tile_sampling_ratio=1.0,
-                     sampling_mode="uniform", cull_interval=1):
+                     sampling_mode="uniform", cull_interval=1,
+                     pixel_raster_ratio=0.35):
     from gsplat.rendering import rasterization
 
     # "error_guided" is a harness-level strategy: the harness computes an
@@ -424,6 +538,21 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks,
         if sampling_mode in ("error_guided", "sparse_pixel")
         else sampling_mode
     )
+
+    if backend == "higs_sparse_px":
+        def forward_fn(params_in, cam_ids, sampling_ratio=None, tile_mask=None):
+            m, q, s, o, c = params_in
+            vm = viewmats[:, cam_ids].squeeze(0)  # [C, 4, 4]
+            K = Ks[:, cam_ids].squeeze(0)         # [C, 3, 3]
+            ratio = (
+                pixel_raster_ratio
+                if sampling_ratio is None else sampling_ratio
+            )
+            return _sparse_px_forward(
+                m, q, s, o, c, vm, K, width, height, ratio,
+                radius_clip=radius_clip,
+            )
+        return forward_fn
 
     def forward_fn(params_in, cam_ids, sampling_ratio=None, tile_mask=None):
         m, q, s, o, c = params_in
@@ -641,6 +770,7 @@ def run_backend(
     res_schedule_full_signal=False,
     res_schedule_full_lpips=False,
     pixel_sampling_ratio=1.0,
+    pixel_raster_ratio=0.35,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -662,7 +792,7 @@ def run_backend(
         handle = create_higs_renderer(
             means, quats, scales, opacities, sh, sh_degree=_SH_DEGREE,
         )
-    elif backend in ("higs_dynamic", "higs_dynamic_ts"):
+    elif backend in ("higs_dynamic", "higs_dynamic_ts", "higs_sparse_px"):
         from gsplat.experimental.render.functional.gaussian_inference import (
             _HIGS_DYNAMIC_SCENE,
         )
@@ -674,6 +804,7 @@ def run_backend(
         tile_sampling_ratio=tile_sampling_ratio,
         sampling_mode=sampling_mode,
         cull_interval=cull_interval,
+        pixel_raster_ratio=pixel_raster_ratio,
     )
     # Train forward fn is rebuilt at progressive-resolution stage boundaries;
     # without a schedule it is the same full-res closure (eval stays full-res
@@ -710,6 +841,7 @@ def run_backend(
                         tile_sampling_ratio=tile_sampling_ratio,
                         sampling_mode=sampling_mode,
                         cull_interval=cull_interval,
+                        pixel_raster_ratio=pixel_raster_ratio,
                     )
                     tile_err_cache = None
             cam_ids = train_idx
@@ -719,7 +851,7 @@ def run_backend(
             ev1 = torch.cuda.Event(enable_timing=True)
             ev0.record()
             is_densify_step = (
-                backend in ("higs_dynamic", "higs_dynamic_ts")
+                backend in ("higs_dynamic", "higs_dynamic_ts", "higs_sparse_px")
                 and densify_every > 0
                 and (it + 1) % densify_every == 0
                 and (densify_window is None or it < densify_window)
@@ -736,8 +868,15 @@ def run_backend(
             # Full-resolution LPIPS step: one grad-enabled full render replaces
             # the sampled-tile step AND the error-cache refresh (they share the
             # same cadence), so the full-frame perceptual signal costs no extra
-            # render pass at the r<1 operating point.
-            full_res_step = lpips_full_res and is_lpips_step and step_ratio < 1.0
+            # render pass at the r<1 operating point. The renderer-level
+            # sparse-pixel backend samples pixels (not tiles), so its sampled
+            # operating point is ``pixel_raster_ratio < 1.0`` rather than
+            # ``step_ratio < 1.0``.
+            full_res_step = lpips_full_res and is_lpips_step and (
+                step_ratio < 1.0 or (
+                    backend == "higs_sparse_px" and pixel_raster_ratio < 1.0
+                )
+            )
             # --res-schedule-full-signal: during progressive coarse stages keep
             # the full-frame signal steps (LPIPS + anchor densify) at the full
             # target resolution instead of the stage resolution.
@@ -753,6 +892,11 @@ def run_backend(
             # no pixel-sparse rasterizer) and sparsifies the LOSS instead; the
             # pixel fraction is tracked separately for honest reporting.
             is_sparse_px = sampling_mode == "sparse_pixel"
+            # Renderer-level sparse-pixel mode (higs_sparse_px) rasterizes
+            # only the sampled pixels inside the renderer (upstream gsplat
+            # sparse kernels); the dense fallback (ratio >= 1.0) covers eval
+            # and full-res LPIPS/anchor steps.
+            is_px_raster = backend == "higs_sparse_px"
             eg_mask = eg_weights = None
             if full_res_step:
                 if use_full_signal or use_full_lpips:
@@ -803,9 +947,14 @@ def run_backend(
                     if (is_anchor_step and use_full_signal)
                     else forward_fn
                 )
+                step_ratio_arg = (
+                    1.0
+                    if (is_sparse_px or (is_px_raster and is_anchor_step))
+                    else (pixel_raster_ratio if is_px_raster else step_ratio)
+                )
                 frame, alpha, meta = step_fn(
                     params, cam_ids,
-                    sampling_ratio=(1.0 if is_sparse_px else step_ratio),
+                    sampling_ratio=step_ratio_arg,
                     tile_mask=eg_mask,
                 )
             ev1.record()
@@ -834,6 +983,11 @@ def run_backend(
             elif not full_res_step and step_ratio < 1.0 and tile_mask is not None:
                 loss = _masked_l1_loss(
                     frame, loss_ref, tile_mask, _TILE_SIZE, train_w, train_h,
+                )
+            elif is_px_raster and meta is not None and meta.get("packed"):
+                loss = _packed_pixel_l1_loss(
+                    frame, loss_ref, meta["pixel_image_ids"],
+                    meta["pixel_flat"],
                 )
             else:
                 loss = _l1_loss(frame, loss_ref)
@@ -894,7 +1048,7 @@ def run_backend(
                 grad_norm_acc = _accumulate_grad_norms(grad_norm_acc, means.grad)
 
             if (
-                backend in ("higs_dynamic", "higs_dynamic_ts")
+                backend in ("higs_dynamic", "higs_dynamic_ts", "higs_sparse_px")
                 and (it + 1) % densify_every == 0
                 and (densify_window is None or it < densify_window)
             ):
@@ -1019,6 +1173,9 @@ def run_backend(
         "lpips_steps": len(lpips_ms),
         "sampling_mode": sampling_mode,
         "pixel_sampling_ratio": float(pixel_sampling_ratio),
+        "pixel_raster_ratio": (
+            float(pixel_raster_ratio) if backend == "higs_sparse_px" else None
+        ),
         "cull_interval": int(cull_interval),
         "eval_curve": eval_curve,
     }
@@ -1108,6 +1265,17 @@ def build_arg_parser():
         help="tile sampling: uniform iid, stratified (one tile per round(1/r)-tile "
         "stratum), or error_guided (importance-sample tiles proportional to the "
         "cached per-tile error, with unbiased importance weights)",
+    )
+    ap.add_argument(
+        "--pixel-raster-ratio", type=float, default=0.35,
+        help=(
+            "higs_sparse_px backend: fraction of pixels rasterized per step "
+            "(iid Bernoulli, renderer-level sparse pixels via upstream gsplat "
+            "sparse kernels; 1.0 = full frame). The packed-pixel L1 mean is an "
+            "unbiased estimate of the full-frame mean (like the tile-masked "
+            "loss), so no reweighting is needed. Eval / full-res LPIPS / "
+            "anchor-densify steps render the full frame regardless."
+        ),
     )
     ap.add_argument(
         "--pixel-sampling-ratio", type=float, default=1.0,
@@ -1246,6 +1414,7 @@ def main():
                     res_schedule_full_signal=args.res_schedule_full_signal,
                     res_schedule_full_lpips=args.res_schedule_full_lpips,
                     pixel_sampling_ratio=args.pixel_sampling_ratio,
+                    pixel_raster_ratio=args.pixel_raster_ratio,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
