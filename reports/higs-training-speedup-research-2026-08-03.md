@@ -599,3 +599,32 @@
 **陈旧 mask 悬崖（exp3c：eval mask 每 10 个 densify 才刷新）**：d0.99 崩到 PSNR 13.88 / LPIPS 0.474（N 0.52M），d0.999 也退到 19.54——新鲜 eval mask 是衰减质量的硬前提，而它的成本正是 +6~7% train_ms。
 
 **决策**：机制（冻结优化器 + opacity 衰减语义）质量成立（garden LPIPS -0.010 / PSNR +0.14），但**速度门槛拒绝**：唯一质量有效的配置 train_ms +6.3~7.2%，跨场景不稳健，且陈旧 mask 悬崖使其脆弱。代码保留为 `--masked-adam-union-decay` 实验开关。未来路径：用 ~160p 低分辨率 eval forward 刷衰减用 mask（可见性 mask 是投影式，低分辨率成本可低一个量级），未在本轮验证。
+
+## 11. Round 63：投影式 eval-mask 刷新（--masked-adam-union-decay-eval-proj，2026-08-04）—— 质量保持、速度门复活
+
+**探针（决定性，/tmp/probe_r63b.py，garden 5.83M 初始）**：R62 每 densify 刷 eval mask 用的是 3-cam 全分辨率 eval forward，但该 mask 本质是投影式可见性 mask，前向渲染大部分工作量是浪费。
+
+| 刷新方式 | 时长 | 结果 |
+|---|---|---|
+| 全分辨率 3-cam eval forward（R62 现状） | 13.5 ms | 产生 eval mask（缓存） |
+| 低分辨率 0.25（320x180） 3-cam eval forward | 19.1 ms（0.70x） | 更慢——低分辨率渲染是死路 |
+| 投影-only cull（_cull_gaussians_batched） | 1.35 ms | 与 forward 缓存 mask **逐位一致**（diff rows: 0，miss/extra=0） |
+
+即：eval mask 是投影式，R62 的全 eval forward 刷新约 10x 浪费；投影刷新质量等价且便宜一个数量级。
+
+**机制：**`--masked-adam-union-decay-eval-proj`（默认关 = R62-同。R62 代码本身未改）开启后，densify 处 eval mask 刷新改用 `_cull_gaussians_batched(means, quats, scales, viewmats[:, eval_idx], Ks[:, eval_idx], width, height, eps2d=0.3, near_plane=0.01, far_plane=1e10, radius_clip, camera_model="pinhole")` 的 `[N]` bool mask，直接写入 `eval_mask_tracked`（闭包读当前 means/quats/scales，densify 重赋值不影响一致性）；mask_prune 路径保持 R61 原语义（全分辨率 forward）。JSON 新增 `eval_proj_overlap`：每 eval 节点对比刷新后 tracked mask vs 新鲜投影 mask（proj_miss_frac = "全看见但投影漏"，proj_extra_frac = "投影多看"）。
+
+**证据（exp1b smoke 600 步 + exp2 受控 in-wave 3000 步 3-seed，garden 720p seed 0/1/2）**：
+
+| 变体 | train_ms | δtrain vs ctrl | PSNR | SSIM | LPIPS | final_N |
+|---|---|---|---|---|---|---|
+| ctrl（R60） | 14.128 | — | 19.9212 | 0.5308 | 0.3137 | 2.87M |
+| d0.99 + 全 forward 刷新（3-seed） | 15.094±0.085 | +6.8% | 20.1511±0.027 | 0.5370 | 0.3041±0.0006 | 1.21M |
+| d0.99 + 投影刷新（3-seed） | 14.450±0.098 | +2.3% | 20.1286±0.014 | 0.5370 | 0.3046±0.0003 | 1.21M |
+
+- **mask 逐位一致**：全部 10 个 eval 检查点 proj_miss_frac=proj_extra_frac=0.0；质量与 R62 全 forward 参照在 3-seed 噪声内完全一致（PSNR -0.02 / LPIPS +0.0005，均 < sd），final_N 仅差 0.13%。
+- **速度门复活**：train_ms +6.8%→+2.3%，恢复 R62 惩罚的大约 2/3；剩余 +2.3% 不是刷新开销（投影刷新自身 train-total 已低于 ctrl：2.23 vs 2.43 ms），而是机制固有成本：衰减退役后可见集更精细（n_visible 641K vs 536K，cull 0.56 vs 0.83）。
+- smoke 的 -1.6% 是 600 步中期偶然；3000 步收敛后诚实为 +2.3%。
+
+**决策：**R62 质量正向的 decay 杠杆因刷新成本被速度门拒绝；R63 用投影刷新把该杠杆从 +6.8% 降至 +2.3%，质量逐位不变（garden PSNR +0.21 / LPIPS -0.009 / SSIM +0.006 vs R60，3-seed 稳定）。因跨场景仍不稳健（R62 exp2：bicycle +0.16 但 train -0.23），杠杆保持 opt-in（默认关），R60 masked-Adam 仍是最终 op point；建议任何启用 `--masked-adam-union-decay` 的配置都应配合 `--masked-adam-union-decay-eval-proj`。低分辨率 eval forward 刷新（未来路径提案）证实为死路：0.25x 反而更慢。
+

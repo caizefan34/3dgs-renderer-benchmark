@@ -860,6 +860,7 @@ def run_backend(
     mask_prune_eval_refresh=0,
     mask_prune_min_frozen=2,
     masked_adam_union_decay=0.0,
+    masked_adam_union_decay_eval_proj=False,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -896,6 +897,23 @@ def run_backend(
         cull_cache_key="eval",
         pixel_raster_ratio=pixel_raster_ratio,
     )
+    eval_proj_mask_fn = None
+    if (masked_adam_union_decay > 0.0
+            and masked_adam_union_decay_eval_proj):
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _cull_gaussians_batched,
+        )
+        def eval_proj_mask_fn():
+            with torch.no_grad():
+                _vis_ids, _vmask, _ratio = _cull_gaussians_batched(
+                    means, quats, scales,
+                    viewmats[:, eval_idx].contiguous(),
+                    Ks[:, eval_idx].contiguous(),
+                    width, height, eps2d=0.3, near_plane=0.01,
+                    far_plane=1e10, radius_clip=radius_clip,
+                    camera_model="pinhole",
+                )
+            return _vmask
     # Train forward fn is rebuilt at progressive-resolution stage boundaries;
     # without a schedule it is the same full-res closure (eval stays full-res
     # regardless, so progressive training never contaminates eval metrics).
@@ -932,6 +950,7 @@ def run_backend(
     refresh_times = []
     lpips_ms = []
     eval_curve = []
+    eval_proj_overlap = []
     frozen_counter = torch.zeros(
         means.shape[0], dtype=torch.int32, device=device,
     )
@@ -1311,15 +1330,24 @@ def run_backend(
                 if ((mask_prune or masked_adam_union_decay > 0.0)
                         and mask_prune_eval_refresh > 0
                         and (it + 1) % (densify_every * mask_prune_eval_refresh) == 0):
-                    with torch.no_grad():
-                        eval_forward_fn(params, eval_idx, sampling_ratio=1.0)
-                    _src2 = (
-                        handle if handle is not None
-                        else getattr(dynamic_scene, "renderer_handle", None)
-                    )
-                    _slot2 = getattr(_src2, "_cull_cache", {}).get("eval") if _src2 is not None else None
-                    if _slot2 is not None and len(_slot2) >= 2 and _slot2[1] is not None:
-                        eval_mask_tracked = _slot2[1].detach().clone()
+                    if (eval_proj_mask_fn is not None
+                            and masked_adam_union_decay > 0.0
+                            and not mask_prune):
+                        _pmask = eval_proj_mask_fn()
+                        if _pmask.numel() == means.shape[0]:
+                            eval_mask_tracked = _pmask.detach().clone()
+                        else:
+                            eval_mask_tracked = None
+                    else:
+                        with torch.no_grad():
+                            eval_forward_fn(params, eval_idx, sampling_ratio=1.0)
+                        _src2 = (
+                            handle if handle is not None
+                            else getattr(dynamic_scene, "renderer_handle", None)
+                        )
+                        _slot2 = getattr(_src2, "_cull_cache", {}).get("eval") if _src2 is not None else None
+                        if _slot2 is not None and len(_slot2) >= 2 and _slot2[1] is not None:
+                            eval_mask_tracked = _slot2[1].detach().clone()
 
                 if densify_grad_accum:
                     grad_norm_acc = torch.zeros(means.shape[0], device=device)
@@ -1355,6 +1383,21 @@ def run_backend(
                     )
                     if _slot1 is not None and len(_slot1) >= 2 and _slot1[1] is not None:
                         eval_mask_tracked = _slot1[1].detach().clone()
+                if eval_proj_mask_fn is not None:
+                    _pmask = eval_proj_mask_fn()
+                    if (_pmask.numel() == eval_mask_tracked.numel()
+                            and eval_mask_tracked is not None):
+                        _full = eval_mask_tracked
+                        eval_proj_overlap.append({
+                            "step": int(it + 1),
+                            "proj_miss_frac": float(
+                                (_full & ~_pmask).float().mean()
+                            ),
+                            "proj_extra_frac": float(
+                                (~_full & _pmask).float().mean()
+                            ),
+                            "n": int(_full.numel()),
+                        })
 
             opt.zero_grad(set_to_none=True)
             ev4 = torch.cuda.Event(enable_timing=True)
@@ -1420,6 +1463,10 @@ def run_backend(
         "mask_prune_eval_refresh": mask_prune_eval_refresh,
         "mask_prune_min_frozen": mask_prune_min_frozen,
         "masked_adam_union_decay": float(masked_adam_union_decay),
+        "masked_adam_union_decay_eval_proj": bool(
+            masked_adam_union_decay_eval_proj
+        ),
+        "eval_proj_overlap": eval_proj_overlap,
         "frozen_decay_steps": int(n_frozen_decay_steps),
         "frozen_decay_avg_rows": (
             float(int(n_frozen_decay_sum.item()) / n_frozen_decay_steps)
@@ -1612,6 +1659,15 @@ def build_arg_parser():
         "optimizer stays masked (0 = R60-identical)",
     )
     ap.add_argument(
+        "--masked-adam-union-decay-eval-proj", action="store_true",
+        help="round-63: refresh the decay eval-visibility mask with the "
+        "projection-only cull (_cull_gaussians_batched on eval cameras, "
+        "~1.3 ms @5.8M) instead of a full eval forward (~13.5 ms); the "
+        "probe shows the projection mask is bitwise-identical to the "
+        "forward-cache mask, so the decay semantics are unchanged at ~10x "
+        "lower refresh cost",
+    )
+    ap.add_argument(
         "--mask-prune",
         action="store_true",
         help="at densify steps, drop rows invisible in BOTH the train and "
@@ -1740,6 +1796,9 @@ def main():
                     mask_prune_eval_refresh=_mper,
                     mask_prune_min_frozen=args.mask_prune_min_frozen,
                     masked_adam_union_decay=args.masked_adam_union_decay,
+                    masked_adam_union_decay_eval_proj=(
+                        args.masked_adam_union_decay_eval_proj
+                    ),
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
