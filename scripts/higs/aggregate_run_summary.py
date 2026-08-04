@@ -69,6 +69,8 @@ def main():
                     g[f"delta_{k}"] = g[f"{k}_mean"] - rg[f"{k}_mean"]
             if rg.get("total_ms_mean"):
                 g["speedup"] = rg["total_ms_mean"] / g["total_ms_mean"]
+            if rg.get("train_ms_mean"):
+                g["speedup_train"] = rg["train_ms_mean"] / g["train_ms_mean"]
 
     out = {"device": meta.get("device"), "torch": meta.get("torch"),
            "runs": runs, "groups": groups}

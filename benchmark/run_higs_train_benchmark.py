@@ -30,6 +30,8 @@ import torch.nn.functional as F
 from PIL import Image
 from plyfile import PlyData
 
+from higs_masked_adam import masked_adam_step
+
 _SH_DEGREE = 3
 _K = (_SH_DEGREE + 1) ** 2  # 16
 _TILE_SIZE = 16  # HiGS macro-tile edge (px); must match the render tile_size.
@@ -785,6 +787,35 @@ def _stage_refs(refs, width, height):
     return y.permute(0, 2, 3, 1).contiguous()
 
 
+def _train_cull_mask(handle, dynamic_scene):
+    """Fetch the union-visibility bool mask [N] of the latest train forward.
+
+    The round-59/60 patched gsplat stores ``(vis_ids, visible_mask, fwd_count)``
+    per camera-set cache key on the renderer handle; the benchmark's train
+    forward uses the key "train".  The dynamic path owns its handle through
+    the module-level ``_HIGS_DYNAMIC_SCENE`` singleton (the first forward
+    lazily creates it), and the frozen path already holds the handle directly.
+    """
+    src = handle
+    if src is None and dynamic_scene is not None:
+        src = getattr(dynamic_scene, "renderer_handle", None)
+    if src is None:
+        raise RuntimeError(
+            "--masked-adam requires a HiGS renderer handle (higs_* backend)"
+        )
+    cache = getattr(src, "_cull_cache", None)
+    if not cache:
+        raise RuntimeError(
+            "--masked-adam requires the round-59/60 cull cache (patched gsplat)"
+        )
+    slot = cache.get("train")
+    if slot is None or len(slot) < 3 or slot[1] is None:
+        raise RuntimeError(
+            "--masked-adam: no train cull mask yet (the first train forward "
+            "must run before the optimizer step)"
+        )
+    return slot[1]
+
 def run_backend(
     backend, params0, viewmats, Ks, train_idx, refs_train,
     eval_idx, refs_eval, width, height, steps, seed, device,
@@ -803,6 +834,7 @@ def run_backend(
     res_schedule_full_lpips=False,
     pixel_sampling_ratio=1.0,
     pixel_raster_ratio=0.35,
+    masked_adam=False,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -1100,7 +1132,10 @@ def run_backend(
                 for _g, _b in zip(opt.param_groups, _base_lrs):
                     _g["lr"] = _b * (_lr_gamma ** _t)
 
-            opt.step()
+            if masked_adam:
+                masked_adam_step(opt, _train_cull_mask(handle, dynamic_scene))
+            else:
+                opt.step()
 
             if densify_grad_accum and means.grad is not None:
                 grad_norm_acc = _accumulate_grad_norms(grad_norm_acc, means.grad)
@@ -1239,6 +1274,7 @@ def run_backend(
             [[k, start] for k, start in cull_interval_schedule]
             if cull_interval_schedule else None
         ),
+        "masked_adam": bool(masked_adam),
         "eval_curve": eval_curve,
     }
 
@@ -1401,6 +1437,13 @@ def build_arg_parser():
              "1500, then every 16 steps); empty = fixed --cull-interval",
     )
     ap.add_argument(
+        "--masked-adam",
+        action="store_true",
+        help="replace the optimizer step with a cull-masked Adam step that "
+        "updates only the Gaussians visible in the latest train forward "
+        "(requires the round-60 patched gsplat train cull mask in the cache)",
+    )
+    ap.add_argument(
         "--no-fused-adam",
         action="store_false",
         dest="fused_adam",
@@ -1486,6 +1529,7 @@ def main():
                     res_schedule_full_lpips=args.res_schedule_full_lpips,
                     pixel_sampling_ratio=args.pixel_sampling_ratio,
                     pixel_raster_ratio=args.pixel_raster_ratio,
+                    masked_adam=args.masked_adam,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity

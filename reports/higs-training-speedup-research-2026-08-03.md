@@ -503,3 +503,21 @@
 - M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。（**部分→主要达成（train）**：r=0.5 dynamic + LPIPS 正则化（w=0.1 every 25）在 train 3-seed 达成 PSNR/SSIM 反超（+0.64 dB/+0.009）、LPIPS 差距缩至噪声级（+0.0046±0.0063），bicycle 仍 +0.038 未关闭；r=0.25 收敛未做。**Round 40 本地 20 步配对复测：r=0.5 = 1.63x、r=0.25 = 2.13x vs std**（R38 forward + R39 backward 叠加）。**Round 41 本地 3000 步质量探针：error_guided r=0.5/0.4/0.35 均方向性持平或反超 full（PSNR +0.33..+0.54 dB、LPIPS +0.005..+0.008），1.8x 计时点在名义 r≈0.36（实际 sr≈0.26）。**Round 41b EPIC-05 A100 多 seed 复测完成：train 3-seed 在名义 r=0.35（实际 sr≈0.27）达成 1.82x 端到端加速且 PSNR/SSIM 反超（+0.42 dB/+0.004），r=0.30 达 1.90x——M4 主要门槛达成；LPIPS +0.024 重新开口、bicycle λ=0.7 下 PSNR/SSIM 持平（-0.04..-0.07 dB）、LPIPS +0.047..+0.058 为剩余诚实上界；train LPIPS +0.019（λ=0.7）——M4 主要门槛达成，bicycle LPIPS 为投稿前补强项。**Round 41d：λ 扫描确认 λ=0.7 尖峰最优；--lpips-full-res（全分辨率 LPIPS，≈0 成本）使 bicycle 3-seed PSNR 持平（-0.06±0.13 dB）并小幅改善 LPIPS（+0.050±0.002，3-seed 稳健）；6000 步探针显示配方 3000 步后双端退化，LPIPS 差距为渐进上界；bicycle 同 seed 重跑有 ±0.1-0.3 dB 非确定性（CUDA 原子放大），结论均多 seed。M4 主要门槛（train + bicycle PSNR/SSIM 持平 + ≥1.8x）达成，bicycle LPIPS +0.05 为唯一剩余诚实上界。**）
 - M6 完成 = 可投稿（目标 CVPR/ICCV/ECCV 或 SIGGRAPH Asia）。
 - 负结果必须诚实报告（宏块 backward 上限、共享内存累加负收益等已有关闭杠杆）。
+## 8. Round 60：cull-masked Adam（R60，2026-08-04）
+
+**动机**：R59 剖面显示 fused Adam 占 720p r0.35 操作点每步 39 ms 中的 ~17.5%（6.8 ms，3.5M 高斯量级）；union-visibility cull 只渲染可见子集（garden/bicycle 剔除 52%/69%），但 stock Adam 仍对全部 N 行更新。
+
+**实现**（enchmark/higs_masked_adam.py，--masked-adam 开关）：融合 CUDA kernel 只对 train forward union-visibility mask=True 的行执行与 torch 2.7 fused Adam 位级一致的更新（m/v 双精度、bc 双精度、step_size 与 denom 按 opmath_t=float 折算，浮点对齐经 P13 补丁后的 cull cache 提供 zero-cost mask）。内存布局为扁平按元素合并访问（每个元素 i 取 row=i/D、mask 检查为 warp-uniform），bias correction 提升到 host 避免每元素 pow。隔离基准（N=3.5M，5 参数组）：torch fused 4.18 ms → masked 42% 可见 2.40 ms / 58% 可见 2.84 ms（全 mask 4.30 ms 持平）。正确性探针（PROBE_PASS）：p 最大相对差 1.66e-7（1-2 ulp）、m/v ~1 ulp（torch 自身 nvcc 编译在 ~0.4% 元素上舍入不同，累积有界）、mask=False 行与初值位级一致；P2 真行与 vanilla 位级一致。
+
+**实验**（3 scene × 3 seed = 9 runs，720p eg 配方，k1，与 R59 k1 同配方同 seed 对照；r60-summary.json 聚合 30 runs）：
+
+| 场景 | train_ms k1→ma | 墙钟 speedup_train | PSNR k1→ma | SSIM | LPIPS |
+|---|---|---|---|---|---|
+| train | 11.02→10.23 ms | 1.078x（-7.8%） | 17.039→17.025（-0.014） | 持平 | +0.001 |
+| garden | 18.97→14.13 ms | 1.343x（-34%） | 18.058→19.953（**+1.90 dB**） | +0.085 | **-0.105** |
+| bicycle | 20.66→14.67 ms | 1.409x（-41%） | 15.685→15.732（+0.047） | +0.027 | +0.017 |
+
+**结论**：
+- 这是**第一个质量正向的 per-Gaussian-floor 速度增量**：端到端 train_ms 全场景下降（-8%/-34%/-41%），garden 质量大幅提升（+1.90 dB PSNR、LPIPS -0.105，3-seed 极稳定 ±0.02 dB），train 质量中性，bicycle PSNR/SSIM 改善但 LPIPS +0.017 轻微回退（诚实上界）。
+- 机制：冻结 train 不可见行后，stock Adam 的零梯度动量衰减不再侵蚀 eval 可见内容（train 4 相机 union 之外、eval 3 相机可见的高斯被保留），同时总 N 更高（garden 1.96M→2.87M）而渲染可见集约减半（garden 1.03M→0.53M），fwd/bwd 与优化器开销同步下降。
+- 下一步候选：--cull-interval 4 × masked-Adam 叠加（K4 2-4% + 本杠杆 -34~-41%）；mask 与 prune 解耦（只冻结优化器、保留 opacity 衰减语义）以关闭 bicycle LPIPS 上界。
