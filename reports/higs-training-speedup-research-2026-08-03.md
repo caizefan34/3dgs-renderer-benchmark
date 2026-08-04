@@ -242,6 +242,37 @@
   results/higs-round44/（脚本 scripts/higs/run_round44_grad_accum.sh，汇总
   r44-summary.json，delta 字段相对 round-41d/42 eg 基线）。
 
+- **Round 45 更新（2026-08-04，densify 全分辨率信号 + 节奏 25——garden/bicycle，负结果关闭节奏杠杆）**：
+  round-44 证明累积信号无效后，测试风险表中"密度化专用全分辨率步"：让 densify 与
+  full-res LPIPS step 对齐（densify_every=25 = lpips_loss_every=25 + --lpips-full-res），
+  使 dup/clone 决策使用真全分辨率梯度且零额外渲染成本。3 seed、其余配方不变：
+  - garden：de25 PSNR 17.209±0.104 / LPIPS 0.4866±0.0027（Δvs eg -0.76 dB / +0.038
+    LPIPS，全 seed 一致变差），vs full -1.52 dB / +0.088 LPIPS（差距翻倍）；final_n
+    1.86M——低于 eg 的 2.01M，更远低于 full 的 2.59M（欠密度化）。
+  - bicycle：de25 PSNR 15.148±0.114 / LPIPS 0.5564±0.0033（Δvs eg -0.82 dB /
+    +0.027 LPIPS），vs full -0.88 dB / +0.077 LPIPS；final_n 2.89M——反而超过 full
+    的 2.71M（过密度化）。
+  - total_ms 反而下降（garden 16.4s vs 20.3s，densify 事件少 5 倍）——速度不是问题，
+    质量是。
+  **结论：densify 节奏 5 step 是本配方承重墙——拉长到 25 步即使给全分辨率信号，
+  两个场景的质量也全面退化（方向相反：garden 欠密度化、bicycle 过密度化），
+  densify 节奏轴关闭。round-45 混淆了节奏（5→25）与信号（全分辨率）；信号轴在
+  原节奏 5 下的最后诊断是 --anchor-densify（round-47 筛查进行中）。** 结果
+  results/higs-round45/（脚本 scripts/higs/run_round45_densify_fullres.sh，
+  r45-summary.json）。
+
+- **Round 46 更新（2026-08-04，LPIPS 权重 0.2——garden/bicycle，负结果关闭损失侧权重杠杆）**：
+  高 N 场景剩余诚实上界是感知的（LPIPS +0.050）；测试损失侧最后一道便宜杠杆：把
+  全分辨率 LPIPS 正则权重从 0.1 翻倍到 0.2（其余配方不变，3 seed）：
+  - garden：w=0.2 PSNR 17.938±0.021 / LPIPS 0.4540±0.0010（Δvs w=0.1 eg
+    -0.03 dB / +0.006 LPIPS）——双指标都轻微变差（sd 极小，方向一致）。
+  - bicycle：w=0.2 PSNR 15.917±0.070 / LPIPS 0.5378±0.0017（Δ -0.05 dB /
+    +0.008 LPIPS）——同样轻微变差。
+  - final_n 略降（garden 1.95M、bicycle 2.38M），速度不变。
+  **结论：更强的感知正则干扰 tile 采样 L1 训练动力学，w=0.1 仍是尖峰最优；
+  LPIPS 权重杠杆关闭。** 结果 results/higs-round46/（脚本
+  scripts/higs/run_round46_lpips_w02.sh，r46-summary.json）。
+
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
