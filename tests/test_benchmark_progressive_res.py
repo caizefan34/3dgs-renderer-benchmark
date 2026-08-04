@@ -75,3 +75,32 @@ class TestStageRefs:
         refs = torch.rand(2, 540, 960, 3)
         out = _stage_refs(refs, 960, 540)
         assert out is refs
+
+class TestMaskedPixelL1:
+    """CPU-safe tests for the Speedy-Splat-style sparse-pixel loss."""
+
+    def test_equals_full_l1_at_ratio_1(self):
+        torch.manual_seed(0)
+        frame = torch.rand(1, 8, 8, 3)
+        ref = torch.rand(8, 8, 3)
+        est = _mod._masked_pixel_l1_loss(frame, ref, 1.0, "cpu")
+        full = _mod._l1_loss(frame, ref)
+        assert torch.allclose(est, full, atol=1e-6)
+
+    def test_unbiased_estimate_at_ratio_0_35(self):
+        torch.manual_seed(1)
+        frame = torch.rand(1, 64, 64, 3)
+        ref = torch.rand(64, 64, 3)
+        full = _mod._l1_loss(frame, ref).item()
+        draws = [
+            _mod._masked_pixel_l1_loss(frame, ref, 0.35, "cpu").item()
+            for _ in range(50)
+        ]
+        assert abs(sum(draws) / len(draws) - full) < 0.01
+
+    def test_empty_draw_falls_back_to_full_mean(self):
+        torch.manual_seed(2)
+        frame = torch.rand(1, 1, 1, 3)
+        ref = torch.rand(1, 1, 1, 3)
+        est = _mod._masked_pixel_l1_loss(frame, ref, 0.0, "cpu")
+        assert torch.allclose(est, _mod._l1_loss(frame, ref), atol=1e-6)

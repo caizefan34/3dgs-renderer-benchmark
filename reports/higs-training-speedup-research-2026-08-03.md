@@ -370,8 +370,14 @@
   - prog（plain）：train 16.94±0.32（vs eg -0.15 dB，LPIPS 0.3888±0.0052，+0.0017）/ garden 18.07±0.06（±0.00，LPIPS 0.4489，+0.0062）/ bicycle 15.59±0.39（-0.35，LPIPS 0.5204，**-0.0053**）；总耗时 10.63±0.09 / 17.19±0.03 / 18.31±0.04 ms → **vs 全分辨率 2.07x / 2.49x / 2.47x**（vs eg 墙钟 +15.8% / +21.0% / +28.5%）。结论：粗到细带来 ~2.1-2.5x 大提速，train/garden PSNR 与 eg 持平；garden LPIPS 回退到 eg 界（0.4489 vs every2 0.4427——半分辨率阶段 full-res LPIPS 信号丢失）；bicycle PSNR 方差大（s0 于 1500 步后 15.87→15.18 退化），但 LPIPS 反而优于 every2。
   - full-signal 变体（`--res-schedule-full-signal`：粗阶段 LPIPS 步与 anchor densify 步保持全分辨率）：**负面结果**——train 持平（17.00±0.12，LPIPS 0.3874），garden PSNR -0.35 / LPIPS +0.027，bicycle PSNR -0.98 / LPIPS +0.011，且更慢（20.27 / 20.93 ms）。机制：densify 每 5 步进行（`densify_every=5`），`--anchor-densify-every 2` 使粗阶段 anchor（全分辨率）与非 anchor（半分辨率）密度化事件交替，高 N 场景密度化信号不稳定 → 保留更多但位置更差的高斯（garden 2.30M vs 1.98M），质量不升反降。
   **结论：plain 渐进分辨率是当前最高性价比训练臂（~2.1-2.5x，质量持平或可接受）；粗阶段叠加全分辨率信号不解决问题。** 详见 results/higs-round52/（r52-summary.json；脚本 scripts/higs/run_round52_progressive_res.sh、run_round52b_full_signal.sh）。
+- **Round 53 更新（2026-08-04，M6 对照 3/3：Speedy-Splat 式稀疏像素训练信号——train/garden/bicycle，3-seed 3000 步）**：
+  新增 `--sampling-mode sparse_pixel`（`--pixel-sampling-ratio 0.35`）：每步独立伯努利保留 35% 像素，损失取像素子集 L1 均值（与 tile-masked 同构的无偏估计，无需重加权）。frozen gsplat HiGS 无像素级稀疏光栅化，光栅化仍为全帧——该臂复现 Speedy-Splat 的**训练信号**（非墙钟速度），用于在同等像素覆盖下对比 tile 粒度采样信号。配方其余与 round-50/51/52 一致（full-res LPIPS every 25、high-N + anchor every2、train 无 anchor）。结果（3-seed 均值 ± sd）：
+  - train 16.58±0.06 / LPIPS 0.3755±0.003 / 23.5ms；garden **18.57±0.07 / 0.4081±0.001** / 42.8ms；bicycle **16.12±0.13 / 0.4871±0.005** / 45.9ms。
+  - vs 全分辨率：PSNR -0.09 / -0.16 / +0.10 dB，LPIPS +0.008 / +0.009 / +0.008——**35% 像素覆盖下质量基本等于全分辨率训练**。
+  - vs eg/every2 同覆盖 tile 臂：garden LPIPS -0.035（0.4081 vs 0.4427）、PSNR +0.39；bicycle LPIPS -0.039（0.4871 vs 0.5257）、PSNR +0.09；train LPIPS -0.012。
+  **结论：高 N 场景的 tile 采样质量界主要是采样相关性噪声（16x16 宏块粒度），而非像素数量**——相同覆盖率下像素 iid 采样恢复近全质量。代价：全帧光栅化无提速（~1.0x full；Speedy-Splat 的像素稀疏光栅化不在 frozen gsplat 范围内）。**这直接指向下一个质量杠杆：在保持 tile 光栅化提速的同时去相关化 tile 选择（分层/抖动 tile 采样），以及多分辨率矩阵。** M6 状态：对照 3/3 完成（ICCV random-tile + Turbo-GS 渐进分辨率 + Speedy-Splat 稀疏像素）。详见 results/higs-round53/（r53-summary.json；脚本 scripts/higs/run_round53_sparse_pixel.sh）。
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
-- M6 对照：**Round 51 完成 ICCV random-tile loss 对照、Round 52 完成 Turbo-GS 式渐进分辨率对照（train/garden/bicycle 3-seed，见上）：error-guided 优势限于低/中 N 场景；渐进分辨率 ~2.1-2.5x 提速、PSNR 持平或轻微损失（garden/bicycle LPIPS 代价明确，粗阶段全分辨率信号变体为负面）；Speedy-Splat 稀疏像素对照与多分辨率矩阵留待下一步**。
+- M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量，见上）。R53 表明高 N tile 采样质量界为采样相关性噪声而非像素数；下一步：去相关化 tile 采样 + 多分辨率矩阵**。
 
 ## 6. 风险与对策
 - 采样训练改变密度化动力学（梯度稀疏 -> densify 信号变化）：对策 = 梯度累积 / 密度化专用全分辨率步 / 调 densify 阈值。

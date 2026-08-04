@@ -242,6 +242,27 @@ def _masked_l1_loss(frame, ref, tile_mask, tile_size, width, height):
     return diff.masked_select(pm.expand_as(diff)).mean()
 
 
+def _masked_pixel_l1_loss(frame, ref, ratio, device):
+    """Unbiased sparse-pixel L1: mean |diff| over random pixels / ratio.
+
+    Speedy-Splat-style training signal at pixel granularity: each pixel is kept
+    iid with probability ``ratio``; the mean over the sampled pixels is itself
+    an unbiased estimate of the full-frame mean (same argument as the
+    tile-masked loss), so no reweighting is needed. ``frame`` is [1, C, H, W, 3],
+    ``ref`` is [C, H, W, 3], ``ratio`` in (0, 1]. Degenerate empty draws
+    (measure zero at realistic resolutions) fall back to the full mean.
+    """
+    diff = (frame.squeeze(0) - ref).abs()  # [C, H, W, 3] or [B, H, W, 3]
+    if diff.dim() == 3:
+        diff = diff.unsqueeze(0)  # single-camera case -> [1, H, W, 3]
+    C, H, W, _ = diff.shape
+    mask = (torch.rand(C, H, W, device=device) < ratio).unsqueeze(-1)
+    n = int(mask.sum())
+    if n == 0:
+        return diff.mean()
+    return diff.masked_select(mask.expand_as(diff)).mean()
+
+
 def _tile_mean_errors(frame, ref, tile_size):
     """Exact per-tile mean |diff| (border tiles counted by real pixels only).
 
@@ -398,7 +419,11 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks,
     # "error_guided" is a harness-level strategy: the harness computes an
     # explicit tile_mask (with importance weights) and passes it in; the
     # rasterizer itself only knows uniform/stratified internal sampling.
-    raster_sampling_mode = "uniform" if sampling_mode == "error_guided" else sampling_mode
+    raster_sampling_mode = (
+        "uniform"
+        if sampling_mode in ("error_guided", "sparse_pixel")
+        else sampling_mode
+    )
 
     def forward_fn(params_in, cam_ids, sampling_ratio=None, tile_mask=None):
         m, q, s, o, c = params_in
@@ -614,6 +639,7 @@ def run_backend(
     densify_grad_accum=False,
     res_schedule=None,
     res_schedule_full_signal=False,
+    pixel_sampling_ratio=1.0,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -715,6 +741,10 @@ def run_backend(
             # the full-frame signal steps (LPIPS + anchor densify) at the full
             # target resolution instead of the stage resolution.
             use_full_signal = bool(res_schedule) and res_schedule_full_signal
+            # Sparse-pixel mode renders the full frame (frozen gsplat HiGS has
+            # no pixel-sparse rasterizer) and sparsifies the LOSS instead; the
+            # pixel fraction is tracked separately for honest reporting.
+            is_sparse_px = sampling_mode == "sparse_pixel"
             eg_mask = eg_weights = None
             if full_res_step:
                 if use_full_signal:
@@ -766,7 +796,9 @@ def run_backend(
                     else forward_fn
                 )
                 frame, alpha, meta = step_fn(
-                    params, cam_ids, sampling_ratio=step_ratio, tile_mask=eg_mask,
+                    params, cam_ids,
+                    sampling_ratio=(1.0 if is_sparse_px else step_ratio),
+                    tile_mask=eg_mask,
                 )
             ev1.record()
             torch.cuda.synchronize(device)
@@ -783,6 +815,10 @@ def run_backend(
             if eg_mask is not None and eg_weights is not None:
                 loss = _importance_l1_loss(
                     frame, loss_ref, eg_mask, eg_weights, _TILE_SIZE, train_w, train_h,
+                )
+            elif is_sparse_px and not full_res_step and not is_anchor_step:
+                loss = _masked_pixel_l1_loss(
+                    frame, loss_ref, pixel_sampling_ratio, device,
                 )
             elif not full_res_step and step_ratio < 1.0 and tile_mask is not None:
                 loss = _masked_l1_loss(
@@ -971,6 +1007,7 @@ def run_backend(
         "lpips_ms_avg": float(np.mean(lpips_ms)) if lpips_ms else 0.0,
         "lpips_steps": len(lpips_ms),
         "sampling_mode": sampling_mode,
+        "pixel_sampling_ratio": float(pixel_sampling_ratio),
         "cull_interval": int(cull_interval),
         "eval_curve": eval_curve,
     }
@@ -1047,10 +1084,21 @@ def build_arg_parser():
         help="HiGS native tile sampling ratio in (0, 1] (1.0 = full frame)",
     )
     ap.add_argument(
-        "--sampling-mode", choices=("uniform", "stratified", "error_guided"), default="uniform",
+        "--sampling-mode", choices=("uniform", "stratified", "error_guided", "sparse_pixel"), default="uniform",
         help="tile sampling: uniform iid, stratified (one tile per round(1/r)-tile "
         "stratum), or error_guided (importance-sample tiles proportional to the "
         "cached per-tile error, with unbiased importance weights)",
+    )
+    ap.add_argument(
+        "--pixel-sampling-ratio", type=float, default=1.0,
+        help=(
+            "sparse_pixel mode: fraction of pixels kept per step (iid Bernoulli); "
+            "the pixel-masked L1 mean is an unbiased estimate of the full-frame "
+            "mean (like the tile-masked loss, no reweighting needed). The "
+            "rasterizer still renders the full frame (frozen gsplat HiGS has no "
+            "pixel-sparse path), so this is a training-signal baseline, not a "
+            "wall-speed arm."
+        ),
     )
     ap.add_argument(
         "--error-alpha", type=float, default=1.0,
@@ -1176,6 +1224,7 @@ def main():
                     densify_grad_accum=args.densify_grad_accum,
                     res_schedule=_parse_res_schedule(args.res_schedule),
                     res_schedule_full_signal=args.res_schedule_full_signal,
+                    pixel_sampling_ratio=args.pixel_sampling_ratio,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
