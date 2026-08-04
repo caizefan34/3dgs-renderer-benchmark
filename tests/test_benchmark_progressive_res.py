@@ -76,6 +76,42 @@ class TestStageRefs:
         out = _stage_refs(refs, 960, 540)
         assert out is refs
 
+class TestResScheduleFullLpipsFlag:
+    """CPU-safe CLI wiring tests for --res-schedule-full-lpips.
+
+    The flag isolates the full-res perceptual (LPIPS) signal during
+    progressive-resolution coarse stages without forcing anchor-densify
+    steps to full resolution (the round-52b full-signal arm, whose
+    full/stage-res densify alternation destabilized high-N scenes).
+    """
+
+    def test_parser_defaults_false(self):
+        parser = _mod.build_arg_parser()
+        args = parser.parse_args([
+            "--base-dir", "datasets/processed",
+            "--scene", "mipnerf360/garden",
+        ])
+        assert args.res_schedule_full_lpips is False
+        assert args.res_schedule_full_signal is False
+
+    def test_parser_accepts_flag(self):
+        parser = _mod.build_arg_parser()
+        args = parser.parse_args([
+            "--base-dir", "datasets/processed",
+            "--scene", "mipnerf360/garden",
+            "--res-schedule-full-lpips",
+        ])
+        assert args.res_schedule_full_lpips is True
+        # orthogonal to the full-signal arm
+        assert args.res_schedule_full_signal is False
+
+    def test_run_backend_accepts_kwarg(self):
+        import inspect
+        sig = inspect.signature(_mod.run_backend)
+        assert "res_schedule_full_lpips" in sig.parameters
+        assert sig.parameters["res_schedule_full_lpips"].default is False
+
+
 class TestMaskedPixelL1:
     """CPU-safe tests for the Speedy-Splat-style sparse-pixel loss."""
 
