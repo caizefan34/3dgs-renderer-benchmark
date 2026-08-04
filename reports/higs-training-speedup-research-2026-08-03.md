@@ -160,9 +160,34 @@
   +0.019）；bicycle PSNR/SSIM 持平、LPIPS +0.05 为剩余诚实上界（单/双 seed）。
   操作点推荐：error_guided r=0.35（实际 sr≈0.27）、error-lambda=0.7。** 复现：
   scripts/higs/run_m4_a100_retest.sh、聚合结果 results/higs-round41b/m4-summary.json。
+- **Round 41d 更新（2026-08-04，λ 扫描 + 全分辨率 LPIPS + bicycle 多 seed 认证 + 6000 步收敛探针）**：
+  - **λ 扫描（r=0.35、seed 0、3000 步、同会话并行 GPU）**：λ∈{0.5, 0.7, 0.85}。train：λ=0.7
+    PSNR 17.14 最高（λ=0.5 16.98 / λ=0.85 17.05），LPIPS 0.384-0.390 噪声级差异；bicycle：
+    λ=0.7 PSNR 15.88 明显高于 λ=0.5 14.53 与 λ=0.85 14.79（λ 尖峰最优、两侧均崩塌），
+    LPIPS 全部 λ≈0.531。**结论：λ=0.7 是唯一推荐操作点；bicycle LPIPS 上界对 λ 鲁棒。**
+  - **根因排查——LPIPS 训练损失在采样帧上计算**：采样帧未选 tile 为背景色填充，污染感知
+    信号；新增 `--lpips-full-res`（LPIPS 步用一次带梯度全分辨率渲染，兼作 error-cache
+    refresh，与 LPIPS 步同频 25，额外渲染≈0）。结果：train LPIPS 0.3838（vs 采样 0.3823-
+    0.3853，无变化）；bicycle 3-seed PSNR 15.965（-0.06 dB vs full，持平），LPIPS 0.5298
+    （-0.006），速度 22.81 ms → 1.98x。**结论：全分辨率 LPIPS 是“免费”的弱质量改进
+    （采用进推荐配方），但上界非损失输入污染所致。**
+  - **bicycle 非确定性发现**：同 seed 重跑可发散（6k 探针中 full@3000 PSNR 15.63 vs
+    15.95、N 2.15M vs 2.41M；正常 3000 步重跑 ±0.1 dB），推断为 CUDA 原子操作非确定性
+    经 densify/prune 阈值放大——bicycle 结论必须多 seed。**3-seed 认证（同会话）**：
+    full（3 次）PSNR 16.024±0.072 / SSIM 0.3908 / LPIPS 0.4795；eg fr（3 seed）15.965±0.109
+    / 0.3891 / 0.5298（+0.050±0.002，稳健）；eg λ=0.7（2 seed）15.893/0.3890/0.5305。
+  - **6000 步收敛性探针（bicycle）**：R36 配方在 3000 步后持续退化（full 6000 PSNR 15.33
+    vs 15.95、eg 14.91 vs 15.95；LPIPS full 0.510 / eg 0.559）——LPIPS 差距是渐进的而非
+    收敛速率问题；配方评估点固定 3000 步（lr-decay 0.1 + densify-window 1500）。
+  - **M4 状态（Round 41d）**：train 3-seed 1.82x（PSNR +0.40 / SSIM +0.003 / LPIPS +0.019）
+    主要门槛保持达成；bicycle 3-seed PSNR 持平（-0.06±0.13，fr）、SSIM 持平、LPIPS +0.050
+    ±0.002 为稳健的剩余诚实上界（λ、全分辨率 LPIPS、6000 步均无法关闭）——投稿前补强项
+    （更高 λ / 采样策略 / prune 侧信号修复）。推荐配方：error_guided r=0.35 + error-lambda=0.7
+    + --lpips-full-res（train 1.80x / bicycle 1.98x）。
 
 
-- M5 扩展性：未做。
+
+- M5 扩展性：未做（Round 41d 仍为 2 场景；多场景/多分辨率矩阵留待投稿阶段）。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
 ## 6. 风险与对策
@@ -172,6 +197,6 @@
 
 ## 7. 里程碑与验证标准（论文门槛）
 - M2 完成 = 可演示 r=1/4 时总时间降 ~35-45%（若 blend 主导成立）；这是"明显加快"的第一实证。（**Round 31 已达成**：r=0.25 总时间 -33..-41%，bwd 近线性。）
-- M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。（**部分→主要达成（train）**：r=0.5 dynamic + LPIPS 正则化（w=0.1 every 25）在 train 3-seed 达成 PSNR/SSIM 反超（+0.64 dB/+0.009）、LPIPS 差距缩至噪声级（+0.0046±0.0063），bicycle 仍 +0.038 未关闭；r=0.25 收敛未做。**Round 40 本地 20 步配对复测：r=0.5 = 1.63x、r=0.25 = 2.13x vs std**（R38 forward + R39 backward 叠加）。**Round 41 本地 3000 步质量探针：error_guided r=0.5/0.4/0.35 均方向性持平或反超 full（PSNR +0.33..+0.54 dB、LPIPS +0.005..+0.008），1.8x 计时点在名义 r≈0.36（实际 sr≈0.26）。**Round 41b EPIC-05 A100 多 seed 复测完成：train 3-seed 在名义 r=0.35（实际 sr≈0.27）达成 1.82x 端到端加速且 PSNR/SSIM 反超（+0.42 dB/+0.004），r=0.30 达 1.90x——M4 主要门槛达成；LPIPS +0.024 重新开口、bicycle λ=0.7 下 PSNR/SSIM 持平（-0.04..-0.07 dB）、LPIPS +0.047..+0.058 为剩余诚实上界；train LPIPS +0.019（λ=0.7）——M4 主要门槛达成，bicycle LPIPS 为投稿前补强项。**）
+- M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。（**部分→主要达成（train）**：r=0.5 dynamic + LPIPS 正则化（w=0.1 every 25）在 train 3-seed 达成 PSNR/SSIM 反超（+0.64 dB/+0.009）、LPIPS 差距缩至噪声级（+0.0046±0.0063），bicycle 仍 +0.038 未关闭；r=0.25 收敛未做。**Round 40 本地 20 步配对复测：r=0.5 = 1.63x、r=0.25 = 2.13x vs std**（R38 forward + R39 backward 叠加）。**Round 41 本地 3000 步质量探针：error_guided r=0.5/0.4/0.35 均方向性持平或反超 full（PSNR +0.33..+0.54 dB、LPIPS +0.005..+0.008），1.8x 计时点在名义 r≈0.36（实际 sr≈0.26）。**Round 41b EPIC-05 A100 多 seed 复测完成：train 3-seed 在名义 r=0.35（实际 sr≈0.27）达成 1.82x 端到端加速且 PSNR/SSIM 反超（+0.42 dB/+0.004），r=0.30 达 1.90x——M4 主要门槛达成；LPIPS +0.024 重新开口、bicycle λ=0.7 下 PSNR/SSIM 持平（-0.04..-0.07 dB）、LPIPS +0.047..+0.058 为剩余诚实上界；train LPIPS +0.019（λ=0.7）——M4 主要门槛达成，bicycle LPIPS 为投稿前补强项。**Round 41d：λ 扫描确认 λ=0.7 尖峰最优；--lpips-full-res（全分辨率 LPIPS，≈0 成本）使 bicycle 3-seed PSNR 持平（-0.06±0.13 dB）并小幅改善 LPIPS（+0.050±0.002，3-seed 稳健）；6000 步探针显示配方 3000 步后双端退化，LPIPS 差距为渐进上界；bicycle 同 seed 重跑有 ±0.1-0.3 dB 非确定性（CUDA 原子放大），结论均多 seed。M4 主要门槛（train + bicycle PSNR/SSIM 持平 + ≥1.8x）达成，bicycle LPIPS +0.05 为唯一剩余诚实上界。**）
 - M6 完成 = 可投稿（目标 CVPR/ICCV/ECCV 或 SIGGRAPH Asia）。
 - 负结果必须诚实报告（宏块 backward 上限、共享内存累加负收益等已有关闭杠杆）。
