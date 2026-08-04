@@ -23,6 +23,7 @@ _error_guided_mask = _mod._error_guided_mask
 _importance_l1_loss = _mod._importance_l1_loss
 _tile_mean_errors = _mod._tile_mean_errors
 _accumulate_grad_norms = _mod._accumulate_grad_norms
+_is_anchor_step = _mod._is_anchor_step
 
 
 class TestTileMeanErrors:
@@ -249,3 +250,31 @@ class TestAccumulateGradNorms:
         assert ap.parse_args([]).densify_grad_accum is False
         ns = ap.parse_args(["--densify-grad-accum"])
         assert ns.densify_grad_accum is True
+
+
+class TestAnchorDensifyEvery:
+    def test_every_one_anchors_all_densify_steps(self):
+        for it in (4, 9, 14, 1499):
+            assert _is_anchor_step(True, True, it, 5, 1) is True
+        assert _is_anchor_step(False, True, it, 5, 1) is False
+        assert _is_anchor_step(True, False, it, 5, 1) is False
+
+    def test_every_two_anchors_every_other_event(self):
+        # densify_every=5 -> events at it+1 = 5,10,15,...; event idx = (it+1)//5
+        anchored = [it for it in range(1500) if _is_anchor_step(True, (it + 1) % 5 == 0, it, 5, 2)]
+        # events 2,4,6,... -> it+1 = 10,20,30,...
+        assert anchored[:4] == [9, 19, 29, 39]
+        assert all((it + 1) % 10 == 0 for it in anchored)  # every 10 steps
+        # exactly half of the 300 densify events
+        assert len(anchored) == 150
+
+    def test_every_four_anchors_quarter_of_events(self):
+        anchored = [it for it in range(1500) if _is_anchor_step(True, (it + 1) % 5 == 0, it, 5, 4)]
+        assert len(anchored) == 75
+        assert all((it + 1) % 20 == 0 for it in anchored)
+
+    def test_cli_flag_exposed(self):
+        ap = _mod.build_arg_parser()
+        assert ap.parse_args([]).anchor_densify_every == 1
+        ns = ap.parse_args(["--anchor-densify", "--anchor-densify-every", "2"])
+        assert ns.anchor_densify is True and ns.anchor_densify_every == 2
