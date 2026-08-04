@@ -572,3 +572,30 @@
 ### 9.5 结论
 
 可训练 HiGS 的 per-Gaussian-floor 速度前沿 = R60 k1 masked-Adam（train_ms -8%/-34%/-41%，质量正向），R61 三个剩余候选全部以质量门槛关闭。下一步质量候选：mask/prune 解耦（只冻结优化器、保留 opacity 衰减语义）以收窄 bicycle LPIPS +0.017 上界；速度侧不再有该层质量安全的杠杆。
+## 10. Round 62：union-invisible opacity 衰减（--masked-adam-union-decay，2026-08-04）— 质量门内、速度门拒绝
+
+**机制**：R61 §9.5 的下一步质量候选是 mask/prune 解耦——保留 R60 的冻结优化器，改为对 train+eval 双 mask 均不可见的行做**软衰减**：每步 `opacities.data[~train_mask & ~eval_mask] *= rate`，让陈旧几何自然淡出并经正常 opacity prune 退役（而不是 R61 的物理删除）。统计改为 GPU 侧累加、末尾单次 `.item()`（移除每步同步）。`--mask-prune-eval-refresh` 默认改为按杠杆解析：decay 或 mask-prune 激活时 = 1（每个 densify 刷新鲜 eval mask），否则 = 0（自然 eval 节奏）。
+
+**证据（exp3b 受控 in-wave A/B，garden 720p 3000 步 seed 0，无每步同步）**：
+
+| 变体 | train_ms | PSNR | SSIM | LPIPS | final_N |
+|---|---|---|---|---|---|
+| ctrl（R60 配置） | 14.102 | 19.946 | 0.5314 | 0.3156 | 2867214 |
+| decay 0.999 | 14.985（+6.3%） | 19.951 | 0.5322 | 0.3149 | 2369410 |
+| decay 0.99 | 15.119（+7.2%） | 20.083（+0.14） | 0.5361 | 0.3056（-0.010） | 1210853 |
+
+机制质量成立（d0.99 在波内 PSNR +0.14 / LPIPS -0.010 / SSIM +0.005，退役 1.66M 陈旧行），但**速度门拒绝**：唯一质量有效的配置（每 densify 刷新鲜 eval mask = 每 2 步一次 3-cam 全分辨率 eval forward，约 1 ms/step）使 train_ms +6.3~7.2%，速度收益为负。
+
+**跨场景（exp2，3000 步 seed 0；timing 受跨波污染 +1~1.5 ms，只论质量）**：
+
+| 场景 | 变体 | PSNR（Δ vs R60 s0） | LPIPS | final_N |
+|---|---|---|---|---|
+| garden | d0.999 / d0.99 | 19.931（-0.02）/ 20.102（+0.15） | 0.3127 / 0.3045 | 2.37M / 1.21M |
+| bicycle | d0.999 / d0.99 | 15.335（-0.42）/ 15.917（+0.16） | 0.4883 / 0.4785 | 2.68M / 0.60M |
+| train | d0.999 / d0.99 | 17.042（-0.12）/ 16.932（-0.23） | 0.3446 / 0.3399 | 0.41M / 0.31M |
+
+跨场景不稳健：garden 两档质量持平或正向；bicycle/train 的 d0.99 大幅删减（bicycle N 3.31M→0.60M、train 0.43M→0.31M）反而损伤 PSNR。
+
+**陈旧 mask 悬崖（exp3c：eval mask 每 10 个 densify 才刷新）**：d0.99 崩到 PSNR 13.88 / LPIPS 0.474（N 0.52M），d0.999 也退到 19.54——新鲜 eval mask 是衰减质量的硬前提，而它的成本正是 +6~7% train_ms。
+
+**决策**：机制（冻结优化器 + opacity 衰减语义）质量成立（garden LPIPS -0.010 / PSNR +0.14），但**速度门槛拒绝**：唯一质量有效的配置 train_ms +6.3~7.2%，跨场景不稳健，且陈旧 mask 悬崖使其脆弱。代码保留为 `--masked-adam-union-decay` 实验开关。未来路径：用 ~160p 低分辨率 eval forward 刷衰减用 mask（可见性 mask 是投影式，低分辨率成本可低一个量级），未在本轮验证。

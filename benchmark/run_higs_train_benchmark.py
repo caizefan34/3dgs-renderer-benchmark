@@ -859,6 +859,7 @@ def run_backend(
     mask_prune_opacity=None,
     mask_prune_eval_refresh=0,
     mask_prune_min_frozen=2,
+    masked_adam_union_decay=0.0,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -937,6 +938,8 @@ def run_backend(
     eval_mask_tracked = None
     n_mask_pruned = 0
     mask_prune_hist = []
+    n_frozen_decay_steps = 0
+    n_frozen_decay_sum = torch.zeros((), dtype=torch.int64, device=device)
     tile_err_cache = None
     grad_norm_acc = None
     ref = refs_train
@@ -1175,7 +1178,19 @@ def run_backend(
                     _g["lr"] = _b * (_lr_gamma ** _t)
 
             if masked_adam:
-                masked_adam_step(opt, _train_cull_mask(handle, dynamic_scene))
+                _ma_mask = _train_cull_mask(handle, dynamic_scene)
+                masked_adam_step(opt, _ma_mask)
+                if masked_adam_union_decay > 0.0:
+                    with torch.no_grad():
+                        _d_em = eval_mask_tracked
+                        if (_d_em is not None
+                                and _d_em.numel() == _ma_mask.numel()):
+                            _decay_rows = (~_ma_mask) & (~_d_em)
+                            opacities.data[_decay_rows] *= (
+                                masked_adam_union_decay
+                            )
+                            n_frozen_decay_steps += 1
+                            n_frozen_decay_sum += _decay_rows.sum()
             else:
                 opt.step()
 
@@ -1278,7 +1293,7 @@ def run_backend(
                         colors=(old_c, sh),
                     )
                     dynamic_scene.mark_dirty()
-                    if mask_prune:
+                    if mask_prune or masked_adam_union_decay > 0.0:
                         _counter_exp = torch.cat([
                             frozen_counter,
                             torch.zeros(
@@ -1293,7 +1308,8 @@ def run_backend(
                             ])
                             eval_mask_tracked = _em_exp[keep]
 
-                if (mask_prune and mask_prune_eval_refresh > 0
+                if ((mask_prune or masked_adam_union_decay > 0.0)
+                        and mask_prune_eval_refresh > 0
                         and (it + 1) % (densify_every * mask_prune_eval_refresh) == 0):
                     with torch.no_grad():
                         eval_forward_fn(params, eval_idx, sampling_ratio=1.0)
@@ -1328,7 +1344,7 @@ def run_backend(
                         )),
                         "n_gaussians": int(means.shape[0]),
                     })
-                if mask_prune:
+                if mask_prune or masked_adam_union_decay > 0.0:
                     _src1 = (
                         handle if handle is not None
                         else getattr(dynamic_scene, "renderer_handle", None)
@@ -1403,6 +1419,12 @@ def run_backend(
         "mask_prune_opacity": mask_prune_opacity,
         "mask_prune_eval_refresh": mask_prune_eval_refresh,
         "mask_prune_min_frozen": mask_prune_min_frozen,
+        "masked_adam_union_decay": float(masked_adam_union_decay),
+        "frozen_decay_steps": int(n_frozen_decay_steps),
+        "frozen_decay_avg_rows": (
+            float(int(n_frozen_decay_sum.item()) / n_frozen_decay_steps)
+            if n_frozen_decay_steps else 0.0
+        ),
         "n_mask_pruned": int(n_mask_pruned),
         "mask_prune_hist": mask_prune_hist,
         "eval_curve": eval_curve,
@@ -1582,6 +1604,14 @@ def build_arg_parser():
         "(requires the round-60 patched gsplat train cull mask in the cache)",
     )
     ap.add_argument(
+        "--masked-adam-union-decay", type=float, default=0.0,
+        help="round-62: per-step multiplicative opacity decay applied to "
+        "rows invisible in BOTH the train and eval union-visibility masks "
+        "(requires --masked-adam and the eval cull mask); lets stale frozen "
+        "rows fade and retire via the normal opacity prune while the "
+        "optimizer stays masked (0 = R60-identical)",
+    )
+    ap.add_argument(
         "--mask-prune",
         action="store_true",
         help="at densify steps, drop rows invisible in BOTH the train and "
@@ -1596,10 +1626,12 @@ def build_arg_parser():
         "high-opacity geometry that is only temporarily out of view",
     )
     ap.add_argument(
-        "--mask-prune-eval-refresh", type=int, default=1,
-        help="round-61: refresh the eval-visibility mask at the end of every "
-        "densify step when (step+1) % (densify_every*N) == 0 (1 = every "
-        "densify); keeps the prune decision from using a stale eval mask",
+        "--mask-prune-eval-refresh", type=int, default=None,
+        help="refresh the eval-visibility mask every N densify steps "
+        "((step+1) % (densify_every*N) == 0); keeps the prune/decay "
+        "decision from using a stale eval mask. Default: 1 for both "
+        "--mask-prune and --masked-adam-union-decay (round-62: stale "
+        "masks collapse decay quality), 0 = natural eval cadence only",
     )
     ap.add_argument(
         "--mask-prune-min-frozen", type=int, default=2,
@@ -1661,6 +1693,14 @@ def main():
         for backend in args.backends:
             print(f"[run] backend={backend} scene={scene}", flush=True)
             try:
+                _mper = (
+                    args.mask_prune_eval_refresh
+                    if args.mask_prune_eval_refresh is not None
+                    else (1 if (
+                        args.mask_prune
+                        or args.masked_adam_union_decay > 0.0
+                    ) else 0)
+                )
                 r = run_backend(
                     backend, params0, viewmats, Ks, train_idx, refs_train,
                     eval_idx, refs_eval, args.width, args.height, args.steps,
@@ -1697,8 +1737,9 @@ def main():
                     masked_adam=args.masked_adam,
                     mask_prune=args.mask_prune,
                     mask_prune_opacity=args.mask_prune_opacity,
-                    mask_prune_eval_refresh=args.mask_prune_eval_refresh,
+                    mask_prune_eval_refresh=_mper,
                     mask_prune_min_frozen=args.mask_prune_min_frozen,
+                    masked_adam_union_decay=args.masked_adam_union_decay,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
