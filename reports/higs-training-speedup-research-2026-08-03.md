@@ -467,8 +467,31 @@
   2.07-2.49x），质量最大 >=1.8x 操作点保持 1080p eg + anchor-densify-every-2。结果
   results/higs-round58/（r58-summary.json；脚本 scripts/higs/run_round58_prog720p.sh /
   aggregate_round58.sh）。
+- **Round 59 更新（2026-08-04，per-Gaussian floor 首个杠杆：cull-mask 缓存——train/garden/bicycle，36 次主扫 + 12 次 bicycle 方差审计）**：
+  kernel 级 profile（scripts/higs/profile_step_breakdown.py + run_round59_profiling.sh，torch.profiler 40 步、
+  4 操作点）定位 garden 720p r0.35 单步成本：higs_blend_bwd_px 8.4 ms (21.6%)、fused Adam 6.8 (17.5%)、
+  higs_sh_vjp_grid 5.8 (14.9%)、rasterize_to_pixels_fwd 3.9 (10.2%)、higs_projection_bwd 2.3 (6.0%)、
+  projection fwd x2 ~1.9 (5.0%)——其中每步一次的 full-N batched culling projection
+  （fully_fused_projection，无梯度）是纯 per-Gaussian、与像素无关的可省项。将上游 gsplat 的单槽
+  cull 缓存改为**相机集键控**（handle._cull_cache dict，cache_key="train"/"eval"），并修掉两个真实缺陷：
+  此前 --cull-interval 从未生效（benchmark 未传 handle 且 autograd Function 无 cache_key），且 K>1 时
+  eval 会复用 train 的 mask 污染评估；新增 --cull-interval-schedule "K:start,..." 支持阶段门控
+  （"1:0,16:1500" = densify 窗口内每步刷新、之后每 16 步）。720p eg 配方（R56 相同）3 场景 x
+  {K=1,4,16} x 3 seed + 门控 g16 x 3 seed = 36 次运行；bicycle 追加 k1/k4/g16/k16 seeds 3-5
+  方差审计（n=6/arm，12 次运行）。**速度：K4/K16 相对 K=1 基线 -1.8%..-3.9% 墙钟（total_ms
+  1.018-1.041x，每步约省 0.17-0.53 ms）；g16 仅 -0.4%..-2.2%（阶段1 无缓存）**。
+  **质量：LPIPS/SSIM 全臂全场景持平（bicycle LPIPS k1 0.4762 vs k4 0.4767 / k16 0.4775 / g16 0.4786，
+  Δ<=+0.003；garden/train Δ<=+0.001）**。bicycle PSNR 的 3-seed "退化"（k4 -0.70 dB）经 n=6 审计
+  证明是**场景固有 run variance**：k1 基线自身也有 14.57 dB 的坍缩运行（seed 4），g16 seed-0 在
+  阶段1（K=1 每步刷新、与基线完全同路径）同样坍缩到 14.51；n=6 下各臂 PSNR 均值差（k4 -0.34 /
+  g16 -0.22 dB）远小于臂内 sd（0.6-0.7），不显著。**结论：cull-mask 缓存是 per-Gaussian floor 上
+  首个确认的速度杠杆（2-4% 墙钟、LPIPS/SSIM 中性），推荐 K=4 为 opt-in（K16 增益边际递减，K=1
+  仍是默认）；相机集键控修复随代码合入**。剩余主导成本仍是 per-Gaussian 的 blend bwd + SH vjp +
+  projection bwd（约 48% 单步），需 kernel 级融合/近似才能再进一步。结果 results/higs-round59/
+  （r59-summary.json；脚本 scripts/higs/run_round59_cull_sweep.sh / run_round59b_gated_cull.sh /
+  run_round59c_bicycle_audit.sh / aggregate_round59.sh）。
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵 Round 56 完成（540p/720p/1080p × train/garden/bicycle × 3 seed，36 次运行，见上表）**。
-- M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量）。R53/R54 联合结论：高 N tile 采样质量界为 tile 粒度相关性噪声（去相关化分层采样 R54 为负面，与 uniform 匹配 sr 等价）。渲染器级细粒度采样已闭环（R57）：像素级稀疏光栅化（higs_sparse_px）在 ~40% 覆盖下恢复近全质量（bicycle PSNR +0.51 dB / LPIPS 持平，garden LPIPS +0.011），但墙钟仅 1.06-1.09x——相交/投影/SH 为像素数不变成本，像素稀疏只省逐像素混合循环，速度杠杆结构性上界 ~1.1x，1.8x 操作点仍由 tile 采样提供；720p × 渐进已关闭为负面（R58，无提速有质量损失，720p 单步成本已达每-Gaussian 不变地板），速度最大单元 = 720p + eg（相对 1080p full 2.4-2.7x）。**
+- M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量）。R53/R54 联合结论：高 N tile 采样质量界为 tile 粒度相关性噪声（去相关化分层采样 R54 为负面，与 uniform 匹配 sr 等价）。渲染器级细粒度采样已闭环（R57）：像素级稀疏光栅化（higs_sparse_px）在 ~40% 覆盖下恢复近全质量（bicycle PSNR +0.51 dB / LPIPS 持平，garden LPIPS +0.011），但墙钟仅 1.06-1.09x——相交/投影/SH 为像素数不变成本，像素稀疏只省逐像素混合循环，速度杠杆结构性上界 ~1.1x，1.8x 操作点仍由 tile 采样提供；720p × 渐进已关闭为负面（R58，无提速有质量损失，720p 单步成本已达每-Gaussian 不变地板），速度最大单元 = 720p + eg（相对 1080p full 2.4-2.7x）；cull-mask 缓存（R59）为 per-Gaussian floor 首个速度增量（K4 opt-in，2-4% 墙钟、LPIPS/SSIM 中性）。**
 
 ## 6. 风险与对策
 - 采样训练改变密度化动力学（梯度稀疏 -> densify 信号变化）：对策 = 梯度累积 / 密度化专用全分辨率步 / 调 densify 阈值。

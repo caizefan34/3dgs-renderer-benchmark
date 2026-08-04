@@ -527,6 +527,7 @@ def _sparse_px_forward(means, quats, scales, opacities, colors, viewmats, Ks,
 def make_forward_fn(backend, width, height, handle, viewmats, Ks,
                      radius_clip=0.0, tile_sampling_ratio=1.0,
                      sampling_mode="uniform", cull_interval=1,
+                     cull_cache_key="default",
                      pixel_raster_ratio=0.35):
     from gsplat.rendering import rasterization
 
@@ -578,6 +579,7 @@ def make_forward_fn(backend, width, height, handle, viewmats, Ks,
             viewmats=vm, Ks=K, width=width, height=height,
             sh_degree=_SH_DEGREE, use_higs_culling=True, radius_clip=radius_clip,
             cull_refresh_interval=cull_interval,
+            cull_cache_key=cull_cache_key,
         )
         if backend in ("higs_native", "higs_recompute", "higs_native_ts"):
             from gsplat.experimental import rasterize_gaussian_higs_frozen
@@ -727,6 +729,35 @@ def _res_stage(step, schedule, fallback=1.0):
     return scale
 
 
+def _parse_cull_interval_schedule(spec):
+    """Parse a cull-refresh-interval schedule "1:0,16:1500".
+
+    Each "K:start_step" pair sets the train-forward cull-refresh interval
+    active from ``start_step`` onward; later pairs override earlier ones.
+    Returns a list of ``(interval, start_step)`` sorted by start step, or
+    ``[]`` for a fixed interval (--cull-interval applies for all steps).
+    """
+    if not spec:
+        return []
+    stages = []
+    for part in spec.split(","):
+        k_s, start_s = part.split(":")
+        stages.append((max(1, int(k_s)), int(start_s)))
+    stages.sort(key=lambda s: s[1])
+    return stages
+
+
+def _cull_interval_at(step, schedule, fallback=1):
+    """Cull-refresh interval active at ``step`` for a parsed schedule."""
+    ci = fallback
+    for k, start in schedule:
+        if step >= start:
+            ci = k
+        else:
+            break
+    return ci
+
+
 def _stage_ks(Ks, scale, width, height):
     """Scale camera intrinsics to a new render resolution.
 
@@ -765,6 +796,7 @@ def run_backend(
     lpips_loss_weight=0.0, lpips_loss_every=0,
     lpips_full_res=False,
     cull_interval=1,
+    cull_interval_schedule=None,
     densify_grad_accum=False,
     res_schedule=None,
     res_schedule_full_signal=False,
@@ -804,15 +836,26 @@ def run_backend(
         tile_sampling_ratio=tile_sampling_ratio,
         sampling_mode=sampling_mode,
         cull_interval=cull_interval,
+        cull_cache_key="eval",
         pixel_raster_ratio=pixel_raster_ratio,
     )
     # Train forward fn is rebuilt at progressive-resolution stage boundaries;
     # without a schedule it is the same full-res closure (eval stays full-res
     # regardless, so progressive training never contaminates eval metrics).
-    forward_fn = eval_forward_fn
+    # Cull-mask caching (--cull-interval > 1) is keyed per camera set so the
+    # eval renders never reuse the train-camera mask (and vice versa).
+    forward_fn = make_forward_fn(
+        backend, width, height, handle, viewmats, Ks, radius_clip=radius_clip,
+        tile_sampling_ratio=tile_sampling_ratio,
+        sampling_mode=sampling_mode,
+        cull_interval=cull_interval,
+        cull_cache_key="train",
+        pixel_raster_ratio=pixel_raster_ratio,
+    )
     train_w, train_h = width, height
     train_Ks = Ks
     cur_scale = None
+    cur_cull_interval = cull_interval
     torch.cuda.reset_peak_memory_stats(device)
 
     fwd_times, bwd_times, total_times, train_times = [], [], [], []
@@ -841,6 +884,21 @@ def run_backend(
                         tile_sampling_ratio=tile_sampling_ratio,
                         sampling_mode=sampling_mode,
                         cull_interval=cull_interval,
+                        cull_cache_key="train",
+                        pixel_raster_ratio=pixel_raster_ratio,
+                    )
+                    tile_err_cache = None
+            if cull_interval_schedule:
+                ci = _cull_interval_at(it, cull_interval_schedule, cull_interval)
+                if ci != cur_cull_interval:
+                    cur_cull_interval = ci
+                    forward_fn = make_forward_fn(
+                        backend, train_w, train_h, handle, viewmats, train_Ks,
+                        radius_clip=radius_clip,
+                        tile_sampling_ratio=tile_sampling_ratio,
+                        sampling_mode=sampling_mode,
+                        cull_interval=ci,
+                        cull_cache_key="train",
                         pixel_raster_ratio=pixel_raster_ratio,
                     )
                     tile_err_cache = None
@@ -1177,6 +1235,10 @@ def run_backend(
             float(pixel_raster_ratio) if backend == "higs_sparse_px" else None
         ),
         "cull_interval": int(cull_interval),
+        "cull_interval_schedule": (
+            [[k, start] for k, start in cull_interval_schedule]
+            if cull_interval_schedule else None
+        ),
         "eval_curve": eval_curve,
     }
 
@@ -1333,6 +1395,12 @@ def build_arg_parser():
         "(1 = every step; the cache is invalidated by densify/prune)",
     )
     ap.add_argument(
+        "--cull-interval-schedule", type=str, default=None,
+        help="cull-refresh-interval schedule for the train forward as "
+             "'K:start[,...]' (e.g. '1:0,16:1500' = every step until step "
+             "1500, then every 16 steps); empty = fixed --cull-interval",
+    )
+    ap.add_argument(
         "--no-fused-adam",
         action="store_false",
         dest="fused_adam",
@@ -1409,6 +1477,9 @@ def main():
                     lpips_loss_every=args.lpips_loss_every,
                     lpips_full_res=args.lpips_full_res,
                     cull_interval=args.cull_interval,
+                    cull_interval_schedule=_parse_cull_interval_schedule(
+                        args.cull_interval_schedule
+                    ),
                     densify_grad_accum=args.densify_grad_accum,
                     res_schedule=_parse_res_schedule(args.res_schedule),
                     res_schedule_full_signal=args.res_schedule_full_signal,
