@@ -222,6 +222,26 @@
   prune/densify 侧信号修复或损失目标侧继续（后续轮次）。** 结果
   results/higs-round43/（脚本 scripts/higs/run_round43_alpha_sweep.sh）。
 
+- **Round 44 更新（2026-08-04，densify 梯度累积——garden/bicycle，负结果关闭杠杆）**：
+  round-43 关闭 alpha 后，测试风险表中的"梯度累积"对策：tile 采样训练下逐 step 位置
+  梯度在采样 tile 外为零，densify 决策信号稀疏。新增 opt-in `--densify-grad-accum`：
+  在 densify 窗口（densify_every=5）内累积（detached）逐 step 位置梯度范数，用累积
+  信号驱动 dup/clone（标准 3DGS 配方；阈值未按窗口缩放，行为等价于更激进的 densify
+  探针）。3 seed、推荐配方（r=0.35 λ=0.7 + full-res LPIPS）：
+  - garden：ga PSNR 17.997±0.036 / LPIPS 0.4453±0.0011（Δvs eg +0.03 dB、-0.003
+    LPIPS，均噪声内），vs full 差距不变（-0.74 dB / +0.047，2.11x）；final_n 与 eg
+    几乎相同（+0.14%）——累积信号几乎不改变密度化决策。
+  - bicycle：ga PSNR 15.647±0.130 / LPIPS 0.5415±0.0046（Δvs 同 seed eg
+    -0.32±0.08 dB、+0.012±0.003 LPIPS，3 seed 一致变差），vs full -0.38 dB /
+    +0.062 LPIPS / 1.97x；final_n +1.2%（更多克隆反而伤害质量）。
+  - 速度成本 ~0.5-0.8%（纯 Python 累积，可忽略不计）。
+  **结论：densify 梯度累积为负结果、杠杆关闭——r=0.35 下逐 step 梯度被采样 tile
+  主导，5 步窗口累积仍复现不了全分辨率 densify 信号，bicycle 上过度密度化反而退化。
+  风险表中"密度化专用全分辨率步"为下一杠杆（Round 45：让 densify 与 full-res LPIPS
+  step 对齐，获得零额外成本的全分辨率 densify 信号）。** 结果
+  results/higs-round44/（脚本 scripts/higs/run_round44_grad_accum.sh，汇总
+  r44-summary.json，delta 字段相对 round-41d/42 eg 基线）。
+
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
