@@ -520,6 +520,7 @@ def run_backend(
     error_alpha=1.0, error_refresh_every=25, error_lambda=1.0,
     eval_every=0, lr_decay=1.0, densify_window=None,
     lpips_loss_weight=0.0, lpips_loss_every=0,
+    lpips_full_res=False,
     cull_interval=1,
 ):
     torch.manual_seed(seed)
@@ -581,33 +582,52 @@ def run_backend(
                 and (densify_window is None or it < densify_window)
             )
             step_ratio = 1.0 if (anchor_densify and is_densify_step) else tile_sampling_ratio
-            eg_mask = eg_weights = None
-            if sampling_mode == "error_guided" and step_ratio < 1.0:
-                if tile_err_cache is None or (it + 1) % error_refresh_every == 0:
-                    with torch.no_grad():
-                        r0 = torch.cuda.Event(enable_timing=True)
-                        r1 = torch.cuda.Event(enable_timing=True)
-                        r0.record()
-                        frame_full, _, _ = forward_fn(
-                            params, cam_ids, sampling_ratio=1.0,
-                        )
-                        tile_err_cache = _tile_mean_errors(
-                            frame_full, ref, _TILE_SIZE,
-                        )
-                        r1.record()
-                        torch.cuda.synchronize(device)
-                        refresh_times.append(r0.elapsed_time(r1))
-                eg_mask, eg_weights = _error_guided_mask(
-                    tile_err_cache, step_ratio, error_alpha, device,
-                    lambda_mix=error_lambda,
-                )
-                eg_mask = eg_mask.reshape(
-                    tile_err_cache.shape[0], tile_err_cache.shape[1],
-                    tile_err_cache.shape[2],
-                )
-            frame, alpha, meta = forward_fn(
-                params, cam_ids, sampling_ratio=step_ratio, tile_mask=eg_mask,
+            is_lpips_step = (
+                lpips_loss_weight > 0.0 and lpips_loss_every > 0
+                and (it + 1) % lpips_loss_every == 0
             )
+            # Full-resolution LPIPS step: one grad-enabled full render replaces
+            # the sampled-tile step AND the error-cache refresh (they share the
+            # same cadence), so the full-frame perceptual signal costs no extra
+            # render pass at the r<1 operating point.
+            full_res_step = lpips_full_res and is_lpips_step and step_ratio < 1.0
+            eg_mask = eg_weights = None
+            if full_res_step:
+                frame, alpha, meta = forward_fn(
+                    params, cam_ids, sampling_ratio=1.0,
+                )
+                with torch.no_grad():
+                    tile_err_cache = _tile_mean_errors(
+                        frame, ref, _TILE_SIZE,
+                    )
+                loss = _l1_loss(frame, ref)
+            else:
+                if sampling_mode == "error_guided" and step_ratio < 1.0:
+                    if tile_err_cache is None or (it + 1) % error_refresh_every == 0:
+                        with torch.no_grad():
+                            r0 = torch.cuda.Event(enable_timing=True)
+                            r1 = torch.cuda.Event(enable_timing=True)
+                            r0.record()
+                            frame_full, _, _ = forward_fn(
+                                params, cam_ids, sampling_ratio=1.0,
+                            )
+                            tile_err_cache = _tile_mean_errors(
+                                frame_full, ref, _TILE_SIZE,
+                            )
+                            r1.record()
+                            torch.cuda.synchronize(device)
+                            refresh_times.append(r0.elapsed_time(r1))
+                    eg_mask, eg_weights = _error_guided_mask(
+                        tile_err_cache, step_ratio, error_alpha, device,
+                        lambda_mix=error_lambda,
+                    )
+                    eg_mask = eg_mask.reshape(
+                        tile_err_cache.shape[0], tile_err_cache.shape[1],
+                        tile_err_cache.shape[2],
+                    )
+                frame, alpha, meta = forward_fn(
+                    params, cam_ids, sampling_ratio=step_ratio, tile_mask=eg_mask,
+                )
             ev1.record()
             torch.cuda.synchronize(device)
             fwd_ms = ev0.elapsed_time(ev1)
@@ -623,7 +643,7 @@ def run_backend(
             else:
                 loss = _l1_loss(frame, ref)
 
-            if lpips_loss_weight > 0.0 and lpips_loss_every > 0 and (it + 1) % lpips_loss_every == 0:
+            if is_lpips_step:
                 evL0 = torch.cuda.Event(enable_timing=True)
                 evL1 = torch.cuda.Event(enable_timing=True)
                 evL0.record()
@@ -786,6 +806,7 @@ def run_backend(
         "refresh_ms": float(np.mean(refresh_times)) if refresh_times else 0.0,
         "lpips_loss_weight": float(lpips_loss_weight),
         "lpips_loss_every": int(lpips_loss_every),
+        "lpips_full_res": bool(lpips_full_res),
         "lpips_ms_avg": float(np.mean(lpips_ms)) if lpips_ms else 0.0,
         "lpips_steps": len(lpips_ms),
         "sampling_mode": sampling_mode,
@@ -868,6 +889,12 @@ def build_arg_parser():
         help="apply the LPIPS loss term every N steps (0 = off; needs weight > 0)",
     )
     ap.add_argument(
+        "--lpips-full-res",
+        action="store_true",
+        help="LPIPS loss steps render the full frame (with grad) instead of the "
+        "sampled tiles; the full render is reused as the error-cache refresh",
+    )
+    ap.add_argument(
         "--cull-interval", type=int, default=1,
         help="dynamic HiGS: refresh the union-visibility cull every N steps "
         "(1 = every step; the cache is invalidated by densify/prune)",
@@ -946,6 +973,7 @@ def main():
                     ),
                     lpips_loss_weight=args.lpips_loss_weight,
                     lpips_loss_every=args.lpips_loss_every,
+                    lpips_full_res=args.lpips_full_res,
                     cull_interval=args.cull_interval,
                 )
                 r["probe_grad_cosine"] = cos

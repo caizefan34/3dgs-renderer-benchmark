@@ -208,3 +208,12 @@ class TestLpipsLoss:
         )
         assert ns.lpips_loss_weight == 0.1 and ns.lpips_loss_every == 25
         assert ns.lr_decay == 1.0 and ns.densify_window == 0  # defaults
+
+    def test_full_res_flag_exposed(self):
+        ap = _mod.build_arg_parser()
+        ns = ap.parse_args(
+            ["--lpips-loss-weight", "0.1", "--lpips-loss-every", "25",
+             "--lpips-full-res"]
+        )
+        assert ns.lpips_full_res is True
+        assert ap.parse_args([]).lpips_full_res is False  # default
