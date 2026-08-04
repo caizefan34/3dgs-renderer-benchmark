@@ -639,6 +639,7 @@ def run_backend(
     densify_grad_accum=False,
     res_schedule=None,
     res_schedule_full_signal=False,
+    res_schedule_full_lpips=False,
     pixel_sampling_ratio=1.0,
 ):
     torch.manual_seed(seed)
@@ -741,13 +742,20 @@ def run_backend(
             # the full-frame signal steps (LPIPS + anchor densify) at the full
             # target resolution instead of the stage resolution.
             use_full_signal = bool(res_schedule) and res_schedule_full_signal
+            # --res-schedule-full-lpips: keep ONLY the full-frame perceptual
+            # (LPIPS) steps at the full target resolution during coarse
+            # stages; anchor-densify stays at the stage scale. This isolates
+            # the full-res LPIPS signal from the round-52b full-signal arm,
+            # whose full-res anchor steps alternated with stage-res densify
+            # events and destabilized high-N scenes.
+            use_full_lpips = bool(res_schedule) and res_schedule_full_lpips
             # Sparse-pixel mode renders the full frame (frozen gsplat HiGS has
             # no pixel-sparse rasterizer) and sparsifies the LOSS instead; the
             # pixel fraction is tracked separately for honest reporting.
             is_sparse_px = sampling_mode == "sparse_pixel"
             eg_mask = eg_weights = None
             if full_res_step:
-                if use_full_signal:
+                if use_full_signal or use_full_lpips:
                     frame, alpha, meta = eval_forward_fn(
                         params, cam_ids, sampling_ratio=1.0,
                     )
@@ -808,7 +816,10 @@ def run_backend(
             # target; sampled coarse-stage steps use the stage-scale reference.
             loss_ref = (
                 refs_train
-                if (use_full_signal and (full_res_step or is_anchor_step))
+                if (
+                    (use_full_signal and (full_res_step or is_anchor_step))
+                    or (use_full_lpips and full_res_step)
+                )
                 else ref
             )
             tile_mask = meta.get("tile_mask") if meta else None
@@ -1080,6 +1091,15 @@ def build_arg_parser():
         ),
     )
     ap.add_argument(
+        "--res-schedule-full-lpips", action="store_true",
+        help=(
+            "with --res-schedule: keep only the perceptual (LPIPS) steps at "
+            "full target resolution during coarse stages; anchor-densify "
+            "stays at the stage scale (isolates the full-res LPIPS signal "
+            "from the --res-schedule-full-signal densify alternation)"
+        ),
+    )
+    ap.add_argument(
         "--tile-sampling-ratio", type=float, default=1.0,
         help="HiGS native tile sampling ratio in (0, 1] (1.0 = full frame)",
     )
@@ -1224,6 +1244,7 @@ def main():
                     densify_grad_accum=args.densify_grad_accum,
                     res_schedule=_parse_res_schedule(args.res_schedule),
                     res_schedule_full_signal=args.res_schedule_full_signal,
+                    res_schedule_full_lpips=args.res_schedule_full_lpips,
                     pixel_sampling_ratio=args.pixel_sampling_ratio,
                 )
                 r["probe_grad_cosine"] = cos

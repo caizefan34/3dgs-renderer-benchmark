@@ -381,6 +381,25 @@
   - train 16.73±0.33 / LPIPS 0.3933±0.002 / 13.3ms（sr 0.36）；garden 18.15±0.04 / LPIPS 0.4346±0.001 / 22.5ms（sr 0.387）；bicycle 15.92±0.19 / LPIPS 0.5103±0.001 / 24.6ms（sr 0.387）。
   - vs uniform（R51，同配方匹配 sr）：garden LPIPS 0.4346 vs 0.4335（±0.001）、bicycle 0.5103 vs 0.5106（-0.0003）、train 0.3933 vs 0.3871（+0.006）——**分层与随机 tile 采样在匹配 sr 下质量等价**；vs eg/every2（sr 低 0.04-0.05）：garden LPIPS -0.008、bicycle -0.015，主要为更高覆盖率贡献（stratif 实际 sr 0.387 vs eg 0.344-0.348）。
   **结论：负面——分层去相关化没有恢复质量**。结合 R53：损失不是采样簇集（draw clustering），而是 tile 粒度本身的内部相关性（16x16 块同渲染/同误差结构）；在 frozen gsplat 光栅化器内，采样杠杆（error_guided / uniform / stratified）已全部闭合且等价，恢复质量需要更细粒度（像素级掩码/抖动网格偏移）的光栅化支持，属渲染器层面后续工作。当前最优训练臂仍是 R50 every2（质量）与 R52 渐进分辨率（速度）。详见 results/higs-round54/（r54-summary.json；脚本 scripts/higs/run_round54_stratified.sh）。
+- **Round 55 更新（2026-08-04，粗阶段仅 LPIPS 全分辨率信号——隔离 R52b 机制，负结果）**：
+  R52b（--res-schedule-full-signal：粗阶段 LPIPS 与 anchor 都全分辨率）为负面，归因于
+  全/半分辨率 densify 事件交替（every 2）。本轮用新 flag `--res-schedule-full-lpips`
+  隔离感知侧：粗阶段**仅 LPIPS 步**保持全目标分辨率、anchor densify 留在阶段分辨率
+  （无交替）；其余配方与 R52 完全一致（error_guided r=0.35 λ=0.7 + high-N anchor
+  every2、train 无 anchor、3 seed）。结果（3-seed 均值 ± sd）vs R52 plain prog：
+  - train：17.093±0.076 / LPIPS 0.3920±0.003 / 12.98ms（vs r52 16.943 / 0.3888 /
+    10.63ms——PSNR +0.15（噪声级）、LPIPS +0.003、墙钟 +22%）。
+  - garden：17.972±0.034 / LPIPS 0.4545±0.001 / 18.11ms（vs r52 18.069 / 0.4489 /
+    17.19ms——PSNR -0.10、LPIPS +0.006，仍高于 every2 的 0.4427；墙钟 +5%）。
+  - bicycle：15.442±0.552 / LPIPS 0.5225±0.001 / 19.11ms（vs r52 15.592 / 0.5204 /
+    18.31ms——PSNR -0.15（±0.55 噪声级）、LPIPS +0.002、墙钟 +4%）。
+  **结论：负面——粗阶段恢复全分辨率 LPIPS 信号不恢复质量**（garden LPIPS 不降反升
+  0.006，bicycle/train 持平或略差），且一致更慢（+4..+22%）。与 R52b 联合解读：
+  粗阶段任何形式的全分辨率信号（仅 LPIPS / LPIPS+anchor）都无法关闭渐进分辨率的
+  garden LPIPS 开口；plain 渐进分辨率（R52）仍是该轴最优臂。`--res-schedule-full-lpips`
+  作为已关闭杠杆保留（含 CPU 测试 TestResScheduleFullLpipsFlag）。剩余唯一质量杠杆
+  仍是渲染器级更细粒度采样。结果 results/higs-round55/（r55-summary.json；脚本
+  scripts/higs/run_round55_full_lpips.sh）。
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
 - M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量）。R53/R54 联合结论：高 N tile 采样质量界为 tile 粒度相关性噪声（去相关化分层采样 R54 为负面，与 uniform 匹配 sr 等价）；恢复质量需渲染器级更细粒度采样。下一步：多分辨率矩阵 + 渲染器级细粒度采样**。
 
