@@ -335,13 +335,43 @@
   结果 results/higs-round50/（r50-summary.json，delta 字段相对 round-41d/42 eg
   基线；脚本 scripts/higs/run_round50_anchor_every.sh）。
 
+- **Round 51 更新（2026-08-04，M6 对照 1/3：ICCV random-tile loss 基线——train/garden/bicycle，3-seed 3000 步）**：
+  M6 第一项对照：`--sampling-mode uniform`（随机 tile + masked tile-L1 loss，
+  即 ICCV 2025 random-tile loss 的对应实现）vs error_guided（无偏重要性加权），
+  其余配方完全一致（r=0.35 名义、full-res LPIPS、high-N 场景 + anchor every2、
+  train 无 anchor）。同批补跑 train eg 3-seed 验证 round-41b 数值（17.10±0.10 /
+  0.3871 / 12.31ms vs 文档 17.074 / 0.3870 / 12.06ms，复现一致）。
+  - 名义 r 相同 ≠ 计算相同：uniform 实际采样率 sr≈0.38-0.40（garden/bicycle）/
+    0.376（train），比 eg（0.31-0.35）高 15-20% → 同名义 r 下均匀基线墙钟
+    +7-12%（train +12.3%、garden +11.7%、bicycle +7.0%）。对照必须按实际 sr 对齐。
+  - 匹配 sr 对照（uniform r=0.30 → sr 0.328-0.356 vs eg sr 0.308-0.348）：
+    - train（低 N）：eg 显著更好——PSNR 17.097±0.102 vs 16.775±0.143（-0.32 dB；
+      uniform s1 同 seed 重跑 16.07 → 16.70，±0.6 dB 波动已记录并采用重跑值）、
+      LPIPS 0.3871 vs 0.3895（+0.002）、墙钟 12.31 vs 13.00ms（uniform 仍 +5.6%）
+      ——随机 tile 在低 N 场景被支配（质量 + 速度双输）。
+    - garden（高 N）：PSNR 持平（18.082 vs 18.068，+0.014）、LPIPS uniform 略优
+      （0.4389 vs 0.4427，-0.004）、墙钟 +4.7%。
+    - bicycle（高 N）：PSNR 持平（15.928 vs 15.940，-0.012）、LPIPS uniform 更优
+      （0.5165 vs 0.5257，-0.009，3 seed 全部低于 eg）、墙钟 +0.7%。
+  - 端到端加速（uniform r=0.30）：garden 1.96x / bicycle 1.91x / train 1.69x
+    （train eg 复测 1.79x、round-41b 文档 1.82x，测量噪声级差异）。
+  **结论（诚实）：error_guided 的重要性加权优势是场景相关的——低 N train 上明确
+  支配随机 tile（质量 + 速度双优）；高 N 场景（garden/bicycle）在匹配实际采样率
+  时随机 tile 不劣（PSNR 持平、LPIPS 反优 0.004-0.009，墙钟 +0.7..+4.7%），与
+  round-31 M3 的早期观察（bicycle 上 uniform 不差）在 3000 步全配方下复现。
+  "误差引导 > 随机 tile" 的投稿级声明需限定在低/中 N 场景；高 N 场景的 LPIPS 上界
+  由实际 tile 数（sr）主导而非采样策略。** M6 状态：对照 1/3 完成；Turbo-GS 与
+  Speedy-Splat 仍留待投稿阶段。结果 results/higs-round51/（r51-summary.json，
+  delta 相对同配方 eg/eg-every2 基线；脚本 scripts/higs/run_round51_random_tile_baseline.sh、
+  run_round51b_matched_sr.sh）。
+
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
-- M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
+- M6 对照：**Round 51 完成 ICCV 2025 random-tile loss 对照（train/garden/bicycle 3-seed + 匹配 sr 臂，见上）：error-guided 优势限于低/中 N 场景；Turbo-GS、Speedy-Splat 对照留待投稿阶段**。
 
 ## 6. 风险与对策
 - 采样训练改变密度化动力学（梯度稀疏 -> densify 信号变化）：对策 = 梯度累积 / 密度化专用全分辨率步 / 调 densify 阈值。
 - 短程（20 步）收益 != 长程收敛收益：一切以 M4 为准。
-- 与 tile-wise training 的区分度：需要实验证明（质量保持 + 明确速度收益 + 宏块结构利用）。
+- 与 tile-wise training 的区分度：需要实验证明（质量保持 + 明确速度收益 + 宏块结构利用）。**Round 51 random-tile 对照：区分度在高 N 场景主要来自实际 sr/成本结构（uniform 同名义 r 多渲 15-20% tile、+7-12% 墙钟），质量侧不显著（匹配 sr 时 LPIPS 反优 0.004-0.009）；低 N 场景质量 + 速度双优。投稿叙事需以低/中 N 场景 + 宏块结构利用为主**。
 
 ## 7. 里程碑与验证标准（论文门槛）
 - M2 完成 = 可演示 r=1/4 时总时间降 ~35-45%（若 blend 主导成立）；这是"明显加快"的第一实证。（**Round 31 已达成**：r=0.25 总时间 -33..-41%，bwd 近线性。）
