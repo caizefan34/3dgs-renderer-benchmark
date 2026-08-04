@@ -452,8 +452,23 @@
   results/higs-round57/（r57-summary.json；脚本 scripts/higs/run_round57_sparse_px.sh；
   新增后端 `higs_sparse_px`、`--pixel-raster-ratio` 与 10 项测试
   tests/test_higs_sparse_pixel_raster.py）。
+
+- **Round 58 更新（2026-08-04，速度最大单元收官：720p 目标 + 渐进分辨率——train/garden/bicycle，3-seed 3000 步）**：
+  填补前沿表最后一个单元：720p 目标下叠加 R52 的渐进调度（--res-schedule 0.5:0,1.0:1500，
+  粗阶段 360p）与推荐配方（eg r=0.35 + full-res LPIPS + high-N anchor every2，train 无 anchor），
+  9 次运行；对照为 R56 同分辨率臂（720p full / 720p eg）。**结论：720p × 渐进 = 明确负面**——
+  相对 plain 720p eg 无提速（train 0.89x 更慢、garden 1.01x、bicycle 1.09x），质量一致退化
+  （train PSNR -0.20 dB / LPIPS +0.007，garden -0.37 / +0.033，bicycle -0.46 / +0.011，3-seed）。
+  机制（200 步探针 scripts/higs/run_round58_res_scaling_probe.sh）：360p 相对 720p 单步成本仅省
+  ~0-9%（garden 18.9 vs 20.8 ms；train 360p 甚至不省，15.1 vs 12.2 ms）——720p 下单步成本已被
+  分辨率不变的每-Gaussian 阶段（投影/SH/反向）主导，粗阶段无物可省，叠加 R52 已知的粗阶段
+  densify 失稳，质量反降。**前沿因此收官**：速度最大单元 = plain 720p + eg（R56，相对同分辨率
+  full 1.56-1.88x；相对 1080p full 墙钟 2.4-2.7x），渐进分辨率仍是 1080p 专属杠杆（R52
+  2.07-2.49x），质量最大 >=1.8x 操作点保持 1080p eg + anchor-densify-every-2。结果
+  results/higs-round58/（r58-summary.json；脚本 scripts/higs/run_round58_prog720p.sh /
+  aggregate_round58.sh）。
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵 Round 56 完成（540p/720p/1080p × train/garden/bicycle × 3 seed，36 次运行，见上表）**。
-- M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量）。R53/R54 联合结论：高 N tile 采样质量界为 tile 粒度相关性噪声（去相关化分层采样 R54 为负面，与 uniform 匹配 sr 等价）。渲染器级细粒度采样已闭环（R57）：像素级稀疏光栅化（higs_sparse_px）在 ~40% 覆盖下恢复近全质量（bicycle PSNR +0.51 dB / LPIPS 持平，garden LPIPS +0.011），但墙钟仅 1.06-1.09x——相交/投影/SH 为像素数不变成本，像素稀疏只省逐像素混合循环，速度杠杆结构性上界 ~1.1x，1.8x 操作点仍由 tile 采样提供。**
+- M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量）。R53/R54 联合结论：高 N tile 采样质量界为 tile 粒度相关性噪声（去相关化分层采样 R54 为负面，与 uniform 匹配 sr 等价）。渲染器级细粒度采样已闭环（R57）：像素级稀疏光栅化（higs_sparse_px）在 ~40% 覆盖下恢复近全质量（bicycle PSNR +0.51 dB / LPIPS 持平，garden LPIPS +0.011），但墙钟仅 1.06-1.09x——相交/投影/SH 为像素数不变成本，像素稀疏只省逐像素混合循环，速度杠杆结构性上界 ~1.1x，1.8x 操作点仍由 tile 采样提供；720p × 渐进已关闭为负面（R58，无提速有质量损失，720p 单步成本已达每-Gaussian 不变地板），速度最大单元 = 720p + eg（相对 1080p full 2.4-2.7x）。**
 
 ## 6. 风险与对策
 - 采样训练改变密度化动力学（梯度稀疏 -> densify 信号变化）：对策 = 梯度累积 / 密度化专用全分辨率步 / 调 densify 阈值。
