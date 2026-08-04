@@ -702,7 +702,7 @@
 | 1080p 质量-max 单元堆叠 | R64 exp1/2 | 同一杠杆 + anchor-densify-every-2 + eg r=0.35 | garden +2.4% / bicycle +2.4% / train +1.2% | 六格矩阵（2 分辨率 x 3 场景）PSNR -0.03..+0.22 / LPIPS -0.017..+0.001，无回退 | 推荐 opt-in 覆盖速度-max 与质量-max 两单元 |
 | 衰减率 0.999 | R64 exp3 | 更慢退役（半衰期 693 vs 69 步） | +1.0-1.3%（省 1.1-1.4%） | LPIPS -0.001..-0.005 / PSNR -0.02..+0.03（丢大部分收益） | 关闭（速度成本=质量收益同源；0.99 唯一推荐率） |
 
-| progressive-res x decay（--res-schedule 0.5:0,1.0:1500 + d0.99 + 投影刷新） | R65 | 退役前置进便宜的粗阶段，全分辨率阶段以 5.6x 更少高斯运行 | bicycle 1080p：train_ms -21.7% vs 全分辨率 ctrl | bicycle PSNR +0.33 / LPIPS -0.0155（严格支配 ctrl）；garden 单元内 +0.22/-0.008 @ +2.1% 但绝对值低于全分辨率 decay | **bicycle 质量-max 升级点**；garden 保持全分辨率 |
+| progressive-res x decay（--res-schedule 0.5:0,1.0:1500 + d0.99 + 投影刷新） | R65 | 退役前置进便宜的粗阶段，全分辨率阶段以 5.6x 更少高斯运行 | bicycle 1080p：train_ms -21.7% vs 全分辨率 ctrl | bicycle PSNR +0.33 / LPIPS -0.0155（严格支配 ctrl）；truck +0.16/-0.0066 @ -16.5%；bonsai +0.91/-0.0137 @ -19.0%（均严格支配）；garden 单元内 +0.22/-0.008 @ +2.1% 但绝对值低于全分辨率 decay | **5 场景中 4 个严格支配**（bicycle/truck/bonsai + 720p 高 N）；garden 保持全分辨率；train 不启用 |
 
 **最终推荐组合（可复现 flag 集）**：
 - 速度-max = 720p + error_guided r=0.35 + --anchor-densify --anchor-densify-every 2 + --masked-adam（k1）：相对 1080p full 2.4-2.7x wall，质量优于自身 1080p 基线。
@@ -736,3 +736,17 @@
 - 三场景 x {prog, full-res} 两单元：decay 成本序列 full-res bicycle +2.4% > full-res garden +2.4% ~ prog garden +2.1% > full-res train +1.2% > prog train +0.6% > prog bicycle -0.04%，质量收益与成本仍同源，但 **prog 相位前置把退役放进便宜阶段**，bicycle 达到成本约零。
 
 **决策**：1080p 质量-max 单元的 bicycle 侧升级为 prog-res x decay（更快且更好：train_ms -21.7% / PSNR +0.33 / LPIPS -0.0155 vs 全分辨率 ctrl）；garden 侧保持全分辨率 + decay（单元内绝对质量最高 20.249/0.3359）；train 两侧均不推荐 decay。R60 masked-Adam 仍是基础 op point；decay 必须配投影刷新。
+
+**跨场景扩展（exp2，truck 高 N + bonsai 中 N，1080p 3000 步，各 ctrl s0/s1/s2 + pd s0/s1/s2，in-wave）**：
+
+| 场景 | 变体 | train_ms | PSNR（Δ） | SSIM | LPIPS（Δ） | final_N | n_vis |
+|---|---|---|---|---|---|---|---|
+| truck | ctrl（full+MA，3-seed） | 16.452±0.074 | 19.057±0.068 | 0.6997 | 0.3078±0.0003 | 1.24M | 359K |
+| truck | pd（prog+decay，3-seed） | 13.741±0.066（**-16.5%**） | 19.217±0.048（**+0.16**） | 0.7046 | 0.3012±0.002（**-0.0066**） | 0.42M | 385K |
+| bonsai | ctrl（full+MA，3-seed） | 11.022±0.054 | 23.517±0.203 | 0.8249 | 0.2051±0.001 | 0.69M | 94K |
+| bonsai | pd（prog+decay，3-seed） | 8.927±0.063（**-19.0%**） | 24.430±0.064（**+0.91**） | 0.8324 | 0.1914±0.0003（**-0.0137**） | 0.13M | 101K |
+
+- **truck 与 bonsai 均严格支配各自 ctrl**（更快且更好），与 bicycle 同向：truck train_ms -16.5% / PSNR +0.16 / LPIPS -0.0066；bonsai train_ms -19.0% / PSNR +0.91（全矩阵最大）/ LPIPS -0.0137。
+- 至此 5 场景中 4 个（bicycle/truck/bonsai + 720p 单元 train/garden 之外的高中 N 场景）prog x decay 严格支配全分辨率 ctrl；garden 是唯一 progressive 质量天花板场景（单元内正、绝对值低）。低 N train 仍不推荐。
+- 投影 mask 在全部 pd 运行中仍逐位一致（miss/extra=0）。
+- 机制延续：pd 的 final_N 全部大幅收缩（truck 1.24M->0.42M、bonsai 0.69M->0.13M），全分辨率阶段以 2.9-5.3x 更少高斯运行。
