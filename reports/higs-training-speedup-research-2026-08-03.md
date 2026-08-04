@@ -261,6 +261,18 @@
   results/higs-round45/（脚本 scripts/higs/run_round45_densify_fullres.sh，
   r45-summary.json）。
 
+- **Round 46 更新（2026-08-04，LPIPS 权重 0.2——garden/bicycle，负结果关闭损失侧权重杠杆）**：
+  高 N 场景剩余诚实上界是感知的（LPIPS +0.050）；测试损失侧最后一道便宜杠杆：把
+  全分辨率 LPIPS 正则权重从 0.1 翻倍到 0.2（其余配方不变，3 seed）：
+  - garden：w=0.2 PSNR 17.938±0.021 / LPIPS 0.4540±0.0010（Δvs w=0.1 eg
+    -0.03 dB / +0.006 LPIPS）——双指标都轻微变差（sd 极小，方向一致）。
+  - bicycle：w=0.2 PSNR 15.917±0.070 / LPIPS 0.5378±0.0017（Δ -0.05 dB /
+    +0.008 LPIPS）——同样轻微变差。
+  - final_n 略降（garden 1.95M、bicycle 2.38M），速度不变。
+  **结论：更强的感知正则干扰 tile 采样 L1 训练动力学，w=0.1 仍是尖峰最优；
+  LPIPS 权重杠杆关闭。** 结果 results/higs-round46/（脚本
+  scripts/higs/run_round46_lpips_w02.sh，r46-summary.json）。
+
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
