@@ -273,6 +273,30 @@
   LPIPS 权重杠杆关闭。** 结果 results/higs-round46/（脚本
   scripts/higs/run_round46_lpips_w02.sh，r46-summary.json）。
 
+- **Round 47 更新（2026-08-04，--anchor-densify 全分辨率 densify 步——garden/bicycle，首个正向杠杆）**：
+  round-43/44/45/46 关闭采样侧、累积侧、节奏侧、损失侧杠杆后，风险表中最后一项
+  "密度化专用全分辨率步"在原节奏 5 下给出首个正向结果：`--anchor-densify` 让每个
+  densify 步以全分辨率渲染，dup/clone 决策使用真全帧位置梯度（成本 ~6-7%）。
+  3 seed、其余配方不变：
+  - garden：anchor PSNR 18.192±0.012 / SSIM 0.4784 / LPIPS 0.4361±0.0019
+    （Δvs eg +0.22 dB / +0.009 SSIM / -0.012 LPIPS，全 seed 一致），vs full 差距
+    收窄为 **-0.54 dB / +0.037 LPIPS**（原 -0.76 / +0.050）；速度 2.11x → 1.98x。
+  - bicycle：anchor PSNR 15.926±0.299（vs eg -0.04±0.30，持平；bicycle 固有
+    ±0.1-0.3 dB 不确定度）/ SSIM 0.3918 / LPIPS 0.5179±0.0024（3 seed 全部收窄
+    -0.008..-0.015），vs full 差距收窄为 **-0.10 dB / +0.038 LPIPS**（原 -0.06 /
+    +0.050）；速度 1.98x → 1.87x。
+  - final_n 更接近 full（garden 2.06M vs 2.59M、bicycle 2.43M vs 2.71M）——
+    全分辨率 densify 信号恢复了部分密度结构；实际 sr 升至 0.373-0.375（densify
+    步计入全分辨率）。
+  **结论：--anchor-densify 是首个正向质量杠杆：高 N 场景 LPIPS 上界从 +0.050 收窄
+  到 ~+0.037（两场景、全 seed），garden PSNR 差距减半、SSIM 全面改善，速度代价
+  ~6-7% 且两场景仍保持 ≥1.8x（1.98x / 1.87x）。建议作为高 N 场景 opt-in 推荐
+  （低/中 N 场景默认不开：train 单 seed 探针 +6% 时间 → 1.82x 降至 ~1.72x
+  跌破 1.8x 门槛，且质量方向不一致（PSNR -0.45 dB / LPIPS +0.007，1 seed
+  不充分），无收益证据）。** 结果 results/higs-round47/（脚本
+  scripts/higs/run_round47_anchor_screening.sh，r47-summary.json，delta 字段相对
+  round-41d/42 eg 基线）。
+
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
