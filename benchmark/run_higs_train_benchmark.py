@@ -21,6 +21,7 @@ import argparse
 import json
 import math
 import os
+import sys
 import time
 from dataclasses import asdict
 
@@ -1668,6 +1669,16 @@ def build_arg_parser():
         "lower refresh cost",
     )
     ap.add_argument(
+        "--higs-quality-max",
+        action="store_true",
+        help="round-65 final quality-max preset: enables --masked-adam, "
+        "--masked-adam-union-decay 0.99, --masked-adam-union-decay-eval-proj, "
+        "and a default --res-schedule 0.5:0,1.0:1500 (progressive-resolution "
+        "x decay cell, strictly dominates full-res ctrl on bicycle/truck/"
+        "bonsai; garden uses --res-schedule 0.75:0,1.0:1500 instead; train "
+        "low-N not recommended). Explicit flags override the preset.",
+    )
+    ap.add_argument(
         "--mask-prune",
         action="store_true",
         help="at densify steps, drop rows invisible in BOTH the train and "
@@ -1684,7 +1695,7 @@ def build_arg_parser():
     ap.add_argument(
         "--mask-prune-eval-refresh", type=int, default=None,
         help="refresh the eval-visibility mask every N densify steps "
-        "((step+1) % (densify_every*N) == 0); keeps the prune/decay "
+        "((step+1) %% (densify_every*N) == 0); keeps the prune/decay "
         "decision from using a stale eval mask. Default: 1 for both "
         "--mask-prune and --masked-adam-union-decay (round-62: stale "
         "masks collapse decay quality), 0 = natural eval cadence only",
@@ -1704,9 +1715,30 @@ def build_arg_parser():
     return ap
 
 
+def _apply_higs_quality_max(args, raw_args):
+    """Round-65 final quality-max preset (see --higs-quality-max).
+
+    Enables the masked-Adam op point plus the decay+projection-refresh
+    quality opt-in and a default progressive-resolution schedule. Explicit
+    user flags win: an explicit --masked-adam-union-decay (including 0.0 to
+    disable decay) and any --res-schedule are honored as given.
+    """
+    if not args.higs_quality_max:
+        return
+    args.masked_adam = True
+    if not any(
+        a.split("=", 1)[0] == "--masked-adam-union-decay" for a in raw_args
+    ):
+        args.masked_adam_union_decay = 0.99
+    args.masked_adam_union_decay_eval_proj = True
+    if args.res_schedule is None:
+        args.res_schedule = "0.5:0,1.0:1500"
+
+
 def main():
     ap = build_arg_parser()
     args = ap.parse_args()
+    _apply_higs_quality_max(args, sys.argv[1:])
     if args.lpips_loss_weight > 0.0 and args.lpips_loss_every <= 0:
         ap.error("--lpips-loss-weight > 0 requires --lpips-loss-every > 0")
 

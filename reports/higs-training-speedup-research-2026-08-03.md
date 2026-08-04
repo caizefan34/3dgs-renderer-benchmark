@@ -704,9 +704,12 @@
 
 | progressive-res x decay（--res-schedule 0.5:0,1.0:1500 + d0.99 + 投影刷新） | R65 | 退役前置进便宜的粗阶段，全分辨率阶段以 5.6x 更少高斯运行 | bicycle 1080p：train_ms -21.7% vs 全分辨率 ctrl | bicycle PSNR +0.33 / LPIPS -0.0155（严格支配 ctrl）；truck +0.16/-0.0066 @ -16.5%；bonsai +0.91/-0.0137 @ -19.0%（均严格支配）；garden 0.75x 粗阶段 +0.09/-0.0049 @ -9.6%（严格支配，exp3） | **5/5 场景均有严格支配配置**（bicycle/truck/bonsai 0.5x；garden 0.75x；720p 高 N 同构）；train 不启用 |
 
+| --higs-quality-max 一键预设 | R65 收官 | 上述 R60 masked-Adam + R63 投影刷新 + R65 粗阶段 的 CLI 入口：--masked-adam + --masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj + 默认 --res-schedule 0.5:0,1.0:1500 | = R65 质量-max 升级单元 | = R65 质量-max 升级单元（5/5 场景严格支配） | **推荐一键入口**：显式 flag 覆盖（garden 传 --res-schedule 0.75:0,1.0:1500；train 低 N 不启用） |
+
 **最终推荐组合（可复现 flag 集）**：
 - 速度-max = 720p + error_guided r=0.35 + --anchor-densify --anchor-densify-every 2 + --masked-adam（k1）：相对 1080p full 2.4-2.7x wall，质量优于自身 1080p 基线。
 - 质量-max = 1080p + error_guided r=0.35 + anchor-every-2 + --masked-adam + --masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj：garden 1080p PSNR 20.25 / LPIPS 0.336，质量正收益 +0.11 PSNR / -0.007 LPIPS @ +2.4% train_ms；bicycle 1080p +0.22 PSNR / -0.017 LPIPS。
+- 一键复现：`--higs-quality-max`（round-65 收官预设 = masked-Adam + decay 0.99 + 投影刷新 + 默认 `--res-schedule 0.5:0,1.0:1500`；显式 `--res-schedule` / `--masked-adam-union-decay` 覆盖预设，garden 用 `--res-schedule 0.75:0,1.0:1500`）。
 - 质量-max 升级（R65）：同一套 flag + --res-schedule——bicycle/truck/bonsai 用 0.5:0,1.0:1500（bicycle train_ms -21.7% / PSNR +0.33 / LPIPS -0.0155），garden 用 0.75:0,1.0:1500（-9.6% / +0.09 / -0.0049，decay 成本由退役前置进粗阶段吸收）；5/5 场景严格支配全分辨率 ctrl。
 - train（低 N）：720p 不启用 decay（无质量收益 + ~5% 成本）；1080p 可选（质量中性 @ +1.2%）。
 - 铁律：启用任何 decay 配置必须配 --masked-adam-union-decay-eval-proj（全 forward 刷新 +6-7% 已被淘汰）；可见性类 mask 一律用投影计算。
@@ -768,6 +771,8 @@
 ## 15. 最终结果速查（论文版，1080p 质量-max 单元 vs 全分辨率 ctrl，均 3-seed）
 
 配方（pd）：`--masked-adam` + `--masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj` + `--res-schedule <场景粗因子>:0,1.0:1500` + anchor-every-2 + eg r=0.35 + full-res LPIPS。
+
+一键复现：`--higs-quality-max` = 上表 bicycle/truck/bonsai 的 pd 配方（默认粗因子 0.5）；garden 加 `--res-schedule 0.75:0,1.0:1500`。
 
 | 场景 | 粗因子 | ctrl train_ms | pd train_ms | Δtrain | ΔPSNR | ΔLPIPS | 结论 |
 |---|---|---|---|---|---|---|---|

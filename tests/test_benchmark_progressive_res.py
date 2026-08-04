@@ -140,3 +140,63 @@ class TestMaskedPixelL1:
         ref = torch.rand(1, 1, 1, 3)
         est = _mod._masked_pixel_l1_loss(frame, ref, 0.0, "cpu")
         assert torch.allclose(est, _mod._l1_loss(frame, ref), atol=1e-6)
+
+class TestHigsQualityMaxPreset:
+    """CPU-safe CLI wiring tests for the round-65 --higs-quality-max preset."""
+
+    def _parse(self, extra):
+        parser = _mod.build_arg_parser()
+        raw = [
+            "--base-dir", "datasets/processed",
+            "--scene", "mipnerf360/garden",
+        ] + list(extra)
+        args = parser.parse_args(raw)
+        _mod._apply_higs_quality_max(args, raw)
+        return args
+
+    def test_flag_off_by_default(self):
+        args = self._parse([])
+        assert args.higs_quality_max is False
+        assert args.masked_adam is False
+        assert args.masked_adam_union_decay == 0.0
+        assert args.masked_adam_union_decay_eval_proj is False
+        assert args.res_schedule is None
+
+    def test_preset_enables_round65_cell(self):
+        args = self._parse(["--higs-quality-max"])
+        assert args.masked_adam is True
+        assert args.masked_adam_union_decay == 0.99
+        assert args.masked_adam_union_decay_eval_proj is True
+        assert args.res_schedule == "0.5:0,1.0:1500"
+
+    def test_explicit_res_schedule_overrides_preset(self):
+        args = self._parse([
+            "--higs-quality-max",
+            "--res-schedule", "0.75:0,1.0:1500",
+        ])
+        assert args.res_schedule == "0.75:0,1.0:1500"
+        assert args.masked_adam_union_decay == 0.99
+        assert args.masked_adam_union_decay_eval_proj is True
+
+    def test_explicit_decay_overrides_preset(self):
+        args = self._parse([
+            "--higs-quality-max",
+            "--masked-adam-union-decay", "0.999",
+        ])
+        assert args.masked_adam_union_decay == 0.999
+        assert args.masked_adam_union_decay_eval_proj is True
+        assert args.res_schedule == "0.5:0,1.0:1500"
+
+    def test_explicit_zero_decay_disables_decay(self):
+        args = self._parse([
+            "--higs-quality-max",
+            "--masked-adam-union-decay", "0.0",
+        ])
+        assert args.masked_adam_union_decay == 0.0
+        assert args.masked_adam is True
+
+    def test_help_formats_without_error(self):
+        # regression: a literal '%' in a help string used to crash argparse
+        # help formatting (unsupported format character)
+        help_text = _mod.build_arg_parser().format_help()
+        assert "--higs-quality-max" in help_text
