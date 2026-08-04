@@ -764,3 +764,20 @@
 - **pd075 严格支配全分辨率 ctrl**（更快且更好：-9.6% / PSNR +0.09 / LPIPS -0.0049），质量与全分辨率+decay 等价（PSNR 20.262 vs 20.249、LPIPS 0.3370 vs 0.3359，噪声内）且快 -10.7%——garden 不再是例外。
 - pdramp 失败：短暂的 0.75 中间段（[1000,1500)）无益反损（≈pd05 质量、更贵）——分辨率只在 densify 窗口边界切换一次才是有效的。
 - 机制：garden 的差距是粗阶段基础赤字（0.5x 下 coarse 端 PSNR 19.9 vs full-res 同步 20.4），0.75x 粗阶段保住细节、decay 补足感知质量；全分辨率阶段晚段 PSNR 下倾是全 N 场景共有现象（full-res ctrl 同样从 20.34 降到 20.14），非 progressive 特有。
+
+## 15. 最终结果速查（论文版，1080p 质量-max 单元 vs 全分辨率 ctrl，均 3-seed）
+
+配方（pd）：`--masked-adam` + `--masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj` + `--res-schedule <场景粗因子>:0,1.0:1500` + anchor-every-2 + eg r=0.35 + full-res LPIPS。
+
+| 场景 | 粗因子 | ctrl train_ms | pd train_ms | Δtrain | ΔPSNR | ΔLPIPS | 结论 |
+|---|---|---|---|---|---|---|---|
+| garden | 0.75 | 19.675 | 17.978 | **-8.6%** | **+0.12** | **-0.0061** | 严格支配 |
+| bicycle | 0.5 | 21.464 | 16.800 | **-21.7%** | **+0.33** | **-0.0156** | 严格支配 |
+| truck | 0.5 | 16.452 | 13.741 | **-16.5%** | **+0.16** | **-0.0066** | 严格支配 |
+| bonsai | 0.5 | 11.022 | 8.927 | **-19.0%** | **+0.91** | **-0.0137** | 严格支配 |
+| train | 0.5 | 13.814 | 12.322 | -10.8% | -0.18（边界噪声） | +0.0014 | 不推荐 decay（prog 单独可提速） |
+
+- 5 场景中 4 个严格支配（速度与质量同时占优），garden 经 0.75x 粗阶段后同样严格支配；train（低 N）decay 无质量收益，不推荐（其 -10.8% 来自 prog 本身，R52 已记录 train prog 质量平价）。
+- 全部 pd 运行投影 mask 逐位一致（miss/extra=0），质量结论建立在 3-seed in-wave A/B 上（garden ctrl 用 R64 exp1 3-seed，exp3 波锚点无漂移）。
+- 速度-max 单元（720p + eg + anchor-every-2 + masked-adam）不受影响：R60 已给 train -8% / garden -34% / bicycle -41% train_ms；decay 作为该单元高 N 场景的质量 opt-in（R63）。
+- 与标准 gsplat 训练对照：本管线为可训练 HiGS 加速（-9% ~ -24% vs std gsplat 基线，见 trainability 报告），本表为同后端内 ctrl 的端到端单步成本对比。
