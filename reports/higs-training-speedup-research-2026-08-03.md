@@ -643,3 +643,20 @@
 
 **决策（exp3 更新）：**投影刷新把 R62 质量正向的 decay 杠杆变成**三场景质量安全**（无任何负向，3-seed）且高 N 场景近乎速度中性：bicycle 反而 -0.7%，garden +2.3%；train 质量中性但 +4.9% 速度成本。杠杆保持 opt-in（默认关）并升级为**高 N 场景（garden/bicycle）推荐的质量 opt-in**；train（低 N，无质量收益且有 5% 速度成本）不推荐启用。R60 masked-Adam 仍是最终 op point；启用 decay 的配置必须配合 `--masked-adam-union-decay-eval-proj`（全 forward 刷新 +6-7% 被淘汰）。低分辨率 eval forward 刷新（R62 未来路径提案）证实为死路：0.25x 反而更慢。
 
+## 12. Round 64：decay+投影刷新 × 1080p 质量-max 单元堆叠（2026-08-04）— 兼容，质量 opt-in 完整
+
+**动机**：R63 把 decay 杠杆做成高 N 场景推荐的质量 opt-in（garden/bicycle，720p 已验证）；剩余空白是**质量-max 单元**（1080p eg + anchor-densify-every-2 + masked-adam，报告 §9 推荐配置）是否与杠杆兼容。
+
+**证据（exp1，garden 1080p 3000 步 3-seed in-wave）**：
+
+| 变体 | train_ms | Δtrain | PSNR | SSIM | LPIPS | final_N |
+|---|---|---|---|---|---|---|
+| ctrl1080（R60 op point @1080p，3-seed） | 19.675±0.106 | — | 20.1427±0.049 | 0.5542 | 0.3431±0.001 | 2.91M |
+| stack1080 = ctrl1080 + d0.99 + 投影刷新（3-seed） | 20.140±0.055 | **+2.4%** | 20.2491±0.099（+0.11） | 0.5586 | 0.3359±0.001（-0.007） | 1.26M |
+
+- 投影 mask 在 1080p 同样逐位一致（全部 eval 检查点 miss/extra=0.0）。
+- 与 720p garden 完全同向：PSNR +0.11 / LPIPS -0.007 / SSIM +0.004，train_ms +2.4%，final_N -57%。
+- 杠杆在速度-max（720p）与质量-max（1080p）两个顶层单元均验证通过；质量-max 单元叠加后 PSNR 20.25 / LPIPS 0.336，优于该单元任一基线。
+
+**决策：**R63 杠杆与质量-max 单元完全兼容，成为完整覆盖两单元的推荐质量 opt-in：garden/bicycle（720p：+0.21/+0.22 PSNR，-0.009 LPIPS，+2.3%/-0.7% train_ms；1080p garden：+0.11 PSNR，-0.007 LPIPS，+2.4% train_ms）。train（低 N）不推荐（无质量收益、~5% 速度成本）。R60 masked-Adam 仍是最终 op point；启用 decay 必须配 `--masked-adam-union-decay-eval-proj`。
+
