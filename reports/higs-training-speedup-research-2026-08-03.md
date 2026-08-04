@@ -312,6 +312,29 @@
   ~+0.037、garden PSNR -0.54。** 结果 results/higs-round48/、results/higs-round49/
   （单 seed 筛选）。
 
+- **Round 50 更新（2026-08-04，--anchor-densify-every 全分辨率 densify 步降采样——garden/bicycle，成本-质量前沿）**：
+  round-47 的 --anchor-densify（每个 densify 步全分辨率）成本 ~7%；单 seed 筛
+  `--anchor-densify-every {2,4}`（每 2/4 次 densify 事件锚定一次、其余回采样分辨
+  率）显示边际收益集中在前半程锚定事件：garden（s0）anchor1 18.178/0.4345/21.65ms
+  → every2 18.1265/0.4445/20.89ms → every4 17.9505/0.4477/20.63ms（塌回 eg 水平
+  17.99/0.4482）；bicycle 上 every2/every4 同噪声级（16.02/16.08 vs eg 15.95）。
+  对 every2 做 3-seed 确认（s1/s2 新跑）：
+  - garden：every2 PSNR 18.068±0.062 / SSIM 0.4731 / LPIPS 0.4427±0.0016
+    （Δvs eg +0.097 dB / +0.004 SSIM / -0.006 LPIPS，3 seed 一致；vs anchor1
+    -0.12 dB / +0.007 LPIPS——保留约一半 anchor 收益）；vs full 差距 -0.66 dB /
+    +0.044 LPIPS（eg 为 -0.76 / +0.050）。
+  - bicycle：every2 PSNR 15.940±0.078 / SSIM 0.3916 / LPIPS 0.5257±0.0010
+    （Δvs eg -0.02 dB 持平 / -0.004 LPIPS，3 seed 一致）；vs full +0.046 LPIPS。
+  - 成本：every2 总耗时 +2.9%（garden）/+3.1%（bicycle）vs eg（anchor1 为 +6.8%/
+    +6.2%）→ 端到端加速 garden 2.06x / bicycle 1.92x（anchor1 为 1.98x/1.87x，
+    仍 ≥1.8x 且余量更大）。
+  **结论：--anchor-densify-every 2 是 3-seed 验证的成本-质量甜点：保留约一半
+  anchor 质量收益、成本减半、速度反超 anchor1；anchor1（every 1）仍为质量上限
+  opt-in（LPIPS 上界 +0.037）；every4 在 garden 上收益消失，不建议。推荐高 N 场景
+  opt-in 默认 `--anchor-densify --anchor-densify-every 2`，质量优先时保留 every 1。**
+  结果 results/higs-round50/（r50-summary.json，delta 字段相对 round-41d/42 eg
+  基线；脚本 scripts/higs/run_round50_anchor_every.sh）。
+
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
