@@ -22,6 +22,7 @@ _spec.loader.exec_module(_mod)
 _error_guided_mask = _mod._error_guided_mask
 _importance_l1_loss = _mod._importance_l1_loss
 _tile_mean_errors = _mod._tile_mean_errors
+_accumulate_grad_norms = _mod._accumulate_grad_norms
 
 
 class TestTileMeanErrors:
@@ -217,3 +218,34 @@ class TestLpipsLoss:
         )
         assert ns.lpips_full_res is True
         assert ap.parse_args([]).lpips_full_res is False  # default
+
+class TestAccumulateGradNorms:
+    def test_accumulates_norms_across_steps(self):
+        torch.manual_seed(3)
+        g1 = torch.randn(5, 3)
+        g2 = torch.randn(5, 3)
+        acc = _accumulate_grad_norms(None, g1)
+        acc = _accumulate_grad_norms(acc, g2)
+        expected = g1.norm(dim=-1) + g2.norm(dim=-1)
+        assert torch.allclose(acc, expected)
+
+    def test_result_is_detached(self):
+        g = torch.randn(4, 3, requires_grad=True)
+        acc = _accumulate_grad_norms(None, g)
+        assert not acc.requires_grad
+
+    def test_shape_change_resets_window(self):
+        torch.manual_seed(5)
+        g1 = torch.randn(6, 3)
+        acc = _accumulate_grad_norms(None, g1)
+        # topology change: new Gaussian count resets the window
+        g2 = torch.randn(9, 3)
+        acc = _accumulate_grad_norms(acc, g2)
+        assert acc.shape[0] == 9
+        assert torch.allclose(acc, g2.norm(dim=-1))
+
+    def test_cli_flag_exposed(self):
+        ap = _mod.build_arg_parser()
+        assert ap.parse_args([]).densify_grad_accum is False
+        ns = ap.parse_args(["--densify-grad-accum"])
+        assert ns.densify_grad_accum is True

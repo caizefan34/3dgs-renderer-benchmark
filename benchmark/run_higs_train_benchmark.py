@@ -511,6 +511,22 @@ def _lr_at_step(base_lr, decay, step, steps):
     return base_lr * (decay ** ((step + 1) / max(1, steps)))
 
 
+def _accumulate_grad_norms(acc, means_grad):
+    """Window-accumulated per-Gaussian position-gradient norms for densify.
+
+    The dynamic densify decision uses the norm of the position gradient; with
+    tile-sampled training the per-step gradient is sparse (Gaussians outside
+    sampled tiles contribute zero), so the instantaneous norm under-counts
+    them. Accumulating over the densify window (standard 3DGS recipe)
+    recovers the full-signal ordering for the dup/clone decision.
+    """
+    g = means_grad.norm(dim=-1).detach()
+    if acc is None or acc.shape[0] != g.shape[0]:
+        acc = g.new_zeros(g.shape[0])
+    acc.add_(g)
+    return acc
+
+
 def run_backend(
     backend, params0, viewmats, Ks, train_idx, refs_train,
     eval_idx, refs_eval, width, height, steps, seed, device,
@@ -522,6 +538,7 @@ def run_backend(
     lpips_loss_weight=0.0, lpips_loss_every=0,
     lpips_full_res=False,
     cull_interval=1,
+    densify_grad_accum=False,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -565,6 +582,7 @@ def run_backend(
     lpips_ms = []
     eval_curve = []
     tile_err_cache = None
+    grad_norm_acc = None
     ref = refs_train
 
     try:
@@ -695,6 +713,9 @@ def run_backend(
 
             opt.step()
 
+            if densify_grad_accum and means.grad is not None:
+                grad_norm_acc = _accumulate_grad_norms(grad_norm_acc, means.grad)
+
             if (
                 backend in ("higs_dynamic", "higs_dynamic_ts")
                 and (it + 1) % densify_every == 0
@@ -707,13 +728,20 @@ def run_backend(
                 )
                 grads = means.grad
                 n_old = means.shape[0]
-                dup_idx = (
-                    grads.norm(dim=-1) > densify_threshold
-                ).nonzero().flatten() if grads is not None else torch.tensor([], device=device)
+                if densify_grad_accum and grad_norm_acc is not None:
+                    grads_for_densify = grad_norm_acc.unsqueeze(1)
+                    dup_idx = (
+                        grad_norm_acc > densify_threshold
+                    ).nonzero().flatten()
+                else:
+                    grads_for_densify = grads
+                    dup_idx = (
+                        grads.norm(dim=-1) > densify_threshold
+                    ).nonzero().flatten() if grads is not None else torch.tensor([], device=device)
                 old_m, old_q, old_s, old_o, old_c = means, quats, scales, opacities, sh
                 new_m, new_q, new_s, new_o, new_c = _densify_gaussians(
                     means, quats, scales, opacities, sh,
-                    grads, threshold=densify_threshold,
+                    grads_for_densify, threshold=densify_threshold,
                 )
                 new_m, new_q, new_s, new_o, new_c = _prune_gaussians(
                     new_m, new_q, new_s, new_o, new_c,
@@ -740,6 +768,9 @@ def run_backend(
                         colors=(old_c, sh),
                     )
                     dynamic_scene.mark_dirty()
+
+                if densify_grad_accum:
+                    grad_norm_acc = torch.zeros(means.shape[0], device=device)
 
             if eval_every > 0 and (it + 1) % eval_every == 0:
                 with torch.no_grad():
@@ -844,6 +875,15 @@ def build_arg_parser():
         "--anchor-densify",
         action="store_true",
         help="dynamic HiGS: run densify steps at full resolution (r=1.0)",
+    )
+    ap.add_argument(
+        "--densify-grad-accum",
+        action="store_true",
+        help=(
+            "dynamic HiGS: densify on window-accumulated position-gradient "
+            "norms (standard 3DGS recipe) instead of the instantaneous "
+            "per-step gradient"
+        ),
     )
     ap.add_argument(
         "--tile-sampling-ratio", type=float, default=1.0,
@@ -975,6 +1015,7 @@ def main():
                     lpips_loss_every=args.lpips_loss_every,
                     lpips_full_res=args.lpips_full_res,
                     cull_interval=args.cull_interval,
+                    densify_grad_accum=args.densify_grad_accum,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
