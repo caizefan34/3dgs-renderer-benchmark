@@ -22,8 +22,9 @@ import pytest
 import torch
 
 device = torch.device("cuda:0")
-_skip_no_cuda = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="No CUDA device"
+from higs_skip_helpers import (
+    skipif_higs_module_unavailable as _skip_no_higs_module,
+    skipif_higs_unavailable as _skip_no_cuda,
 )
 
 
@@ -1205,6 +1206,7 @@ class TestStaticApiSurface:
     only CUDA-specific tests skip cleanly.
     """
 
+    @_skip_no_higs_module
     def test_stage_apis_importable(self):
         from gsplat.experimental import (
             rasterize_gaussian_higs_dynamic,
@@ -1216,6 +1218,7 @@ class TestStaticApiSurface:
         assert callable(rasterize_gaussian_higs_frozen)
         assert callable(rasterize_gaussian_higs_dynamic)
 
+    @_skip_no_higs_module
     def test_backward_mode_default_native(self):
         import inspect
 
@@ -1229,6 +1232,7 @@ class TestStaticApiSurface:
             assert params["backward_mode"].default == "higs_native"
             assert params["sh_compression_mode"].default == "none"
 
+    @_skip_no_higs_module
     def test_backend_probe_returns_bool(self):
         from gsplat.experimental.render.functional.gaussian_inference import (
             _higs_backend_available,
@@ -1236,6 +1240,7 @@ class TestStaticApiSurface:
 
         assert isinstance(_higs_backend_available(), bool)
 
+    @_skip_no_higs_module
     def test_metadata_keys_in_module_source(self):
         import inspect
 
@@ -1254,6 +1259,7 @@ class TestStaticApiSurface:
         missing = {k for k in required if '"%s"' % k not in src}
         assert not missing, f"metadata keys missing from module source: {missing}"
 
+    @_skip_no_higs_module
     def test_handle_and_scene_api_surface(self):
         from gsplat.experimental.render.functional.gaussian_inference import (
             _HigsDynamicScene,
@@ -1562,6 +1568,7 @@ class TestCullingRefreshAndClamp:
         finally:
             handle.release()
 
+    @_skip_no_higs_module
     def test_densify_color_clamp_configurable(self):
         """densify clamps RGB to [0,1] by default; color_clamp=None disables."""
         from gsplat.experimental.render.functional.gaussian_inference import (
@@ -1586,3 +1593,172 @@ class TestCullingRefreshAndClamp:
         )
         assert c2.max() > 1.0, "color_clamp=None keeps raw values"
 
+
+class TestTileSampledBackward:
+    """Sampled (tile-masked) native backward vs the equivalent masked-loss full
+    backward. Round 39 compacts the pixel-blend grid to the selected tiles (the
+    per-pixel background gradient moves to a separate all-pixel kernel), so
+    these comparisons are exactness gates for the compacted path: the sampled
+    forward renders the selected tiles bit-identically to the full forward, and
+    the loss only depends on those tiles.
+    """
+
+    @staticmethod
+    def _pix_mask(tile_mask, tile_size, h, w):
+        # [C, th, tw] -> [C, H, W] boolean
+        pm = tile_mask.repeat_interleave(tile_size, dim=1).repeat_interleave(
+            tile_size, dim=2
+        )
+        return pm[:, :h, :w].bool()
+
+    @staticmethod
+    def _masked_mse(frame, target, pm):
+        # frame [1, C, H, W, 3], target [H, W, 3], pm [C, H, W]
+        d = frame[0] - target
+        d = d * pm[..., None]
+        return d.pow(2).sum() / pm.sum()
+
+    @_skip_no_cuda
+    def test_sampled_backward_matches_masked_full(self):
+        _require_ext()
+        N = 48
+        means, quats, scales, opacities, colors = _make_gaussians(N, 3, device)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        bg = torch.tensor([0.1, 0.2, 0.3], device=device, requires_grad=True)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        target = torch.rand(h, w, 3, device=device) * 0.6
+
+        def run(ratio, pm):
+            for t in [means, quats, scales, opacities, colors]:
+                t.grad = None
+            bg.grad = None
+            res = _run_frozen(
+                (means, quats, scales, opacities, colors),
+                viewmats, Ks, w, h, backward_mode="higs_native", background=bg,
+                tile_sampling_ratio=ratio, sampling_mode="uniform",
+            )
+            tm = res["metadata"]["tile_mask"]
+            pm = self._pix_mask(tm, 16, h, w) if pm is None else pm
+            self._masked_mse(res["frame"], target, pm).backward()
+            grads = [t.grad.clone() for t in
+                     [means, quats, scales, opacities, colors]]
+            return grads, bg.grad.clone(), pm
+
+        g_sampled, bg_sampled, pm = run(0.5, None)
+        g_full, bg_full, _ = run(1.0, pm)
+        for name, a, b in zip(
+            ["means", "quats", "scales", "opacities", "colors"],
+            g_sampled, g_full,
+        ):
+            torch.testing.assert_close(a, b, atol=1e-6, rtol=1e-6)
+        torch.testing.assert_close(bg_sampled, bg_full, atol=1e-6, rtol=1e-6)
+
+    @_skip_no_cuda
+    def test_sampled_multi_camera_matches_masked_full(self):
+        _require_ext()
+        N = 48
+        means, quats, scales, opacities, colors = _make_gaussians(N, 3, device)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        bg = torch.tensor([0.05, 0.15, 0.25], device=device, requires_grad=True)
+        v1, K, w, h = _full_view_camera(device)
+        v2 = v1.clone()
+        v2[0, 3] = 0.5
+        viewmats = torch.stack([v1, v2]).unsqueeze(0)  # [1, 2, 4, 4]
+        Ks = torch.stack([K, K]).unsqueeze(0)
+        target = torch.rand(h, w, 3, device=device) * 0.6
+
+        def run(ratio, pm):
+            for t in [means, quats, scales, opacities, colors]:
+                t.grad = None
+            bg.grad = None
+            res = _run_frozen(
+                (means, quats, scales, opacities, colors),
+                viewmats, Ks, w, h, backward_mode="higs_native", background=bg,
+                tile_sampling_ratio=ratio, sampling_mode="uniform",
+            )
+            tm = res["metadata"]["tile_mask"]
+            pm = self._pix_mask(tm, 16, h, w) if pm is None else pm
+            self._masked_mse(res["frame"], target, pm).backward()
+            grads = [t.grad.clone() for t in
+                     [means, quats, scales, opacities, colors]]
+            return grads, bg.grad.clone(), pm
+
+        g_sampled, bg_sampled, pm = run(0.5, None)
+        assert pm.shape[0] == 2  # per-camera masks
+        g_full, bg_full, _ = run(1.0, pm)
+        for name, a, b in zip(
+            ["means", "quats", "scales", "opacities", "colors"],
+            g_sampled, g_full,
+        ):
+            torch.testing.assert_close(a, b, atol=1e-6, rtol=1e-6)
+        torch.testing.assert_close(bg_sampled, bg_full, atol=1e-6, rtol=1e-6)
+
+    @_skip_no_cuda
+    def test_unsampled_gaussians_exact_zero_grad(self):
+        _require_ext()
+        N = 48
+        means, quats, scales, opacities, colors = _make_smooth_scene(N, device)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        bg = torch.tensor([0.2, 0.3, 0.4], device=device, requires_grad=True)
+        viewmat, K, w, h = _full_view_camera(device)  # 64x48 -> tile grid 4x3
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        # Smooth-scene Gaussians sit at pixels x in [35.5, 49.5], y in
+        # [19.5, 29.5] (tiles (2..3, 1)); selecting only tile (0, 0) leaves no
+        # Gaussian in any selected tile, so every parameter gradient must be
+        # EXACTLY zero while the background still gets the selected-pixel loss.
+        th, tw = math.ceil(h / 16), math.ceil(w / 16)
+        mask = torch.zeros(1, th, tw, dtype=torch.bool, device=device)
+        mask[0, 0, 0] = True
+        res = _run_frozen(
+            (means, quats, scales, opacities, colors),
+            viewmats, Ks, w, h, backward_mode="higs_native", background=bg,
+            tile_mask=mask,
+        )
+        assert res["metadata"]["sampled_tile_ratio"] < 1.0
+        pm = self._pix_mask(mask, 16, h, w)
+        target = torch.rand(h, w, 3, device=device)
+        self._masked_mse(res["frame"], target, pm).backward()
+        for name, t in [("means", means), ("quats", quats),
+                        ("scales", scales), ("opacities", opacities),
+                        ("colors", colors)]:
+            assert t.grad is not None
+            assert (t.grad == 0).all(), f"{name} must be exactly zero"
+        assert bg.grad is not None
+        assert (bg.grad != 0).any()
+
+    @_skip_no_cuda
+    def test_unmasked_loss_background_gradient(self):
+        # LPIPS-style steps backprop through ALL pixels of the sampled frame
+        # (masked tiles render the background), so the compacted path must run
+        # the separate all-pixel background kernel: dL/dbg = sum over pixels of
+        # (1 - alpha) * v_render_colors.
+        _require_ext()
+        N = 48
+        means, quats, scales, opacities, colors = _make_gaussians(N, 3, device)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        bg = torch.tensor([0.1, 0.2, 0.3], device=device, requires_grad=True)
+        viewmat, K, w, h = _full_view_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        target = torch.rand(h, w, 3, device=device) * 0.6
+
+        res = _run_frozen(
+            (means, quats, scales, opacities, colors),
+            viewmats, Ks, w, h, backward_mode="higs_native", background=bg,
+            tile_sampling_ratio=0.5, sampling_mode="uniform",
+        )
+        assert res["metadata"]["sampled_tile_ratio"] < 1.0
+        loss = (res["frame"][0] - target).pow(2).mean()
+        loss.backward()
+        v_c = 2.0 * (res["frame"][0] - target) / (h * w * 3)  # dL/d(render): loss mean spans H*W*C
+        alpha = res["alpha"][0, ..., 0]  # [H, W]
+        expected = ((1.0 - alpha)[..., None] * v_c).sum(dim=(0, 1))
+        torch.testing.assert_close(bg.grad, expected, atol=1e-5, rtol=1e-5)

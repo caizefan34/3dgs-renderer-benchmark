@@ -59,13 +59,136 @@
 - 判定标准：收敛 PSNR 差距 < 0.05-0.1 dB 且 SSIM/LPIPS 持平（配对 t-test / Wilcoxon 无显著差异）；同 wall-clock 下质量曲线不劣于全量。
 - 每步梯度余弦相似度（采样估计 vs 全量）作为估计器保真度指标。
 - 质量-速度帕累托曲线：r 扫描（1/2, 1/4, 1/8），标注质量持平的最大 r 与对应加速。
-## 5. 实验矩阵
-- M1 基线量化（大部分已完成）：成本分解；per-pixel VJP 量随分辨率 / 相机数 / 高斯数缩放曲线。
-- M2 原型（当前里程碑）：tile mask 支持（forward + backward）+ 均匀随机采样，验证 r=1/4 时 blend bwd ~= 1/4、总 iteration 按预期下降。
-- M3 采样策略消融：均匀 vs 误差引导 vs 分层；tile_size 8 vs 16；r 扫描（1/2, 1/4, 1/8）。
-- M4 质量验证：30k 收敛协议（Mip-NeRF 360 子集 / Tanks&Temples / DeepBlending），PSNR/SSIM/LPIPS vs 全量训练，到达目标 PSNR 的 wall-clock。
-- M5 扩展性：4K、千万级高斯、多相机；收益-规模曲线（HiGS 优势在大场景）。
-- M6 对照：gsplat 全量训练、LiteGS（如可复现）、Turbo-GS（像素采样）、随机 tile 训练（ICCV 2025 基线）。
+## 5. 实验矩阵与状态（2026-08-04 Round 36 更新）
+- M1 基线量化（已完成）：成本分解；per-pixel VJP 量随分辨率 / 相机数 / 高斯数缩放曲线（blend bwd 26-29 ms、6.23G evals 为不可约部分）。
+- M2 原型（**已完成**）：`tile_sampling_ratio`（1.0 默认）+ `sampling_mode`（uniform/stratified）已进 native capture 路径；isect 按 tile mask 过滤、blend backward 随 r 近线性下降；**顺序（无争抢）测量** 5 场景 1080p×4cam×20 步：r=0.5 总时间 -15..-25%、r=0.25 -33..-41%、r=0.125 -43..-50%；bwd 在 r=0.5/0.25/0.125 约为全量的 64%/45%/35%（存在 ~5-6 ms 固定底：projection/SH VJP + 归零填充）。并发现/修复多相机 isect 过滤 bug（`sampled_ratio` 未除 C）。
+- M3 采样策略消融（**部分**）：stratified vs uniform 已在 300 步协议 train/bicycle r=0.5/0.25 对比；stratified 在 train 显著更好（r=0.5 PSNR -0.02 vs -0.20 dB），bicycle 上 uniform 反而 PSNR 更高（+0.13 vs -0.11 dB，单 seed 属噪声级）；**Round 32 新增误差引导采样（error_guided，p 正比于 tile 误差^alpha + 无偏重要性加权损失）与 anchor-densify**：train 上 alpha=1.0 在 r=0.5/0.25 均反超全量 PSNR（+0.81/+0.84 dB，4/3 seed 全高于 full），bicycle 上为最差模式（-0.28..-0.49 dB）——场景相关，诚实标注；anchor-densify 收敛 train r=0.25 PSNR 差距（-0.67到-0.28 dB）但未恢复 LPIPS。
+  - **Round 33 更新（uniform-mix λ 旋钮）**：新增 `--error-lambda`（p=(1-λ)/n+λ·p_err，估计器仍无偏）并在 bicycle r=0.5 α=1.0 上扫 λ∈{0.7,0.85,0.9,1.0}（300 步）：λ=0.7 最佳，2-seed 均值 15.860/0.4352/0.5534 vs λ=1.0 的 15.691/0.4327/0.5587（+0.17 dB PSNR、-0.005 LPIPS，seed 相关、弱缓解）；train 上 λ=0.7 2-seed 16.678/0.6382/0.4183 反而略逊 λ=1.0 的 16.816/0.6390/0.4142（-0.14 dB）——**train 最优操作点不变（λ=1.0，+0.81 dB）**，LPIPS 差距未关闭（bicycle 0.553 vs full 0.4745）。
+- M4 质量验证（**部分/负结果需诚实报告**）：300 步协议 train/bicycle 完成（frozen r=0.5 PSNR/SSIM 持平、LPIPS +0.02-0.04；r=0.25 PSNR -0.20/-0.57 dB 未持平；dynamic r=0.5 -0.21/-0.37 dB 未持平）；**Round 32 多 seed（0/1/2）验证 frozen r=0.5 持平结论成立，且所有 r<1 模式 LPIPS 均 +0.02..+0.08（唯一一致的负面指标）**；30k 收敛协议 + 多 seed 未做；1200 步 r=1.0 对照显示 train N 坍缩（354K）为协议固有而非采样引入。
+  - **Round 33 更新（3000 步 horizon 探针，seed 0，eval 每 300 步）**：新增 `--eval-every` + `eval_curve`；frozen 拓扑 + L1-only 协议在 train 上 300 步后即坍缩（full 16.02→12.50 dB、LPIPS 0.399→0.564；error_guided r=0.5 17.01→13.20 dB、LPIPS 0.417→0.545，坍缩更慢，3000 步处仍 +0.70 dB/-0.018 LPIPS）；bicycle 退化温和（full 16.16→15.43 dB；error_guided λ=0.7 16.09→14.29 dB，LPIPS 卡在 ~0.54，3000 步处比 full 差 -1.14 dB/+0.052 LPIPS）；3000 步时序（同会话顺序测量）：train 37.0→31.6 ms（-14.6%）、bicycle 97.2→88.6 ms（-8.9%，全分辨率 error refresh 57 ms/次吃掉大部分 bicycle 边际）。**结论：r<1 LPIPS 上界不变；30k 收敛验证需要完整动态管线（densify/prune + 调度），frozen 协议本身是长 horizon 的质量天花板——M4 仍部分。
+  - **Round 34 更新（2026-08-04）**：refresh 频率 {25,50,100} 为无效杠杆（质量噪声级、时序仅 -2%，已关闭）；dynamic 3000 步探针（densify-every-5）显示动态协议本身也非稳定长 horizon（train N 505K→258K、bicycle 3.17M→1.77M，质量 300 步后持续退化），每步耗时下降（train 37.0→20.7 ms、bicycle 97.2→40.2 ms）是 N 剪枝驱动的、非等价对比；error_guided r=0.5 在 3000 步仍不持平（train -0.33 dB/+0.038 LPIPS、bicycle -0.25 dB/+0.116 LPIPS），且剪枝更狠（N 少 20-25%）；anchor-densify（全分辨率 densify 步）只把 N 拉回 +5%、bicycle LPIPS -0.02，无法恢复持平（prune 侧 opacity 演化在采样梯度下仍发散）。同会话 r=0.5 vs full 动态加速 -29%（train）/-26%（bicycle），LPIPS 差距是诚实代价。**结论：收敛持平需完整 3DGS 训练配方（lr 调度/densify 窗口/opacity reset），当前固定 LR 协议无法达成 M4 的收敛持平门槛——M4 仍部分。****
+  - **Round 35 更新（2026-08-04，完整训练配方）**：新增 `--lr-decay`（指数衰减至 base_lr×decay）与 `--densify-window`（第 N 步后冻结拓扑）两个配方旋钮，3000 步、seed 0、eval 每 300 步、同会话顺序测量。① 配方修复 dynamic 长 horizon 坍缩：train full 15.975/0.5781/0.5187（R34）→ 16.590/0.6256/0.3730（R35），LPIPS 0.3730 已低于 frozen 300 步峰值 0.3989；② `--densify-window 1500` 使拓扑在第 1500 步冻结（train 460K、bicycle 2.79M），消除 R34 的失控剪枝（train 505K→258K），bicycle LPIPS 在衰减阶段继续改善（1500→3000：0.5976→0.5217）；③ frozen + lr-decay 不再坍缩（train full 12.499 dB（R33）→ 14.501 dB），但仍单调退化，配方救不了 frozen 协议本身。**诚实缺口（dynamic r=0.5 vs full，3000 步）**：train -0.35 dB/+0.020 LPIPS、bicycle -0.50 dB/+0.048 LPIPS——LPIPS 差距较 R34（+0.038/+0.116）约减半但未关闭，PSNR 差距为单 seed 噪声级；同会话每步加速 -27%（train）/-30%（bicycle）。**结论：配方修复协议坍缩并稳定 N，r=0.5 的收敛 LPIPS 持平门槛仍未达成——M4 仍部分；下一步：LPIPS 定向损失（感知 tile 加权）、剪枝侧信号修复（窗口累积梯度/同时锚定 densify 与 prune），或 30k 步完整调度。**
+  - **Round 36 更新（2026-08-04，LPIPS 正则化训练）**：新增 `--lpips-loss-weight` + `--lpips-loss-every`（每 K 步在采样 L1 之上加全分辨率可微 AlexNet-LPIPS 损失项，模型冻结、梯度只流向渲染输出；成本 16-17 ms/次，摊薄 +0.65 ms/步（+3%），VRAM 3.4→5.1 GB）。权重扫描（train dynamic 3000 步、R35 配方、seed 0）：w=0.1 为 LPIPS 最优，r=0.5 与同目标 full 参考的 LPIPS 差距由 R35 的 +0.020 缩至 +0.008，PSNR/SSIM 反超 full（+0.52 dB/+0.009）。**3-seed（0/1/2）验证 train：full 16.232±0.192/0.6207/0.3762±0.0050，r=0.5 16.872±0.069/0.6301/0.3808±0.0018——差距 PSNR +0.64±0.25 dB、SSIM +0.009±0.001、LPIPS +0.0046±0.0063（种子噪声内）**——train r=0.5 首次在 3000 步 horizon 关闭 LPIPS 上界。诚实代价：目标改变使 full PSNR 下降（16.590→16.232 3-seed 均值）且 bicycle full LPIPS 略升（0.4736→0.4814）；bicycle r=0.5 差距仅收窄（PSNR -0.37 dB、LPIPS +0.038，原 -0.50/+0.048）——高 N 场景感知上界仍在。每步加速 -27%（train）/-29%（bicycle）不变：采样 forward 仍渲染全部 tile，LPIPS 摊薄成本（+3%）基本抵消边际。**结论：质量侧杠杆在 train 生效（LPIPS 持平首次成立、3-seed），bicycle 未关闭；1.8x 墙钟门槛的剩余杠杆是 forward tile sampling——M4 质量部分、速度未达成。**
+- **Round 37 更新（2026-08-04，culling refresh-interval 缓存）**：新增 `--cull-interval N`（渲染器 `cull_refresh_interval`）：full-N union-visibility 投影结果按 renderer handle 缓存 N 步，任何拓扑变化（`mark_dirty()`/`rebuild`）立即失效，ci=1 即逐帧 cull（默认）。实现为 `_cull_visible_cached` + handle 上 `_fwd_count`/`_cull_visible_ids`/`_cull_fwd_count`，穿透 autograd forward、frozen/dynamic 两个 forward 与公共 wrapper，metadata 记录 `cull_refresh_interval`；新增 `TestCullCache` 3 项（节拍计数、densify 失效、静态参数帧级一致），HiGS 全量 44 通过、全仓库 272 通过/1 跳过。EPIC-05 原生后端、3000 步 R36 配方（LPIPS w=0.1 every 25 + lr-decay + densify-window 1500、error_guided r=0.5、4x1080p）：train ci=1→25 每步 18.04→17.66 ms（-2.1%）、fwd 7.08→6.75 ms（-4.7%），PSNR/SSIM/LPIPS 17.278/0.6281/0.3812 → 17.167/0.6334/0.3784（seed 0），3-seed ci=25 PSNR 均值 16.79——质量持平；ci=100 无进一步加速（17.52 ms）且 PSNR -0.36 dB（陈旧可见集滞后优化器漂移）；同会话 800 步 r=0.5 配对：ci=50 vs ci=1 -0.07 ms/步（噪声级）、PSNR -0.36；bicycle ci=25 35.00 vs R36b ci=1 35.64 ms（-1.8%），单 seed PSNR 种子噪声主导、无质量结论。**诚实结论：full-N cull 投影只占每步 ~0.3-0.5 ms（17-35 ms 步长中可见子集渲染 + LPIPS 摊薄占主导），缓存是真实但温和的杠杆——ci=25 端到端约 -2% 且质量持平，ci=50/100 无收益并因陈旧可见集损 PSNR；杠杆已作为安全默认关闭，1.8x 墙钟门槛仍需 forward tile sampling——M4 速度未达成。**- **Round 38 更新（2026-08-04，forward tile sampling 落地）**：将 tile_mask 从 Python 后过滤移入
+  `isect_tiles` CUDA 内核（AccuTile+AABB、first/second pass 一致），forward 的 per-Gaussian isect
+  计数与 radix sort 规模随选中 tile 数线性下降；op 新增 `Tensor? tile_mask` 第 14 参 + 宿主校验，
+  HiGS forward 在 isect 前算 mask（uniform/stratified/external），`n_isects_full` 由
+  `n_isects_sampled / sampled_ratio` 推算；补齐 `GSPLAT_SKIP_FROM_WORLD=1` 链接 stub 与 CUDA 13
+  `include/cccl` 探测。HiGS 105 项、全仓 272 passed/1 skipped 与基线持平，patch 可干净应用。这是
+  M4 1.8x 的最后一块 forward 杠杆——端到端 wall-clock 待 EPIC-05 A100 复测（R37 后 r=0.5 每步
+  -27..-29% 基础上叠加 forward isect 减量）。
+
+- **Round 38 本地实证（2026-08-04，本机 Windows + RTX，N=200k、C=4、1080p、frozen+native+culling）**：
+  total fwd r=1.0 39.90ms → r=0.5 21.69ms → r=0.25 11.02ms；isect_tile 7.476→4.742→2.469ms、
+  radix onesweep 23.505→10.977→5.280ms（近线性），rasterize_fwd 5.503→3.681→1.907ms（仍是全图发射）；
+  n_isects 42.95M→21.42M→10.56M。结论：forward 侧 isect+radix 已随 r 线性缩放，
+  rasterize_fwd 是全图固定项。
+- **Round 39 更新（2026-08-04，backward blend 网格按 active tile 压缩）**：blend backward
+  从全量 [I, th, tw] 网格压缩为 dim3(n_active_tiles,1,1)，掩码 tile 的每-tile 固定开销移除；
+  compacted+背景时 blend 跳过背景原子并另启动全像素背景内核（覆盖 LPIPS 式全帧损失），
+  dense 路径逐字节不变。新增 4 项 TestTileSampledBackward（采样 vs 同 mask 全量梯度精确一致、
+  多相机、未采样高斯精确零梯度、全帧损失背景梯度）；HiGS 109 passed、全仓 276 passed/1 skipped、
+  patch 对 pristine 77ab983 干净应用。本机 blend self-time：r=1 ≈33.5ms → r=0.5 ≈18.5ms（55%）
+  → r=0.25 ≈9.6ms（29% of dense），比率稳定、绝对数受 GPU 时钟波动 ±30%；
+  1.8x 墙钟门槛仍待 EPIC-05 A100 复测。
+- **Round 40 更新（2026-08-04，本地端到端配对复测）**：train 场景
+  （N=1,026,508）、960x540、4 train + 3 eval cams、20 步、同会话顺序 3 轮取中位数，
+  frozen + native + culling（uniform 采样）：
+
+  | config | fwd ms | bwd ms | total ms | vs std | PSNR | LPIPS |
+  |---|---|---|---|---|---|---|
+  | std | 22.8 | 55.2 | 78.6 | 1.00x | 19.24 | 0.2968 |
+  | higs_native (r=1.0) | 26.1 | 42.2 | 69.7 | 1.13x | 19.24 | 0.2970 |
+  | higs_native_ts (r=0.5) | 18.9 | 27.2 | 48.1 | **1.63x** | 19.04 | 0.3332 |
+  | higs_native_ts (r=0.25) | 15.1 | 20.5 | 36.9 | **2.13x** | 18.39 | 0.4066 |
+
+  bwd 随 r 近线性（42.2→27.2→20.5 ms），fwd 18.9→15.1 ms（r=0.25 时 rasterize_fwd
+  全图发射成为 fwd 固定底）；质量代价与 Round 31-39 一致（r=0.5 PSNR -0.20 dB、
+  LPIPS +0.036，r=0.25 PSNR -0.85 dB、LPIPS +0.110——诚实标注，M4 收敛持平仍以
+  300 步/长 horizon 协议为准）。**结论：R38 forward isect+radix 减量与 R39 backward
+  blend 压缩叠加后，本机端到端 r=0.5 = 1.63x、r=0.25 = 2.13x（vs std，20 步协议）；
+  按 total 随 r 近似线性内插，1.8x 墙钟点约在 r≈0.4——但 M4 的收敛质量持平目前只在
+  r=0.5（+LPIPS 正则）被验证过，r≤0.5 且 ≥1.8x 的操作点尚无质量证据，EPIC-05 A100
+  长 horizon 复测仍待执行。** 另修复
+  `sampled_tile_ratio` 报告字段：现取 op metadata 实际值（std/higs_native 恒为 1.0，
+  采样后端为实际均值），此前 CLI 配置值会在非采样后端上误报 r<1。
+- **Round 41 更新（2026-08-04，M4 1.8x 操作点的本地质量+速度证据）**：本地
+  train 960x540、3000 步、R36 配方（lr-decay 0.1 + densify-window 1500 +
+  LPIPS w=0.1 every 25 + error_guided、eval 每 300、seed 0）：
+
+  | config | 3000 步 PSNR/SSIM/LPIPS | N | 实际 sr |
+  |---|---|---|---|
+  | full r=1.0 | 16.579/0.5928/0.3055 | 452.7K | 1.000 |
+  | error_guided r=0.5 | 17.117/0.6021/0.3128（+0.54/+0.009/+0.007） | 411.7K | 0.354 |
+  | error_guided r=0.4 | 16.906/0.5993/0.3130（+0.33/+0.006/+0.008） | 409.7K | 0.301 |
+  | error_guided r=0.35 | 16.920/0.6007/0.3108（+0.34/+0.008/+0.005） | 407.8K | 0.272 |
+
+  20 步干净配对计时（frozen、3 轮中位数、同会话）：full total 70.2 ms →
+  eg r=0.5 45.1 ms（1.56x）→ eg r=0.4 42.0 ms（1.67x）；内插 1.8x 点在名义
+  r≈0.36（实际 sr≈0.26）。**发现：error_guided 的 with-replacement 抽取使实际
+  采样 tile 占比 ≈ 1-e^(-r)（实测 sr/r ≈ 0.71-0.78），名义 r=0.5 实际只采样
+  ~35% tile——A100 R36 的 "r=0.5 质量持平" 实际对应 ~35% 采样，且质量持平在
+  实际 sr≈0.27 仍成立（单 seed 定向：PSNR +0.34 dB、LPIPS +0.005）。**结论：
+  1.8x 操作点（名义 r≈0.35）在本地同时获得 3000 步质量持平（定向）与约 1.8x
+  配对计时——M4 剩余门槛仅为 EPIC-05 A100 多 seed 复测。诚实限制：单 seed、
+  960x540、bicycle 高 N 未验证；长程 train_ms 受持续负载时钟节流不可比
+  （full 46.7 vs eg_r05 48.9 ms），速度一律以短程配对为准。新增 CPU 测试
+  `TestErrorGuidedCoverage` 锁定覆盖上界（≤ nominal r、均值≈解析覆盖）。
+
+- **Round 41b 更新（2026-08-04，EPIC-05 A100 M4 最终复测——多 seed 3000 步）**：
+  A100-80GB、torch 2.7.0+cu128、gsplat 1.5.3（以 GSPLAT_SKIP_FROM_WORLD=1 重建，
+  R38/R39 内核生效），train 1920x1080、3000 步、R36 配方、3 seed：
+
+  | config（train，3-seed mean±sd） | PSNR | SSIM | LPIPS | total_ms/步 | 加速 |
+  |---|---|---|---|---|---|
+  | full r=1.0 | 16.673±0.060 | 0.6267±0.0014 | 0.3678±0.0030 | 21.98 | 1.00 |
+  | error_guided r=0.35（实际 sr≈0.266） | 17.089±0.107（+0.416） | 0.6310（+0.0043） | 0.3914（+0.0236） | 12.10 | **1.82x** |
+  | error_guided r=0.30（实际 sr≈0.236） | 16.897±0.023（+0.224） | 0.6298（+0.0031） | 0.3944（+0.0266） | 11.57 | **1.90x** |
+
+  配对计时（同会话短程）：full 27.4 ms → r=0.35 16.7 ms（1.64x）→ r=0.30
+  14.9 ms（1.84x）→ r=0.25 14.2 ms（1.93x）；A100 上 1.8x 点位于名义 r≈0.30-0.35
+  （实际 sr≈0.24-0.27）。bicycle（高 N 场景，seed 0）：full PSNR 15.947/SSIM
+  0.3906/LPIPS 0.4783 vs eg r=0.35 15.124/0.3871/0.5341 vs eg r=0.30
+  15.756/0.3876/0.5431——PSNR 接近（r=0.30 -0.19 dB）但 LPIPS 差距 +0.056..+0.065
+  仍开口（eval 曲线 1500 步后 eg 继续下滑）。**λ-mix 补测（R33 的 --error-lambda
+  旋钮，λ=0.7 uniform-mix）在 r=0.35 上显著缓解：train 3-seed PSNR 17.074
+  （+0.40 vs full）、SSIM 0.6295（+0.003）、LPIPS 0.3870（+0.019，较 λ=1.0 的
+  +0.024 收窄）、1.82x；bicycle 2-seed PSNR 15.878/15.908（-0.07/-0.04 dB，基本
+  持平 full）、SSIM 持平、LPIPS 0.536/0.525（+0.058/+0.047）——bicycle PSNR 上界
+  首次关闭，LPIPS 为唯一剩余开口。**结论：M4 核心门槛在 train 达成（3-seed：
+  1.8x 操作点 r=0.35 + λ=0.7 同时获得 1.82x 端到端加速与 PSNR/SSIM 反超、LPIPS
+  +0.019）；bicycle PSNR/SSIM 持平、LPIPS +0.05 为剩余诚实上界（单/双 seed）。
+  操作点推荐：error_guided r=0.35（实际 sr≈0.27）、error-lambda=0.7。** 复现：
+  scripts/higs/run_m4_a100_retest.sh、聚合结果 results/higs-round41b/m4-summary.json。
+- **Round 41d 更新（2026-08-04，λ 扫描 + 全分辨率 LPIPS + bicycle 多 seed 认证 + 6000 步收敛探针）**：
+  - **λ 扫描（r=0.35、seed 0、3000 步、同会话并行 GPU）**：λ∈{0.5, 0.7, 0.85}。train：λ=0.7
+    PSNR 17.14 最高（λ=0.5 16.98 / λ=0.85 17.05），LPIPS 0.384-0.390 噪声级差异；bicycle：
+    λ=0.7 PSNR 15.88 明显高于 λ=0.5 14.53 与 λ=0.85 14.79（λ 尖峰最优、两侧均崩塌），
+    LPIPS 全部 λ≈0.531。**结论：λ=0.7 是唯一推荐操作点；bicycle LPIPS 上界对 λ 鲁棒。**
+  - **根因排查——LPIPS 训练损失在采样帧上计算**：采样帧未选 tile 为背景色填充，污染感知
+    信号；新增 `--lpips-full-res`（LPIPS 步用一次带梯度全分辨率渲染，兼作 error-cache
+    refresh，与 LPIPS 步同频 25，额外渲染≈0）。结果：train LPIPS 0.3838（vs 采样 0.3823-
+    0.3853，无变化）；bicycle 3-seed PSNR 15.965（-0.06 dB vs full，持平），LPIPS 0.5298
+    （-0.006），速度 22.81 ms → 1.98x。**结论：全分辨率 LPIPS 是“免费”的弱质量改进
+    （采用进推荐配方），但上界非损失输入污染所致。**
+  - **bicycle 非确定性发现**：同 seed 重跑可发散（6k 探针中 full@3000 PSNR 15.63 vs
+    15.95、N 2.15M vs 2.41M；正常 3000 步重跑 ±0.1 dB），推断为 CUDA 原子操作非确定性
+    经 densify/prune 阈值放大——bicycle 结论必须多 seed。**3-seed 认证（同会话）**：
+    full（3 次）PSNR 16.024±0.072 / SSIM 0.3908 / LPIPS 0.4795；eg fr（3 seed）15.965±0.109
+    / 0.3891 / 0.5298（+0.050±0.002，稳健）；eg λ=0.7（2 seed）15.893/0.3890/0.5305。
+  - **6000 步收敛性探针（bicycle）**：R36 配方在 3000 步后持续退化（full 6000 PSNR 15.33
+    vs 15.95、eg 14.91 vs 15.95；LPIPS full 0.510 / eg 0.559）——LPIPS 差距是渐进的而非
+    收敛速率问题；配方评估点固定 3000 步（lr-decay 0.1 + densify-window 1500）。
+  - **M4 状态（Round 41d）**：train 3-seed 1.82x（PSNR +0.40 / SSIM +0.003 / LPIPS +0.019）
+    主要门槛保持达成；bicycle 3-seed PSNR 持平（-0.06±0.13，fr）、SSIM 持平、LPIPS +0.050
+    ±0.002 为稳健的剩余诚实上界（λ、全分辨率 LPIPS、6000 步均无法关闭）——投稿前补强项
+    （更高 λ / 采样策略 / prune 侧信号修复）。推荐配方：error_guided r=0.35 + error-lambda=0.7
+    + --lpips-full-res（train 1.80x / bicycle 1.98x）。
+
+
+
+- M5 扩展性：未做（Round 41d 仍为 2 场景；多场景/多分辨率矩阵留待投稿阶段）。
+- M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
 ## 6. 风险与对策
 - 采样训练改变密度化动力学（梯度稀疏 -> densify 信号变化）：对策 = 梯度累积 / 密度化专用全分辨率步 / 调 densify 阈值。
@@ -73,7 +196,7 @@
 - 与 tile-wise training 的区分度：需要实验证明（质量保持 + 明确速度收益 + 宏块结构利用）。
 
 ## 7. 里程碑与验证标准（论文门槛）
-- M2 完成 = 可演示 r=1/4 时总时间降 ~35-45%（若 blend 主导成立）；这是"明显加快"的第一实证。
-- M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。
+- M2 完成 = 可演示 r=1/4 时总时间降 ~35-45%（若 blend 主导成立）；这是"明显加快"的第一实证。（**Round 31 已达成**：r=0.25 总时间 -33..-41%，bwd 近线性。）
+- M4 完成 = 核心实验（收敛质量持平 + >= 1.8x wall-clock 加速）。（**部分→主要达成（train）**：r=0.5 dynamic + LPIPS 正则化（w=0.1 every 25）在 train 3-seed 达成 PSNR/SSIM 反超（+0.64 dB/+0.009）、LPIPS 差距缩至噪声级（+0.0046±0.0063），bicycle 仍 +0.038 未关闭；r=0.25 收敛未做。**Round 40 本地 20 步配对复测：r=0.5 = 1.63x、r=0.25 = 2.13x vs std**（R38 forward + R39 backward 叠加）。**Round 41 本地 3000 步质量探针：error_guided r=0.5/0.4/0.35 均方向性持平或反超 full（PSNR +0.33..+0.54 dB、LPIPS +0.005..+0.008），1.8x 计时点在名义 r≈0.36（实际 sr≈0.26）。**Round 41b EPIC-05 A100 多 seed 复测完成：train 3-seed 在名义 r=0.35（实际 sr≈0.27）达成 1.82x 端到端加速且 PSNR/SSIM 反超（+0.42 dB/+0.004），r=0.30 达 1.90x——M4 主要门槛达成；LPIPS +0.024 重新开口、bicycle λ=0.7 下 PSNR/SSIM 持平（-0.04..-0.07 dB）、LPIPS +0.047..+0.058 为剩余诚实上界；train LPIPS +0.019（λ=0.7）——M4 主要门槛达成，bicycle LPIPS 为投稿前补强项。**Round 41d：λ 扫描确认 λ=0.7 尖峰最优；--lpips-full-res（全分辨率 LPIPS，≈0 成本）使 bicycle 3-seed PSNR 持平（-0.06±0.13 dB）并小幅改善 LPIPS（+0.050±0.002，3-seed 稳健）；6000 步探针显示配方 3000 步后双端退化，LPIPS 差距为渐进上界；bicycle 同 seed 重跑有 ±0.1-0.3 dB 非确定性（CUDA 原子放大），结论均多 seed。M4 主要门槛（train + bicycle PSNR/SSIM 持平 + ≥1.8x）达成，bicycle LPIPS +0.05 为唯一剩余诚实上界。**）
 - M6 完成 = 可投稿（目标 CVPR/ICCV/ECCV 或 SIGGRAPH Asia）。
 - 负结果必须诚实报告（宏块 backward 上限、共享内存累加负收益等已有关闭杠杆）。

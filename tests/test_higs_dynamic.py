@@ -1,8 +1,7 @@
-﻿import pytest
 import torch
 
 device = torch.device("cuda:0")
-_skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+from higs_skip_helpers import skipif_higs_unavailable as _skip_no_cuda
 
 def _make_gaussians(N, device, seed=42):
     torch.manual_seed(seed)
@@ -254,3 +253,128 @@ class TestTopologyMutation:
                 _HIGS_DYNAMIC_SCENE.mark_dirty()
         assert len(losses) == 10
         assert result["metadata"]["scene_version"] > 0
+
+class TestCullCache:
+    """Culling refresh-interval cache (round 37): the union-visibility
+    full-N projection is reused for N forwards and invalidated by any
+    topology change (densify/prune -> mark_dirty)."""
+
+    @_skip_no_cuda
+    def test_cull_cache_cadence_counts_culls(self):
+        from unittest import mock
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HIGS_DYNAMIC_SCENE,
+            _cull_gaussians_batched,
+        )
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 60
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        calls = {"n": 0}
+
+        def counting_cull(*args, **kwargs):
+            calls["n"] += 1
+            return _cull_gaussians_batched(*args, **kwargs)
+
+        interval = 3
+        import gsplat.experimental.render.functional.gaussian_inference as _g
+        with mock.patch.object(_g, "_cull_gaussians_batched", counting_cull):
+            metas = []
+            for _ in range(5):
+                res = rasterize_gaussian_higs_dynamic(
+                    means, quats, scales, opacities, colors,
+                    viewmats=viewmats, Ks=Ks, width=w, height=h,
+                    cull_refresh_interval=interval,
+                )
+                metas.append(res["metadata"])
+        # 5 forwards with interval 3 -> cull on forward 1 and forward 4 only.
+        assert calls["n"] == 2, f"expected 2 fresh culls, got {calls['n']}"
+        assert all(
+            m["cull_refresh_interval"] == interval for m in metas
+        )
+        assert metas[-1]["n_visible"] == metas[0]["n_visible"]
+
+    @_skip_no_cuda
+    def test_cull_cache_invalidated_on_topology_change(self):
+        from unittest import mock
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HIGS_DYNAMIC_SCENE,
+            _cull_gaussians_batched,
+            _densify_gaussians,
+        )
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 60
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        for t in [means, quats, scales, opacities, colors]:
+            t.requires_grad_(True)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+        calls = {"n": 0}
+        import gsplat.experimental.render.functional.gaussian_inference as _g
+        real_cull = _g._cull_gaussians_batched
+
+        def counting_cull(*args, **kwargs):
+            calls["n"] += 1
+            return real_cull(*args, **kwargs)
+
+        with mock.patch.object(_g, "_cull_gaussians_batched", counting_cull):
+            res1 = rasterize_gaussian_higs_dynamic(
+                means, quats, scales, opacities, colors,
+                viewmats=viewmats, Ks=Ks, width=w, height=h,
+                cull_refresh_interval=1000,
+            )
+            res1["frame"].sum().backward()
+            assert calls["n"] == 1
+            with torch.no_grad():
+                new_m, new_q, new_s, new_o, new_c = _densify_gaussians(
+                    means, quats, scales, opacities, colors, means.grad,
+                    threshold=0.0001,
+                )
+            _HIGS_DYNAMIC_SCENE.mark_dirty()
+            for t in [new_m, new_q, new_s, new_o, new_c]:
+                t.requires_grad_(True)
+            res2 = rasterize_gaussian_higs_dynamic(
+                new_m, new_q, new_s, new_o, new_c,
+                viewmats=viewmats, Ks=Ks, width=w, height=h,
+                cull_refresh_interval=1000,
+            )
+            res2["frame"].sum().backward()
+            # densify changed the Gaussian count: the stale cache must be
+            # invalidated and a fresh full-N cull must run.
+            assert calls["n"] == 2, f"expected fresh cull after densify, got {calls['n']}"
+            assert res2["metadata"]["n_gaussians"] > N
+
+    @_skip_no_cuda
+    def test_cull_cache_parity_static_params(self):
+        """With static parameters the cached path must render identically to
+        per-step culling (same visible set, same frame)."""
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HIGS_DYNAMIC_SCENE,
+        )
+        N = 60
+        means, quats, scales, opacities, colors = _make_gaussians(N, device)
+        viewmat, K, w, h = _make_camera(device)
+        viewmats = viewmat.unsqueeze(0).unsqueeze(0)
+        Ks = K.unsqueeze(0).unsqueeze(0)
+
+        def run(interval):
+            _HIGS_DYNAMIC_SCENE.reset()
+            m, q, s, o, c = [t.detach().clone() for t in (means, quats, scales, opacities, colors)]
+            res = rasterize_gaussian_higs_dynamic(
+                m, q, s, o, c,
+                viewmats=viewmats, Ks=Ks, width=w, height=h,
+                cull_refresh_interval=interval,
+            )
+            return res["frame"].detach().clone(), res["metadata"]["n_visible"]
+
+        f1, nv1 = run(1)
+        f2, nv2 = run(100)
+        torch.testing.assert_close(f1, f2, atol=1e-6, rtol=1e-6)
+        assert nv1 == nv2
+        assert nv1 > 0

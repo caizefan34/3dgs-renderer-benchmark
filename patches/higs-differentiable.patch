@@ -1,8 +1,100 @@
+diff --git a/gsplat/cuda/_torch_impl.py b/gsplat/cuda/_torch_impl.py
+index 7f1ee0f..11fe80a 100644
+--- a/gsplat/cuda/_torch_impl.py
++++ b/gsplat/cuda/_torch_impl.py
+@@ -361,6 +361,7 @@ def _isect_tiles(
+     tile_width: int,
+     tile_height: int,
+     sort: bool = True,
++    tile_mask: Optional[Tensor] = None,
+ ) -> Tuple[Tensor, Tensor, Tensor]:
+     """Pytorch implementation of `gsplat.cuda._wrapper.isect_tiles()`.
+ 
+@@ -392,6 +393,24 @@ def _isect_tiles(
+     tile_maxs[..., 1] = torch.clamp(tile_maxs[..., 1], 0, tile_height)
+     tiles_per_gauss = (tile_maxs - tile_mins).prod(dim=-1)  # [..., C, N]
+     tiles_per_gauss *= (radii > 0.0).all(dim=-1)
++    if tile_mask is not None:
++        # Restrict counts and emitted isects to the selected tiles (parity
++        # with the CUDA op's tile_mask path).
++        tile_mask = tile_mask.reshape(I, tile_height, tile_width)
++        masked = torch.zeros_like(tiles_per_gauss)
++        for image_id in range(I):
++            for gauss_id in range(N):
++                if radii[image_id, gauss_id, 0] <= 0.0 or radii[image_id, gauss_id, 1] <= 0.0:
++                    continue
++                y0, y1 = int(tile_mins[image_id, gauss_id, 1]), int(tile_maxs[image_id, gauss_id, 1])
++                x0, x1 = int(tile_mins[image_id, gauss_id, 0]), int(tile_maxs[image_id, gauss_id, 0])
++                c = 0
++                for y in range(y0, y1):
++                    for x in range(x0, x1):
++                        if tile_mask[image_id, y, x]:
++                            c += 1
++                masked[image_id, gauss_id] = c
++        tiles_per_gauss = masked
+ 
+     n_isects = tiles_per_gauss.sum().item()
+     # store in two int32 tensors instead, otherwise it will trigger out of bounds error
+@@ -424,6 +443,8 @@ def _isect_tiles(
+         tile_max = tile_maxs[image_id, gauss_id]
+         for y in range(tile_min[1], tile_max[1]):
+             for x in range(tile_min[0], tile_max[0]):
++                if tile_mask is not None and not tile_mask[image_id, y, x]:
++                    continue
+                 tile_id = y * tile_width + x
+                 # isect_ids[curr_idx] = (
+                 #     (image_id << (tile_n_bits + 32))
+diff --git a/gsplat/cuda/_wrapper.py b/gsplat/cuda/_wrapper.py
+index 762c3c5..fe6c172 100644
+--- a/gsplat/cuda/_wrapper.py
++++ b/gsplat/cuda/_wrapper.py
+@@ -1052,6 +1052,9 @@ def isect_tiles(
+     opacities: Optional[
+         Tensor
+     ] = None,  # [..., N] or [nnz], enables AccuTile when provided
++    tile_mask: Optional[
++        Tensor
++    ] = None,  # [I, tile_height, tile_width] bool, restrict enumeration to selected tiles
+ ) -> Tuple[Tensor, Tensor, Tensor]:
+     """Maps projected Gaussians to intersecting tiles.
+ 
+@@ -1073,6 +1076,10 @@ def isect_tiles(
+         gaussian_ids: The column indices of the projected Gaussians. Required if packed is True.
+         conics: Inverse of projected covariances (upper triangle). [..., N, 3] if packed is False, [nnz, 3] if packed is True. Enables AccuTile when provided together with opacities.
+         opacities: Gaussian opacities. [..., N] if packed is False, [nnz] if packed is True. Enables AccuTile when provided together with conics.
++        tile_mask: Optional bool tensor of shape [I, tile_height, tile_width]. When
++            provided, only intersections whose (image, tile) is selected are
++            counted/emitted and sorted, so both the radix sort and the output
++            sizes scale with the selected tile count (used by sparse training).
+ 
+     Returns:
+         A tuple:
+@@ -1102,6 +1109,7 @@ def isect_tiles(
+         tile_height,
+         sort,
+         segmented,
++        tile_mask.contiguous() if tile_mask is not None else None,
+     )
+     return tiles_per_gauss, isect_ids, flatten_ids
+ 
 diff --git a/gsplat/cuda/build.py b/gsplat/cuda/build.py
-index 1a3cbbf..9de859c 100644
+index 1a3cbbf..101e7f3 100644
 --- a/gsplat/cuda/build.py
 +++ b/gsplat/cuda/build.py
-@@ -123,6 +123,16 @@ def get_build_parameters():
+@@ -115,6 +115,12 @@ def get_build_parameters():
+                     p := os.path.join(CUDA_HOME, "targets", arch, "include", "cccl")
+                 ):
+                     extra_include_paths.append(p)
++    # Direct include/cccl layout (standard for CUDA 13.x on Windows): CCCL ships
++    # under <CUDA_HOME>/include/cccl, not targets/<arch>/include/cccl.
++    if CUDA_HOME:
++        p = os.path.join(CUDA_HOME, "include", "cccl")
++        if os.path.isdir(p) and p not in extra_include_paths:
++            extra_include_paths.append(p)
+ 
+     # Source files ------------------------------------
+     sources = (
+@@ -123,6 +129,19 @@ def get_build_parameters():
          + [os.path.join(PATH, "ext.cpp")]
      )
  
@@ -15,10 +107,414 @@ index 1a3cbbf..9de859c 100644
 +            s for s in sources
 +            if not (os.path.basename(s).startswith("RasterizeToPixelsFromWorld3DGS"))
 +        ]
++        # Link-time throwing stubs so Rasterization.cpp/Rendering.cpp still link
++        # without the three from-world TUs (see the stub file header for rationale).
++        sources.append(os.path.join(PATH, "csrc", "RasterizeToPixelsFromWorld3DGSStubs.cpp"))
 +
      # Compiler flags ----------------------------------
      extra_cflags = []
      extra_cuda_cflags = []
+diff --git a/gsplat/cuda/csrc/Intersect.cpp b/gsplat/cuda/csrc/Intersect.cpp
+index 4566974..4753e7e 100644
+--- a/gsplat/cuda/csrc/Intersect.cpp
++++ b/gsplat/cuda/csrc/Intersect.cpp
+@@ -180,7 +180,8 @@ TileIntersectResult intersect_tile(
+     int64_t tile_width,
+     int64_t tile_height,
+     bool sort,
+-    bool segmented
++    bool segmented,
++    const at::optional<at::Tensor> &tile_mask  // [I, tile_height, tile_width] bool, optional
+ )
+ {
+     DEVICE_GUARD(means2d);
+@@ -203,6 +204,21 @@ TileIntersectResult intersect_tile(
+     {
+         I = c10::multiply_integers(means2d.sizes().slice(0, means2d.dim() - 2));
+     }
++    if(tile_mask.has_value())
++    {
++        const at::Tensor &tm = tile_mask.value();
++        TORCH_CHECK(tm.scalar_type() == at::kBool, "intersect_tile: tile_mask must be bool");
++        TORCH_CHECK(
++            tm.dim() == 3 && tm.size(0) == static_cast<int64_t>(I) && tm.size(1) == tile_height
++                && tm.size(2) == tile_width,
++            "intersect_tile: tile_mask must be [I=%lld, tile_height=%lld, tile_width=%lld] bool, got %s",
++            static_cast<long long>(I),
++            static_cast<long long>(tile_height),
++            static_cast<long long>(tile_width),
++            c10::str(tm.sizes()).c_str()
++        );
++        TORCH_CHECK(!segmented, "intersect_tile: tile_mask is not supported with segmented sort");
++    }
+ 
+     // packed-mode `offsets` (below) reduce a 1-D [nnz] tiles_per_gauss and
+     // collapse to a single [0, total] segment, so a per-image segmented sort
+@@ -252,7 +268,8 @@ TileIntersectResult intersect_tile(
+             // outputs
+             at::optional<at::Tensor>(tiles_per_gauss),
+             c10::nullopt, // isect_ids
+-            c10::nullopt  // flatten_ids
++            c10::nullopt, // flatten_ids
++            tile_mask     // optional [I, tile_height, tile_width] bool
+         );
+         // Explicit int64 to match the kernel's int64 read of cum_tiles_per_gauss.
+         cum_tiles_per_gauss = at::cumsum(tiles_per_gauss.view({-1}), 0, at::kLong);
+@@ -291,7 +308,8 @@ TileIntersectResult intersect_tile(
+             // outputs
+             c10::nullopt, // tiles_per_gauss
+             at::optional<at::Tensor>(isect_ids),
+-            at::optional<at::Tensor>(flatten_ids)
++            at::optional<at::Tensor>(flatten_ids),
++            tile_mask // optional [I, tile_height, tile_width] bool
+         );
+     }
+ 
+@@ -341,7 +359,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_privateuseone(
+     int64_t tile_width,
+     int64_t tile_height,
+     bool sort,
+-    bool segmented
++    bool segmented,
++    const at::optional<at::Tensor> &tile_mask  // [I, tile_height, tile_width] bool, optional
+ )
+ {
+     DEVICE_GUARD(means2d);
+@@ -354,6 +373,18 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_privateuseone(
+     TORCH_CHECK(!segmented, "segmented mGPU intersect_tile is not supported");
+ 
+     int64_t I = packed ? n_images.value() : c10::multiply_integers(means2d.sizes().slice(0, means2d.dim() - 2));
++    if(tile_mask.has_value())
++    {
++        const at::Tensor &tm = tile_mask.value();
++        TORCH_CHECK(tm.scalar_type() == at::kBool, "intersect_tile: tile_mask must be bool");
++        TORCH_CHECK(
++            tm.dim() == 3 && tm.size(0) == I && tm.size(1) == tile_height && tm.size(2) == tile_width,
++            "intersect_tile: tile_mask must be [I=%lld, tile_height=%lld, tile_width=%lld] bool",
++            static_cast<long long>(I),
++            static_cast<long long>(tile_height),
++            static_cast<long long>(tile_width)
++        );
++    }
+ 
+     uint32_t n_tiles            = tile_width * tile_height;
+     const uint32_t image_n_bits = bits_for_count(I);
+@@ -381,7 +412,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_privateuseone(
+         tile_size,
+         tile_width,
+         tile_height,
+-        sort
++        sort,
++        tile_mask
+     );
+ }
+ 
+diff --git a/gsplat/cuda/csrc/Intersect.h b/gsplat/cuda/csrc/Intersect.h
+index 2b5cee5..4a82ac7 100644
+--- a/gsplat/cuda/csrc/Intersect.h
++++ b/gsplat/cuda/csrc/Intersect.h
+@@ -76,7 +76,8 @@ TileIntersectResult intersect_tile(
+     int64_t tile_width,
+     int64_t tile_height,
+     bool sort,
+-    bool segmented
++    bool segmented,
++    const at::optional<at::Tensor> &tile_mask  // [I, tile_height, tile_width] bool, optional
+ );
+ 
+ TileIntersectResult intersect_tile_lidar(
+@@ -181,7 +182,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+     const uint32_t tile_size,
+     const uint32_t tile_width,
+     const uint32_t tile_height,
+-    const bool sort
++    const bool sort,
++    const at::optional<at::Tensor> tile_mask // [I, tile_height, tile_width] bool, optional
+ );
+ 
+ void launch_intersect_tile_lidar_kernel(
+diff --git a/gsplat/cuda/csrc/IntersectTile.cu b/gsplat/cuda/csrc/IntersectTile.cu
+index 415d029..8f47d53 100644
+--- a/gsplat/cuda/csrc/IntersectTile.cu
++++ b/gsplat/cuda/csrc/IntersectTile.cu
+@@ -109,6 +109,7 @@ inline __device__ uint32_t accutile_process_tiles(
+     uint32_t tile_size,
+     uint32_t tile_width,
+     uint32_t n_tiles,
++    const bool *__restrict__ tile_mask, // [I, n_tiles] or null
+     bool isY,
+     int64_t image_id,
+     int64_t key_start,
+@@ -190,6 +191,10 @@ inline __device__ uint32_t accutile_process_tiles(
+             {
+                 continue;
+             }
++            if(tile_mask != nullptr && !tile_mask[image_id * n_tiles + tile_id])
++            {
++                continue;
++            }
+             ++tiles_count;
+ 
+             if(isect_ids != nullptr)
+@@ -353,6 +358,7 @@ __global__ void intersect_tile_kernel(
+             tile_size,
+             tile_width,
+             tile_width * tile_height,
++            tile_mask,
+             isY,
+             iid,
+             key_start,
+@@ -696,7 +702,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+     const uint32_t tile_size,
+     const uint32_t tile_width,
+     const uint32_t tile_height,
+-    const bool sort
++    const bool sort,
++    const at::optional<at::Tensor> tile_mask // [I, tile_height, tile_width] bool, optional
+ )
+ {
+     bool packed = means2d.dim() == 2;
+@@ -784,7 +791,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+                     image_n_bits,
+                     key_start,
+                     key_end,
+-                    nullptr,
++                    tile_mask.has_value() ? tile_mask.value().const_data_ptr<bool>() : nullptr,
+                     device_counts[device_id],
+                     nullptr,
+                     nullptr
+@@ -883,7 +890,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+                     image_n_bits,
+                     key_start,
+                     key_end,
+-                    nullptr,
++                    tile_mask.has_value() ? tile_mask.value().const_data_ptr<bool>() : nullptr,
+                     nullptr,
+                     isect_ids.data_ptr<int64_t>() + isect_offset,
+                     flatten_ids.data_ptr<int32_t>() + isect_offset
+diff --git a/gsplat/cuda/csrc/RasterizeToPixelsFromWorld3DGSStubs.cpp b/gsplat/cuda/csrc/RasterizeToPixelsFromWorld3DGSStubs.cpp
+new file mode 100644
+index 0000000..2364197
+--- /dev/null
++++ b/gsplat/cuda/csrc/RasterizeToPixelsFromWorld3DGSStubs.cpp
+@@ -0,0 +1,193 @@
++﻿// Link-time stubs for the RasterizeToPixelsFromWorld3DGS* kernels.
++//
++// When GSPLAT_SKIP_FROM_WORLD=1 the build drops the three
++// RasterizeToPixelsFromWorld3DGS*.cu translation units (they take 1.5-3.5h
++// each to compile under CUDA 13.x + sm_120 and are unused by the HiGS
++// training path). Rasterization.cpp still references the host helpers and
++// launch functions declared in RasterizeToPixelsFromWorld3DGS.h /
++// RasterizeCSR.cuh, so this TU provides throwing definitions that keep the
++// extension linkable. Any attempt to actually use
++// rasterize_to_pixels_from_world_3dgs in such a build fails fast with a
++// clear message instead of silently producing wrong output.
++
++#include <ATen/ATen.h>
++#include <c10/util/Optional.h>
++
++#include "RasterizeCSR.cuh"
++#include "RasterizeToPixelsFromWorld3DGS.h"
++
++namespace gsplat
++{
++
++namespace
++{
++[[noreturn]] void from_world_not_built()
++{
++    TORCH_CHECK(
++        false,
++        "rasterize_to_pixels_from_world_3dgs was not compiled into this gsplat build "
++        "(built with GSPLAT_SKIP_FROM_WORLD=1)."
++    );
++}
++} // namespace
++
++std::tuple<at::Tensor, at::Tensor, int64_t> compute_batch_csr(
++    const at::Tensor &tile_offsets,
++    int64_t n_isects,
++    uint32_t num_tiles,
++    int32_t pixels_per_tile,
++    at::TensorOptions dummy_options
++)
++{
++    from_world_not_built();
++}
++
++at::Tensor compute_bid_to_slot(
++    const at::Tensor &batches_per_tile,
++    const at::Tensor &batch_offsets,
++    int64_t total_batches,
++    at::TensorOptions dummy_options
++)
++{
++    from_world_not_built();
++}
++
++void launch_rasterize_to_pixels_from_world_3dgs_serial_batch_fwd_kernel(
++    const at::Tensor means,
++    const at::Tensor quats,
++    const at::Tensor scales,
++    const at::Tensor colors,
++    const at::Tensor opacities,
++    const at::optional<at::Tensor> backgrounds,
++    const at::optional<at::Tensor> masks,
++    const uint32_t image_width,
++    const uint32_t image_height,
++    const uint32_t tile_size,
++    const at::Tensor viewmats0,
++    const at::optional<at::Tensor> viewmats1,
++    const at::Tensor Ks,
++    const CameraModelType camera_model,
++    const c10::intrusive_ptr<UnscentedTransformParameters> &ut_params,
++    ShutterType rs_type,
++    const at::optional<at::Tensor> rays,
++    const at::optional<at::Tensor> radial_coeffs,
++    const at::optional<at::Tensor> tangential_coeffs,
++    const at::optional<at::Tensor> thin_prism_coeffs,
++    const c10::intrusive_ptr<FThetaCameraDistortionParameters> &ftheta_coeffs,
++    const at::optional<c10::intrusive_ptr<RowOffsetStructuredSpinningLidarModelParametersExt>> &lidar_coeffs,
++    const at::optional<c10::intrusive_ptr<extdist::BivariateWindshieldModelParameters>> &external_distortion_params,
++    const at::Tensor tile_offsets,
++    const at::Tensor flatten_ids,
++    const bool use_hit_distance,
++    const bool unsafe_masked_tile_outputs,
++    const at::Tensor batches_per_tile,
++    const at::Tensor batch_offsets,
++    const int64_t total_batches,
++    at::Tensor renders,
++    at::Tensor alphas,
++    at::Tensor last_ids,
++    at::optional<at::Tensor> sample_counts,
++    at::optional<at::Tensor> normals,
++    at::Tensor fwd_batch_state
++)
++{
++    from_world_not_built();
++}
++
++void launch_rasterize_to_pixels_from_world_3dgs_parallel_batch_fwd_kernel(
++    const at::Tensor means,
++    const at::Tensor quats,
++    const at::Tensor scales,
++    const at::Tensor colors,
++    const at::Tensor opacities,
++    const at::optional<at::Tensor> backgrounds,
++    const at::optional<at::Tensor> masks,
++    const uint32_t image_width,
++    const uint32_t image_height,
++    const uint32_t tile_size,
++    const at::Tensor viewmats0,
++    const at::optional<at::Tensor> viewmats1,
++    const at::Tensor Ks,
++    const CameraModelType camera_model,
++    const c10::intrusive_ptr<UnscentedTransformParameters> &ut_params,
++    ShutterType rs_type,
++    const at::optional<at::Tensor> rays,
++    const at::optional<at::Tensor> radial_coeffs,
++    const at::optional<at::Tensor> tangential_coeffs,
++    const at::optional<at::Tensor> thin_prism_coeffs,
++    const c10::intrusive_ptr<FThetaCameraDistortionParameters> &ftheta_coeffs,
++    const at::optional<c10::intrusive_ptr<RowOffsetStructuredSpinningLidarModelParametersExt>> &lidar_coeffs,
++    const at::optional<c10::intrusive_ptr<extdist::BivariateWindshieldModelParameters>> &external_distortion_params,
++    const at::Tensor tile_offsets,
++    const at::Tensor flatten_ids,
++    const bool use_hit_distance,
++    const bool unsafe_masked_tile_outputs,
++    const at::Tensor batches_per_tile,
++    const at::Tensor batch_offsets,
++    const at::Tensor bid_to_slot,
++    const int64_t total_batches,
++    bool fwd_only,
++    at::Tensor renders,
++    at::Tensor alphas,
++    at::Tensor last_ids,
++    at::optional<at::Tensor> sample_counts,
++    at::optional<at::Tensor> normals,
++    at::Tensor fwd_batch_state,
++    at::Tensor partials_meta,
++    at::Tensor batch_replay_preamble,
++    at::Tensor compose_c_stop,
++    at::Tensor priming_state
++)
++{
++    from_world_not_built();
++}
++
++void launch_rasterize_to_pixels_from_world_3dgs_parallel_batch_bwd_kernel(
++    const at::Tensor means,
++    const at::Tensor quats,
++    const at::Tensor scales,
++    const at::Tensor colors,
++    const at::Tensor opacities,
++    const at::optional<at::Tensor> backgrounds,
++    const at::optional<at::Tensor> masks,
++    const uint32_t image_width,
++    const uint32_t image_height,
++    const uint32_t tile_size,
++    const at::Tensor viewmats0,
++    const at::optional<at::Tensor> viewmats1,
++    const at::Tensor Ks,
++    const CameraModelType camera_model,
++    const c10::intrusive_ptr<UnscentedTransformParameters> &ut_params,
++    ShutterType rs_type,
++    const at::optional<at::Tensor> rays,
++    const at::optional<at::Tensor> radial_coeffs,
++    const at::optional<at::Tensor> tangential_coeffs,
++    const at::optional<at::Tensor> thin_prism_coeffs,
++    const c10::intrusive_ptr<FThetaCameraDistortionParameters> &ftheta_coeffs,
++    const at::optional<c10::intrusive_ptr<RowOffsetStructuredSpinningLidarModelParametersExt>> &lidar_coeffs,
++    const at::optional<c10::intrusive_ptr<extdist::BivariateWindshieldModelParameters>> &external_distortion_params,
++    const at::Tensor tile_offsets,
++    const at::Tensor flatten_ids,
++    const bool use_hit_distance,
++    const at::Tensor render_alphas,
++    const at::Tensor last_ids,
++    const at::Tensor v_render_colors,
++    const at::Tensor v_render_alphas,
++    const at::optional<at::Tensor> v_render_normals,
++    const at::Tensor batches_per_tile,
++    const at::Tensor batch_offsets,
++    const int64_t total_batches,
++    const at::Tensor fwd_batch_state,
++    const at::Tensor compose_c_stop,
++    at::Tensor v_means,
++    at::Tensor v_quats,
++    at::Tensor v_scales,
++    at::Tensor v_colors,
++    at::Tensor v_opacities,
++    at::optional<at::Tensor> v_rays
++)
++{
++    from_world_not_built();
++}
++
++} // namespace gsplat
+diff --git a/gsplat/cuda/csrc/Rendering.cpp b/gsplat/cuda/csrc/Rendering.cpp
+index 17d9125..a08b016 100644
+--- a/gsplat/cuda/csrc/Rendering.cpp
++++ b/gsplat/cuda/csrc/Rendering.cpp
+@@ -1401,7 +1401,8 @@ Rasterization3DGSResult rasterization_3dgs(
+                                                                                   tile_width,
+                                                                                   tile_height,
+                                                                                   true, // sort
+-                                                                                  segmented
++                                                                                  segmented,
++                                                                                  at::optional<at::Tensor>() // tile_mask
+                                                                               );
+ 
+     at::Tensor isect_offsets
+@@ -1923,7 +1924,8 @@ Rasterization2DGSResult rasterization_2dgs(
+         tile_width,
+         tile_height,
+         true, // sort
+-        false // segmented
++        false, // segmented
++        at::optional<at::Tensor>() // tile_mask
+     );
+     at::Tensor isect_offsets
+         = call_torch_op<&intersect_offset>("gsplat::intersect_offset", isects.isect_ids, I, tile_width, tile_height);
 diff --git a/gsplat/cuda/csrc/Utils.cpp b/gsplat/cuda/csrc/Utils.cpp
 index 06cba55..e27e715 100644
 --- a/gsplat/cuda/csrc/Utils.cpp
@@ -38,6 +534,19 @@ index 06cba55..e27e715 100644
      auto merge_stream = c10::cuda::getCurrentCUDAStream(merge_device_id);
      for(const auto device_id: c10::irange(c10::cuda::device_count()))
      {
+diff --git a/gsplat/cuda/ext.cpp b/gsplat/cuda/ext.cpp
+index 8f54b86..4601daa 100644
+--- a/gsplat/cuda/ext.cpp
++++ b/gsplat/cuda/ext.cpp
+@@ -1005,7 +1005,7 @@ TORCH_LIBRARY(gsplat, m)
+     m.def(
+         "intersect_tile(Tensor means2d, Tensor radii, Tensor depths, Tensor? conics, Tensor? opacities, Tensor? "
+         "image_ids, Tensor? gaussian_ids, int? n_images, int tile_size, int tile_width, int tile_height, bool sort, "
+-        "bool segmented) -> (Tensor, Tensor, Tensor)"
++        "bool segmented, Tensor? tile_mask) -> (Tensor, Tensor, Tensor)"
+     );
+     m.def("intersect_offset(Tensor isect_ids, int I, int tile_width, int tile_height) -> Tensor");
+     m.def(
 diff --git a/gsplat/cuda/include/Cameras.cuh b/gsplat/cuda/include/Cameras.cuh
 index abce151..d9a2dcf 100644
 --- a/gsplat/cuda/include/Cameras.cuh
@@ -189,7 +698,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..46a3942 100644
+index b6c1b13..f9e290b 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -256,7 +765,7 @@ index b6c1b13..46a3942 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2172 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2405 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -572,6 +1081,51 @@ index b6c1b13..46a3942 100644
 +    visible_ids = torch.where(visible_mask)[0]
 +    culling_ratio = 1.0 - (visible_ids.numel() / max(radii.shape[-2], 1))
 +    return visible_ids, visible_mask, culling_ratio
++
++
++def _cull_visible_cached(
++    handle,
++    interval: int,
++    means, quats, scales, viewmats, Ks,
++    width, height, eps2d=0.3,
++    near_plane=0.01, far_plane=1e10, radius_clip=0.0,
++    camera_model="pinhole",
++):
++    """Union-visibility culling with a refresh-interval cache.
++
++    The batched full-N projection is the only forward stage that touches every
++    Gaussian (isect/rasterize already run on the visible subset), so on the
++    dynamic training loop reusing its result for ``interval`` forwards removes
++    one full-N projection (and the union-mask bookkeeping) per step. The
++    visible set changes slowly under optimizer steps (~lr * grad per step), and
++    every topology change (densify/prune -> ``mark_dirty`` / ``rebuild``)
++    invalidates the cache, so a fresh cull is guaranteed exactly when the
++    Gaussian count changes.
++
++    Args:
++        handle: :class:`HigsRendererHandle` owning ``_cull_visible_ids`` /
++            ``_fwd_count`` state (must be non-None).
++        interval: refresh cadence in forwards; 1 reproduces per-step culling.
++    Returns:
++        visible_ids: 1D int64 tensor of visible Gaussian indices.
++    """
++    interval = max(1, int(interval))
++    cached = handle._cull_visible_ids
++    if (
++        cached is not None
++        and (handle._fwd_count - handle._cull_fwd_count) < interval
++    ):
++        return cached
++    vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
++        means, quats, scales, viewmats, Ks,
++        width, height,
++        eps2d=eps2d, near_plane=near_plane,
++        far_plane=far_plane, radius_clip=radius_clip,
++        camera_model=camera_model,
++    )
++    handle._cull_visible_ids = vis_ids
++    handle._cull_fwd_count = handle._fwd_count
++    return vis_ids
 +
 +
 +def _gather_rows_fast(t, row_ids):
@@ -963,6 +1517,9 @@ index b6c1b13..46a3942 100644
 +        self._topology_rebuilt: bool = False
 +        self._pending_backward: bool = False
 +        self._packed_stale: bool = False
++        self._fwd_count: int = 0
++        self._cull_visible_ids = None
++        self._cull_fwd_count: int = -1
 +        if means is not None:
 +            self._param_versions = self._capture_param_versions(
 +                (means, quats, scales, opacities, colors)
@@ -1008,6 +1565,8 @@ index b6c1b13..46a3942 100644
 +        self._dirty = True
 +        self._topology_rebuilt = False
 +        self._packed_stale = True
++        self._cull_visible_ids = None
++        self._cull_fwd_count = -1
 +
 +    def rebuild(self, means_planar, qso_packed, colors_packed, n_gaussians: int, packed_dtype: str, renderer=None, means=None, quats=None, scales=None, opacities=None, colors=None) -> None:
 +        """Replace the packed buffers + renderer after a topology change."""
@@ -1022,6 +1581,8 @@ index b6c1b13..46a3942 100644
 +        self._topology_rebuilt = True
 +        self._packed_stale = False
 +        self._version += 1
++        self._cull_visible_ids = None
++        self._cull_fwd_count = -1
 +        if means is not None:
 +            self._param_versions = self._capture_param_versions(
 +                (means, quats, scales, opacities, colors)
@@ -1048,6 +1609,7 @@ index b6c1b13..46a3942 100644
 +
 +    def _begin_forward(self) -> None:
 +        self._pending_backward = True
++        self._fwd_count += 1
 +
 +    def _end_backward(self, expected_version: int) -> None:
 +        if expected_version != self._version:
@@ -1384,6 +1946,10 @@ index b6c1b13..46a3942 100644
 +        enable_culling, use_higs_culling,
 +        backward_mode="higs_native", renderer_handle=None,
 +        sh_compression_mode="none",
++        tile_sampling_ratio=1.0,
++        sampling_mode="uniform",
++        tile_mask=None,
++        cull_refresh_interval=1,
 +    ):
 +        if backward_mode not in ("higs_native", "gsplat_recompute"):
 +            raise ValueError(
@@ -1415,6 +1981,41 @@ index b6c1b13..46a3942 100644
 +        ctx.native = native
 +        ctx.backward_backend = "higs_native" if native else "gsplat_recompute"
 +        ctx.native_available = _higs_backend_available()
++        if not (0.0 < float(tile_sampling_ratio) <= 1.0):
++            raise ValueError(
++                "tile_sampling_ratio must be in (0, 1], got %r" % (tile_sampling_ratio,)
++            )
++        ctx.tile_sampling_ratio = float(tile_sampling_ratio)
++        if sampling_mode not in ("uniform", "stratified"):
++            raise ValueError(
++                f"sampling_mode must be 'uniform' or 'stratified', got {sampling_mode!r}"
++            )
++        ctx.sampling_mode = sampling_mode
++        if tile_mask is not None:
++            if not native:
++                raise ValueError(
++                    "tile_mask requires backward_mode='higs_native' "
++                    "(masked isect filtering is implemented in the native capture path)."
++                )
++            if tile_mask.dtype != torch.bool or tile_mask.dim() != 3:
++                raise ValueError(
++                    "tile_mask must be a bool tensor of shape [C, tile_h, tile_w], "
++                    "got dtype=%s dim=%d" % (tile_mask.dtype, tile_mask.dim())
++                )
++            n_tiles_check = math.ceil(width / tile_size) * math.ceil(height / tile_size)
++            if tile_mask.shape[1] * tile_mask.shape[2] != n_tiles_check:
++                raise ValueError(
++                    "tile_mask shape %s does not match [C, th=%d, tw=%d]"
++                    % (tuple(tile_mask.shape), math.ceil(height / tile_size),
++                       math.ceil(width / tile_size))
++                )
++        ctx.tile_mask_external = tile_mask
++        ctx.cull_refresh_interval = max(1, int(cull_refresh_interval))
++        if ctx.tile_sampling_ratio < 1.0 and not native:
++            raise ValueError(
++                "tile_sampling_ratio < 1.0 requires backward_mode='higs_native' "
++                "(tile sampling is implemented in the native capture path)."
++            )
 +
 +        if native:
 +            if render_mode not in ("RGB", "D", "ED", "RGB+D", "RGB+ED"):
@@ -1475,13 +2076,26 @@ index b6c1b13..46a3942 100644
 +                # render path, but ~C full HiGS renders cheaper (no
 +                # intersect/rasterize pass). The camera model is passed through
 +                # so the mask is projection-consistent for ortho/fisheye too.
-+                vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
-+                    means, quats, scales, viewmats, Ks,
-+                    width, height,
-+                    eps2d=eps2d, near_plane=near_plane,
-+                    far_plane=far_plane, radius_clip=radius_clip,
-+                    camera_model=camera_model,
-+                )
++                # With a renderer handle (dynamic training) the result is
++                # cached for cull_refresh_interval forwards; the cache is
++                # invalidated by any topology change (mark_dirty/rebuild).
++                if renderer_handle is not None:
++                    vis_ids = _cull_visible_cached(
++                        renderer_handle, ctx.cull_refresh_interval,
++                        means, quats, scales, viewmats, Ks,
++                        width, height,
++                        eps2d=eps2d, near_plane=near_plane,
++                        far_plane=far_plane, radius_clip=radius_clip,
++                        camera_model=camera_model,
++                    )
++                else:
++                    vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
++                        means, quats, scales, viewmats, Ks,
++                        width, height,
++                        eps2d=eps2d, near_plane=near_plane,
++                        far_plane=far_plane, radius_clip=radius_clip,
++                        camera_model=camera_model,
++                    )
 +                visible_ids = vis_ids
 +
 +        if visible_ids is not None and visible_ids.numel() > 0:
@@ -1569,6 +2183,11 @@ index b6c1b13..46a3942 100644
 +                "sh_compression_mode": getattr(ctx, "sh_compression_mode", "none"),
 +                "render_mode": render_mode,
 +                "scene_version": ctx.scene_version,
++                "sampled_tile_ratio": 1.0,
++                "sampling_mode": "uniform",
++                "tile_mask": None,
++                "n_isects": 0,
++                "n_isects_full": 0,
 +            }
 +            if C == 1:
 +                return frame.squeeze(0)[None], alpha_ch.squeeze(0)[None]  # [1,H,W,3], [1,H,W,1]
@@ -1590,6 +2209,10 @@ index b6c1b13..46a3942 100644
 +                    v_colors_input, viewmats, Ks, width, height, sh_degree,
 +                    tile_size, near_plane, far_plane, radius_clip, eps2d,
 +                    backgrounds_b, camera_model, render_mode,
++                    ctx.tile_sampling_ratio,
++                    ctx.sampling_mode,
++                    ctx.tile_mask_external,
++                    ctx.cull_refresh_interval,
 +                )
 +            )
 +        else:
@@ -1647,6 +2270,11 @@ index b6c1b13..46a3942 100644
 +            "sh_compression_mode": getattr(ctx, "sh_compression_mode", "none"),
 +            "render_mode": render_mode,
 +            "scene_version": ctx.scene_version,
++            "sampled_tile_ratio": getattr(ctx, "sampled_tile_ratio", 1.0),
++            "sampling_mode": getattr(ctx, "sampling_mode", "uniform"),
++            "tile_mask": getattr(ctx, "tile_mask", None),
++            "n_isects": getattr(ctx, "n_isects_sampled", 0),
++            "n_isects_full": getattr(ctx, "n_isects_full", 0),
 +        }
 +        return frame[None], alpha_ch[None]
 +
@@ -1657,6 +2285,10 @@ index b6c1b13..46a3942 100644
 +        viewmats, Ks, width, height, sh_degree,
 +        tile_size, near_plane, far_plane, radius_clip, eps2d,
 +        backgrounds_b, camera_model, render_mode,
++        tile_sampling_ratio=1.0,
++        sampling_mode="uniform",
++        tile_mask=None,
++        cull_refresh_interval=1,
 +    ):
 +        """Run the standard gsplat CUDA forward on the visible subset and
 +        capture every tensor the native backward consumes, in ONE pass."""
@@ -1694,6 +2326,58 @@ index b6c1b13..46a3942 100644
 +            opacities_bc = torch.broadcast_to(
 +                opacities_b[..., None, :], (1, C, N)
 +            ).contiguous()  # [1, C, N]
++            n_tiles = tile_width * tile_height
++            if tile_mask is not None:
++                # Explicit harness-provided mask (e.g. error-guided sampling).
++                # The mask is applied verbatim; the harness is responsible for
++                # the estimator (e.g. importance weights on the loss).
++                mask = tile_mask.reshape(C, n_tiles)
++                sampled_ratio = float(mask.float().mean())
++            elif 0.0 < tile_sampling_ratio < 1.0:
++                # Tile sampling without replacement. The mean over the sampled
++                # tiles is an unbiased estimator of the full-frame mean loss,
++                # so the harness needs no 1/r rescale -- only a mask over the
++                # sampled tiles.
++                if sampling_mode == "stratified":
++                    # One tile per stratum of size round(1/r) (consecutive
++                    # tiles in row-major order). Every region of the frame
++                    # keeps a sample, which reduces gradient-estimator
++                    # variance vs iid uniform sampling at the same r.
++                    stratum_size = max(1, int(round(1.0 / tile_sampling_ratio)))
++                    n_strata = (n_tiles + stratum_size - 1) // stratum_size
++                    rnd = torch.rand((C, n_strata), device=means_b.device)
++                    pick = (rnd * stratum_size).long().clamp(max=stratum_size - 1)
++                    base = (
++                        torch.arange(n_strata, device=means_b.device)[None, :]
++                        * stratum_size
++                    )
++                    sel = (base + pick).clamp(max=n_tiles - 1)  # [C, n_strata]
++                    mask = torch.zeros(
++                        (C, n_tiles), dtype=torch.bool, device=means_b.device
++                    )
++                    mask.scatter_(1, sel, True)
++                else:
++                    k = max(1, int(round(n_tiles * tile_sampling_ratio)))
++                    rnd = torch.rand((C, n_tiles), device=means_b.device)
++                    _, top_idx = torch.topk(rnd, k, dim=1)  # [C, k]
++                    mask = torch.zeros(
++                        (C, n_tiles), dtype=torch.bool, device=means_b.device
++                    )
++                    mask.scatter_(1, top_idx, True)
++                sampled_ratio = float(mask.float().mean())
++            else:
++                mask = torch.ones(
++                    (C, n_tiles), dtype=torch.bool, device=means_b.device
++                )
++                sampled_ratio = 1.0
++            ctx.tile_mask = mask.reshape(C, tile_height, tile_width)
++            ctx.sampled_tile_ratio = sampled_ratio
++            # Round 38: pass the mask into isect_tiles so the CUDA op restricts
++            # the per-Gaussian counts AND the emitted isects to the selected
++            # tiles and sorts only the compacted list (the full-N radix sort
++            # and the Python-level mask filtering are both removed from the
++            # sampled path). The mask is computed before the intersection so
++            # the op never builds the full isect list.
 +            tiles_per_gauss, isect_ids, flatten_ids = isect_tiles(
 +                means2d,
 +                radii,
@@ -1707,7 +2391,14 @@ index b6c1b13..46a3942 100644
 +                gaussian_ids=None,
 +                conics=conics,
 +                opacities=opacities_bc,
++                tile_mask=ctx.tile_mask if sampled_ratio < 1.0 else None,
 +            )
++            ctx.n_isects_sampled = int(isect_ids.numel())
++            # The op returns per-Gaussian counts restricted to the selected
++            # tiles, so the exact full-N count is not available from its
++            # outputs; the sampled isect fraction is recovered exactly at the
++            # tile level (isect_frac ~ sampled_tile_ratio).
++            ctx.n_isects_full = int(round(ctx.n_isects_sampled / sampled_ratio))
 +            isect_offsets = isect_offset_encode(
 +                isect_ids, C, tile_width, tile_height
 +            ).reshape((1, C, tile_height, tile_width))
@@ -1906,6 +2597,16 @@ index b6c1b13..46a3942 100644
 +        grad_scales = torch.zeros_like(scales)
 +        grad_opacities = torch.zeros_like(opacities)
 +        grad_colors = torch.zeros_like(colors)
++        # Round 39: backward tile sampling - compact the pixel-blend grid to
++        # the selected tiles only. active_tiles are the global (image, tile)
++        # ids of ctx.tile_mask, so the blend backward launches one block per
++        # selected tile instead of the full tile grid; the per-pixel
++        # background gradient moves to a separate all-pixel kernel inside the
++        # launcher. The full-coverage (all-ones) case keeps the dense path.
++        active_tiles = None
++        if getattr(ctx, "sampled_tile_ratio", 1.0) < 1.0:
++            tm_flat = ctx.tile_mask.reshape(-1)
++            active_tiles = torch.nonzero(tm_flat, as_tuple=False).squeeze(1).to(torch.int32)
 +        out = backend.higs_rasterize_backward(
 +            means2d=means2d_f,
 +            conics=conics_f,
@@ -1914,6 +2615,7 @@ index b6c1b13..46a3942 100644
 +            backgrounds=bg_kernel,
 +            tile_offsets=tile_offsets_f,
 +            flatten_ids=flatten_ids_f,
++            active_tiles=active_tiles,
 +            render_alphas=render_alphas_f,
 +            last_ids=last_ids_f,
 +            means=v_means,
@@ -1998,7 +2700,7 @@ index b6c1b13..46a3942 100644
 +                    tracked[name] = t.detach().requires_grad_(True)
 +
 +            if not tracked:
-+                return (None,) * 23
++                return (None,) * 26
 +
 +            alpha_final = None
 +            if ctx.N_visible == 0:
@@ -2092,6 +2794,10 @@ index b6c1b13..46a3942 100644
 +            None, None,  # render_mode, camera_model
 +            None, None,  # enable_culling, use_higs_culling
 +            None, None, None,  # backward_mode, renderer_handle, sh_compression_mode
++            None,  # tile_sampling_ratio (non-tensor input)
++            None,  # sampling_mode (non-tensor input)
++            None,  # tile_mask (bool tensor, non-differentiable input)
++            None,  # cull_refresh_interval (non-tensor input)
 +        )
 +
 +def _higs_frozen_forward(
@@ -2120,6 +2826,10 @@ index b6c1b13..46a3942 100644
 +    freeze_topology: bool = True,
 +    backward_mode: str = "higs_native",
 +    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
++    tile_mask=None,
++    cull_refresh_interval: int = 1,
 +    scene=None,
 +) -> dict:
 +    """Forward pass for frozen-topology HiGS diff. path (Stage B).
@@ -2148,7 +2858,8 @@ index b6c1b13..46a3942 100644
 +        near_plane, far_plane, radius_clip, eps2d, background,
 +        render_mode, camera_model,
 +        enable_culling, use_higs_culling,
-+        backward_mode, scene, sh_compression_mode,
++        backward_mode, scene, sh_compression_mode, tile_sampling_ratio,
++        sampling_mode, tile_mask, cull_refresh_interval,
 +    )
 +    fwd_meta = dict(_HigsAutogradFunction.last_forward_metadata)
 +    N_total = fwd_meta["n_gaussians"]
@@ -2199,6 +2910,11 @@ index b6c1b13..46a3942 100644
 +            "higs_preview": higs_preview,
 +            "freeze_topology": freeze_topology,
 +            "render_count": _HIGS_FROZEN_TRACKER.render_count,
++            "sampled_tile_ratio": fwd_meta.get("sampled_tile_ratio", 1.0),
++            "tile_mask": fwd_meta.get("tile_mask"),
++            "n_isects": fwd_meta.get("n_isects", 0),
++            "n_isects_full": fwd_meta.get("n_isects_full", 0),
++            "cull_refresh_interval": cull_refresh_interval,
 +        },
 +    }
 +
@@ -2228,6 +2944,10 @@ index b6c1b13..46a3942 100644
 +    freeze_topology: bool = True,
 +    backward_mode: str = "higs_native",
 +    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
++    tile_mask=None,
++    cull_refresh_interval: int = 1,
 +    scene=None,
 +) -> dict:
 +    """Differentiable HiGS rendering with per-frame visibility culling (Stage B).
@@ -2265,6 +2985,10 @@ index b6c1b13..46a3942 100644
 +        freeze_topology=freeze_topology,
 +        backward_mode=backward_mode,
 +        sh_compression_mode=sh_compression_mode,
++        tile_sampling_ratio=tile_sampling_ratio,
++        sampling_mode=sampling_mode,
++        tile_mask=tile_mask,
++        cull_refresh_interval=cull_refresh_interval,
 +        scene=scene,
 +    )
 +
@@ -2293,6 +3017,10 @@ index b6c1b13..46a3942 100644
 +    return_higs_preview: bool = False,
 +    backward_mode: str = "higs_native",
 +    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
++    tile_mask=None,
++    cull_refresh_interval: int = 1,
 +    scene=None,
 +) -> dict:
 +    """Forward pass for dynamic-topology HiGS diff. path (Stage C).
@@ -2320,7 +3048,8 @@ index b6c1b13..46a3942 100644
 +        near_plane, far_plane, radius_clip, eps2d, background,
 +        render_mode, camera_model,
 +        enable_culling, use_higs_culling,
-+        backward_mode, handle, sh_compression_mode,
++        backward_mode, handle, sh_compression_mode, tile_sampling_ratio,
++        sampling_mode, tile_mask, cull_refresh_interval,
 +    )
 +
 +    scene_version = _HIGS_DYNAMIC_SCENE.next_version(means.shape[0])
@@ -2367,6 +3096,11 @@ index b6c1b13..46a3942 100644
 +            "render_mode": render_mode,
 +            "use_higs_culling": use_higs_culling,
 +            "higs_preview": higs_preview,
++            "sampled_tile_ratio": fwd_meta.get("sampled_tile_ratio", 1.0),
++            "tile_mask": fwd_meta.get("tile_mask"),
++            "n_isects": fwd_meta.get("n_isects", 0),
++            "n_isects_full": fwd_meta.get("n_isects_full", 0),
++            "cull_refresh_interval": cull_refresh_interval,
 +        },
 +    }
 +
@@ -2396,6 +3130,10 @@ index b6c1b13..46a3942 100644
 +    return_higs_preview: bool = False,
 +    backward_mode: str = "higs_native",
 +    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
++    tile_mask=None,
++    cull_refresh_interval: int = 1,
 +    scene=None,
 +) -> dict:
 +    """Differentiable HiGS rendering with dynamic-topology support (Stage C).
@@ -2427,6 +3165,10 @@ index b6c1b13..46a3942 100644
 +        return_higs_preview=return_higs_preview,
 +        backward_mode=backward_mode,
 +        sh_compression_mode=sh_compression_mode,
++        tile_sampling_ratio=tile_sampling_ratio,
++        sampling_mode=sampling_mode,
++        tile_mask=tile_mask,
++        cull_refresh_interval=cull_refresh_interval,
 +        scene=scene,
 +    )
 diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py
@@ -2914,10 +3656,10 @@ index c01a046..892a0e3 100644
          at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 new file mode 100644
-index 0000000..1935492
+index 0000000..ea50254
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
-@@ -0,0 +1,1504 @@
+@@ -0,0 +1,1587 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -2988,6 +3730,10 @@ index 0000000..1935492
 +    const float *__restrict__ opacities,
 +    const float *__restrict__ backgrounds, // [I, CDIM] or nullptr
 +    // image geometry
++    const uint32_t tile_width,
++    const uint32_t tile_height,
++    const int32_t *__restrict__ active_tiles, // [AT] selected tile ids or nullptr (dense grid)
++    const bool skip_background_atomic,        // background grads handled by a separate kernel
 +    const uint32_t image_width,
 +    const uint32_t image_height,
 +    const uint32_t tile_size,
@@ -3007,14 +3753,25 @@ index 0000000..1935492
 +    float *__restrict__ v_backgrounds // [CDIM] (summed over all images)
 +)
 +{
-+    auto block              = cg::this_thread_block();
-+    const uint32_t tile_width  = gridDim.z;
-+    const uint32_t tile_height = gridDim.y;
++    auto block = cg::this_thread_block();
 +
-+    uint32_t image_id = block.group_index().x;
-+    uint32_t tile_id  = block.group_index().y * tile_width + block.group_index().z;
-+    uint32_t i        = block.group_index().y * tile_size + block.thread_index().y;
-+    uint32_t j        = block.group_index().z * tile_size + block.thread_index().x;
++    uint32_t image_id, tile_id;
++    if(active_tiles != nullptr)
++    {
++        // compacted grid: one block per selected tile, decoded from the list
++        const int32_t global_tile = active_tiles[blockIdx.x];
++        image_id = static_cast<uint32_t>(global_tile / (int32_t)(tile_width * tile_height));
++        tile_id  = static_cast<uint32_t>(global_tile % (int32_t)(tile_width * tile_height));
++    }
++    else
++    {
++        image_id = block.group_index().x;
++        tile_id  = block.group_index().y * tile_width + block.group_index().z;
++    }
++    const uint32_t tile_x = tile_id % tile_width;
++    const uint32_t tile_y = tile_id / tile_width;
++    uint32_t i            = tile_y * tile_size + block.thread_index().y;
++    uint32_t j            = tile_x * tile_size + block.thread_index().x;
 +
 +    tile_offsets    += (int64_t)image_id * tile_height * tile_width;
 +    render_alphas   += (int64_t)image_id * image_height * image_width;
@@ -3063,8 +3820,10 @@ index 0000000..1935492
 +    }
 +    const float v_render_a = v_render_alphas[pix_id];
 +
-+    // background gradient: d(render)/d(background) = T_final per pixel
-+    if(backgrounds != nullptr)
++    // background gradient: d(render)/d(background) = T_final per pixel. Skipped
++    // when the compacted grid runs a separate all-pixel background kernel (so
++    // active pixels are not double-counted).
++    if(backgrounds != nullptr && !skip_background_atomic)
 +    {
 +#pragma unroll
 +        for(uint32_t k = 0; k < CDIM; ++k)
@@ -3214,6 +3973,10 @@ index 0000000..1935492
 +    const float *__restrict__ colors,
 +    const float *__restrict__ opacities,
 +    const float *__restrict__ backgrounds,
++    const uint32_t tile_width,
++    const uint32_t tile_height,
++    const int32_t *__restrict__ active_tiles, // [AT] selected tile ids or nullptr (dense grid)
++    const bool skip_background_atomic,        // background grads handled by a separate kernel
 +    const uint32_t image_width,
 +    const uint32_t image_height,
 +    const uint32_t tile_size,
@@ -3231,14 +3994,25 @@ index 0000000..1935492
 +)
 +{
 +    static_assert(PX == 1 || PX == 2 || PX == 4 || PX == 8, "PX must be 1/2/4/8");
-+    auto block              = cg::this_thread_block();
-+    const uint32_t tile_width  = gridDim.z;
-+    const uint32_t tile_height = gridDim.y;
++    auto block = cg::this_thread_block();
 +
-+    uint32_t image_id = block.group_index().x;
-+    uint32_t tile_id  = block.group_index().y * tile_width + block.group_index().z;
-+    uint32_t i0       = block.group_index().y * tile_size;
-+    uint32_t j0       = block.group_index().z * tile_size;
++    uint32_t image_id, tile_id, i0, j0;
++    if(active_tiles != nullptr)
++    {
++        // compacted grid: one block per selected tile, decoded from the list
++        const int32_t global_tile = active_tiles[blockIdx.x];
++        image_id = static_cast<uint32_t>(global_tile / (int32_t)(tile_width * tile_height));
++        tile_id  = static_cast<uint32_t>(global_tile % (int32_t)(tile_width * tile_height));
++        j0       = (tile_id % tile_width) * tile_size;
++        i0       = (tile_id / tile_width) * tile_size;
++    }
++    else
++    {
++        image_id = block.group_index().x;
++        tile_id  = block.group_index().y * tile_width + block.group_index().z;
++        i0       = block.group_index().y * tile_size;
++        j0       = block.group_index().z * tile_size;
++    }
 +    const uint32_t ty = block.thread_index().y;
 +    const uint32_t tx = block.thread_index().x;
 +    constexpr uint32_t PX_ROWS = 16 / PX; // tile rows assigned per q (tile_size == 16)
@@ -3283,7 +4057,7 @@ index 0000000..1935492
 +            buffer[q][k]     = 0.f;
 +        }
 +        v_render_a[q] = v_render_alphas[pix_id[q]];
-+        if(backgrounds != nullptr)
++        if(backgrounds != nullptr && !skip_background_atomic)
 +        {
 +#pragma unroll
 +            for(uint32_t k = 0; k < CDIM; ++k)
@@ -4046,6 +4820,7 @@ index 0000000..1935492
 +    const at::optional<at::Tensor> &backgrounds,
 +    const at::Tensor &tile_offsets,
 +    const at::Tensor &flatten_ids,
++    const at::optional<at::Tensor> &active_tiles, // [AT] int32 selected tile ids or nullopt
 +    const at::Tensor &render_alphas,
 +    const at::Tensor &last_ids,
 +    const at::Tensor &means,
@@ -4077,6 +4852,11 @@ index 0000000..1935492
 +    check_float_cuda(opacities, "opacities");
 +    check_int_cuda(tile_offsets, "tile_offsets");
 +    check_int_cuda(flatten_ids, "flatten_ids");
++    if(active_tiles.has_value())
++    {
++        check_int_cuda(active_tiles.value(), "active_tiles");
++        TORCH_CHECK(active_tiles.value().dim() == 1, "active_tiles must be 1-D");
++    }
 +    check_float_cuda(render_alphas, "render_alphas");
 +    check_int_cuda(last_ids, "last_ids");
 +    check_float_cuda(means, "means");
@@ -4158,6 +4938,20 @@ index 0000000..1935492
 +    const int64_t tile_h   = tile_offsets.size(-2);
 +    const int64_t tile_w   = tile_offsets.size(-1);
 +    const int64_t n_isects = flatten_ids.size(0);
++
++    // Round 39: optional active-tile compaction. When the forward ran with a
++    // tile mask, the blend grid is launched only over the selected tiles (and
++    // the per-pixel background gradient is moved to a separate all-pixel
++    // kernel so active pixels are not double-counted). Dense callers pass
++    // nullopt and keep the original full-grid path byte-for-byte unchanged.
++    const int32_t *active_tiles_ptr = nullptr;
++    uint32_t n_active_tiles = 0;
++    if(active_tiles.has_value())
++    {
++        active_tiles_ptr = active_tiles.value().const_data_ptr<int32_t>();
++        n_active_tiles   = static_cast<uint32_t>(active_tiles.value().numel());
++    }
++    const bool compacted = (active_tiles_ptr != nullptr);
 +    // Channel layout of the captured colors_eval: 1 = depth-only, 3 = RGB,
 +    // 4 = RGB + depth (depth is the LAST channel). -1 means no depth channel.
 +    const int32_t depth_channel = (color_dim == 4) ? 3 : (color_dim == 1) ? 0 : -1;
@@ -4167,11 +4961,20 @@ index 0000000..1935492
 +    {
 +        const uint32_t threads_dim = static_cast<uint32_t>(tile_size);
 +        dim3 threads(threads_dim, threads_dim, 1);
-+        dim3 grid(
-+            static_cast<uint32_t>(I),
-+            static_cast<uint32_t>(tile_h),
-+            static_cast<uint32_t>(tile_w)
-+        );
++        dim3 grid;
++        if(active_tiles_ptr != nullptr)
++        {
++            // one block per selected tile
++            grid = dim3(n_active_tiles, 1, 1);
++        }
++        else
++        {
++            grid = dim3(
++                static_cast<uint32_t>(I),
++                static_cast<uint32_t>(tile_h),
++                static_cast<uint32_t>(tile_w)
++            );
++        }
 +#define LAUNCH_BLEND_BWD(CDIM)                                                                     \
 +    {                                                                                              \
 +        const char *px_env = std::getenv("HIGS_PX_RUNTIME");                                       \
@@ -4193,6 +4996,8 @@ index 0000000..1935492
 +                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
 +                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
 +                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(tile_w), static_cast<uint32_t>(tile_h),                       \
++                active_tiles_ptr, compacted,                                                        \
 +                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
 +                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
 +                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
@@ -4214,6 +5019,8 @@ index 0000000..1935492
 +                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
 +                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
 +                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(tile_w), static_cast<uint32_t>(tile_h),                       \
++                active_tiles_ptr, compacted,                                                        \
 +                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
 +                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
 +                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
@@ -4235,6 +5042,8 @@ index 0000000..1935492
 +                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
 +                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
 +                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(tile_w), static_cast<uint32_t>(tile_h),                       \
++                active_tiles_ptr, compacted,                                                        \
 +                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
 +                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
 +                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
@@ -4256,6 +5065,8 @@ index 0000000..1935492
 +                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
 +                colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),             \
 +                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,    \
++                static_cast<uint32_t>(tile_w), static_cast<uint32_t>(tile_h),                       \
++                active_tiles_ptr, compacted,                                                        \
 +                static_cast<uint32_t>(width), static_cast<uint32_t>(height),                        \
 +                static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),           \
 +                flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),       \
@@ -4286,6 +5097,20 @@ index 0000000..1935492
 +            break;
 +        }
 +#undef LAUNCH_BLEND_BWD
++
++        if(compacted && backgrounds.has_value())
++        {
++            // The compacted blend grid skips the masked tiles' per-pixel
++            // background gradient (skip_background_atomic), so every pixel's
++            // d(render)/d(background) = T_final must be accumulated here. For
++            // masked tiles render == background (T_final == 1), which also
++            // covers LPIPS-style losses that backprop through all pixels.
++            const int64_t n_pixels = I * height * width;
++            const uint32_t threads = 256;
++            const uint32_t bg_grid = static_cast<uint32_t>((n_pixels + threads - 1) / threads);
++            higs_background_bwd_kernel<<<bg_grid, threads, 0, stream>>>(static_cast<uint32_t>(n_pixels), static_cast<uint32_t>(color_dim), render_alphas.const_data_ptr<float>(), v_render_colors.const_data_ptr<float>(), v_backgrounds.data_ptr<float>());
++            C10_CUDA_KERNEL_LAUNCH_CHECK();
++        }
 +    }
 +    else if(backgrounds.has_value())
 +    {
@@ -4424,10 +5249,10 @@ index 0000000..1935492
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
 new file mode 100644
-index 0000000..893872f
+index 0000000..c931655
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,95 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -4491,6 +5316,7 @@ index 0000000..893872f
 +        const at::optional<at::Tensor> &backgrounds, // [I, 3] float32 or nullopt
 +        const at::Tensor &tile_offsets, // [I, tile_h, tile_w] int32
 +        const at::Tensor &flatten_ids,  // [n_isects] int32
++        const at::optional<at::Tensor> &active_tiles, // [AT] int32 selected tile ids or nullopt
 +        const at::Tensor &render_alphas, // [I, H, W] float32
 +        const at::Tensor &last_ids,     // [I, H, W] int32
 +        // ---- projection VJP inputs ----
@@ -4522,8 +5348,61 @@ index 0000000..893872f
 +    );
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
+index 13097f3..dc14afe 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
+@@ -28,21 +28,21 @@ __device__ __forceinline__ void AssignAs(U &u, const V &v)
+ }
+ 
+ // Round-to-nearest (ties away from zero) __half2 pair to the M bits of mantissa
+-template<uint M, bool MASK_OUT_OUTPUT = true>
++template<unsigned int M, bool MASK_OUT_OUTPUT = true>
+ __device__ __forceinline__ __half2 RoundToNearest(const __half2 &v)
+ {
+-    constexpr uint MANTISSA_MASK = 0x03FF03FF;
+-    constexpr uint TRUNC_MASK    = ~(((1u << (10 - M)) - 1) * 0x10001u);
++    constexpr unsigned int MANTISSA_MASK = 0x03FF03FF;
++    constexpr unsigned int TRUNC_MASK    = ~(((1u << (10 - M)) - 1) * 0x10001u);
+     // get rounding offset scale s*2^e (input float with mantissa zeroed out)
+-    const uint vn                = reinterpret_cast<const uint &>(v) & ~MANTISSA_MASK;
++    const unsigned int vn                = reinterpret_cast<const unsigned int &>(v) & ~MANTISSA_MASK;
+     const __half2 vb             = reinterpret_cast<const __half2 &>(vn);
+     // get rounding offset
+     const __half2 vs             = __float2half2_rn((1 << (10 - M)) / 2048.0f);
+     // add to float a scaled rounding offset
+     const __half2 v_r            = __hfma2(vb, vs, v);
+     // return masked __half2
+-    const uint vi_r
+-        = MASK_OUT_OUTPUT ? (reinterpret_cast<const uint &>(v_r) & TRUNC_MASK) : reinterpret_cast<const uint &>(v_r);
++    const unsigned int vi_r
++        = MASK_OUT_OUTPUT ? (reinterpret_cast<const unsigned int &>(v_r) & TRUNC_MASK) : reinterpret_cast<const unsigned int &>(v_r);
+     return reinterpret_cast<const __half2 &>(vi_r);
+ }
+ 
+@@ -137,9 +137,9 @@ __forceinline__ __device__ __half2 __uint8x2_to_half2(uint32_t src)
+     return dp.f;
+ }
+ 
+-__forceinline__ __device__ uint __cvt_pack_sat_u8_f32(float a0, float a1, float a2, float a3)
++__forceinline__ __device__ unsigned int __cvt_pack_sat_u8_f32(float a0, float a1, float a2, float a3)
+ {
+-    uint rval;
++    unsigned int rval;
+     asm volatile(
+         "{.reg .u32 tmp, i0, i1;\n"
+         "cvt.rni.s32.f32 i0, %1;\n"
+@@ -154,7 +154,7 @@ __forceinline__ __device__ uint __cvt_pack_sat_u8_f32(float a0, float a1, float
+     return rval;
+ }
+ 
+-__forceinline__ __device__ uint __cvt_pack_sat_u8_f32(const float4 &a)
++__forceinline__ __device__ unsigned int __cvt_pack_sat_u8_f32(const float4 &a)
+ {
+     return __cvt_pack_sat_u8_f32(a.x, a.y, a.z, a.w);
+ }
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d1..fc28161 100644
+index 2eb26d1..426d402 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
 @@ -18,6 +18,8 @@
@@ -4535,7 +5414,7 @@ index 2eb26d1..fc28161 100644
  
  PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
  {
-@@ -52,9 +54,76 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+@@ -52,9 +54,77 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
          )
          .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
          .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
@@ -4555,6 +5434,7 @@ index 2eb26d1..fc28161 100644
 +        py::arg("backgrounds"),
 +        py::arg("tile_offsets"),
 +        py::arg("flatten_ids"),
++        py::arg("active_tiles"),
 +        py::arg("render_alphas"),
 +        py::arg("last_ids"),
 +        py::arg("means"),
@@ -4613,7 +5493,7 @@ index 2eb26d1..fc28161 100644
  TORCH_LIBRARY(experimental, m)
  {
      m.def(
-@@ -71,7 +140,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
+@@ -71,7 +141,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
  }
  
  // Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is
@@ -4622,6 +5502,42 @@ index 2eb26d1..fc28161 100644
  // auto-registers an AutogradCUDA entry that wraps outputs in a grad_fn even
  // when no backward is available, which confuses callers that check grad_fn is None.
  TORCH_LIBRARY_IMPL(experimental, Autograd, m)
+diff --git a/gsplat/geometry/kernels/cuda/build.py b/gsplat/geometry/kernels/cuda/build.py
+index 6e57dbd..558591e 100644
+--- a/gsplat/geometry/kernels/cuda/build.py
++++ b/gsplat/geometry/kernels/cuda/build.py
+@@ -65,9 +65,8 @@ def get_build_parameters() -> SimpleNamespace:
+     extra_cflags += ["-g", "-O0"] if DEBUG else ["-O3", "-DNDEBUG"]
+     extra_cuda_cflags += ["-use_fast_math"] if FAST_MATH else []
+     extra_cuda_cflags += ["-lineinfo"] if DEBUG else []
+-    extra_cflags += ["-Wno-attributes"]
+     if os.name != "nt":
+-        extra_cflags += ["-Wno-sign-compare"]
++        extra_cflags += ["-Wno-attributes", "-Wno-sign-compare"]
+ 
+     if torch.version.hip:
+         extra_cflags += ["-DUSE_ROCM", "-U__HIP_NO_HALF_CONVERSIONS__"]
+diff --git a/gsplat/scene/kernels/cuda/build.py b/gsplat/scene/kernels/cuda/build.py
+index d76e669..a1fad3d 100644
+--- a/gsplat/scene/kernels/cuda/build.py
++++ b/gsplat/scene/kernels/cuda/build.py
+@@ -49,7 +49,7 @@ def get_build_parameters() -> SimpleNamespace:
+     extra_ldflags: list[str] = []
+ 
+     if sys.platform == "win32":
+-        extra_cflags = ["/std:c++17", "-DWIN32_LEAN_AND_MEAN"]
++        extra_cflags = ["/std:c++20", "-DWIN32_LEAN_AND_MEAN"]
+     else:
+         extra_cflags = ["-std=c++17"]
+ 
+@@ -155,6 +155,7 @@ def build_and_load_scene_cuda():
+                 extra_cflags=build_params.extra_cflags,
+                 extra_include_paths=build_params.extra_include_paths,
+                 extra_ldflags=build_params.extra_ldflags,
++                with_cuda=True,
+                 build_directory=build_dir,
+                 verbose=VERBOSE,
+             )
 diff --git a/tests/experimental/render/test_trainable.py b/tests/experimental/render/test_trainable.py
 new file mode 100644
 index 0000000..5d8d595

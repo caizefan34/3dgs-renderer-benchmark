@@ -179,6 +179,28 @@ mv artifacts/renderer-sources/gsplat/pytest.ini.bak artifacts/renderer-sources/g
   is not installed in this env; temporarily moving `pytest.ini` aside avoids
   the import error.
 
+### Windows (local dev, patched source)
+
+On a Windows box the same suite runs against the locally-built patched tree.
+The one-command wrappers in [`scripts/higs/`](../scripts/higs/README.md) load
+the MSVC environment and set `PYTHONPATH` to the patched source (with the
+`.build_tmp/pyfix` sitecustomize shim when present):
+
+```bat
+scripts\higs\run_tests.cmd                                   :: full repo suite (276 passed / 1 skipped on the local RTX box)
+scripts\higs\run_tests.cmd tests/test_higs_native_backward.py::TestTileSampledBackward -q
+scripts\higs\run_benchmark.cmd --scene tanks_and_temples/train --backends std higs_native higs_native_ts --tile-sampling-ratio 0.5
+```
+
+Two Windows gotchas worth knowing:
+- Without `vcvars64.bat` loaded, torch's JIT fallback for `gsplat_scene_cuda`
+  cannot find `cl` and 15 HiGS tests fail with
+  `Failed to load gsplat_scene_cuda via JIT build/load`; the wrappers call
+  vcvars (detected via `vswhere`) automatically.
+- `GSPLAT_SKIP_FROM_WORLD=1` must be set while building/importing the patched
+  tree (it selects the CUDA-13-compatible `RasterizeToPixelsFromWorld3DGS`
+  link stub); the wrappers set it too.
+
 ## Training benchmark
 
 `benchmark/run_higs_train_benchmark.py` runs, per scene (small + large) and per
@@ -1643,6 +1665,508 @@ Round-28/29 conclusions (mt-backward ~4-6 ms ceiling, tile-LOD forward
 ~4-5 ms ceiling, per-pixel eval volume format-independent) hold on the rebuilt
 environment.
 
+### Round 31 (2026-08-03): tile-sampled training - M2 done, M3 partial, M4 negative for r<=0.25 (honest quality bounds for the speedup lever)
+
+**Lever implemented and verified.** Rounds 21-29 established that the HiGS
+backward is dominated by per-pixel VJP volume (6.2G evals on bicycle 1080p x 4
+cams) and that no backward-format change can reduce it (Round 28: macro-tile
+format ceiling ~4-6 ms). Tile-sampled training is the lever that cuts the
+volume: an optional `tile_sampling_ratio` (default 1.0 = full frame) plus
+`sampling_mode` (`uniform` | `stratified`) was added to the native capture
+path (`_HigsAutogradFunction._native_forward_capture`). The isect buffer is
+masked to the sampled tiles before the dense-offset re-encode, so forward
+intersect + blend and the blend backward only touch the selected tiles. The
+sampled-tile mean is an unbiased estimator of the full-frame mean, so the
+harness loss needs no 1/r rescale - it masks the L1 loss over the sampled
+tiles (`_masked_l1_loss`; new benchmark backends `higs_native_ts` /
+`higs_dynamic_ts`, new CLI flags `--tile-sampling-ratio` and
+`--sampling-mode`).
+
+**Bug found and fixed (multi-camera isect filtering).** `sampled_ratio` was
+computed as `mask.sum() / n_tiles` over a `[C, n_tiles]` mask, so C=2 + r=0.5
+gave 1.0 and silently skipped the isect filtering (old stratified runs all
+reported `isect_frac=1.0`). Fixed to `float(mask.float().mean())`.
+Regression test `test_tile_sampling_ratio_multi_camera_filter` (C=2,
+r=0.5/0.25, mask fraction and isect fraction match r) passes on EPIC-05.
+
+**Speed (sequential, uncontended runs, frozen 1080p x 4 cams x 20 steps; the
+earlier parallel matrix was discarded - concurrent runs inflated every cell
+by 2-4x, e.g. train r=1.0 measured 121 ms vs 32.4 ms when run alone).**
+
+| scene | r=1.0 | r=0.5 | r=0.25 | r=0.125 |
+|---|---|---|---|---|
+| train | 32.4 / 19.8 | 27.4 / 13.0 | 21.8 / 9.2 | 18.5 / 7.3 |
+| truck | 39.0 / 24.6 | 31.5 / 16.2 | 21.3* / 11.5 | 21.3 / 8.7 |
+| bicycle | 66.4 / 39.4 | 52.3 / 25.3 | 40.6 / 17.7 | 34.2 / 13.8 |
+| bonsai | 26.1 / 16.2 | 22.7 / 10.6 | 17.3 / 7.2 | 14.6 / 5.2 |
+| garden | 64.5 / 40.6 | 48.3 / 26.0 | 38.2 / 18.7 | 32.2 / 14.6 |
+
+`total / bwd` ms per step. *truck r=0.25 fwd was a one-off outlier (fwd 30.8
+vs ~14 in the other truck cells); bwd 11.5 scales correctly. Total savings
+(median, excluding the truck outlier): r=0.5 ~-15..-25%, r=0.25 ~-33..-41%,
+r=0.125 ~-43..-50%. The blend backward scales ~linearly (bwd at r=0.5 is
+~64% of full, r=0.25 ~45%, r=0.125 ~35%) but a fixed floor of ~5-6 ms
+(projection VJP + SH VJP + grad-zero fills + culling) does not shrink, so
+total iteration saves are well below 1/r.
+
+**Quality (300-step protocol, seed 0, 4 train + 3 eval cams; PSNR / SSIM /
+LPIPS).**
+
+Frozen (`higs_native_ts`):
+
+| r | sampling | train | bicycle |
+|---|---|---|---|
+| 1.0 | - | 16.013 / 0.6329 / 0.3968 | 16.135 / 0.4364 / 0.4747 |
+| 0.5 | uniform | 15.808 / 0.6271 / 0.4264 | 16.262 / 0.4432 / 0.5132 |
+| 0.5 | stratified | 15.995 / 0.6290 / 0.4189 | 16.027 / 0.4436 / 0.5120 |
+| 0.25 | stratified | 15.812 / 0.6161 / 0.4675 | 15.567 / 0.4291 / 0.5775 |
+
+Dynamic (`higs_dynamic_ts`):
+
+| r | sampling | train | bicycle |
+|---|---|---|---|
+| 1.0 | - | 17.742 / 0.6466 / 0.4272 | 16.283 / 0.4061 / 0.5835 |
+| 0.5 | stratified | 17.371 / 0.6329 / 0.4671 | 16.074 / 0.3972 / 0.6320 |
+
+**Honest quality conclusion.** At r=0.5, PSNR/SSIM stay within single-seed
+noise of full for both frozen scenes (train -0.02 dB / SSIM -0.004; bicycle
+-0.11 dB / SSIM +0.007) but LPIPS degrades consistently (+0.022 train,
++0.037 bicycle). Stratified clearly beats uniform on train (PSNR -0.02 dB vs
+-0.20 dB at r=0.5) but not on bicycle, where uniform r=0.5 even wins PSNR
+(+0.13 dB) - single-seed, so the direction is noise-level. r=0.25 fails the
+parity bar everywhere (train -0.20 dB, bicycle -0.57 dB; LPIPS +0.07/+0.10),
+and dynamic r=0.5 loses 0.21-0.37 dB PSNR plus +0.04-0.05 LPIPS. The repo's
+"quality must hold" constraint is therefore satisfied only for frozen r=0.5
+PSNR/SSIM (single seed); the lever ships as opt-in with these documented
+bounds, not as a default.
+
+**Long-run check (1200 steps, dynamic, r=1.0).** train collapses to N=354K
+(16.651 / 0.6019 / 0.4730 vs 17.742 at 300 steps) and bicycle to N=2.34M
+(15.946 / 0.3715 / 0.6133) - the 300-step protocol is where the repo's
+numbers live, and the N collapse is a protocol property (densify_every=5 /
+fixed thresholds over-prune), not a tile-sampling artifact (measured at
+r=1.0).
+
+**Status.** M2 complete (blend bwd scales ~linearly, total iteration drops at
+every r; r=0.5 total -15..-25%, r=0.25 -33..-41%). M3 partial: stratified
+beats uniform on train at r=0.5 (-0.20 -> -0.02 dB); uniform beats stratified
+on bicycle (+0.13 vs -0.11 dB PSNR); error-guided sampling and
+densify-anchored steps are the obvious next experiments. M4 not met for
+r<=0.25 or dynamic; the safe operating point is frozen r=0.5 stratified
+(PSNR/SSIM parity, LPIPS +0.02).
+
+
+### Round 32 (2026-08-03): anchor-densify, multi-seed quality, and error-guided tile sampling (M3 lever; honest LPIPS bound)
+
+Three additions landed on top of Round 31's `tile_sampling_ratio` + uniform/
+stratified machinery: (1) anchor-densify (full-res forward+backward on
+densify steps), (2) multi-seed quality verification of the frozen r=0.5
+operating point, and (3) error-guided tile sampling with an unbiased
+importance-weighted loss. Protocol is unchanged: 300 steps, 4 train + 3 eval
+cams, 1080p, A100; results below are PSNR / SSIM / LPIPS.
+
+**Anchor-densify (`--anchor-densify`, dynamic backend, single seed 0).**
+Densify/prune steps (every 5) run at `sampling_ratio=1.0` so the topology
+signal is full-res, while ordinary steps stay at r. On train this closes most
+of the PSNR gap: r=0.5 anchor 17.827 / 0.6385 / 0.4596 vs dynamic full
+17.742 / 0.6466 / 0.4272 (+0.09 dB, SSIM -0.008, LPIPS +0.032); r=0.25 anchor
+17.463 / 0.6220 / 0.5068 (PSNR -0.28 dB vs full, SSIM -0.025, LPIPS +0.080),
+vs -0.67 dB for the non-anchor r=0.25 run. On bicycle it does not recover:
+r=0.5 anchor 16.080 / 0.3997 / 0.6201 (-0.20 dB, LPIPS +0.037 vs dynamic
+full) and r=0.25 anchor 15.656 / 0.3848 / 0.6833 (-0.63 dB, LPIPS +0.100).
+Directional only (seed 0): anchor-densify helps train PSNR but never
+recovers LPIPS, which stays the binding quality limit.
+
+**Multi-seed frozen r=0.5 vs full (seeds 0, 1, 2; stratified).**
+
+| scene | full r=1.0 | r=0.5 stratified | delta |
+|---|---|---|---|
+| train | 16.006 / 0.6316 / 0.3987 | 16.017 / 0.6308 / 0.4203 | PSNR +0.01, SSIM -0.001, LPIPS +0.022 |
+| bicycle | 16.178 / 0.4363 / 0.4745 | 16.083 / 0.4424 / 0.5117 | PSNR -0.10, SSIM +0.006, LPIPS +0.037 |
+
+So frozen r=0.5 stratified holds PSNR/SSIM parity on both scenes across
+seeds; **LPIPS degrades +0.02..+0.04 and is the consistent, honest quality
+bound of tile-sampled training at r=0.5.**
+
+**Error-guided sampling (`--sampling-mode error_guided`).** The harness
+refreshes an exact per-tile mean-|diff| map every `--error-refresh-every`
+(default 25) steps with a full-res forward, then draws k tiles per image with
+replacement with p proportional to (err + floor)^alpha (`--error-alpha`). The
+explicit `tile_mask` (bool [C, th, tw]) is passed to the rasterizer (new
+optional argument on the frozen/dynamic public APIs; applied verbatim to the
+isect buffer) and the loss is the exact unbiased importance estimate
+`(1/P) sum_t m_t w_t S_t`, `w_t = m_t/(k p_t)`, `P = C*W*H*3`. The estimator
+is unbiased for any p>0 (verified by a CPU test: 40 draws mean approx full-frame
+mean).
+
+| scene | mode | train | bicycle |
+|---|---|---|---|
+| train | full r=1.0 (3 seeds) | 16.006 / 0.6316 / 0.3987 | - |
+| train | error-guided r=0.5, alpha=1.0 (4 seeds) | **16.816 / 0.6390 / 0.4142** | - |
+| train | error-guided r=0.25, alpha=1.0 (3 seeds) | **16.848 / 0.6299 / 0.4455** | - |
+| train | error-guided r=0.5, alpha=0.5 (2 seeds) | 15.972 / 0.6254 / 0.4375 | - |
+| train | error-guided r=0.25, alpha=0.5 (3 seeds) | 16.535 / 0.6254 / 0.4536 | - |
+| bicycle | full r=1.0 (3 seeds) | - | 16.178 / 0.4363 / 0.4745 |
+| bicycle | error-guided r=0.5, alpha=0.5 (3 seeds) | - | 15.897 / 0.4356 / 0.5517 |
+| bicycle | error-guided r=0.5, alpha=1.0 (2 seeds) | - | 15.691 / 0.4327 / 0.5587 |
+
+On train, alpha=1.0 (the variance-optimal exponent for L1) is the first
+sampling mode to beat full-res training on PSNR at r<1: r=0.5 +0.81 dB and
+r=0.25 +0.84 dB over the 3-seed full baseline, every seed above every full
+seed (all four r=0.5 seeds and all three r=0.25 seeds >= 16.35). SSIM stays at
+parity-or-better; LPIPS is +0.016 (r=0.5) / +0.047 (r=0.25). The earlier
+single-seed +1.09 dB at r=0.25 alpha=0.5 did not replicate (seed 2 = 15.765,
+below the full mean) - alpha=1.0 is the robust setting on train. On bicycle
+error-guided is the worst mode (PSNR -0.28..-0.49, LPIPS +0.08): the
+importance emphasis on high-error tiles hurts the outdoor scene, so the mode
+is scene-dependent and reported as a negative there. Per-step wall-clock at
+these settings: train r=0.5 25.2 ms vs full 34.3 ms (-26%), r=0.25 21.7 ms
+(-37%); the full-res refresh adds ~14.5 ms every 25 steps (~0.6 ms/step
+amortized) on train and ~32.6 ms on bicycle.
+
+**Tests.** New `tests/test_benchmark_tile_sampling.py` (3 CPU tests: exact
+border-tile errors, unbiased estimator across 40 draws, mask fraction <= ratio
+with finite weights); `tests/test_higs_frozen.py` gains
+`test_external_tile_mask_filters_isects` (2-camera CUDA: mask applied
+verbatim, isect fraction matches the mask, backward succeeds) and an autouse
+`_reset_frozen_tracker` fixture that fixes a module-level Gaussian-count
+tracker leak across tests (50 -> 80 was contaminating later assertions).
+Remote EPIC-05 suite: 105 passed; local Windows: pytest 158 passed / 103
+skipped, unittest 155 OK.
+
+**Round 32 bottom line.** PSNR/SSIM parity at frozen r=0.5 is now verified
+across seeds; error-guided alpha=1.0 turns sampled training into a PSNR win
+on train at both r=0.5 and r=0.25, but is a loss on bicycle; and **LPIPS
+degrades in every r<1 mode on both scenes (+0.02..+0.08) - the honest quality
+bound that still prevents M4 from being fully green.**
+
+### Round 33 (2026-08-04): uniform-mix lambda knob + 3000-step horizon probe (M4 partial; LPIPS bound unchanged)
+
+Two harness additions: (1) `--error-lambda` blends the error-guided tile
+distribution with the uniform distribution (`p = (1-lambda)/n + lambda*p_err`;
+default 1.0 = pure error-guided, 0.0 = uniform), keeping the importance
+estimator unbiased for any lambda; (2) `--eval-every N` records an `eval_curve`
+(step / PSNR / SSIM / LPIPS / n_gaussians) at full resolution during training,
+enabling horizon studies. `tests/test_benchmark_tile_sampling.py` gains 3 CPU
+tests for the mix (lambda=0 estimator unbiased, mask fraction and
+`m*n/k`-shaped weights, lambda=1 default unchanged); 6/6 pass on local CPU and
+on EPIC-05.
+
+**Lambda sweep (bicycle, r=0.5, alpha=1.0, 300-step protocol, seed 0).**
+PSNR / SSIM / LPIPS:
+
+| lambda | PSNR  | SSIM   | LPIPS  |
+|--------|-------|--------|--------|
+| 0.70   | 15.964| 0.4376 | 0.5492 |
+| 0.85   | 15.826| 0.4325 | 0.5574 |
+| 0.90   | 16.056| 0.4339 | 0.5575 |
+| 1.00   | 15.794| 0.4333 | 0.5567 |
+
+lambda=0.70 is best and was repeated on seed 1 (15.756/0.4328/0.5575): the
+2-seed mean 15.860/0.4352/0.5534 vs the Round-32 lambda=1.0 2-seed mean
+15.691/0.4327/0.5587 is +0.17 dB PSNR and -0.005 LPIPS - a small,
+seed-dependent recovery that does **not** close the gap to stratified (0.5117)
+or full (0.4745) LPIPS. On train the mix does not help: lambda=0.70 (2 seeds)
+16.678/0.6382/0.4183 is -0.14 dB / +0.004 LPIPS vs lambda=1.0 (4 seeds)
+16.816/0.6390/0.4142, so pure error-guided remains the train operating point.
+
+**3000-step horizon probe (seed 0, eval every 300 steps).** The frozen
+topology + L1-only protocol is **not** a stable long-horizon regime: both modes
+collapse on train after ~300 steps, and the sampled variant collapses more
+slowly (step-300 / step-3000 = PSNR/SSIM/LPIPS):
+
+| scene   | mode                          | step-300               | step-3000              | train_ms |
+|---------|-------------------------------|------------------------|------------------------|----------|
+| train   | full (r=1.0)                  | 16.024/0.6318/0.3989   | 12.499/0.5416/0.5638   | 37.0 |
+| train   | error-guided r=0.5            | 17.009/0.6390/0.4170   | 13.197/0.5756/0.5454   | 31.6 |
+| bicycle | full (r=1.0)                  | 16.162/0.4368/0.4733   | 15.433/0.4023/0.4904   | 97.2 |
+| bicycle | error-guided r=0.5 (lambda=.7)| 16.093/0.4379/0.5461   | 14.290/0.4169/0.5424   | 88.6 |
+
+At 3000 steps error-guided is still +0.70 dB / -0.018 LPIPS better than full
+on train but -1.14 dB / +0.052 LPIPS worse on bicycle; the step-300 points
+reproduce the Round-32 300-step protocol within seed noise (+-0.13 dB),
+validating `eval_curve`. The r<1 LPIPS bound is unchanged: the bicycle gap
+(0.542-0.558 vs 0.4745 full) is a property of the importance-weighted loss at
+any tested lambda and horizon. Timing at 3000 steps (within-session,
+sequential): train 37.0 -> 31.6 ms (-14.6%), bicycle 97.2 -> 88.6 ms (-8.9%);
+absolute ms are inflated vs the 300-step protocol by sustained-load clock
+throttle, and the full-res error refresh (57.2 ms on bicycle every 25 steps)
+eats most of the bicycle margin (backward still saves 17 ms/step there).
+
+**Round 33 bottom line.** The uniform-mix lambda knob is a weak, honest
+mitigation for bicycle LPIPS (+0.17 dB PSNR / -0.005 LPIPS at lambda=0.70,
+seed-dependent) and does not change the train operating point; the 3000-step
+probe shows the frozen protocol itself (not sampling) is the quality ceiling
+at long horizons, so 30k-step M4 validation requires the full dynamic pipeline
+(densify/prune + schedule), which remains open.
+
+### Round 34 (2026-08-04): refresh cadence closed + dynamic 3000-step convergence probe (M4 partial; N-confounded speedup, protocol ceiling)
+
+Two experiment rounds on the Round-33 harness. Protocol: 4 train + 3 eval
+cams, 1080p, A100, seed 0, `--eval-every 300`.
+
+**Refresh cadence (frozen bicycle, r=0.5, alpha=1.0, lambda=1.0, 300 steps).**
+`--error-refresh-every` in {25, 50, 100}:
+
+| refresh | PSNR  | SSIM   | LPIPS  | train_ms |
+|---------|-------|--------|--------|----------|
+| 25      | 15.896| 0.4338 | 0.5553 | 61.4 |
+| 50      | 15.528| 0.4318 | 0.5575 | 60.8 |
+| 100     | 15.709| 0.4319 | 0.5585 | 60.2 |
+
+Quality differences are cross-process noise (the rf=25 rerun is +0.10 dB vs
+the Round-33 lambda=1.0 seed-0 run, same config); the timing saving is
+~1.2 ms/step (-2%). **Closed as a lever** - the full-res refresh is not what
+eats the bicycle margin; the sampled forward itself costs about as much as
+full (mask/isect machinery), with the savings concentrated in backward
+(47.7 -> 30.7 ms).
+
+**Dynamic 3000-step probe (`higs_dynamic_ts`, densify-every 5, eval each 300).**
+Full r=1.0 vs error-guided r=0.5 (alpha=1.0, lambda=1.0), plus
+`--anchor-densify` variants:
+
+| scene   | mode                              | step-3000 (PSNR/SSIM/LPIPS) | N(300)->N(3000) | train_ms |
+|---------|-----------------------------------|-----------------------------|-----------------|----------|
+| train   | full r=1.0                        | 15.975/0.5781/0.5187         | 505K -> 258K    | 20.7 |
+| train   | error-guided r=0.5                | 15.642/0.5768/0.5564         | 486K -> 203K    | 14.7 |
+| train   | error-guided r=0.5 + anchor       | 15.512/0.5751/0.5678         | 484K -> 213K    | 15.5 |
+| bicycle | full r=1.0                        | 15.283/0.3473/0.6412         | 3.17M -> 1.77M  | 40.2 |
+| bicycle | error-guided r=0.5                | 15.034/0.3471/0.7573         | 2.89M -> 1.31M  | 29.8 |
+| bicycle | error-guided r=0.5 + anchor       | 15.037/0.3498/0.7332         | 2.91M -> 1.36M  | 29.5 |
+
+Findings: (1) the dynamic protocol itself is not a stable long-horizon
+regime - both scenes degrade after ~step 300 while pruning drives N down
+(train 505K->258K, bicycle 3.17M->1.77M), so the per-step cost drop vs the
+frozen 3000-step runs (train 37.0->20.7 ms, bicycle 97.2->40.2 ms) is
+N-confounded, not an apples-to-apples speedup; (2) error-guided r=0.5 misses
+parity at 3000 steps (train -0.33 dB / +0.038 LPIPS; bicycle -0.25 dB /
++0.116 LPIPS) and prunes ~20-25% more N; (3) `--anchor-densify` (full-res
+densify steps) does not restore parity - N +5%, LPIPS -0.02 on bicycle, no
+PSNR change - because the prune-side opacity evolution still diverges under
+sampled gradients. Within-session r=0.5 vs full dynamic speedup is
+-29% (train) / -26% (bicycle), with the LPIPS gap as the honest cost.
+
+**Round 34 bottom line.** Refresh cadence is closed as a lever; the dynamic
+convergence probe shows the quality-parity gap persists at 3000 steps and is
+N-trajectory-driven (densify/prune corruption that anchor-densify alone does
+not fix). Combined with the Round-33 frozen-collapse data, the honest
+conclusion is that M4's "converged quality parity" cannot be established with
+the current fixed-LR protocols - it requires the full 3DGS training recipe
+(lr schedule, densify window, opacity reset), which is the remaining open
+work item.
+
+### Round 35 (2026-08-04): full training recipe (lr-decay + densify window) fixes protocol collapse (M4 partial; LPIPS r<1 bound persists)
+
+The harness now exposes the standard 3DGS training recipe as CLI knobs:
+`--lr-decay` (exponential schedule reaching `base_lr * decay` at the final
+step; `1.0` = constant LR) and `--densify-window` (topology freezes after
+step N; 0 = no window). Protocol: 4 train + 3 eval cams, 1080p, A100, seed 0,
+3000 steps, eval each 300, within one sequential session.
+
+| scene   | protocol                          | step-3000 (PSNR/SSIM/LPIPS) | N(300) -> N(3000) | train_ms |
+|---------|-----------------------------------|-----------------------------|-------------------|----------|
+| train   | dynamic full r=1.0                | 16.590/0.6256/0.3730         | 528K -> 460K      | 22.79 |
+| train   | dynamic error-guided r=0.5        | 16.243/0.6213/0.3933         | 506K -> 418K      | 16.64 |
+| train   | frozen full r=1.0                 | 14.501/0.5732/0.4884         | 1027K (const)     | 34.31 |
+| train   | frozen error-guided r=0.5         | 14.418/0.5916/0.4625         | 1027K (const)     | 26.40 |
+| bicycle | dynamic full r=1.0                | 16.202/0.3945/0.4736         | 3.29M -> 2.79M    | 48.96 |
+| bicycle | dynamic error-guided r=0.5        | 15.701/0.3883/0.5217         | 2.99M -> 2.46M    | 34.41 |
+
+Findings: (1) the recipe fixes the dynamic long-horizon collapse - train
+full goes 15.975/0.5781/0.5187 (Round 34) to 16.590/0.6256/0.3730, and LPIPS
+0.3730 now beats the frozen 300-step peak 0.3989; (2) with `--densify-window
+1500` the topology freezes at step 1500 (train 460K, bicycle 2.79M) instead
+of the Round-34 runaway pruning (train 505K->258K), and bicycle LPIPS keeps
+improving during the decay phase (0.5976 -> 0.5217 between 1500 and 3000);
+(3) frozen + lr-decay no longer collapses (train full 12.499 dB in Round 33
+-> 14.501 dB) but still degrades monotonically after step 300, so the recipe
+does not rescue the frozen protocol itself.
+
+Honest remaining gaps (dynamic r=0.5 vs full at step 3000): train
+-0.35 dB / +0.020 LPIPS, bicycle -0.50 dB / +0.048 LPIPS - the LPIPS gap is
+roughly halved versus Round 34 (train +0.038, bicycle +0.116) but not closed;
+the PSNR gap is single-seed noise. Within-session per-step speedup at r=0.5
+is -27% (train) / -30% (bicycle).
+
+**Round 35 bottom line.** The full recipe (lr decay + densify window) is now
+in the harness and fixes the protocol collapse, stabilizes N after the
+densify window, and roughly halves the r=0.5 LPIPS gap; converged-quality
+parity at r=0.5 is still not established, so M4 remains partial. Next levers:
+LPIPS-targeted loss (perceptual-tile weighting), a prune-side signal fix
+(window-accumulated gradients, anchoring both densify and prune), or a full
+30k-step run with the complete schedule.
+
+### Round 36 (2026-08-04): LPIPS-regularized training closes the train r=0.5 LPIPS gap (M4 quality partial; bicycle bound persists)
+
+New knobs `--lpips-loss-weight` + `--lpips-loss-every`: a differentiable
+full-res LPIPS (AlexNet) term is added to the sampled L1 loss every K steps
+(model weights frozen; gradient flows to the render output only). Cost:
+16-17 ms per LPIPS step at 4x1080p, amortized ~+0.65 ms/step (+3%), VRAM
+3.4 -> 5.1 GB. Protocol: dynamic, 3000 steps, Round-35 recipe, eval each 300,
+sequential sessions.
+
+Weight sweep (train, seed 0):
+
+| w (every 25)          | step-3000 (PSNR/SSIM/LPIPS) | N      | train_ms |
+|-----------------------|-----------------------------|--------|----------|
+| full r=1.0, w=0.1     | 16.286/0.6208/0.3724        | 452K   | 24.23 |
+| r=0.5, w=0.1          | 16.803/0.6298/0.3801        | 418K   | 17.72 |
+| r=0.5, w=0.2          | 17.016/0.6304/0.3902        | 417K   | 17.86 |
+| r=0.5, w=0.5          | 16.848/0.6292/0.3859        | 412K   | 18.03 |
+
+Findings: (1) w=0.1 is the LPIPS-optimal point - the r=0.5 LPIPS gap vs the
+same-objective full reference drops from +0.020 (Round 35) to +0.008, with
+PSNR/SSIM now exceeding full (+0.52 dB / +0.009); (2) 3-seed verification
+(0/1/2) on train: full 16.232±0.192/0.6207/0.3762±0.0050, r=0.5
+16.872±0.069/0.6301/0.3808±0.0018 -> gap PSNR +0.64±0.25 dB, SSIM
++0.009±0.001, LPIPS +0.0046±0.0063 (within seed noise) - the first round
+where train r=0.5 closes the LPIPS bound at the 3000-step horizon; (3) honest
+cost: the LPIPS term shifts the objective - full-res PSNR drops
+(16.590 -> 16.232 3-seed avg vs Round 35 no-LPIPS) and bicycle full LPIPS
+worsens slightly (0.4736 -> 0.4814); (4) bicycle r=0.5 gap only shrinks:
+PSNR -0.37 dB (was -0.50), LPIPS +0.038 (was +0.048) - the perceptual bound
+persists on the high-N scene.
+
+Per-step speedup at r=0.5 within-session: -27% (train) / -29% (bicycle) -
+unchanged from Round 35, because the sampled forward still renders all tiles;
+the LPIPS amortized overhead (+3%) roughly offsets the saving.
+
+**Round 36 bottom line.** LPIPS-regularized training closes the train r=0.5
+parity gate (3-seed, LPIPS within noise) but not bicycle. The quality-side
+lever works; the remaining open work for the 1.8x wall-clock gate is forward
+tile sampling (the forward currently costs the same at r=0.5).
+
+### Round 39 (2026-08-04): backward blend 内核按 active tile 压缩网格（dense 路径逐字节不变）
+
+目标：把 backward 的 pixel-blend 内核网格从全量 `[I, tile_h, tile_w]` 压缩为
+`dim3(n_active_tiles, 1, 1)`——每个 block 只处理一个**选中** tile，掩码 tile 的每-tile
+固定开销（线程/共享内存/边界处理）整体移除；isect 遍历本就只覆盖选中 tile 的排序交集。
+
+改动（均在 patched gsplat 源码树）：
+- `HigsNativeBackward.cu`：两个 blend 内核（非 px 与 px 变体）新增
+  `tile_width/tile_height/active_tiles/skip_background_atomic` 参数；compacted 时
+  `active_tiles[blockIdx.x]` 解码 (image_id, tile_id)，否则保留原 3 维 grid 解码；
+  launcher 新增 optional `active_tiles`，compacted 时 grid = dim3(n_active_tiles, 1, 1)。
+- 背景梯度：compacted + backgrounds 时 blend 内核跳过 per-pixel 背景原子
+  （`skip_background_atomic`），另启动全像素 `higs_background_bwd_kernel`
+  （Σ_pixels (1-alpha) * v_render_colors），覆盖 LPIPS 式全帧损失；dense 路径
+  （无 mask）不改一行、不启额外内核。
+- `ext.cpp`：`py::arg("active_tiles")` 位于 `flatten_ids` 之后。
+- `gaussian_inference.py` `_native_backward`：`ctx.sampled_tile_ratio < 1.0` 时
+  `active_tiles = torch.nonzero(ctx.tile_mask.reshape(-1)).squeeze(1).to(torch.int32)`
+  以 kwarg 传入；dense 时不传（nullopt）。
+
+否决项：**不**按"采样高斯"压缩 projection/SH VJP——实测 K/(I*N) ≈ 0.80 不随 r 下降
+（约 420-425k / 529,472 个 (image, gaussian) 对出现在任意采样 tile 中），收益仅 ~20%
+且破坏逐字节一致性；本 round 只动 blend。
+
+验证：
+- 新增 `tests/test_higs_native_backward.py::TestTileSampledBackward` 4 项：
+  `test_sampled_backward_matches_masked_full`（r=0.5 采样 vs 同 mask 全量，各参数梯度
+  + 背景梯度 atol=1e-6 精确一致）、`test_sampled_multi_camera_matches_masked_full`
+  （2 相机，验证 active tile 的 image_id 解码）、`test_unsampled_gaussians_exact_zero_grad`
+  （只选无高斯 tile：参数梯度**精确为 0**、背景梯度非零）、
+  `test_unmasked_loss_background_gradient`（全帧 LPIPS 式损失：背景梯度 = 全像素
+  Σ (1-alpha) * dL/d(render)，独立全像素背景内核覆盖掩码 tile）。
+- HiGS 全量 109 passed；全仓 `pytest tests` 276 passed / 1 skipped（较 R38 基线
+  272 + 4 项新测试）。`patches/higs-differentiable.patch` 已刷新，对 pristine `77ab983`
+  `git apply --check` 通过。
+
+性能（本机 Windows + RTX，N=200k、C=4、1080p、masked-loss，iters=3，4 轮 median）：
+- blend self-time：r=1.0 ≈ 33.5 ms（min 26.9，GPU 时钟波动 ±30%）→ r=0.5 ≈ 18.5 ms
+  （≈55% of dense）→ r=0.25 ≈ 9.6 ms（≈29% of dense）；n_isects 43.0M → 21.7M → 10.8M。
+- 相对 R38（全网格 + 掩码 tile 空 isect）：r=0.25 blend 从 ~10.8ms 降至 ~9.6ms
+  （消除掩码 tile 的每-tile 固定开销）；isect 遍历仍是主导项且随 r 缩放。
+- 诚实结论：绝对数字受 GPU 时钟波动影响大，比率（r=0.25 ≈ 29% of dense）更稳定；
+  端到端 M4 1.8x 墙钟门槛仍待 EPIC-05 A100 全协议复测；LPIPS 质量协议（R36）不受影响
+  （bwd 输出逐像素等价）。
+
+### Round 38 (2026-08-04): forward tile sampling — tile_mask 移入 isect_tiles CUDA 内核（M4 速度门槛最后一块）
+
+目标：前向改为**只在选中 tile 上构建 isect 并排序**，去掉"全量 isect + Python 后过滤"。此前
+`isect_tiles` 对全部 Gaussian×tile 枚举并 radix sort，tile 采样只是在 Python 侧丢弃未选中 tile 的
+isect——排序规模仍是全量。Round 38 把 mask 提前到 isect 之前，per-Gaussian 计数与排序输出都随选中
+tile 数近似线性下降。
+
+改动（均在 patched gsplat 源码树）：
+- `isect_tiles` op 新增第 14 参 `Tensor? tile_mask`：`ext.cpp` schema（`bool segmented, Tensor? tile_mask)`）、
+  `Intersect.h`/`Intersect.cpp` 宿主校验（bool、`[I, tile_height, tile_width]`、与 segmented 互斥），
+  内部 `call_torch_op<&intersect_tile>` 两处调用补空 optional（lidar 路径不接收 mask）。
+- `IntersectTile.cu` 内核：**AccuTile 与 AABB 两分支、first/second pass 均应用 mask**（上游仅在 AABB
+  分支有 mask_img；本轮为 AccuTile 路径 `accutile_process_tiles` 补 mask 检查，并把 mask 传入两次
+  launch，保证 `cum_tiles_per_gauss` 与发射一致）。
+- `_wrapper.py` `isect_tiles(..., tile_mask)` 透传（`tile_mask.contiguous()`）；`_torch_impl.py` fallback
+  同步实现 mask 限制的计数与发射（`[I, th, tw]` reshape 后逐 tile 统计）。
+- `gaussian_inference.py` HiGS 训练 forward：mask 在 isect **之前**计算（uniform/stratified/external），
+  `ctx.n_isects_sampled` 取自压缩后输出，`n_isects_full = round(n_isects_sampled / sampled_ratio)`
+  （tile 级精确，测试断言 `|n_i/n_f - ratio| < 0.15`）。
+- 构建修复：CUDA 13.x 的 CCCL 顶层 `include/cccl` 探测；`GSPLAT_SKIP_FROM_WORLD=1` 的链接缺口用
+  throwing stubs 补齐（新增 `RasterizeToPixelsFromWorld3DGSStubs.cpp`，3 个 from-world 巨核不编译时
+  `Rasterization.cpp` 仍可链接）；geometry JIT 的 `-Wno-attributes` 仅非 Windows 传入。
+
+验证：HiGS 全量 105 passed（含 `test_tile_sampling_ratio_multi_camera_filter`、
+`test_external_tile_mask_filters_isects` 等覆盖）；全仓 `pytest tests` 272 passed / 1 skipped 与 R37 基线
+持平；`patches/higs-differentiable.patch` 对 pristine `77ab983` `git apply --check` 通过。
+
+预期：isect 计数 + radix sort 规模随 r 线性下降，叠加 R37 已证的 backward 减量（r=0.5 每步 -27..-29%），
+补齐 M4 1.8x wall-clock 的 forward 侧杠杆；端到端数字待 EPIC-05 A100 复测。
+
+
+**本地实证（本机 Windows + RTX，N=200k、C=4、1080p、frozen+native+culling，profiler self-time）**：
+
+| r | total fwd | isect_tile | radix onesweep | rasterize_fwd | n_isects |
+|---|-----------|------------|----------------|---------------|----------|
+| 1.0 | 39.90 ms | 7.476 ms | 23.505 ms | 5.503 ms | 42,952,076 |
+| 0.5 | 21.69 ms | 4.742 ms | 10.977 ms | 3.681 ms | 21,419,630 |
+| 0.25 | 11.02 ms | 2.469 ms | 5.280 ms | 1.907 ms | 10,562,599 |
+
+结论：isect 与 radix sort 随选中 tile 数近线性下降；rasterize_fwd 仍是全图 1080p 发射
+（掩码 tile 输出背景，只随 isect 数轻微下降）——这是 forward 侧最后一个不随 r 缩放的项。
+
+### Round 37 (2026-08-04): culling refresh-interval cache (--cull-interval; ~2% train saving, quality-neutral at ci=25)
+
+New knob `--cull-interval N` (harness) and `cull_refresh_interval` (renderer):
+the batched full-N union-visibility projection is the only forward stage that
+touches every Gaussian, so its result is cached per `HigsRendererHandle` for
+`N` forwards. The cache is invalidated by any topology change
+(`mark_dirty()`/`rebuild`), so a fresh cull is guaranteed exactly when the
+Gaussian count changes; `interval=1` reproduces per-step culling (default).
+
+Implementation: `_cull_visible_cached` helper plus `_fwd_count` /
+`_cull_visible_ids` / `_cull_fwd_count` state on `HigsRendererHandle`,
+invalidated in `mark_dirty()`/`rebuild()`; the interval is threaded through
+`_HigsAutogradFunction`, both forwards and the public wrappers, and recorded in
+metadata. `tests/test_higs_dynamic.py::TestCullCache` (3 tests) covers cadence
+counting (interval 3 -> 2 fresh culls over 5 forwards), invalidation on
+densify (stale cache must not be reused after a count change), and exact frame
+parity with static parameters. Full HiGS suite 44 passed; full repo suite
+272 passed / 1 skipped.
+
+Benchmark (EPIC-05, native backend; 3000 steps, Round-36 recipe: LPIPS w=0.1
+every 25, lr-decay, densify-window 1500, error_guided r=0.5, 4x1080p):
+
+| run (train)                    | ci  | fwd_ms | train_ms | PSNR  | SSIM   | LPIPS  |
+|--------------------------------|-----|--------|----------|-------|--------|--------|
+| seed 0                         | 1   | 7.08   | 18.04    | 17.278| 0.6281 | 0.3812 |
+| seed 0                         | 25  | 6.75   | 17.66    | 17.167| 0.6334 | 0.3784 |
+| seeds 0/1/2 (mean)             | 25  | -      | 17.60    | 16.79 | 0.626  | 0.385  |
+| seed 0                         | 100 | 6.74   | 17.52    | 16.919| 0.6224 | 0.3915 |
+
+Findings: (1) ci=25 saves ~0.3 ms/step forward (-4.7%) and ~0.4 ms/step
+end-to-end (-2.1%) with quality parity at seed 0 and across 3 seeds; (2) ci=100
+adds nothing (17.52 vs 17.66 ms) and costs PSNR (-0.36 dB) - the stale visible
+set lags the optimizer drift; (3) paired same-session wall-clock (800 steps,
+r=0.5): ci=50 vs ci=1 is -0.07 ms/step (-0.4%, noise) with PSNR -0.36; (4)
+bicycle ci=25 35.00 vs R36b ci=1 35.64 ms (-1.8%); single-seed PSNR is seed-
+noise dominated (14.24 vs 15.85), no quality conclusion.
+
+**Round 37 bottom line.** The full-N cull projection is a small share of the
+step (~0.3-0.5 ms of a 17-35 ms step dominated by the visible render and the
+LPIPS amortization), so caching it is a real but modest lever: ~2% end-to-end
+at ci=25 with quality parity, nothing further at ci=50/100 plus a PSNR cost
+from stale visibility. The lever is closed as a safe default; the 1.8x
+wall-clock gate still requires forward tile sampling (M4 speed unmet).
+
 ## Known limitations
 
 1. The native backward supports `render_mode` in `RGB`/`D`/`ED`/`RGB+D`/`RGB+ED`
@@ -1709,3 +2233,9 @@ environment.
   `higs_gather_visible` and `higs_union_visible_mask` bindings.
 - `tests/test_higs_native_backward.py` — new native-backward test suite.
 - `benchmark/run_higs_train_benchmark.py` — new training benchmark.
+- `gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h` — replace the
+  CUDA-13-removed `uint` scalar typedef with `unsigned int` (kernel code now
+  compiles on CUDA 13.3 toolchains).
+- `gsplat/scene/kernels/cuda/build.py` — Windows torch-2.13 build compat:
+  `/std:c++20` (torch 2.13 headers require C++20) and `with_cuda=True` so the
+  pure-C++ scene-pack op links `cudart.lib`.
