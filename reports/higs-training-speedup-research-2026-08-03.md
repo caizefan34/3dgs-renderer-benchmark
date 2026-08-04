@@ -707,3 +707,29 @@
 - 质量-max = 1080p + error_guided r=0.35 + anchor-every-2 + --masked-adam + --masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj：garden 1080p PSNR 20.25 / LPIPS 0.336，质量正收益 +0.11 PSNR / -0.007 LPIPS @ +2.4% train_ms；bicycle 1080p +0.22 PSNR / -0.017 LPIPS。
 - train（低 N）：720p 不启用 decay（无质量收益 + ~5% 成本）；1080p 可选（质量中性 @ +1.2%）。
 - 铁律：启用任何 decay 配置必须配 --masked-adam-union-decay-eval-proj（全 forward 刷新 +6-7% 已被淘汰）；可见性类 mask 一律用投影计算。
+
+## 14. Round 65（2026-08-04）：progressive-resolution x decay+投影刷新——"质量保持的高分辨率加速"单元验证（1080p 3-seed）
+
+**动机**：R52 关闭了 progressive-res 作为纯速度杠杆（有质量损失）；R64 关闭了 1080p 衰减率问题。未验证单元：progressive-res（0.5:0,1.0:1500）x masked-Adam x decay+投影刷新——decay 的 +2.4% 成本能否被 progressive 的便宜粗阶段吸收，同时保留（甚至增强）质量收益。
+
+**设计**：bicycle/garden 1080p 3000 步，各 prog+MA（ctrl，3-seed）vs prog+MA+d0.99+投影刷新（3-seed），in-wave；train 同配置补全（无 anchor，wave 3）。
+
+| 场景 | 变体 | train_ms | PSNR（Δ in-cell） | SSIM | LPIPS（Δ） | final_N | n_vis |
+|---|---|---|---|---|---|---|---|
+| bicycle | prog+MA（3-seed） | 16.806±0.121 | 15.744±0.069 | 0.4120 | 0.5399±0.004 | 3.30M | 348K |
+| bicycle | prog+MA+d0.99（3-seed） | 16.800±0.114（**-0.04%**） | 16.068±0.087（**+0.32**） | 0.4195 | 0.5254±0.001（**-0.0145**） | 0.59M | 453K |
+| garden | prog+MA（3-seed） | 16.174±0.070 | 19.762±0.056 | 0.5373 | 0.3556±0.001 | 2.87M | 542K |
+| garden | prog+MA+d0.99（3-seed） | 16.515±0.009（+2.1%） | 19.980±0.060（+0.22） | 0.5422 | 0.3477±0.001（-0.008） | 1.22M | 647K |
+| train | prog+MA（3-seed） | 12.246±0.042 | 16.830±0.123 | 0.6236 | 0.3960±0.002 | 0.43M | 329K |
+| train | prog+MA+d0.99（3-seed） | 12.322±0.112（+0.6%） | 16.647±0.095（-0.18，边界噪声） | 0.6237 | 0.3938±0.002（-0.002） | 0.31M | 334K |
+
+- **bicycle 的 decay 成本从全分辨率 +2.4% 塌缩到 -0.04%（约零），质量收益反而更大**（+0.32 PSNR / -0.0145 LPIPS vs 全分辨率单元的 +0.22/-0.017）。
+- **bicycle 严格支配全分辨率质量-max ctrl 基线**：train_ms -21.7%（16.800 vs 21.464）、PSNR +0.33（16.068 vs 15.740）、LPIPS -0.0155（0.5254 vs 0.5409）——首个"更快且更好"的高分辨率单元；vs 全分辨率 +decay 变体则 LPIPS 差 0.0017、PSNR 高 0.11、train_ms 快 21.7%，总体等价偏优。R52 中 progressive-res 让 bicycle PSNR 掉 0.15，本单元把 -0.15 翻成 +0.33。
+- garden 单元内质量正（+0.22/-0.008 @ +2.1%），但绝对值仍低于全分辨率 ctrl（PSNR -0.16 / LPIPS +0.005）——progressive-res 的 garden 上限（与 R52 同向），decay 只补齐单元内差距、不突破 progressive 天花板；garden 质量最高仍是全分辨率 + decay（20.249/0.3359）。
+- 机制归因：decay 半衰期 ~69 步，退役集中发生在便宜的 0.5x 粗阶段；全分辨率阶段 [1500,3000] 以 5.6x 更少的高斯运行（bicycle 3.33M->0.59M），fwd/rasterize/LPIPS/eval 的全分辨率成本被大幅压缩，恰好抵消 bwd 侧 n_vis 膨胀（+0.57 ms，可见集更精细 453K vs 348K）；garden N 只压缩 2.4x，抵消不完全 -> 净 +2.1%。
+- 投影 mask 在 res-schedule 下仍逐位一致（全部 eval 检查点 miss/extra=0）。
+
+- train（低 N）：prog+MA+decay 质量中性（PSNR -0.18 为边界噪声、LPIPS -0.002）@ +0.6%——与全分辨率 train 单元一致，低 N 场景不推荐启用 decay（三场景三单元结论统一）。
+- 三场景 x {prog, full-res} 两单元：decay 成本序列 full-res bicycle +2.4% > full-res garden +2.4% ~ prog garden +2.1% > full-res train +1.2% > prog train +0.6% > prog bicycle -0.04%，质量收益与成本仍同源，但 **prog 相位前置把退役放进便宜阶段**，bicycle 达到成本约零。
+
+**决策**：1080p 质量-max 单元的 bicycle 侧升级为 prog-res x decay（更快且更好：train_ms -21.7% / PSNR +0.33 / LPIPS -0.0155 vs 全分辨率 ctrl）；garden 侧保持全分辨率 + decay（单元内绝对质量最高 20.249/0.3359）；train 两侧均不推荐 decay。R60 masked-Adam 仍是基础 op point；decay 必须配投影刷新。
