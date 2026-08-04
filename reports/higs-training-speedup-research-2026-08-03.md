@@ -660,3 +660,16 @@
 
 **决策：**R63 杠杆与质量-max 单元完全兼容，成为完整覆盖两单元的推荐质量 opt-in：garden/bicycle（720p：+0.21/+0.22 PSNR，-0.009 LPIPS，+2.3%/-0.7% train_ms；1080p garden：+0.11 PSNR，-0.007 LPIPS，+2.4% train_ms）。train（低 N）不推荐（无质量收益、~5% 速度成本）。R60 masked-Adam 仍是最终 op point；启用 decay 必须配 `--masked-adam-union-decay-eval-proj`。
 
+**跨场景（exp2，bicycle/train 1080p 3000 步，各 ctrl s0 + stack s0/s1/s2，in-wave）**：
+
+| 场景 | 变体 | train_ms | Δtrain | PSNR（Δ vs ctrl） | SSIM | LPIPS（Δ） | final_N |
+|---|---|---|---|---|---|---|---|
+| bicycle | ctrl s0 | 21.464 | — | 15.740 | 0.4149 | 0.5409 | 3.33M |
+| bicycle | stack（3-seed） | 21.988±0.050 | +2.4% | 15.955±0.022（+0.22） | 0.4206 | 0.5237±0.002（-0.017） | 0.63M |
+| train | ctrl s0 | 13.814 | — | 16.826 | 0.6264 | 0.3924 | 0.43M |
+| train | stack（3-seed） | 13.982±0.090 | +1.2% | 16.801±0.454（-0.03，噪声） | 0.6254 | 0.3915±0.007（-0.001） | 0.31M |
+
+- 1080p 下投影 mask 仍逐位一致（全部 eval 检查点 miss/extra=0.0）。
+- bicycle 1080p 与 720p 同向且 LPIPS 收益更大（-0.017 vs -0.009）；train 1080p 速度成本仅 +1.2%（720p 为 +4.9%）——高分辨率下固定刷新摊销被稀释，train 在质量-max 单元实际可接受。
+- 六格矩阵（2 分辨率 x 3 场景）全部质量不劣化：PSNR -0.03..+0.22，LPIPS -0.017..+0.001，train_ms -0.7%..+4.9%。
+
