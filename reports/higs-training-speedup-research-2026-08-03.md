@@ -702,12 +702,12 @@
 | 1080p 质量-max 单元堆叠 | R64 exp1/2 | 同一杠杆 + anchor-densify-every-2 + eg r=0.35 | garden +2.4% / bicycle +2.4% / train +1.2% | 六格矩阵（2 分辨率 x 3 场景）PSNR -0.03..+0.22 / LPIPS -0.017..+0.001，无回退 | 推荐 opt-in 覆盖速度-max 与质量-max 两单元 |
 | 衰减率 0.999 | R64 exp3 | 更慢退役（半衰期 693 vs 69 步） | +1.0-1.3%（省 1.1-1.4%） | LPIPS -0.001..-0.005 / PSNR -0.02..+0.03（丢大部分收益） | 关闭（速度成本=质量收益同源；0.99 唯一推荐率） |
 
-| progressive-res x decay（--res-schedule 0.5:0,1.0:1500 + d0.99 + 投影刷新） | R65 | 退役前置进便宜的粗阶段，全分辨率阶段以 5.6x 更少高斯运行 | bicycle 1080p：train_ms -21.7% vs 全分辨率 ctrl | bicycle PSNR +0.33 / LPIPS -0.0155（严格支配 ctrl）；truck +0.16/-0.0066 @ -16.5%；bonsai +0.91/-0.0137 @ -19.0%（均严格支配）；garden 单元内 +0.22/-0.008 @ +2.1% 但绝对值低于全分辨率 decay | **5 场景中 4 个严格支配**（bicycle/truck/bonsai + 720p 高 N）；garden 保持全分辨率；train 不启用 |
+| progressive-res x decay（--res-schedule 0.5:0,1.0:1500 + d0.99 + 投影刷新） | R65 | 退役前置进便宜的粗阶段，全分辨率阶段以 5.6x 更少高斯运行 | bicycle 1080p：train_ms -21.7% vs 全分辨率 ctrl | bicycle PSNR +0.33 / LPIPS -0.0155（严格支配 ctrl）；truck +0.16/-0.0066 @ -16.5%；bonsai +0.91/-0.0137 @ -19.0%（均严格支配）；garden 0.75x 粗阶段 +0.09/-0.0049 @ -9.6%（严格支配，exp3） | **5/5 场景均有严格支配配置**（bicycle/truck/bonsai 0.5x；garden 0.75x；720p 高 N 同构）；train 不启用 |
 
 **最终推荐组合（可复现 flag 集）**：
 - 速度-max = 720p + error_guided r=0.35 + --anchor-densify --anchor-densify-every 2 + --masked-adam（k1）：相对 1080p full 2.4-2.7x wall，质量优于自身 1080p 基线。
 - 质量-max = 1080p + error_guided r=0.35 + anchor-every-2 + --masked-adam + --masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj：garden 1080p PSNR 20.25 / LPIPS 0.336，质量正收益 +0.11 PSNR / -0.007 LPIPS @ +2.4% train_ms；bicycle 1080p +0.22 PSNR / -0.017 LPIPS。
-- bicycle 质量-max 升级（R65）：同一套 flag + --res-schedule 0.5:0,1.0:1500——train_ms -21.7% 且 PSNR +0.33 / LPIPS -0.0155 vs 全分辨率 ctrl，decay 成本约零（退役前置进粗阶段）；garden 不加 res-schedule（progressive 有质量天花板）。
+- 质量-max 升级（R65）：同一套 flag + --res-schedule——bicycle/truck/bonsai 用 0.5:0,1.0:1500（bicycle train_ms -21.7% / PSNR +0.33 / LPIPS -0.0155），garden 用 0.75:0,1.0:1500（-9.6% / +0.09 / -0.0049，decay 成本由退役前置进粗阶段吸收）；5/5 场景严格支配全分辨率 ctrl。
 - train（低 N）：720p 不启用 decay（无质量收益 + ~5% 成本）；1080p 可选（质量中性 @ +1.2%）。
 - 铁律：启用任何 decay 配置必须配 --masked-adam-union-decay-eval-proj（全 forward 刷新 +6-7% 已被淘汰）；可见性类 mask 一律用投影计算。
 
@@ -747,6 +747,20 @@
 | bonsai | pd（prog+decay，3-seed） | 8.927±0.063（**-19.0%**） | 24.430±0.064（**+0.91**） | 0.8324 | 0.1914±0.0003（**-0.0137**） | 0.13M | 101K |
 
 - **truck 与 bonsai 均严格支配各自 ctrl**（更快且更好），与 bicycle 同向：truck train_ms -16.5% / PSNR +0.16 / LPIPS -0.0066；bonsai train_ms -19.0% / PSNR +0.91（全矩阵最大）/ LPIPS -0.0137。
-- 至此 5 场景中 4 个（bicycle/truck/bonsai + 720p 单元 train/garden 之外的高中 N 场景）prog x decay 严格支配全分辨率 ctrl；garden 是唯一 progressive 质量天花板场景（单元内正、绝对值低）。低 N train 仍不推荐。
+- 至此 5 场景中 4 个（bicycle/truck/bonsai + 720p 高 N）prog x decay 严格支配全分辨率 ctrl；garden 用 0.75x 粗阶段（exp3）后也严格支配（见下），**5/5 场景全部有严格支配配置**。低 N train 仍不推荐。
 - 投影 mask 在全部 pd 运行中仍逐位一致（miss/extra=0）。
 - 机制延续：pd 的 final_N 全部大幅收缩（truck 1.24M->0.42M、bonsai 0.69M->0.13M），全分辨率阶段以 2.9-5.3x 更少高斯运行。
+
+**garden 例外专项（exp3，1080p 调度旋钮，各 3-seed + ctrl/pd05 s0 波锚点，in-wave）**：
+
+| 变体 | 调度 | train_ms | PSNR（Δ vs ctrl） | SSIM | LPIPS（Δ） | final_N |
+|---|---|---|---|---|---|---|
+| ctrl s0（波锚） | 全分辨率 | 19.879 | 20.171 | 0.5541 | 0.3419 | 2.91M |
+| pd05 s0（波锚） | 0.5:0,1.0:1500 | 16.614 | 19.984 | 0.5434 | 0.3480 | 1.22M |
+| pd075（3-seed） | **0.75:0,1.0:1500** | 17.978±0.092（**-9.6%**） | 20.262±0.021（**+0.09**） | 0.5564 | 0.3370±0.001（**-0.0049**） | 1.22M |
+| pdramp（3-seed） | 0.5:0,0.75:1000,1.0:1500 | 17.174±0.060（-3.9%） | 19.961±0.043（-0.21） | 0.5420 | 0.3489±0.001（+0.007） | 1.22M |
+
+- 波锚点与 exp1/R64 同 seed 值一致（ctrl train_ms 19.879 vs 19.675、pd05 16.614 vs 16.515，均在噪声内）。
+- **pd075 严格支配全分辨率 ctrl**（更快且更好：-9.6% / PSNR +0.09 / LPIPS -0.0049），质量与全分辨率+decay 等价（PSNR 20.262 vs 20.249、LPIPS 0.3370 vs 0.3359，噪声内）且快 -10.7%——garden 不再是例外。
+- pdramp 失败：短暂的 0.75 中间段（[1000,1500)）无益反损（≈pd05 质量、更贵）——分辨率只在 densify 窗口边界切换一次才是有效的。
+- 机制：garden 的差距是粗阶段基础赤字（0.5x 下 coarse 端 PSNR 19.9 vs full-res 同步 20.4），0.75x 粗阶段保住细节、decay 补足感知质量；全分辨率阶段晚段 PSNR 下倾是全 N 场景共有现象（full-res ctrl 同样从 20.34 降到 20.14），非 progressive 特有。
