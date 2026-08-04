@@ -188,10 +188,29 @@ def _lpips_normalize(frame, ref):
     return xa, ya
 
 
-def _lpips_train_loss(lpips_model, frame, ref):
-    """Differentiable full-res LPIPS loss term (model weights frozen; the
-    gradient flows to the render output only)."""
+def _lpips_train_loss(lpips_model, frame, ref, work_size=0):
+    """Differentiable LPIPS loss term (model weights frozen; the
+    gradient flows to the render output only).
+
+    ``work_size`` downscales both inputs (aspect-preserving, max side =
+    ``work_size``) before the LPIPS forward. LPIPS trunks (AlexNet etc.)
+    are trained on ~224px patches, so full-res 720p inputs run the conv
+    stack far outside its native scale and cost 10-20% of the step;
+    a canonical work size keeps the perceptual signal in-distribution
+    and cuts that cost ~25x. 0 = current full-res behaviour."""
     xa, ya = _lpips_normalize(frame, ref)
+    if work_size and work_size > 0:
+        h, w = xa.shape[-2:]
+        if max(h, w) > work_size:
+            scale = work_size / float(max(h, w))
+            nh = max(1, int(round(h * scale)))
+            nw = max(1, int(round(w * scale)))
+            xa = F.interpolate(
+                xa, size=(nh, nw), mode="bilinear", align_corners=False,
+            )
+            ya = F.interpolate(
+                ya, size=(nh, nw), mode="bilinear", align_corners=False,
+            )
     return lpips_model(xa, ya).mean()
 
 
@@ -826,6 +845,7 @@ def run_backend(
     eval_every=0, lr_decay=1.0, densify_window=None,
     lpips_loss_weight=0.0, lpips_loss_every=0,
     lpips_full_res=False,
+    lpips_work_size=0,
     cull_interval=1,
     cull_interval_schedule=None,
     densify_grad_accum=False,
@@ -835,6 +855,10 @@ def run_backend(
     pixel_sampling_ratio=1.0,
     pixel_raster_ratio=0.35,
     masked_adam=False,
+    mask_prune=False,
+    mask_prune_opacity=None,
+    mask_prune_eval_refresh=0,
+    mask_prune_min_frozen=2,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -890,12 +914,29 @@ def run_backend(
     cur_cull_interval = cull_interval
     torch.cuda.reset_peak_memory_stats(device)
 
+    if mask_prune:
+        with torch.no_grad():
+            eval_forward_fn(params, eval_idx, sampling_ratio=1.0)
+        _src0 = (
+            handle if handle is not None
+            else getattr(dynamic_scene, "renderer_handle", None)
+        )
+        _slot0 = getattr(_src0, "_cull_cache", {}).get("eval") if _src0 is not None else None
+        if _slot0 is not None and len(_slot0) >= 2 and _slot0[1] is not None:
+            eval_mask_tracked = _slot0[1].detach().clone()
+
     fwd_times, bwd_times, total_times, train_times = [], [], [], []
     culling_ratios, n_visibles, topo_rebuilt, isect_fracs = [], [], [], []
     sampled_ratios = []
     refresh_times = []
     lpips_ms = []
     eval_curve = []
+    frozen_counter = torch.zeros(
+        means.shape[0], dtype=torch.int32, device=device,
+    )
+    eval_mask_tracked = None
+    n_mask_pruned = 0
+    mask_prune_hist = []
     tile_err_cache = None
     grad_norm_acc = None
     ref = refs_train
@@ -1088,6 +1129,7 @@ def run_backend(
                 evL0.record()
                 loss = loss + lpips_loss_weight * _lpips_train_loss(
                     lpips_model, frame, loss_ref,
+                    work_size=lpips_work_size,
                 )
                 evL1.record()
                 torch.cuda.synchronize(device)
@@ -1152,6 +1194,33 @@ def run_backend(
                 )
                 grads = means.grad
                 n_old = means.shape[0]
+                if mask_prune:
+                    _tm = _train_cull_mask(handle, dynamic_scene)
+                    frozen_counter = torch.where(
+                        _tm, torch.zeros_like(frozen_counter),
+                        frozen_counter + 1,
+                    )
+                    _em = eval_mask_tracked
+                    if (_em is not None and _em.numel() == n_old
+                            and _tm.numel() == n_old):
+                        _union_invis = (
+                            (~_tm) & (~_em)
+                            & (frozen_counter >= mask_prune_min_frozen)
+                        )
+                        if mask_prune_opacity is not None:
+                            _union_invis = _union_invis & (
+                                opacities < mask_prune_opacity
+                            )
+                        mask_prune_hist.append({
+                            "step": int(it + 1),
+                            "n_union_invis": int(_union_invis.sum().item()),
+                            "n_eval_only_vis": int((_em & (~_tm)).sum().item()),
+                            "n_pruned": 0,
+                        })
+                    else:
+                        _union_invis = None
+                else:
+                    _union_invis = None
                 if densify_grad_accum and grad_norm_acc is not None:
                     grads_for_densify = grad_norm_acc.unsqueeze(1)
                     dup_idx = (
@@ -1175,6 +1244,23 @@ def run_backend(
                 if n_new != n_old:
                     pre_map = torch.cat([torch.arange(n_old, device=device), dup_idx])
                     keep = (new_o > prune_threshold).nonzero().flatten()
+                    if _union_invis is not None:
+                        _exp = torch.cat([
+                            _union_invis,
+                            torch.zeros(dup_idx.numel(), dtype=torch.bool, device=device),
+                        ])
+                        _drop = _exp[keep]
+                        _n_drop = int(_drop.sum().item())
+                        n_mask_pruned += _n_drop
+                        if mask_prune_hist:
+                            mask_prune_hist[-1]["n_pruned"] = _n_drop
+                        keep = keep[~_drop]
+                        new_m = new_m[keep]
+                        new_q = new_q[keep]
+                        new_s = new_s[keep]
+                        new_o = new_o[keep]
+                        new_c = new_c[keep]
+                        n_new = new_m.shape[0]
                     old_to_new = pre_map[keep]
                     with torch.no_grad():
                         means, quats, scales, opacities, sh = (
@@ -1192,6 +1278,32 @@ def run_backend(
                         colors=(old_c, sh),
                     )
                     dynamic_scene.mark_dirty()
+                    if mask_prune:
+                        _counter_exp = torch.cat([
+                            frozen_counter,
+                            torch.zeros(
+                                dup_idx.numel(), dtype=torch.int32, device=device,
+                            ),
+                        ])
+                        frozen_counter = _counter_exp[keep].contiguous()
+                        if eval_mask_tracked is not None:
+                            _em_exp = torch.cat([
+                                eval_mask_tracked,
+                                eval_mask_tracked[dup_idx],
+                            ])
+                            eval_mask_tracked = _em_exp[keep]
+
+                if (mask_prune and mask_prune_eval_refresh > 0
+                        and (it + 1) % (densify_every * mask_prune_eval_refresh) == 0):
+                    with torch.no_grad():
+                        eval_forward_fn(params, eval_idx, sampling_ratio=1.0)
+                    _src2 = (
+                        handle if handle is not None
+                        else getattr(dynamic_scene, "renderer_handle", None)
+                    )
+                    _slot2 = getattr(_src2, "_cull_cache", {}).get("eval") if _src2 is not None else None
+                    if _slot2 is not None and len(_slot2) >= 2 and _slot2[1] is not None:
+                        eval_mask_tracked = _slot2[1].detach().clone()
 
                 if densify_grad_accum:
                     grad_norm_acc = torch.zeros(means.shape[0], device=device)
@@ -1216,6 +1328,17 @@ def run_backend(
                         )),
                         "n_gaussians": int(means.shape[0]),
                     })
+                if mask_prune:
+                    _src1 = (
+                        handle if handle is not None
+                        else getattr(dynamic_scene, "renderer_handle", None)
+                    )
+                    _slot1 = (
+                        getattr(_src1, "_cull_cache", {}).get("eval")
+                        if _src1 is not None else None
+                    )
+                    if _slot1 is not None and len(_slot1) >= 2 and _slot1[1] is not None:
+                        eval_mask_tracked = _slot1[1].detach().clone()
 
             opt.zero_grad(set_to_none=True)
             ev4 = torch.cuda.Event(enable_timing=True)
@@ -1262,6 +1385,7 @@ def run_backend(
         "lpips_loss_weight": float(lpips_loss_weight),
         "lpips_loss_every": int(lpips_loss_every),
         "lpips_full_res": bool(lpips_full_res),
+        "lpips_work_size": int(lpips_work_size),
         "lpips_ms_avg": float(np.mean(lpips_ms)) if lpips_ms else 0.0,
         "lpips_steps": len(lpips_ms),
         "sampling_mode": sampling_mode,
@@ -1275,6 +1399,12 @@ def run_backend(
             if cull_interval_schedule else None
         ),
         "masked_adam": bool(masked_adam),
+        "mask_prune": bool(mask_prune),
+        "mask_prune_opacity": mask_prune_opacity,
+        "mask_prune_eval_refresh": mask_prune_eval_refresh,
+        "mask_prune_min_frozen": mask_prune_min_frozen,
+        "n_mask_pruned": int(n_mask_pruned),
+        "mask_prune_hist": mask_prune_hist,
         "eval_curve": eval_curve,
     }
 
@@ -1426,6 +1556,14 @@ def build_arg_parser():
         "sampled tiles; the full render is reused as the error-cache refresh",
     )
     ap.add_argument(
+        "--lpips-work-size", type=int, default=0,
+        help="round-61: downscale the train LPIPS loss inputs to a canonical "
+        "max-side work size (e.g. 256) before the LPIPS forward (0 = full "
+        "resolution); LPIPS trunks are trained on ~224px patches so this "
+        "cuts the AlexNet cost ~25x while keeping the signal in-distribution; "
+        "eval LPIPS scoring is always full-res for metric consistency",
+    )
+    ap.add_argument(
         "--cull-interval", type=int, default=1,
         help="dynamic HiGS: refresh the union-visibility cull every N steps "
         "(1 = every step; the cache is invalidated by densify/prune)",
@@ -1442,6 +1580,32 @@ def build_arg_parser():
         help="replace the optimizer step with a cull-masked Adam step that "
         "updates only the Gaussians visible in the latest train forward "
         "(requires the round-60 patched gsplat train cull mask in the cache)",
+    )
+    ap.add_argument(
+        "--mask-prune",
+        action="store_true",
+        help="at densify steps, drop rows invisible in BOTH the train and "
+        "eval union-visibility masks (never rendered anywhere) after a 2-"
+        "cycle frozen grace; pixel-identical for every rendered frame, "
+        "shrinks N/cull/densify/memory (stacks with --masked-adam)",
+    )
+    ap.add_argument(
+        "--mask-prune-opacity", type=float, default=None,
+        help="round-61: only prune union-invisible Gaussians whose sigmoid "
+        "opacity is below this cap (None = no cap); protects migrating "
+        "high-opacity geometry that is only temporarily out of view",
+    )
+    ap.add_argument(
+        "--mask-prune-eval-refresh", type=int, default=1,
+        help="round-61: refresh the eval-visibility mask at the end of every "
+        "densify step when (step+1) % (densify_every*N) == 0 (1 = every "
+        "densify); keeps the prune decision from using a stale eval mask",
+    )
+    ap.add_argument(
+        "--mask-prune-min-frozen", type=int, default=2,
+        help="round-61: prune a union-invisible row only after it has been "
+        "train-and-eval invisible for this many densify cycles (1 cycle = "
+        "--densify-every steps); protects migrating geometry, higher is safer",
     )
     ap.add_argument(
         "--no-fused-adam",
@@ -1519,6 +1683,7 @@ def main():
                     lpips_loss_weight=args.lpips_loss_weight,
                     lpips_loss_every=args.lpips_loss_every,
                     lpips_full_res=args.lpips_full_res,
+                    lpips_work_size=args.lpips_work_size,
                     cull_interval=args.cull_interval,
                     cull_interval_schedule=_parse_cull_interval_schedule(
                         args.cull_interval_schedule
@@ -1530,6 +1695,10 @@ def main():
                     pixel_sampling_ratio=args.pixel_sampling_ratio,
                     pixel_raster_ratio=args.pixel_raster_ratio,
                     masked_adam=args.masked_adam,
+                    mask_prune=args.mask_prune,
+                    mask_prune_opacity=args.mask_prune_opacity,
+                    mask_prune_eval_refresh=args.mask_prune_eval_refresh,
+                    mask_prune_min_frozen=args.mask_prune_min_frozen,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity

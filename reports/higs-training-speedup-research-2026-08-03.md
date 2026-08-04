@@ -521,3 +521,54 @@
 - 这是**第一个质量正向的 per-Gaussian-floor 速度增量**：端到端 train_ms 全场景下降（-8%/-34%/-41%），garden 质量大幅提升（+1.90 dB PSNR、LPIPS -0.105，3-seed 极稳定 ±0.02 dB），train 质量中性，bicycle PSNR/SSIM 改善但 LPIPS +0.017 轻微回退（诚实上界）。
 - 机制：冻结 train 不可见行后，stock Adam 的零梯度动量衰减不再侵蚀 eval 可见内容（train 4 相机 union 之外、eval 3 相机可见的高斯被保留），同时总 N 更高（garden 1.96M→2.87M）而渲染可见集约减半（garden 1.03M→0.53M），fwd/bwd 与优化器开销同步下降。
 - 下一步候选：--cull-interval 4 × masked-Adam 叠加（K4 2-4% + 本杠杆 -34~-41%）；mask 与 prune 解耦（只冻结优化器、保留 opacity 衰减语义）以关闭 bicycle LPIPS 上界。
+## 9. Round 61：剩余 per-Gaussian-floor 候选杠杆全部关闭（R61，2026-08-04）
+
+**背景**：R60 之后，per-Gaussian-floor 层只剩三个候选：union-mask prune（直接删行）、LPIPS 训练损失 work-size（降采样替代损失）、K4×masked-Adam 叠加（陈旧 mask）。R61 全部实现并实测，全部因质量硬约束关闭；per-Gaussian-floor 速度前沿就此定格在 R60 的 k1 masked-Adam 操作点。
+
+### 9.1 union-mask prune（--mask-prune）— 明确负面
+
+**机制**：train-union 与 eval mask 都不可见且冻结 ≥ min_frozen 步的高斯直接从场景删除（参数行移除），期望同时缩小 Adam 行数与渲染规模；含 opacity 阈值、densify 末尾刷新 eval mask 等变体（代码保留为实验开关）。
+
+**证据**（cull-cache mask 经校验正确；train cams=[0..3]、eval cams=[4..6] 全程固定）：
+- 120 步 garden smoke：naive prune PSNR 20.66 vs R60 对照 22.49（final N 1.82M vs 4.13M）；opacity-cap 0.1 → 21.23；densify 末尾刷新 eval mask → 12.94（N→130K）；刷新+cap → 16.14。
+- 宽限窗（120 步）：min_frozen=6（30 步宽限）21.50（-1.0 dB）；min_frozen=10（50 步）22.36（-0.13，但刷新开销使速度变慢）。
+- 300 步（更真实）：CTRL 21.88 / train 28.07 ms / N 3.84M；mf10 r0 21.35（-0.53 dB，prune 919K，train 27.07 ms）；mf12 r0 21.66（-0.22 dB，prune 532K，train 27.76 ms）。
+
+**根因**：union-invisible 集合正是迁移中期、后期才被需要的几何。Probe（step149）：union-invisible 占比 garden 48.5% / bicycle 71.6% / train 21.8%；eval-only 可见且 train 不可见的稳定集合 garden 676K / bicycle 212K / train 2.3K——这些行绝不能删。任何版本 PSNR 损失 ≥ 0.2 dB，速度收益 ≤ 3.6%，关闭。
+
+### 9.2 LPIPS 训练损失 work-size（--lpips-work-size 256）— 质量门槛拒绝
+
+**动机**：720p 全分辨率 LPIPS（AlexNet trunk 训练于 ~224px 块）单次前向纯卷积 ~8.9 ms（probe：cutlass conv 151.7 ms / 17 次调用），约占单步 10%；等比降采样到 max-side 256（~8 倍像素减少）应显著降低该开销。
+
+**证据**（3000 步 × 3 seed × 3 scene，与 R60 配置逐项相同仅 ws 不同，r61-summary.json）：
+
+| 场景 | train_ms ws0→ws256（3-seed 均值） | speedup_train | ΔPSNR (dB) | ΔLPIPS |
+|---|---|---|---|---|
+| train | 10.225 → 9.701 | 1.054x | -0.144 | +0.0062 |
+| garden | 14.127 → 13.564 | 1.042x | -0.035 | +0.0116 |
+| bicycle | 14.666 → 14.286 | 1.027x | -0.061 | +0.0131 |
+
+**结论**：速度 +2.6~5.4% 真实且稳定（train_ms sd < 0.08 ms；lpips_ms_avg 9~13 → 3 ms），但 LPIPS 三场景全部回退（garden/bicycle +0.012/+0.013，≫ 3-seed sd 0.001~0.003，statistically significant），PSNR 全部下降——降采样替代损失与全分辨率 eval 的分布失配可测量地损害最终感知质量（代理损失越省、质量越差）。违反"质量保证"硬约束，关闭（代码保留为 --lpips-work-size 实验开关）。
+
+### 9.3 K4×masked-Adam 叠加（--cull-interval 4 --masked-adam）— 质量门槛拒绝
+
+**机制**：R59 K4 单独 train_ms -0.9~-2.0%（但 bicycle PSNR -0.34，3-seed）；R60 masked-Adam 是 k1 新鲜 mask。叠加希望保留 MA 质量增益同时省 3/4 refresh。
+
+**证据**（3000 步 seed 0 屏测，vs R60 k1-MA seed 0）：garden 14.183→13.627 ms（-3.9%）PSNR -0.112；train 10.421→10.076（-3.3%）PSNR -0.226；bicycle 14.551→14.115（-3.0%）PSNR -0.075，LPIPS +0.001~+0.009。方向与 R59 K4 3-seed（bicycle PSNR -0.34）一致：mask 陈旧化使冻结保护滞后 3 步，质量成本 > 速度收益，关闭。
+
+### 9.4 内核画像（probe_r61_kernels.py，garden 720p masked-adam，40 步，自 CUDA 时间）
+
+| 内核 | 自时间 | 占比 |
+|---|---|---|
+| higs_blend_bwd_px | 317.4 ms | 22.9% |
+| higs_sh_vjp_grid | 172.5 ms | 12.5% |
+| cutlass conv（LPIPS AlexNet） | 151.7 ms（17 次调用 ≈ 8.9 ms/次） | 11.0% |
+| rasterize_to_pixels_3dgs_fwd | 150.0 ms | 10.8% |
+| masked_adam_kernel | 137.1 ms（200 次调用） | 9.9% |
+| 合计 self CUDA | 1384.9 ms | — |
+
+**启示**：LPIPS 卷积与 masked-Adam 合计约占单步自 CUDA 时间 1/5——正是 R61 两个被关闭杠杆的落点；它们要么开销已足够低（masked-adam 9.9% 且质量正向），要么降成本必损质量（LPIPS）。R60 的 k1 masked-Adam 操作点已是该层最优。
+
+### 9.5 结论
+
+可训练 HiGS 的 per-Gaussian-floor 速度前沿 = R60 k1 masked-Adam（train_ms -8%/-34%/-41%，质量正向），R61 三个剩余候选全部以质量门槛关闭。下一步质量候选：mask/prune 解耦（只冻结优化器、保留 opacity 衰减语义）以收窄 bicycle LPIPS +0.017 上界；速度侧不再有该层质量安全的杠杆。
