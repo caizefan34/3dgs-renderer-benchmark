@@ -208,6 +208,20 @@
   scripts/higs/aggregate_run_summary.py（对 round-41d 汇总数字逐位一致）、
   原始 18 次运行 + 汇总 results/higs-round42/。
 
+- **Round 43 更新（2026-08-04，error_alpha 扫描——garden/bicycle，负结果关闭杠杆）**：
+  高 N 场景差距（garden PSNR -0.76 dB / LPIPS +0.050、bicycle LPIPS +0.050）是否由
+  误差引导采样的集中效应造成？扫描 error_alpha ∈ {0.5, 0.75, 1.0}（3 seed、
+  推荐配方、r=0.35 λ=0.7 + full-res LPIPS）：
+  - garden：a=1.0 17.971 / a=0.75 18.011 / a=0.5 18.005（ΔPSNR -0.76/-0.72/-0.73），
+    LPIPS 0.4482/0.4477/0.4471（Δ +0.050/+0.049/+0.048）——差距与 alpha 无关。
+  - bicycle：a=0.5 PSNR 16.016（Δ -0.01，仍持平）LPIPS 0.5240（Δ +0.045，
+    较 a=1.0 的 +0.050 收窄 0.005）——LPIPS 上界仍开口。
+  - 所有 alpha 的实际 sr 相同（0.321-0.322）、速度相同（garden 2.12x）——误差图在
+    训练中实际接近平坦（floor/均匀混合主导），alpha 不是质量杠杆。
+  **结论：alpha 扫描为负结果、杠杆关闭；高 N 场景差距不是采样集中伪影，需从
+  prune/densify 侧信号修复或损失目标侧继续（后续轮次）。** 结果
+  results/higs-round43/（脚本 scripts/higs/run_round43_alpha_sweep.sh）。
+
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
