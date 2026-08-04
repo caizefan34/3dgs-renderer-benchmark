@@ -297,6 +297,21 @@
   scripts/higs/run_round47_anchor_screening.sh，r47-summary.json，delta 字段相对
   round-41d/42 eg 基线）。
 
+- **Round 48/49 更新（2026-08-04，anchor 下密度轴关闭——garden 单 seed 筛选，负结果）**：
+  round-47 后剩余差距（garden PSNR -0.54 / LPIPS +0.037，final_n 2.06M vs full
+  2.59M）是否可由密度动力学收窄？在 anchor 下做两组廉价筛选：
+  - densify 阈值（R48）：5e-3 → 2.5e-3 / 1e-3，final_n 几乎不动（2.061/2.063/
+    2.065M）——克隆决策不由阈值主导（全分辨率梯度范数双峰分布）；PSNR/LPIPS
+    均在噪声内。
+  - prune 阈值（R49）：0.01 → 0.005 / 0.002，final_n 仅 +1.0%/+1.7%（2.06M →
+    2.10M），LPIPS 单调变差（0.4345/0.4360/0.4380）——强行保留低不透明度高斯
+    反而伤感知质量。
+  **结论：密度轴（克隆侧 + 保留侧）在 anchor 下关闭；剩余高 N 差距是 tile 采样训练
+  本身的内在边界，非密度动力学可修复。最终推荐操作点：error_guided r=0.35 λ=0.7 +
+  --lpips-full-res +（高 N opt-in）--anchor-densify → 1.87-1.98x、LPIPS 上界
+  ~+0.037、garden PSNR -0.54。** 结果 results/higs-round48/、results/higs-round49/
+  （单 seed 筛选）。
+
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
