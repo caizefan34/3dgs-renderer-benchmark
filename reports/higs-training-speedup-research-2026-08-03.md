@@ -365,8 +365,13 @@
   delta 相对同配方 eg/eg-every2 基线；脚本 scripts/higs/run_round51_random_tile_baseline.sh、
   run_round51b_matched_sr.sh）。
 
+- **Round 52 更新（2026-08-04，M6 对照 2/3：Turbo-GS 式渐进分辨率训练——train/garden/bicycle，3-seed 3000 步）**：
+  新增 `--res-schedule "0.5:0,1.0:1500"`（解析 `_parse_res_schedule`/`_res_stage`）：前 1500 步半分辨率训练、之后全分辨率，评估恒为全分辨率（Turbo-GS 粗到细的对应实现；其余配方与 round-50/51 完全一致：error_guided r=0.35 λ=0.7 + full-res LPIPS、high-N + anchor every2、train 无 anchor）。结果 vs eg/every2 基线（3-seed 均值 ± sd）：
+  - prog（plain）：train 16.94±0.32（vs eg -0.15 dB，LPIPS 0.3888±0.0052，+0.0017）/ garden 18.07±0.06（±0.00，LPIPS 0.4489，+0.0062）/ bicycle 15.59±0.39（-0.35，LPIPS 0.5204，**-0.0053**）；总耗时 10.63±0.09 / 17.19±0.03 / 18.31±0.04 ms → **vs 全分辨率 2.07x / 2.49x / 2.47x**（vs eg 墙钟 +15.8% / +21.0% / +28.5%）。结论：粗到细带来 ~2.1-2.5x 大提速，train/garden PSNR 与 eg 持平；garden LPIPS 回退到 eg 界（0.4489 vs every2 0.4427——半分辨率阶段 full-res LPIPS 信号丢失）；bicycle PSNR 方差大（s0 于 1500 步后 15.87→15.18 退化），但 LPIPS 反而优于 every2。
+  - full-signal 变体（`--res-schedule-full-signal`：粗阶段 LPIPS 步与 anchor densify 步保持全分辨率）：**负面结果**——train 持平（17.00±0.12，LPIPS 0.3874），garden PSNR -0.35 / LPIPS +0.027，bicycle PSNR -0.98 / LPIPS +0.011，且更慢（20.27 / 20.93 ms）。机制：densify 每步进行（`densify_every=1`），粗阶段 anchor（全分辨率）与非 anchor（半分辨率）步交替，高 N 场景密度化信号不稳定 → 保留更多但位置更差的高斯（garden 2.30M vs 1.98M），质量不升反降。
+  **结论：plain 渐进分辨率是当前最高性价比训练臂（~2.1-2.5x，质量持平或可接受）；粗阶段叠加全分辨率信号不解决问题。** 详见 results/higs-round52/（r52-summary.json；脚本 scripts/higs/run_round52_progressive_res.sh、run_round52b_full_signal.sh）。
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
-- M6 对照：**Round 51 完成 ICCV 2025 random-tile loss 对照（train/garden/bicycle 3-seed + 匹配 sr 臂，见上）：error-guided 优势限于低/中 N 场景；Turbo-GS、Speedy-Splat 对照留待投稿阶段**。
+- M6 对照：**Round 51 完成 ICCV random-tile loss 对照、Round 52 完成 Turbo-GS 式渐进分辨率对照（train/garden/bicycle 3-seed，见上）：error-guided 优势限于低/中 N 场景；渐进分辨率 ~2.1-2.5x 提速、PSNR 持平或轻微损失（garden/bicycle LPIPS 代价明确，粗阶段全分辨率信号变体为负面）；Speedy-Splat 稀疏像素对照与多分辨率矩阵留待下一步**。
 
 ## 6. 风险与对策
 - 采样训练改变密度化动力学（梯度稀疏 -> densify 信号变化）：对策 = 梯度累积 / 密度化专用全分辨率步 / 调 densify 阈值。
