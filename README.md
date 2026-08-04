@@ -140,7 +140,7 @@ HiGS was inference-only. We made it **trainable end-to-end** with three staged i
 | bicycle | full r=1.0 (reference) | 1.00x | 16.024 | 0.3908 | 0.4795 | 3 |
 | bicycle | error_guided r=0.35 + λ=0.7 + `--lpips-full-res` | **1.98x** | 15.965 (-0.06, parity) | 0.3891 | 0.5298 (+0.050) | 3 |
 
-  Recommended operating point: `--tile-sampling-ratio 0.35 --sampling-mode error_guided --error-lambda 0.7 --lpips-full-res` (realized sr≈0.27-0.31; with lr-decay + densify-window + LPIPS regularization, see [run script](scripts/higs/run_m4_a100_retest.sh)). **Honest bound:** bicycle LPIPS +0.050±0.002 is the sole remaining quality gap at ≥1.8x — robust across λ, full-res LPIPS, and a 6000-step convergence probe; all conclusions are multi-seed (bicycle same-seed reruns vary ±0.1-0.3 dB from CUDA-atom non-determinism amplified by densify/prune). Full analysis: [research report](reports/higs-training-speedup-research-2026-08-03.md) · [M4 results](results/higs-round41d/m4-summary.json).
+  Recommended operating point: `--tile-sampling-ratio 0.35 --sampling-mode error_guided --error-lambda 0.7 --lpips-full-res` (realized sr≈0.27-0.31; with lr-decay + densify-window + LPIPS regularization, see [run script](scripts/higs/run_m4_a100_retest.sh)). **Honest bound:** the high-N scene gap at ≥1.8x — bicycle LPIPS +0.050±0.002 and garden PSNR -0.76 dB / LPIPS +0.050 (M5 matrix, [results](results/higs-round42/m5-summary.json)) — is robust across λ, full-res LPIPS, and a 6000-step convergence probe; low/mid-N scenes (train, truck, bonsai) hold quality parity. All conclusions are multi-seed (bicycle same-seed reruns vary ±0.1-0.3 dB from CUDA-atom non-determinism amplified by densify/prune). Full analysis: [research report](reports/higs-training-speedup-research-2026-08-03.md) · [M4 results](results/higs-round41d/m4-summary.json).
 
 [Implementation report →](reports/higs-trainability-implementation.md) · [Trainability source analysis →](reports/higs-trainability-analysis-2026-07-24.md) · [PR #9](https://github.com/caizefan34/3dgs-renderer-benchmark/pull/9)
 
@@ -210,7 +210,8 @@ The benchmark provides **complete Tier A coverage** across 5 renderers × 5 scen
 - ✅ **Compression qualification** — SPZ 8/8 wins at 5.73x with < 0.02 dB PSNR drop; full Pareto frontier in the [compression reports](reports/README.md).
 - ✅ **HiGS trainable end-to-end** — native CUDA backward, 100 tests, -9% ~ -24% training speedup vs std gsplat ([implementation report](reports/higs-trainability-implementation.md)).
 - ✅ **Tile-sampled training (M4)** — **1.8-2.0x end-to-end training speedup** at quality parity on train + bicycle (3-seed; bicycle LPIPS +0.05 the sole honest bound) ([research report](reports/higs-training-speedup-research-2026-08-03.md) · [PR #18](https://github.com/caizefan34/3dgs-renderer-benchmark/pull/18)).
-- 🚧 **Next** — close the bicycle LPIPS bound at ≥1.8x (prune-side gradient signal / sampling strategy), then the M5 multi-scene × resolution matrix and M6 baseline comparisons (ICCV random-tile loss, Turbo-GS, Speedy-Splat).
+- ✅ **M5 multi-scene matrix** — recommended op point on garden / bonsai / truck (3-seed): **1.74-2.12x**; truck quality beats full, bonsai within seed noise, garden shows the same high-N bound as bicycle ([M5 results](results/higs-round42/m5-summary.json)).
+- 🚧 **Next** — close the high-N scene (garden/bicycle) quality bound at ≥1.8x (prune-side gradient signal / sampling strategy), multi-resolution matrix, and M6 baseline comparisons (ICCV random-tile loss, Turbo-GS, Speedy-Splat).
 
 ---
 
