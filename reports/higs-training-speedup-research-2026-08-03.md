@@ -687,3 +687,23 @@
 - 波校准锚点：d0.99 s0 重跑与 exp1/exp2 同 seed 值一致（garden train_ms 20.269 vs 20.203，bicycle 22.036 vs 22.009），无跨波漂移，跨波比较成立。
 - d0.999 在 1080p 退役过慢：3000 步内 final_N 仅降到 2.41M/2.70M（vs d0.99 的 1.26M/0.63M），n_vis 几乎不膨胀（596K/390K vs ctrl 586K/382K）——因此省下了大部分速度成本（+1.3%/+1.0% vs +2.4%），但也几乎丢掉了全部质量收益（PSNR -0.02/+0.03、LPIPS -0.001/-0.005 vs d0.99 的 +0.11/+0.22、-0.007/-0.017）。
 - 机制结论：**decay 的速度成本与质量收益同源**——n_vis 膨胀正是质量机制本身（退役的陈旧不可见几何被可见区更精细的高斯替换），+2.4% 是质量的价格而非开销；d0.999 省下的 1.1-1.4% 是省掉了质量工作。1080p 下 d0.99 仍是唯一推荐点（R62 720p 全 forward 配方下 d0.999 PSNR 略优的 1-seed 迹象在质量-max 单元 3-seed 下未复现，关闭衰减率问题）。
+
+## 13. Trainable HiGS 加速杠杆总表（R59-R64 收官）
+
+| 杠杆 | 轮次 | 机制 | 速度 | 质量（3-seed，除非注明） | 结论 |
+|---|---|---|---|---|---|
+| cull-mask 缓存（--cull-cache，K4 opt-in） | R59 | 相同 camera 集跳过 cull 重算 | +2-4% wall | LPIPS/SSIM 中性；K4 3-seed bicycle PSNR -0.34 | 质量门内，但低于 k1 masked-Adam 收益 |
+| cull-masked Adam（--masked-adam，k1 新鲜 mask） | R60 | 融合 CUDA 核只对可见行执行 fused-Adam，冻结 out-of-view 行（消除零梯度动量漂移） | 720p-eg 端到端：train -8% / garden -34% / bicycle -41% train_ms | garden PSNR +1.90 / LPIPS -0.105 / SSIM +0.085；train 中性；bicycle PSNR/SSIM +0.05/+0.027、LPIPS +0.017（高 N 唯一诚实上界） | **最终 op point**——首个质量正的 per-Gaussian-floor 加速 |
+| union-mask 物理 prune | R61 | 删除 train+eval 双 mask 不可见行 | 更快 | PSNR 崩 >=0.2 dB（union-invisible 是迁移后期才需要的几何） | 关闭（质量门拒绝） |
+| LPIPS work-size 256（--lpips-work-size） | R61 | 降采样代理损失省 LPIPS 成本 | +3-5% train_ms | LPIPS +0.006..+0.013 / PSNR -0.03..-0.14（分布失配） | 关闭（质量门拒绝） |
+| K4 x masked-Adam 叠加 | R61 | mask 每 4 步才刷新 | vs k1：-3.0~-3.9% train_ms | PSNR -0.05..-0.12 / LPIPS +0.002..+0.007（s0 screen；README -0.08..-0.23） | 关闭（陈旧 mask = 冻结保护滞后） |
+| union-invisible opacity 衰减（--masked-adam-union-decay 0.99） | R62 | 冻结 + 双 mask 不可见行乘性衰减，经正常 opacity prune 退役 | +6.3-7.2%（需全 forward eval mask 刷新） | garden PSNR +0.14 / LPIPS -0.010；mask 陈旧则崩（PSNR 13.88） | 质量门内、速度门拒绝（刷新太贵） |
+| 投影式 eval-mask 刷新（--masked-adam-union-decay-eval-proj） | R63 | 衰减 mask 由投影 cull 计算（1.35 ms vs 13.5 ms），与 forward 缓存 mask 逐位一致 | garden 720p +2.3%；跨场景 -0.7%..+4.9% | 三场景均不劣化：PSNR +0.03..+0.22 / LPIPS -0.009..+0.001 | **推荐质量 opt-in**（高 N 场景 garden/bicycle） |
+| 1080p 质量-max 单元堆叠 | R64 exp1/2 | 同一杠杆 + anchor-densify-every-2 + eg r=0.35 | garden +2.4% / bicycle +2.4% / train +1.2% | 六格矩阵（2 分辨率 x 3 场景）PSNR -0.03..+0.22 / LPIPS -0.017..+0.001，无回退 | 推荐 opt-in 覆盖速度-max 与质量-max 两单元 |
+| 衰减率 0.999 | R64 exp3 | 更慢退役（半衰期 693 vs 69 步） | +1.0-1.3%（省 1.1-1.4%） | LPIPS -0.001..-0.005 / PSNR -0.02..+0.03（丢大部分收益） | 关闭（速度成本=质量收益同源；0.99 唯一推荐率） |
+
+**最终推荐组合（可复现 flag 集）**：
+- 速度-max = 720p + error_guided r=0.35 + --anchor-densify --anchor-densify-every 2 + --masked-adam（k1）：相对 1080p full 2.4-2.7x wall，质量优于自身 1080p 基线。
+- 质量-max = 1080p + error_guided r=0.35 + anchor-every-2 + --masked-adam + --masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj：garden 1080p PSNR 20.25 / LPIPS 0.336，质量正收益 +0.11 PSNR / -0.007 LPIPS @ +2.4% train_ms；bicycle 1080p +0.22 PSNR / -0.017 LPIPS。
+- train（低 N）：720p 不启用 decay（无质量收益 + ~5% 成本）；1080p 可选（质量中性 @ +1.2%）。
+- 铁律：启用任何 decay 配置必须配 --masked-adam-union-decay-eval-proj（全 forward 刷新 +6-7% 已被淘汰）；可见性类 mask 一律用投影计算。
