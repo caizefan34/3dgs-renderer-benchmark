@@ -688,7 +688,7 @@
 - d0.999 在 1080p 退役过慢：3000 步内 final_N 仅降到 2.41M/2.70M（vs d0.99 的 1.26M/0.63M），n_vis 几乎不膨胀（596K/390K vs ctrl 586K/382K）——因此省下了大部分速度成本（+1.3%/+1.0% vs +2.4%），但也几乎丢掉了全部质量收益（PSNR -0.02/+0.03、LPIPS -0.001/-0.005 vs d0.99 的 +0.11/+0.22、-0.007/-0.017）。
 - 机制结论：**decay 的速度成本与质量收益同源**——n_vis 膨胀正是质量机制本身（退役的陈旧不可见几何被可见区更精细的高斯替换），+2.4% 是质量的价格而非开销；d0.999 省下的 1.1-1.4% 是省掉了质量工作。1080p 下 d0.99 仍是唯一推荐点（R62 720p 全 forward 配方下 d0.999 PSNR 略优的 1-seed 迹象在质量-max 单元 3-seed 下未复现，关闭衰减率问题）。
 
-## 13. Trainable HiGS 加速杠杆总表（R59-R64 收官）
+## 13. Trainable HiGS 加速杠杆总表（R59-R65 收官）
 
 | 杠杆 | 轮次 | 机制 | 速度 | 质量（3-seed，除非注明） | 结论 |
 |---|---|---|---|---|---|
@@ -702,9 +702,12 @@
 | 1080p 质量-max 单元堆叠 | R64 exp1/2 | 同一杠杆 + anchor-densify-every-2 + eg r=0.35 | garden +2.4% / bicycle +2.4% / train +1.2% | 六格矩阵（2 分辨率 x 3 场景）PSNR -0.03..+0.22 / LPIPS -0.017..+0.001，无回退 | 推荐 opt-in 覆盖速度-max 与质量-max 两单元 |
 | 衰减率 0.999 | R64 exp3 | 更慢退役（半衰期 693 vs 69 步） | +1.0-1.3%（省 1.1-1.4%） | LPIPS -0.001..-0.005 / PSNR -0.02..+0.03（丢大部分收益） | 关闭（速度成本=质量收益同源；0.99 唯一推荐率） |
 
+| progressive-res x decay（--res-schedule 0.5:0,1.0:1500 + d0.99 + 投影刷新） | R65 | 退役前置进便宜的粗阶段，全分辨率阶段以 5.6x 更少高斯运行 | bicycle 1080p：train_ms -21.7% vs 全分辨率 ctrl | bicycle PSNR +0.33 / LPIPS -0.0155（严格支配 ctrl）；garden 单元内 +0.22/-0.008 @ +2.1% 但绝对值低于全分辨率 decay | **bicycle 质量-max 升级点**；garden 保持全分辨率 |
+
 **最终推荐组合（可复现 flag 集）**：
 - 速度-max = 720p + error_guided r=0.35 + --anchor-densify --anchor-densify-every 2 + --masked-adam（k1）：相对 1080p full 2.4-2.7x wall，质量优于自身 1080p 基线。
 - 质量-max = 1080p + error_guided r=0.35 + anchor-every-2 + --masked-adam + --masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj：garden 1080p PSNR 20.25 / LPIPS 0.336，质量正收益 +0.11 PSNR / -0.007 LPIPS @ +2.4% train_ms；bicycle 1080p +0.22 PSNR / -0.017 LPIPS。
+- bicycle 质量-max 升级（R65）：同一套 flag + --res-schedule 0.5:0,1.0:1500——train_ms -21.7% 且 PSNR +0.33 / LPIPS -0.0155 vs 全分辨率 ctrl，decay 成本约零（退役前置进粗阶段）；garden 不加 res-schedule（progressive 有质量天花板）。
 - train（低 N）：720p 不启用 decay（无质量收益 + ~5% 成本）；1080p 可选（质量中性 @ +1.2%）。
 - 铁律：启用任何 decay 配置必须配 --masked-adam-union-decay-eval-proj（全 forward 刷新 +6-7% 已被淘汰）；可见性类 mask 一律用投影计算。
 
