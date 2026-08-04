@@ -400,7 +400,29 @@
   作为已关闭杠杆保留（含 CPU 测试 TestResScheduleFullLpipsFlag）。剩余唯一质量杠杆
   仍是渲染器级更细粒度采样。结果 results/higs-round55/（r55-summary.json；脚本
   scripts/higs/run_round55_full_lpips.sh）。
-- M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
+- **Round 56 更新（2026-08-04，M5 多分辨率矩阵——540p/720p 补齐，3 场景 × 3 seed）**：
+  推荐操作点（error_guided r=0.35 λ=0.7 + full-res LPIPS；high-N + anchor every2、
+  train 无 anchor）vs 全分辨率在 540p（960x540）与 720p（1280x720）各跑
+  train/garden/bicycle × 3 seed（36 次运行，全 rc=0）；1080p 单元格复用
+  round-41d/42/50 既有结果。完整矩阵（ΔPSNR / ΔLPIPS / 加速，eg vs full 同分辨率）：
+  | 场景 | 540p | 720p | 1080p |
+  |---|---|---|---|
+  | train | +0.45 / +0.004 / **1.39x** | +1.03 / -0.003 / **1.56x** | +0.42 / +0.019 / **1.78x** |
+  | garden | -0.60 / +0.053 / **1.76x** | -0.51 / +0.045 / **1.88x** | -0.67 / +0.044 / **2.06x** |
+  | bicycle | -1.93 / +0.050 / **1.67x** | -0.75 / +0.048 / **1.74x** | -0.08 / +0.046 / **1.92x** |
+  **关键发现**：① 加速随分辨率单调上升（540p 1.39-1.76x → 720p 1.56-1.88x →
+  1080p 1.80-2.06x）——固定开销（densify/LPIPS/投影/eval）在低分辨率下摊薄
+  比例更高，≥1.8x 声明成立区间是 ≥720p 的高 N 场景与 ≥1080p 的 train；
+  ② train（低 N）在每个分辨率都是明确质量胜（PSNR +0.45..+1.03，720p 下
+  LPIPS 甚至 -0.003 反优）——低分辨率 + 采样训练对低 N 场景更有利；
+  ③ 高 N 的 LPIPS 界对分辨率稳健（garden +0.044..+0.053、bicycle +0.046..
+  +0.050 全程近似持平），但 bicycle 的 PSNR 差距随分辨率下降而急剧放大
+  （540p -1.93 dB vs 1080p -0.08 dB）——低分辨率下高 N 场景的像素级重建
+  退化是诚实边界，投稿叙事需按分辨率限定。**结论：多分辨率矩阵完成（M5
+  扩展），加速/质量的分辨率依赖关系已量化；投稿建议在 1080p 主张 ≥1.8x，
+  低/中 N 场景可下沉到 720p。** 结果 results/higs-round56/（r56-summary.json；
+  脚本 scripts/higs/run_round56_multi_res.sh）。
+- M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵 Round 56 完成（540p/720p/1080p × train/garden/bicycle × 3 seed，36 次运行，见上表）**。
 - M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量）。R53/R54 联合结论：高 N tile 采样质量界为 tile 粒度相关性噪声（去相关化分层采样 R54 为负面，与 uniform 匹配 sr 等价）；恢复质量需渲染器级更细粒度采样。下一步：多分辨率矩阵 + 渲染器级细粒度采样**。
 
 ## 6. 风险与对策
