@@ -527,12 +527,28 @@ def _accumulate_grad_norms(acc, means_grad):
     return acc
 
 
+def _is_anchor_step(anchor_densify, is_densify_step, it, densify_every, anchor_densify_every):
+    """Whether a densify step runs at full resolution (--anchor-densify).
+
+    With ``anchor_densify_every=1`` (default) every densify step is anchored.
+    Higher values anchor only every N-th densify event (event index = the
+    1-based count of densify steps so far), trading densify signal for speed;
+    the LPIPS full-res steps still provide full-res signal on their own
+    cadence regardless.
+    """
+    if not (anchor_densify and is_densify_step):
+        return False
+    if anchor_densify_every <= 1:
+        return True
+    return ((it + 1) // densify_every) % anchor_densify_every == 0
+
+
 def run_backend(
     backend, params0, viewmats, Ks, train_idx, refs_train,
     eval_idx, refs_eval, width, height, steps, seed, device,
     densify_every, densify_threshold, prune_threshold, lpips_model,
     radius_clip=0.0, fused_adam=True, tile_sampling_ratio=1.0,
-    anchor_densify=False, sampling_mode="uniform",
+    anchor_densify=False, anchor_densify_every=1, sampling_mode="uniform",
     error_alpha=1.0, error_refresh_every=25, error_lambda=1.0,
     eval_every=0, lr_decay=1.0, densify_window=None,
     lpips_loss_weight=0.0, lpips_loss_every=0,
@@ -599,7 +615,11 @@ def run_backend(
                 and (it + 1) % densify_every == 0
                 and (densify_window is None or it < densify_window)
             )
-            step_ratio = 1.0 if (anchor_densify and is_densify_step) else tile_sampling_ratio
+            is_anchor_step = _is_anchor_step(
+                anchor_densify, is_densify_step, it,
+                densify_every, anchor_densify_every,
+            )
+            step_ratio = 1.0 if is_anchor_step else tile_sampling_ratio
             is_lpips_step = (
                 lpips_loss_weight > 0.0 and lpips_loss_every > 0
                 and (it + 1) % lpips_loss_every == 0
@@ -877,6 +897,15 @@ def build_arg_parser():
         help="dynamic HiGS: run densify steps at full resolution (r=1.0)",
     )
     ap.add_argument(
+        "--anchor-densify-every", type=int, default=1,
+        help=(
+            "with --anchor-densify: run full-resolution densify only every "
+            "N-th densify event (1 = every densify step, the default); higher "
+            "values trade densify signal for speed (LPIPS full-res steps still "
+            "give full-res signal on their own cadence)"
+        ),
+    )
+    ap.add_argument(
         "--densify-grad-accum",
         action="store_true",
         help=(
@@ -1002,6 +1031,7 @@ def main():
                     fused_adam=args.fused_adam,
                     tile_sampling_ratio=args.tile_sampling_ratio,
                     anchor_densify=args.anchor_densify,
+                    anchor_densify_every=args.anchor_densify_every,
                     sampling_mode=args.sampling_mode,
                     error_alpha=args.error_alpha,
                     error_refresh_every=args.error_refresh_every,
