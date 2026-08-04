@@ -12,7 +12,7 @@
 # densify-window 1500 + LPIPS w=0.1 every 25 + error_guided alpha=1.0 refresh
 # 25 + eval every 300; 3000 steps; 1920x1080; n-train 4 / n-eval 3), full
 # r=1.0 vs eg r=0.35 lambda=0.7 + --lpips-full-res, 3 seeds each.
-# Sequential per GPU; garden/bonsai/truck on GPUs 0/1/2 (runs at 07:19-08:14
+# Parallel: one scene per GPU (garden/bonsai/truck on GPUs 0/1/2), 6 sequential runs each (runs at 07:19-08:14
 # local showed ~2-6 min per 3000-step run on A100).
 set -u
 export PATH=/root/miniforge3/envs/gsplat/bin:/usr/bin:/bin
@@ -40,24 +40,35 @@ run_dyn () {
 }
 
 # garden (gpu 0): full 3-seed + eg r=0.35 l=0.7 fr 3-seed
-run_dyn 0 mipnerf360/garden 1.0  1.0 0 0 m5_garden_full_s0
-run_dyn 0 mipnerf360/garden 1.0  1.0 0 1 m5_garden_full_s1
-run_dyn 0 mipnerf360/garden 1.0  1.0 0 2 m5_garden_full_s2
-run_dyn 0 mipnerf360/garden 0.35 0.7 1 0 m5_garden_eg035_l07_fr_s0
-run_dyn 0 mipnerf360/garden 0.35 0.7 1 1 m5_garden_eg035_l07_fr_s1
-run_dyn 0 mipnerf360/garden 0.35 0.7 1 2 m5_garden_eg035_l07_fr_s2
+run_garden () {
+  run_dyn 0 mipnerf360/garden 1.0  1.0 0 0 m5_garden_full_s0
+  run_dyn 0 mipnerf360/garden 1.0  1.0 0 1 m5_garden_full_s1
+  run_dyn 0 mipnerf360/garden 1.0  1.0 0 2 m5_garden_full_s2
+  run_dyn 0 mipnerf360/garden 0.35 0.7 1 0 m5_garden_eg035_l07_fr_s0
+  run_dyn 0 mipnerf360/garden 0.35 0.7 1 1 m5_garden_eg035_l07_fr_s1
+  run_dyn 0 mipnerf360/garden 0.35 0.7 1 2 m5_garden_eg035_l07_fr_s2
+}
 # bonsai (gpu 1)
-run_dyn 1 mipnerf360/bonsai 1.0  1.0 0 0 m5_bonsai_full_s0
-run_dyn 1 mipnerf360/bonsai 1.0  1.0 0 1 m5_bonsai_full_s1
-run_dyn 1 mipnerf360/bonsai 1.0  1.0 0 2 m5_bonsai_full_s2
-run_dyn 1 mipnerf360/bonsai 0.35 0.7 1 0 m5_bonsai_eg035_l07_fr_s0
-run_dyn 1 mipnerf360/bonsai 0.35 0.7 1 1 m5_bonsai_eg035_l07_fr_s1
-run_dyn 1 mipnerf360/bonsai 0.35 0.7 1 2 m5_bonsai_eg035_l07_fr_s2
+run_bonsai () {
+  run_dyn 1 mipnerf360/bonsai 1.0  1.0 0 0 m5_bonsai_full_s0
+  run_dyn 1 mipnerf360/bonsai 1.0  1.0 0 1 m5_bonsai_full_s1
+  run_dyn 1 mipnerf360/bonsai 1.0  1.0 0 2 m5_bonsai_full_s2
+  run_dyn 1 mipnerf360/bonsai 0.35 0.7 1 0 m5_bonsai_eg035_l07_fr_s0
+  run_dyn 1 mipnerf360/bonsai 0.35 0.7 1 1 m5_bonsai_eg035_l07_fr_s1
+  run_dyn 1 mipnerf360/bonsai 0.35 0.7 1 2 m5_bonsai_eg035_l07_fr_s2
+}
 # truck (gpu 2)
-run_dyn 2 tanks_and_temples/truck 1.0  1.0 0 0 m5_truck_full_s0
-run_dyn 2 tanks_and_temples/truck 1.0  1.0 0 1 m5_truck_full_s1
-run_dyn 2 tanks_and_temples/truck 1.0  1.0 0 2 m5_truck_full_s2
-run_dyn 2 tanks_and_temples/truck 0.35 0.7 1 0 m5_truck_eg035_l07_fr_s0
-run_dyn 2 tanks_and_temples/truck 0.35 0.7 1 1 m5_truck_eg035_l07_fr_s1
-run_dyn 2 tanks_and_temples/truck 0.35 0.7 1 2 m5_truck_eg035_l07_fr_s2
+run_truck () {
+  run_dyn 2 tanks_and_temples/truck 1.0  1.0 0 0 m5_truck_full_s0
+  run_dyn 2 tanks_and_temples/truck 1.0  1.0 0 1 m5_truck_full_s1
+  run_dyn 2 tanks_and_temples/truck 1.0  1.0 0 2 m5_truck_full_s2
+  run_dyn 2 tanks_and_temples/truck 0.35 0.7 1 0 m5_truck_eg035_l07_fr_s0
+  run_dyn 2 tanks_and_temples/truck 0.35 0.7 1 1 m5_truck_eg035_l07_fr_s1
+  run_dyn 2 tanks_and_temples/truck 0.35 0.7 1 2 m5_truck_eg035_l07_fr_s2
+}
+# one scene per GPU, in parallel; each scene block is 6 sequential runs
+run_garden &
+run_bonsai &
+run_truck &
+wait
 echo ALL_DONE_M5
