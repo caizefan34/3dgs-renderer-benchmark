@@ -626,5 +626,20 @@
 - **速度门复活**：train_ms +6.8%→+2.3%，恢复 R62 惩罚的大约 2/3；剩余 +2.3% 不是刷新开销（投影刷新自身 train-total 已低于 ctrl：2.23 vs 2.43 ms），而是机制固有成本：衰减退役后可见集更精细（n_visible 641K vs 536K，cull 0.56 vs 0.83）。
 - smoke 的 -1.6% 是 600 步中期偶然；3000 步收敛后诚实为 +2.3%。
 
-**决策：**R62 质量正向的 decay 杠杆因刷新成本被速度门拒绝；R63 用投影刷新把该杠杆从 +6.8% 降至 +2.3%，质量逐位不变（garden PSNR +0.21 / LPIPS -0.009 / SSIM +0.006 vs R60，3-seed 稳定）。因跨场景仍不稳健（R62 exp2：bicycle +0.16 但 train -0.23），杠杆保持 opt-in（默认关），R60 masked-Adam 仍是最终 op point；建议任何启用 `--masked-adam-union-decay` 的配置都应配合 `--masked-adam-union-decay-eval-proj`。低分辨率 eval forward 刷新（未来路径提案）证实为死路：0.25x 反而更慢。
+**决策：**R62 质量正向的 decay 杠杆因刷新成本被速度门拒绝；R63 用投影刷新把该杠杆从 +6.8% 降至 +2.3%（garden 3-seed：PSNR +0.21 / LPIPS -0.009 / SSIM +0.006，质量逐位不变），exp3 跨场景 3-seed 进一步证实三场景质量均不劣化（见下）。杠杆保持 opt-in（默认关），升级为高 N 场景（garden/bicycle）推荐的质量 opt-in；R60 masked-Adam 仍是最终 op point；任何启用 `--masked-adam-union-decay` 的配置都应配合 `--masked-adam-union-decay-eval-proj`。低分辨率 eval forward 刷新（R62 未来路径提案）证实为死路：0.25x 反而更慢。
+
+**跨场景（exp3，3000 步 3-seed，bicycle/train 各 ctrl s0 + d0.99+投影刷新 s0/s1/s2，in-wave）**：
+
+| 场景 | 变体 | train_ms | Δtrain | PSNR（Δ vs ctrl） | SSIM | LPIPS（Δ） | final_N |
+|---|---|---|---|---|---|---|---|
+| bicycle | ctrl s0 | 14.727 | — | 15.705 | 0.3794 | 0.4903 | 3.31M |
+| bicycle | d0.99+proj（3-seed） | 14.629±0.083 | **-0.7%** | 15.924±0.113（+0.22） | 0.3849 | 0.4809±0.003（-0.009） | 0.60M |
+| train | ctrl s0 | 10.215 | — | 16.957 | 0.6050 | 0.3414 | 0.43M |
+| train | d0.99+proj（3-seed） | 10.720±0.280 | +4.9% | 16.989±0.100（+0.03） | 0.6047 | 0.3422±0.003（+0.001） | 0.31M |
+
+- 全部 10 个 eval 检查点（bicycle/train 各 10）proj_miss_frac=proj_extra_frac=0.0——**跨场景投影 mask 同样逐位一致**。
+- R62 跨场景 1-seed 的 train PSNR -0.23 在 3-seed 下**未复现**（均值 +0.03，s1 甚至 +0.15）——属 1-seed 噪声；bicycle 1-seed +0.16 → 3-seed +0.22（同向且更强）。
+- 三场景质量均不劣化（PSNR +0.03..+0.22，LPIPS -0.009..+0.001）；速度 -0.7%（bicycle）/ +2.3%（garden）/ +4.9%（train）。
+
+**决策（exp3 更新）：**投影刷新把 R62 质量正向的 decay 杠杆变成**三场景质量安全**（无任何负向，3-seed）且高 N 场景近乎速度中性：bicycle 反而 -0.7%，garden +2.3%；train 质量中性但 +4.9% 速度成本。杠杆保持 opt-in（默认关）并升级为**高 N 场景（garden/bicycle）推荐的质量 opt-in**；train（低 N，无质量收益且有 5% 速度成本）不推荐启用。R60 masked-Adam 仍是最终 op point；启用 decay 的配置必须配合 `--masked-adam-union-decay-eval-proj`（全 forward 刷新 +6-7% 被淘汰）。低分辨率 eval forward 刷新（R62 未来路径提案）证实为死路：0.25x 反而更慢。
 
