@@ -187,7 +187,28 @@
 
 
 
-- M5 扩展性：未做（Round 41d 仍为 2 场景；多场景/多分辨率矩阵留待投稿阶段）。
+- **Round 42 更新（2026-08-04，M5 多场景矩阵——garden/bonsai/truck，3 场景 × 3 seed）**：
+  EPIC-05 A100、与 round-41d 完全相同的 R36 配方与推荐操作点（error_guided r=0.35
+  λ=0.7 + --lpips-full-res，3000 步、1920x1080、n-train 4 / n-eval 3），每场景
+  full 与 eg 各 3 seed，共 18 次运行（全 rc=0，garden/bonsai/truck 三 GPU 并行）：
+
+  | 场景（初始 N） | full PSNR/SSIM/LPIPS | eg PSNR/SSIM/LPIPS | ΔPSNR | ΔLPIPS | 加速 | sr |
+  |---|---|---|---|---|---|---|
+  | garden (5.8M) | 18.733±0.024 / 0.5007 / 0.3987 | 17.971±0.019 / 0.4690 / 0.4482 | -0.76 | +0.050 | **2.12x** | 0.319 |
+  | bonsai (1.2M) | 23.128±0.466 / 0.8211 / 0.2047 | 22.721±0.318 / 0.8059 / 0.2246 | -0.41（3-seed 噪声带内） | +0.020 | 1.74x | 0.311 |
+  | truck (2.5M) | 18.711±0.197 / 0.6821 / 0.3115 | 19.297±0.026 / 0.7025 / 0.2966 | **+0.59** | **-0.015** | 1.88x | 0.313 |
+
+  **结论：推荐操作点在 3 个新场景上给出 1.74-2.12x 端到端加速（garden 2.12x 最高）；
+  质量上 truck 全面反超（PSNR +0.59 dB、SSIM +0.020、LPIPS -0.015），bonsai PSNR
+  差距落在 3-seed 噪声带内（full ±0.47 / eg ±0.32）且 LPIPS +0.020 为小开口，garden
+  （高 N 场景，与 bicycle 同类）出现 -0.76 dB PSNR 与 +0.050 LPIPS 的真实差距——
+  **高 N 场景的感知上界从 bicycle 扩展到 garden，仍是投稿前补强项；低/中 N 场景
+  （train、truck、bonsai）质量持平成立**。诚实限制：矩阵仍为 1080p 单分辨率，
+  多分辨率留待后续。脚本 scripts/higs/run_m5_scenes_matrix.sh、聚合器
+  scripts/higs/aggregate_run_summary.py（对 round-41d 汇总数字逐位一致）、
+  原始 18 次运行 + 汇总 results/higs-round42/。
+
+- M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
 - M6 对照：未做（ICCV 2025 random-tile loss、Turbo-GS、Speedy-Splat 对照留待投稿阶段）。
 
 ## 6. 风险与对策
