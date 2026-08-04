@@ -22,6 +22,11 @@ _HIGS_APIS = (
 
 def higs_module_available() -> bool:
     """True when the patched gsplat exposing the HiGS APIs is importable."""
+    # ``find_spec`` on a dotted name imports the parent package, so check the
+    # top-level module first: on machines without gsplat installed this returns
+    # None instead of raising ``ModuleNotFoundError``.
+    if importlib.util.find_spec("gsplat") is None:
+        return False
     # ``gsplat.rendering`` exists in the patched/newer gsplat but not in the
     # stock pip release, so it is a cheap first-line check.
     if importlib.util.find_spec("gsplat.rendering") is None:
