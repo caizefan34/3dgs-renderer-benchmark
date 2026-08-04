@@ -543,6 +543,63 @@ def _is_anchor_step(anchor_densify, is_densify_step, it, densify_every, anchor_d
     return ((it + 1) // densify_every) % anchor_densify_every == 0
 
 
+def _parse_res_schedule(spec):
+    """Parse a progressive-resolution schedule "0.5:0,1.0:1500".
+
+    Each "scale:start_step" pair sets the render-resolution scale active from
+    ``start_step`` onward (later pairs override earlier ones at their start).
+    Returns a list of ``(scale, start_step)`` sorted by start step; an empty
+    spec returns ``[]`` (fixed full resolution). Used for the Turbo-GS-style
+    coarse-to-fine baseline.
+    """
+    if not spec:
+        return []
+    stages = []
+    for part in spec.split(","):
+        scale_s, start_s = part.split(":")
+        stages.append((float(scale_s), int(start_s)))
+    stages.sort(key=lambda s: s[1])
+    return stages
+
+
+def _res_stage(step, schedule, fallback=1.0):
+    """Resolution scale active at ``step`` for a parsed schedule."""
+    scale = fallback
+    for s, start in schedule:
+        if step >= start:
+            scale = s
+        else:
+            break
+    return scale
+
+
+def _stage_ks(Ks, scale, width, height):
+    """Scale camera intrinsics to a new render resolution.
+
+    Matches ``load_cameras``: focal lengths scale linearly with the image
+    size, and the principal point sits at the center of the target frame.
+    """
+    K = Ks.clone()
+    K[..., 0, 0] = K[..., 0, 0] * scale
+    K[..., 1, 1] = K[..., 1, 1] * scale
+    K[..., 0, 2] = (width - 1) / 2.0
+    K[..., 1, 2] = (height - 1) / 2.0
+    return K
+
+
+def _stage_refs(refs, width, height):
+    """Downsample training references to ``(height, width)`` (bilinear).
+
+    Deterministic (no sampling noise), so the coarse stage sees exactly the
+    low-passed target; the full-res stage passes the originals through.
+    """
+    if refs.shape[1] == height and refs.shape[2] == width:
+        return refs
+    x = refs.permute(0, 3, 1, 2)  # [C, 3, H, W]
+    y = F.interpolate(x, size=(height, width), mode="bilinear", align_corners=False)
+    return y.permute(0, 2, 3, 1).contiguous()
+
+
 def run_backend(
     backend, params0, viewmats, Ks, train_idx, refs_train,
     eval_idx, refs_eval, width, height, steps, seed, device,
@@ -555,6 +612,8 @@ def run_backend(
     lpips_full_res=False,
     cull_interval=1,
     densify_grad_accum=False,
+    res_schedule=None,
+    res_schedule_full_signal=False,
 ):
     torch.manual_seed(seed)
     from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
@@ -583,12 +642,19 @@ def run_backend(
         dynamic_scene = _HIGS_DYNAMIC_SCENE
         dynamic_scene.reset()
 
-    forward_fn = make_forward_fn(
+    eval_forward_fn = make_forward_fn(
         backend, width, height, handle, viewmats, Ks, radius_clip=radius_clip,
         tile_sampling_ratio=tile_sampling_ratio,
         sampling_mode=sampling_mode,
         cull_interval=cull_interval,
     )
+    # Train forward fn is rebuilt at progressive-resolution stage boundaries;
+    # without a schedule it is the same full-res closure (eval stays full-res
+    # regardless, so progressive training never contaminates eval metrics).
+    forward_fn = eval_forward_fn
+    train_w, train_h = width, height
+    train_Ks = Ks
+    cur_scale = None
     torch.cuda.reset_peak_memory_stats(device)
 
     fwd_times, bwd_times, total_times, train_times = [], [], [], []
@@ -603,6 +669,22 @@ def run_backend(
 
     try:
         for it in range(steps):
+            if res_schedule:
+                scale = _res_stage(it, res_schedule)
+                if scale != cur_scale:
+                    cur_scale = scale
+                    train_w = max(1, int(round(width * scale)))
+                    train_h = max(1, int(round(height * scale)))
+                    train_Ks = _stage_ks(Ks, scale, train_w, train_h)
+                    ref = _stage_refs(refs_train, train_w, train_h)
+                    forward_fn = make_forward_fn(
+                        backend, train_w, train_h, handle, viewmats, train_Ks,
+                        radius_clip=radius_clip,
+                        tile_sampling_ratio=tile_sampling_ratio,
+                        sampling_mode=sampling_mode,
+                        cull_interval=cull_interval,
+                    )
+                    tile_err_cache = None
             cam_ids = train_idx
             torch.cuda.synchronize(device)
             t0 = time.perf_counter()
@@ -629,16 +711,31 @@ def run_backend(
             # same cadence), so the full-frame perceptual signal costs no extra
             # render pass at the r<1 operating point.
             full_res_step = lpips_full_res and is_lpips_step and step_ratio < 1.0
+            # --res-schedule-full-signal: during progressive coarse stages keep
+            # the full-frame signal steps (LPIPS + anchor densify) at the full
+            # target resolution instead of the stage resolution.
+            use_full_signal = bool(res_schedule) and res_schedule_full_signal
             eg_mask = eg_weights = None
             if full_res_step:
-                frame, alpha, meta = forward_fn(
-                    params, cam_ids, sampling_ratio=1.0,
-                )
-                with torch.no_grad():
-                    tile_err_cache = _tile_mean_errors(
-                        frame, ref, _TILE_SIZE,
+                if use_full_signal:
+                    frame, alpha, meta = eval_forward_fn(
+                        params, cam_ids, sampling_ratio=1.0,
                     )
-                loss = _l1_loss(frame, ref)
+                    # Coarse-stage error-guided steps render at the stage
+                    # resolution, so a full-res error cache would mismatch
+                    # their tile grid; the next sampled step refreshes the
+                    # cache at the stage resolution.
+                    tile_err_cache = None
+                    loss = _l1_loss(frame, refs_train)
+                else:
+                    frame, alpha, meta = forward_fn(
+                        params, cam_ids, sampling_ratio=1.0,
+                    )
+                    with torch.no_grad():
+                        tile_err_cache = _tile_mean_errors(
+                            frame, ref, _TILE_SIZE,
+                        )
+                    loss = _l1_loss(frame, ref)
             else:
                 if sampling_mode == "error_guided" and step_ratio < 1.0:
                     if tile_err_cache is None or (it + 1) % error_refresh_every == 0:
@@ -663,30 +760,43 @@ def run_backend(
                         tile_err_cache.shape[0], tile_err_cache.shape[1],
                         tile_err_cache.shape[2],
                     )
-                frame, alpha, meta = forward_fn(
+                step_fn = (
+                    eval_forward_fn
+                    if (is_anchor_step and use_full_signal)
+                    else forward_fn
+                )
+                frame, alpha, meta = step_fn(
                     params, cam_ids, sampling_ratio=step_ratio, tile_mask=eg_mask,
                 )
             ev1.record()
             torch.cuda.synchronize(device)
             fwd_ms = ev0.elapsed_time(ev1)
+            # Full-signal steps (full-res LPIPS + anchor densify) render at the
+            # full target resolution, so their loss reference is the full-res
+            # target; sampled coarse-stage steps use the stage-scale reference.
+            loss_ref = (
+                refs_train
+                if (use_full_signal and (full_res_step or is_anchor_step))
+                else ref
+            )
             tile_mask = meta.get("tile_mask") if meta else None
             if eg_mask is not None and eg_weights is not None:
                 loss = _importance_l1_loss(
-                    frame, ref, eg_mask, eg_weights, _TILE_SIZE, width, height,
+                    frame, loss_ref, eg_mask, eg_weights, _TILE_SIZE, train_w, train_h,
                 )
-            elif step_ratio < 1.0 and tile_mask is not None:
+            elif not full_res_step and step_ratio < 1.0 and tile_mask is not None:
                 loss = _masked_l1_loss(
-                    frame, ref, tile_mask, _TILE_SIZE, width, height,
+                    frame, loss_ref, tile_mask, _TILE_SIZE, train_w, train_h,
                 )
             else:
-                loss = _l1_loss(frame, ref)
+                loss = _l1_loss(frame, loss_ref)
 
             if is_lpips_step:
                 evL0 = torch.cuda.Event(enable_timing=True)
                 evL1 = torch.cuda.Event(enable_timing=True)
                 evL0.record()
                 loss = loss + lpips_loss_weight * _lpips_train_loss(
-                    lpips_model, frame, ref,
+                    lpips_model, frame, loss_ref,
                 )
                 evL1.record()
                 torch.cuda.synchronize(device)
@@ -794,7 +904,7 @@ def run_backend(
 
             if eval_every > 0 and (it + 1) % eval_every == 0:
                 with torch.no_grad():
-                    ev_frame, _, _ = forward_fn(
+                    ev_frame, _, _ = eval_forward_fn(
                         params, eval_idx, sampling_ratio=1.0,
                     )
                     ev_frame = ev_frame.reshape(
@@ -823,7 +933,7 @@ def run_backend(
         peak = torch.cuda.max_memory_allocated(device) / 1e9
 
         with torch.no_grad():
-            ev_frame, _, _ = forward_fn(params, eval_idx, sampling_ratio=1.0)
+            ev_frame, _, _ = eval_forward_fn(params, eval_idx, sampling_ratio=1.0)
             ev_frame = ev_frame.reshape(len(eval_idx), height, width, 3)
             p = psnr(ev_frame, refs_eval)
             s = ssim(ev_frame.permute(0, 3, 1, 2), refs_eval.permute(0, 3, 1, 2))
@@ -912,6 +1022,24 @@ def build_arg_parser():
             "dynamic HiGS: densify on window-accumulated position-gradient "
             "norms (standard 3DGS recipe) instead of the instantaneous "
             "per-step gradient"
+        ),
+    )
+    ap.add_argument(
+        "--res-schedule", default=None,
+        help=(
+            "progressive-resolution schedule as 'scale:start,scale:start', e.g. "
+            "'0.5:0,1.0:1500' trains at half resolution for steps [0,1500) then "
+            "full resolution (Turbo-GS-style coarse-to-fine); default None = "
+            "fixed resolution. Eval is always at the full target resolution."
+        ),
+    )
+    ap.add_argument(
+        "--res-schedule-full-signal", action="store_true",
+        help=(
+            "with --res-schedule: keep the perceptual (LPIPS) steps and "
+            "anchor-densify steps at full target resolution during coarse "
+            "stages, instead of running them at the stage scale. Sampled "
+            "training steps still run at stage scale x r."
         ),
     )
     ap.add_argument(
@@ -1046,6 +1174,8 @@ def main():
                     lpips_full_res=args.lpips_full_res,
                     cull_interval=args.cull_interval,
                     densify_grad_accum=args.densify_grad_accum,
+                    res_schedule=_parse_res_schedule(args.res_schedule),
+                    res_schedule_full_signal=args.res_schedule_full_signal,
                 )
                 r["probe_grad_cosine"] = cos
                 r["probe_init_psnr"] = parity
