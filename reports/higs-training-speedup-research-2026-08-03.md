@@ -376,8 +376,13 @@
   - vs 全分辨率：PSNR -0.09 / -0.16 / +0.10 dB，LPIPS +0.008 / +0.009 / +0.008——**35% 像素覆盖下质量基本等于全分辨率训练**。
   - vs eg/every2 同覆盖 tile 臂：garden LPIPS -0.035（0.4081 vs 0.4427）、PSNR +0.39；bicycle LPIPS -0.039（0.4871 vs 0.5257）、PSNR +0.09；train LPIPS -0.012。
   **结论：高 N 场景的 tile 采样质量界主要是采样相关性噪声（16x16 宏块粒度），而非像素数量**——相同覆盖率下像素 iid 采样恢复近全质量。代价：全帧光栅化无提速（~1.0x full；Speedy-Splat 的像素稀疏光栅化不在 frozen gsplat 范围内）。**这直接指向下一个质量杠杆：在保持 tile 光栅化提速的同时去相关化 tile 选择（分层/抖动 tile 采样），以及多分辨率矩阵。** M6 状态：对照 3/3 完成（ICCV random-tile + Turbo-GS 渐进分辨率 + Speedy-Splat 稀疏像素）。详见 results/higs-round53/（r53-summary.json；脚本 scripts/higs/run_round53_sparse_pixel.sh）。
+- **Round 54 更新（2026-08-04，采样去相关化杠杆：stratified tile 采样——train/garden/bicycle，3-seed 3000 步）**：
+  R53 指出高 N 质量界是采样相关性噪声；本轮的 in-harness 去相关化杠杆是光栅化器内置的 `--sampling-mode stratified`（每 round(1/r) 个 tile 组成的层内取一个 tile，单步内铺满全图）。配方与 R50/51 一致（r=0.35、full-res LPIPS every 25、high-N + anchor every2、train 无 anchor）。结果（3-seed 均值 ± sd）：
+  - train 16.73±0.33 / LPIPS 0.3933±0.002 / 13.3ms（sr 0.36）；garden 18.15±0.04 / LPIPS 0.4346±0.001 / 22.5ms（sr 0.387）；bicycle 15.92±0.19 / LPIPS 0.5103±0.001 / 24.6ms（sr 0.387）。
+  - vs uniform（R51，同配方匹配 sr）：garden LPIPS 0.4346 vs 0.4335（±0.001）、bicycle 0.5103 vs 0.5106（-0.0003）、train 0.3933 vs 0.3871（+0.006）——**分层与随机 tile 采样在匹配 sr 下质量等价**；vs eg/every2（sr 低 0.04-0.05）：garden LPIPS -0.008、bicycle -0.015，主要为更高覆盖率贡献（stratif 实际 sr 0.387 vs eg 0.344-0.348）。
+  **结论：负面——分层去相关化没有恢复质量**。结合 R53：损失不是采样簇集（draw clustering），而是 tile 粒度本身的内部相关性（16x16 块同渲染/同误差结构）；在 frozen gsplat 光栅化器内，采样杠杆（error_guided / uniform / stratified）已全部闭合且等价，恢复质量需要更细粒度（像素级掩码/抖动网格偏移）的光栅化支持，属渲染器层面后续工作。当前最优训练臂仍是 R50 every2（质量）与 R52 渐进分辨率（速度）。详见 results/higs-round54/（r54-summary.json；脚本 scripts/higs/run_round54_stratified.sh）。
 - M5 扩展性：**Round 42 已完成 garden/bonsai/truck（3 场景 × 3 seed，见上表）；多分辨率矩阵留待投稿阶段**。
-- M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量，见上）。R53 表明高 N tile 采样质量界为采样相关性噪声而非像素数；下一步：去相关化 tile 采样 + 多分辨率矩阵**。
+- M6 对照：**3/3 完成：ICCV random-tile（R51）、Turbo-GS 渐进分辨率（R52，~2.1-2.5x 提速）、Speedy-Splat 稀疏像素训练信号（R53，35% 像素覆盖近全质量）。R53/R54 联合结论：高 N tile 采样质量界为 tile 粒度相关性噪声（去相关化分层采样 R54 为负面，与 uniform 匹配 sr 等价）；恢复质量需渲染器级更细粒度采样。下一步：多分辨率矩阵 + 渲染器级细粒度采样**。
 
 ## 6. 风险与对策
 - 采样训练改变密度化动力学（梯度稀疏 -> densify 信号变化）：对策 = 梯度累积 / 密度化专用全分辨率步 / 调 densify 阈值。
