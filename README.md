@@ -59,7 +59,7 @@ That's it — the CLI downloads the scene, runs the suite, and writes results un
 |---|---|---|
 | **gsplat HiGS quarter-res** | **SPZ v4 8/8-bit** | **154 pass + 1 skip** |
 | 553 FPS (+12% over baseline) | 5.57–6.07x ratio, < 0.02 dB PSNR drop | Full CI pipeline |
-| @ 1920x1080 on A100-80GB | Lossless quality on all 5 scenes | Automated validation |
+| @ 1920x1080 on A100-80GB | Near-lossless on all 5 scenes (< 0.02 dB) | Automated validation |
 
 </div>
 
