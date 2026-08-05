@@ -702,15 +702,15 @@
 | 1080p 质量-max 单元堆叠 | R64 exp1/2 | 同一杠杆 + anchor-densify-every-2 + eg r=0.35 | garden +2.4% / bicycle +2.4% / train +1.2% | 六格矩阵（2 分辨率 x 3 场景）PSNR -0.03..+0.22 / LPIPS -0.017..+0.001，无回退 | 推荐 opt-in 覆盖速度-max 与质量-max 两单元 |
 | 衰减率 0.999 | R64 exp3 | 更慢退役（半衰期 693 vs 69 步） | +1.0-1.3%（省 1.1-1.4%） | LPIPS -0.001..-0.005 / PSNR -0.02..+0.03（丢大部分收益） | 关闭（速度成本=质量收益同源；0.99 唯一推荐率） |
 
-| progressive-res x decay（--res-schedule 0.5:0,1.0:1500 + d0.99 + 投影刷新） | R65 | 退役前置进便宜的粗阶段，全分辨率阶段以 5.6x 更少高斯运行 | bicycle 1080p：train_ms -21.7% vs 全分辨率 ctrl | bicycle PSNR +0.33 / LPIPS -0.0155（严格支配 ctrl）；truck +0.16/-0.0066 @ -16.5%；bonsai +0.91/-0.0137 @ -19.0%（均严格支配）；garden 0.75x 粗阶段 +0.09/-0.0049 @ -9.6%（严格支配，exp3） | **5/5 场景均有严格支配配置**（bicycle/truck/bonsai 0.5x；garden 0.75x；720p 高 N 同构）；train 不启用 |
+| progressive-res x decay（--res-schedule 0.5:0,1.0:1500 + d0.99 + 投影刷新） | R65 | 退役前置进便宜的粗阶段，全分辨率阶段以 5.6x 更少高斯运行 | bicycle 1080p：train_ms -21.7% vs 全分辨率 ctrl | bicycle PSNR +0.33 / LPIPS -0.0155（严格支配 ctrl）；truck +0.16/-0.0066 @ -16.5%；bonsai +0.91/-0.0137 @ -19.0%（均严格支配）；garden 0.75x 粗阶段 +0.09/-0.0049 @ -9.6%（严格支配，exp3） | **4/5 场景有严格支配配置**（bicycle/truck/bonsai 0.5x；garden 0.75x；720p 高 N 同构）；train 低 N 不启用 |
 
-| --higs-quality-max 一键预设 | R65 收官 | 上述 R60 masked-Adam + R63 投影刷新 + R65 粗阶段 的 CLI 入口：--masked-adam + --masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj + 默认 --res-schedule 0.5:0,1.0:1500 | = R65 质量-max 升级单元 | = R65 质量-max 升级单元（5/5 场景严格支配） | **推荐一键入口**：显式 flag 覆盖（garden 传 --res-schedule 0.75:0,1.0:1500；train 低 N 不启用） |
+| --higs-quality-max 一键预设 | R65 收官 | 上述 R60 masked-Adam + R63 投影刷新 + R65 粗阶段 的 CLI 入口：--masked-adam + --masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj + 默认 --res-schedule 0.5:0,1.0:1500 | = R65 质量-max 升级单元 | = R65 质量-max 升级单元（4/5 场景严格支配；train 低 N 不启用） | **推荐一键入口**：显式 flag 覆盖（garden 传 --res-schedule 0.75:0,1.0:1500；train 低 N 不启用） |
 
 **最终推荐组合（可复现 flag 集）**：
 - 速度-max = 720p + error_guided r=0.35 + --anchor-densify --anchor-densify-every 2 + --masked-adam（k1）：相对 1080p full 2.4-2.7x wall，质量优于自身 1080p 基线。
 - 质量-max = 1080p + error_guided r=0.35 + anchor-every-2 + --masked-adam + --masked-adam-union-decay 0.99 --masked-adam-union-decay-eval-proj：garden 1080p PSNR 20.25 / LPIPS 0.336，质量正收益 +0.11 PSNR / -0.007 LPIPS @ +2.4% train_ms；bicycle 1080p +0.22 PSNR / -0.017 LPIPS。
 - 一键复现：`--higs-quality-max`（round-65 收官预设 = masked-Adam + decay 0.99 + 投影刷新 + 默认 `--res-schedule 0.5:0,1.0:1500`；显式 `--res-schedule` / `--masked-adam-union-decay` 覆盖预设，garden 用 `--res-schedule 0.75:0,1.0:1500`）。
-- 质量-max 升级（R65）：同一套 flag + --res-schedule——bicycle/truck/bonsai 用 0.5:0,1.0:1500（bicycle train_ms -21.7% / PSNR +0.33 / LPIPS -0.0155），garden 用 0.75:0,1.0:1500（-9.6% / +0.09 / -0.0049，decay 成本由退役前置进粗阶段吸收）；5/5 场景严格支配全分辨率 ctrl。
+- 质量-max 升级（R65）：同一套 flag + --res-schedule——bicycle/truck/bonsai 用 0.5:0,1.0:1500（bicycle train_ms -21.7% / PSNR +0.33 / LPIPS -0.0155），garden 用 0.75:0,1.0:1500（-9.6% / +0.09 / -0.0049，decay 成本由退役前置进粗阶段吸收）；4/5 场景严格支配全分辨率 ctrl（train 低 N 不启用）。
 - train（低 N）：720p 不启用 decay（无质量收益 + ~5% 成本）；1080p 可选（质量中性 @ +1.2%）。
 - 铁律：启用任何 decay 配置必须配 --masked-adam-union-decay-eval-proj（全 forward 刷新 +6-7% 已被淘汰）；可见性类 mask 一律用投影计算。
 
@@ -750,7 +750,7 @@
 | bonsai | pd（prog+decay，3-seed） | 8.927±0.063（**-19.0%**） | 24.430±0.064（**+0.91**） | 0.8324 | 0.1914±0.0003（**-0.0137**） | 0.13M | 101K |
 
 - **truck 与 bonsai 均严格支配各自 ctrl**（更快且更好），与 bicycle 同向：truck train_ms -16.5% / PSNR +0.16 / LPIPS -0.0066；bonsai train_ms -19.0% / PSNR +0.91（全矩阵最大）/ LPIPS -0.0137。
-- 至此 5 场景中 4 个（bicycle/truck/bonsai + 720p 高 N）prog x decay 严格支配全分辨率 ctrl；garden 用 0.75x 粗阶段（exp3）后也严格支配（见下），**5/5 场景全部有严格支配配置**。低 N train 仍不推荐。
+- 至此 5 场景中 4 个（bicycle/truck/bonsai + 720p 高 N）prog x decay 严格支配全分辨率 ctrl；garden 用 0.75x 粗阶段（exp3）后也严格支配（见下），**4/5 场景有严格支配配置（train 低 N 除外）**。
 - 投影 mask 在全部 pd 运行中仍逐位一致（miss/extra=0）。
 - 机制延续：pd 的 final_N 全部大幅收缩（truck 1.24M->0.42M、bonsai 0.69M->0.13M），全分辨率阶段以 2.9-5.3x 更少高斯运行。
 
@@ -782,7 +782,7 @@
 | bonsai | 0.5 | 11.022 | 8.927 | **-19.0%** | **+0.91** | **-0.0137** | 严格支配 |
 | train | 0.5 | 13.814 | 12.322 | -10.8% | -0.18（边界噪声） | +0.0014 | 不推荐 decay（prog 单独可提速） |
 
-- 5 场景中 4 个严格支配（速度与质量同时占优），garden 经 0.75x 粗阶段后同样严格支配；train（低 N）decay 无质量收益，不推荐（其 -10.8% 来自 prog 本身，R52 已记录 train prog 质量平价）。
+- 4/5 场景严格支配（bicycle/truck/bonsai 0.5x，garden 经 0.75x 粗阶段后同样严格支配）；train（低 N）decay 无质量收益，不推荐（其 -10.8% 来自 prog 本身，R52 已记录 train prog 质量平价）。
 - 全部 pd 运行投影 mask 逐位一致（miss/extra=0），质量结论建立在 3-seed in-wave A/B 上（garden ctrl 用 R64 exp1 3-seed，exp3 波锚点无漂移）。
 - 速度-max 单元（720p + eg + anchor-every-2 + masked-adam）不受影响：R60 已给 train -8% / garden -34% / bicycle -41% train_ms；decay 作为该单元高 N 场景的质量 opt-in（R63）。
 - 与标准 gsplat 训练对照：本管线为可训练 HiGS 加速（-9% ~ -24% vs std gsplat 基线，见 trainability 报告），本表为同后端内 ctrl 的端到端单步成本对比。
