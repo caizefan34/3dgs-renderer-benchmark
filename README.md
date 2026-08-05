@@ -87,6 +87,7 @@ flowchart LR
     B --> C["7 个 HiGS 渲染变体<br/>+ 10 个压缩编码器"]
     C --> D["统一测量<br/>FPS · PSNR · SSIM · LPIPS · VRAM"]
     D --> E["公开排行榜图表<br/>+ 可复现的原始数据"]
+```
 
 
 **Three research goals, all delivered with measured evidence:**
