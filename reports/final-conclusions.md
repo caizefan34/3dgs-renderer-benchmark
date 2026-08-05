@@ -76,6 +76,8 @@ The Tier A matrix established a reliable baseline across 5 renderers:
 | SPZ 5/4 | 10.07x | -1.806 dB | 0/5 |
 | SOG | 18.66x | -2.451 dB | 0/5 |
 
+*Ratio column = byte-weighted aggregate over the 5 scenes (SPZ 8/8 per-scene: 5.57-6.07x, median 5.78x; README uses the per-scene range).*
+
 ### 2.2 The Pareto Frontier
 
 Bit-exact: XZ (1.17x)

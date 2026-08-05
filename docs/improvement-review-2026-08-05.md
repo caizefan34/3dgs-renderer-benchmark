@@ -85,10 +85,10 @@ reproducible commands (not memory).
   batches; CI width 153-396 in the published table).  The geometric mean of
   the first batch is what is published; if TC-GS numbers matter, a
   dedicated warm-up/steady-state protocol would tighten the CI.
-- **`reports/final-conclusions.md`**: still uses `5.73x` for SPZ 8/8.  That
-  value is the byte-weighted aggregate and is not wrong, but it differs from
-  the per-scene range now used in the README; left untouched as a dated
-  report artifact.
+- **`reports/final-conclusions.md`**: uses `5.73x` for SPZ 8/8, which is the
+  byte-weighted aggregate (not wrong, but different from the per-scene range
+  in the README).  A clarifying note was added under the codec table
+  (per-scene 5.57-6.07x, median 5.78x).
 - Not changed (out of scope): GPU kernel code, benchmark protocol JSON, and
   the CSV/JSON evidence artifacts under `results/` — those are raw data.
 

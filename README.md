@@ -9,7 +9,7 @@
   </a>
   <img src="https://img.shields.io/github/stars/caizefan34/3dgs-renderer-benchmark?style=flat&label=Stars&color=gold" alt="Stars">
   <img src="https://img.shields.io/badge/GPU-A100_80GB-46e970" alt="GPU">
-  <img src="https://img.shields.io/badge/Renderers-7_measured-38bdf8" alt="Renderers">
+  <img src="https://img.shields.io/badge/Renderers-5_families_%2B_7_variants-38bdf8" alt="Renderers">
   <img src="https://img.shields.io/badge/Compression_Codecs-10_tested-34d399" alt="Codecs">
   <img src="https://img.shields.io/badge/Tests-155_tests_OK-22c55e" alt="Tests">
 </p>
@@ -103,6 +103,8 @@ flowchart LR
 | gsplat_higs (baseline) | 492 | 1.00x | 25.83 dB | 3,697 MB |
 | gsplat_higs_temporal_cache | 479 | -2.6% | 25.83 dB | 3,721 MB |
 | gsplat_higs_tile16 | 449 | -8.7% | 25.83 dB | 3,800 MB |
+
+*FPS is measured on the Garden scene (1080p, same protocol as the [HiGS ablation](docs/epic05-higs-ablation-results-2026-07-25.md)); the 5-scene geometric means are in the [Tier A charts](#tier-a-comparison-charts) (full-res gsplat_higs: 696.9 FPS).*
 
 **Key insight:** HiGS is **compute-bound on A100** — resolution cuts give only +12% despite 16x fewer pixels. Real acceleration needs Gaussian processing optimization.
 
