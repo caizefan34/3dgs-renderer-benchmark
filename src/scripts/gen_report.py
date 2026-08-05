@@ -75,7 +75,7 @@ tr:hover {{ background: #f0f2ff; }}
 <p>All renderers use <b>identical</b> scene data and camera poses. 50 warmup + 200 benchmark frames.</p>
 
 <table>
-<tr><th>Renderer</th><th>Median (ms) ��</th><th>FPS</th><th>Mean (ms)</th><th>P99 (ms)</th><th>Mem (MB)</th></tr>
+<tr><th>Renderer</th><th>Median (ms) ↓</th><th>FPS</th><th>Mean (ms)</th><th>P99 (ms)</th><th>Mem (MB)</th></tr>
 {table_rows}
 </table>
 
@@ -83,7 +83,7 @@ tr:hover {{ background: #f0f2ff; }}
 <h3>?? Fastest Renderer: {phase1["metadata"]["fastest_renderer"]}</h3>
 <p>Key factors for speed:
 <ul>
-<li><b>CUB DeviceRadixSort</b> replaces Thrust radix sort �� ~15-30% faster tile binning</li>
+<li><b>CUB DeviceRadixSort</b> replaces Thrust radix sort → ~15-30% faster tile binning</li>
 <li>Warp-level primitives reduce shared memory bank conflicts</li>
 <li>TC-GS shows identical render-time performance (same diff-gaussian-rasterization kernel)</li>
 </ul>
@@ -94,14 +94,14 @@ tr:hover {{ background: #f0f2ff; }}
 <div class="card">
 <h3>Optimizations Applied</h3>
 <ol>
-<li><b>Frustum Pre-Culling</b> �� Conservative NDC-space visibility test reduces gaussian count</li>
-<li><b>Pre-allocated Buffer Reuse</b> �� Eliminates per-frame tensor allocations</li>
-<li><b>Rasterizer Cache</b> �� Reuses GaussianRasterizer across frames for same camera</li>
+<li><b>Frustum Pre-Culling</b> — Conservative NDC-space visibility test reduces gaussian count</li>
+<li><b>Pre-allocated Buffer Reuse</b> — Eliminates per-frame tensor allocations</li>
+<li><b>Rasterizer Cache</b> — Reuses GaussianRasterizer across frames for same camera</li>
 </ol>
 
 <h3>Results</h3>
 <p>Baseline (speedy_splat): <b>171.4 FPS</b> (5.83ms median)</p>
-<p>Optimized (culling + prealloc): <b>365.1 FPS</b> (2.74ms median) �� <span class="badge badge-win">+113% faster</span></p>
+<p>Optimized (culling + prealloc): <b>365.1 FPS</b> (2.74ms median) — <span class="badge badge-win">+113% faster</span></p>
 </div>
 
 <div class="card meta">
