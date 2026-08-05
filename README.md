@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/GPU-A100_80GB-46e970" alt="GPU">
   <img src="https://img.shields.io/badge/Renderers-5_families_%2B_7_variants-38bdf8" alt="Renderers">
   <img src="https://img.shields.io/badge/Compression_Codecs-10_tested-34d399" alt="Codecs">
-  <img src="https://img.shields.io/badge/Tests-155_tests_OK-22c55e" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-162_tests_OK-22c55e" alt="Tests">
 </p>
 
 <p align="center">
@@ -48,8 +48,18 @@ python benchmark.py run gsplat_higs --dataset garden   # any renderer in benchma
 
 That's it — the CLI downloads the scene, runs the suite, and writes results under `results/`. Want the full tour first? Browse the [live dashboard](https://caizefan34.github.io/3dgs-renderer-benchmark/) or start with [docs/README.md](docs/README.md).
 
-> **Run the test suite:** `python -m unittest discover -s tests -v` (155 tests, CPU-safe). For the full suite including the pytest-style HiGS tests, run `python -m pytest tests -q` (HiGS tests skip cleanly when the CUDA extension is unavailable).
+> **Run the test suite:** `python -m unittest discover -s tests -v` (162 tests, 1 skipped on CPU-only Windows). For the full suite including the pytest-style HiGS tests, run `python -m pytest tests -q` (HiGS tests skip cleanly when the CUDA extension is unavailable).
 
+
+### Choose your path
+
+| I want to... | Start here |
+|---|---|
+| Compare renderers without implementation details | [Live dashboard](https://caizefan34.github.io/3dgs-renderer-benchmark/) |
+| Understand FPS, PSNR, SSIM, and LPIPS | [Metric glossary](#-tldr--key-results) |
+| Reproduce the published A100 results | [Reproducibility guide](docs/reproducibility.md) |
+| Add another renderer | [Renderer integration guide](docs/adding-a-renderer.md) |
+| Audit claims and remaining evidence gaps | [Research readiness audit](docs/research-readiness-audit-2026-08-05.md) |
 
 ## ⚡ TL;DR — Key Results
 
@@ -57,7 +67,7 @@ That's it — the CLI downloads the scene, runs the suite, and writes results un
 
 | 🚀 Fastest Renderer | 📦 Best Compression | 🔬 Tests |
 |---|---|---|
-| **gsplat HiGS quarter-res** | **SPZ v4 8/8-bit** | **154 pass + 1 skip** |
+| **gsplat HiGS quarter-res** | **SPZ v4 8/8-bit** | **161 pass + 1 skip** |
 | 553 FPS (+12% over baseline) | 5.57–6.07x ratio, < 0.02 dB PSNR drop | Full CI pipeline |
 | @ 1920x1080 on A100-80GB | Near-lossless on all 5 scenes (< 0.02 dB) | Automated validation |
 
