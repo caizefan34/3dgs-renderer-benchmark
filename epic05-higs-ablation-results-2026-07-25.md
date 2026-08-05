@@ -51,8 +51,8 @@
 | PSNR delta | -0.0009 dB (virtually lossless) |
 | SSIM delta | -0.000085 |
 | LPIPS delta | +0.00044 |
-| Compression ratio | ~5.732x |
+| Compression ratio | ~5.83x |
 | Rendered FPS (SPZ) | 202.1 |
 | VRAM | 2,444 MB |
 
-SPZ 8/8 remains the recommended near-lossless compression format with 5.732x storage reduction and negligible quality impact.
+SPZ 8/8 remains the recommended near-lossless compression format with 5.83x storage reduction and negligible quality impact.
