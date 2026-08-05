@@ -115,11 +115,11 @@ li {{ margin: 6px 0; color: #cbd5e1; font-size: 14px; line-height: 1.5; }}
 <h3>All 5 Candidate Renderers</h3>
 <table>
   <tr><th>Renderer</th><th>Stars</th><th>Status</th><th>Note</th></tr>
-  <tr><td>diff-gaussian-rasterization (ashawkey fork)</td><td>487</td><td>? Active</td><td>Original Inria CUDA kernel, Thrust sort — baseline at 261 FPS</td></tr>
-  <tr><td>speedy-splat (from source build)</td><td>347</td><td>? Active</td><td>CUB DeviceRadixSort — fastest at 281 FPS (+7.6%)</td></tr>
-  <tr><td>TC-GS (from source build)</td><td>75</td><td>? Active</td><td>CUB sort, same kernel as speedy-splat</td></tr>
-  <tr><td>gsplat (nerfstudio-project)</td><td>5,363</td><td>?? Wrapper</td><td>Native CUDA kernels incompatible with CUDA 13.0+MSVC 14.44</td></tr>
-  <tr><td>fast-gaussian-rasterization</td><td>1,186</td><td>?</td><td>Requires EGL/GL display (Linux/WSL2 only)</td></tr>
+  <tr><td>diff-gaussian-rasterization (ashawkey fork)</td><td>487</td><td>✅ Active</td><td>Original Inria CUDA kernel, Thrust sort — baseline at 261 FPS</td></tr>
+  <tr><td>speedy-splat (from source build)</td><td>347</td><td>✅ Active</td><td>CUB DeviceRadixSort — fastest at 281 FPS (+7.6%)</td></tr>
+  <tr><td>TC-GS (from source build)</td><td>75</td><td>✅ Active</td><td>CUB sort, same kernel as speedy-splat</td></tr>
+  <tr><td>gsplat (nerfstudio-project)</td><td>5,363</td><td>🔌 Wrapper</td><td>Native CUDA kernels incompatible with CUDA 13.0+MSVC 14.44</td></tr>
+  <tr><td>fast-gaussian-rasterization</td><td>1,186</td><td>🚫</td><td>Requires EGL/GL display (Linux/WSL2 only)</td></tr>
 </table>
 </div>
 

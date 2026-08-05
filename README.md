@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/GPU-A100_80GB-46e970" alt="GPU">
   <img src="https://img.shields.io/badge/Renderers-7_measured-38bdf8" alt="Renderers">
   <img src="https://img.shields.io/badge/Compression_Codecs-10_tested-34d399" alt="Codecs">
-  <img src="https://img.shields.io/badge/Tests-155_passing-22c55e" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-155_tests_OK-22c55e" alt="Tests">
 </p>
 
 <p align="center">
@@ -57,8 +57,8 @@ That's it — the CLI downloads the scene, runs the suite, and writes results un
 
 | 🚀 Fastest Renderer | 📦 Best Compression | 🔬 Tests |
 |---|---|---|
-| **gsplat HiGS quarter-res** | **SPZ v4 8/8-bit** | **155/155 pass** |
-| 553 FPS (+12% over baseline) | 5.73x ratio, < 0.02 dB PSNR drop | Full CI pipeline |
+| **gsplat HiGS quarter-res** | **SPZ v4 8/8-bit** | **154 pass + 1 skip** |
+| 553 FPS (+12% over baseline) | 5.57–6.07x ratio, < 0.02 dB PSNR drop | Full CI pipeline |
 | @ 1920x1080 on A100-80GB | Lossless quality on all 5 scenes | Automated validation |
 
 </div>
@@ -108,7 +108,7 @@ flowchart LR
 
 ### 2. Near-Lossless Compression — 50 data points
 
-**SPZ v4 8/8-bit is the clear winner:** 5.73x compression with < 0.02 dB PSNR degradation on every scene.
+**SPZ v4 8/8-bit is the clear winner:** 5.57–6.07x compression (median 5.78x) with < 0.02 dB PSNR degradation on every scene.
 
 <details>
 <summary><b>Click to expand — Full 50-point comparison table</b></summary>
@@ -133,7 +133,7 @@ flowchart LR
 
 </details>
 
-**Compression Pareto frontier:** XZ (1.17x, bit-exact) -> Tile-codebook (3.84x, near-perfect) -> **SPZ 8/8 (5.73x, WINNER)** -> SPZ 6/6 (7.62x, fails Bonsai) -> FCGS (12.84x, fails 3/5) — 简单说：XZ 无损但压得少；**SPZ 8/8 压缩率最高且质量几乎无损，是默认推荐**。
+**Compression Pareto frontier:** XZ (1.17x, bit-exact) -> Tile-codebook (3.84x, near-perfect) -> **SPZ 8/8 (5.57–6.07x, WINNER)** -> SPZ 6/6 (7.62x, fails Bonsai) -> FCGS (12.84x, fails 3/5) — 简单说：XZ 无损但压得少；**SPZ 8/8 压缩率最高且质量几乎无损，是默认推荐**。
 
 ### 3. HiGS Trainability — Differentiable Training Path DELIVERED ✅
 
@@ -209,7 +209,7 @@ docker/ + docker-compose.yml  Reproducible container definition
 .github/                  CI workflows: ci.yml, benchmark-regression.yml, deploy-pages.yml
 ```
 
-Deep dive: [docs/repository-architecture.md](docs/repository-architecture.md).
+Deep dive: [docs/repository-architecture.md](docs/repository-architecture.md) · improvement review: [docs/improvement-review-2026-08-05.md](docs/improvement-review-2026-08-05.md).
 
 ## Tier A comparison charts
 
@@ -245,7 +245,7 @@ The benchmark provides **complete Tier A coverage** across 5 renderers × 5 scen
 ## 🗺️ Project status & roadmap
 
 - ✅ **Benchmark (Tier A)** — 5 renderers × 5 scenes measured on EPIC-05 A100; charts and raw data published ([leaderboard](docs/leaderboard/)).
-- ✅ **Compression qualification** — SPZ 8/8 wins at 5.73x with < 0.02 dB PSNR drop; full Pareto frontier in the [compression reports](reports/README.md).
+- ✅ **Compression qualification** — SPZ 8/8 wins at 5.57–6.07x (median 5.78x) with < 0.02 dB PSNR drop; full Pareto frontier in the [compression reports](reports/README.md).
 - ✅ **HiGS trainable end-to-end** — native CUDA backward, 100 tests, -9% ~ -24% training speedup vs std gsplat ([implementation report](reports/higs-trainability-implementation.md)).
 - ✅ **Tile-sampled training (M4)** — **1.8-2.0x end-to-end training speedup** at quality parity on train + bicycle (3-seed; bicycle LPIPS +0.05 the sole honest bound) ([research report](reports/higs-training-speedup-research-2026-08-03.md) · [PR #18](https://github.com/caizefan34/3dgs-renderer-benchmark/pull/18)).
 - ✅ **M5 multi-scene + multi-resolution matrix** — recommended op point on garden / bonsai / truck (3-seed): **1.74-2.12x**; truck quality beats full, bonsai within seed noise, garden shows the same high-N bound as bicycle ([M5 results](results/higs-round42/m5-summary.json)). Round-56 completed the resolution axis (540p/720p/1080p x train/garden/bicycle x 3-seed, 36 runs): speedup scales with resolution (540p 1.39-1.76x -> 720p 1.56-1.88x -> 1080p 1.80-2.06x), low/mid-N train stays a clear quality win at every resolution (PSNR +0.45..+1.03 dB), the high-N LPIPS bound is resolution-robust (garden +0.044..+0.053, bicycle +0.046..+0.050) but bicycle PSNR degrades at 540p (-1.93 dB) ([r56-summary](results/higs-round56/r56-summary.json)).

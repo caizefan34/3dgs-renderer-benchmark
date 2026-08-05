@@ -7,6 +7,7 @@ integration is covered by ``test_higs_frozen.py``.
 """
 
 import importlib.util
+import sys
 import math
 from pathlib import Path
 
@@ -14,7 +15,9 @@ import numpy as np
 import pytest
 import torch
 
-_BENCH = Path(__file__).resolve().parents[1] / "benchmark" / "run_higs_train_benchmark.py"
+_BENCH_DIR = Path(__file__).resolve().parents[1] / "benchmark"
+sys.path.insert(0, str(_BENCH_DIR))
+_BENCH = _BENCH_DIR / "run_higs_train_benchmark.py"
 _spec = importlib.util.spec_from_file_location("run_higs_train_benchmark", _BENCH)
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)

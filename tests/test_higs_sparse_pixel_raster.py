@@ -11,12 +11,15 @@ closed the loss-signal side).
 """
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 import torch
 
-_BENCH = Path(__file__).resolve().parents[1] / "benchmark" / "run_higs_train_benchmark.py"
+_BENCH_DIR = Path(__file__).resolve().parents[1] / "benchmark"
+sys.path.insert(0, str(_BENCH_DIR))
+_BENCH = _BENCH_DIR / "run_higs_train_benchmark.py"
 _spec = importlib.util.spec_from_file_location("run_higs_train_benchmark", _BENCH)
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)

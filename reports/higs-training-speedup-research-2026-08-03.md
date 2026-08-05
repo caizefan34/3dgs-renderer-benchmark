@@ -750,7 +750,7 @@
 | bonsai | pd（prog+decay，3-seed） | 8.927±0.063（**-19.0%**） | 24.430±0.064（**+0.91**） | 0.8324 | 0.1914±0.0003（**-0.0137**） | 0.13M | 101K |
 
 - **truck 与 bonsai 均严格支配各自 ctrl**（更快且更好），与 bicycle 同向：truck train_ms -16.5% / PSNR +0.16 / LPIPS -0.0066；bonsai train_ms -19.0% / PSNR +0.91（全矩阵最大）/ LPIPS -0.0137。
-- 至此 5 场景中 4 个（bicycle/truck/bonsai + 720p 高 N）prog x decay 严格支配全分辨率 ctrl；garden 用 0.75x 粗阶段（exp3）后也严格支配（见下），**4/5 场景有严格支配配置（train 低 N 除外）**。
+- 至此，**4/5 场景有严格支配配置**：bicycle（0.5x）、truck（0.5x）、bonsai（0.5x）的 prog×decay 严格支配全分辨率 ctrl（exp1/exp2）；garden 用 0.75x 粗阶段（exp3）后也严格支配（见下）。低 N train 仍不推荐。
 - 投影 mask 在全部 pd 运行中仍逐位一致（miss/extra=0）。
 - 机制延续：pd 的 final_N 全部大幅收缩（truck 1.24M->0.42M、bonsai 0.69M->0.13M），全分辨率阶段以 2.9-5.3x 更少高斯运行。
 

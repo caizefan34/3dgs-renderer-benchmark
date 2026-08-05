@@ -24,7 +24,7 @@ with open(os.path.join(OUT, "benchmark_results_phase1.json")) as f:
 # Build HTML
 table_rows = ""
 for rname, r in sorted(phase1["results"].items(), key=lambda x: x[1]["median_ms"]):
-    tag = "??" if rname == phase1["metadata"]["fastest_renderer"] else ""
+    tag = "🏆" if rname == phase1["metadata"]["fastest_renderer"] else ""
     table_rows += f"""<tr>
         <td>{tag} {rname}</td>
         <td>{r["median_ms"]:.2f}</td>
@@ -57,7 +57,7 @@ tr:hover {{ background: #f0f2ff; }}
 </head>
 <body>
 
-<h1>?? 3D Gaussian Splatting Renderer Benchmark</h1>
+<h1>🚀 3D Gaussian Splatting Renderer Benchmark</h1>
 
 <div class="card">
 <h2>System</h2>
@@ -80,7 +80,7 @@ tr:hover {{ background: #f0f2ff; }}
 </table>
 
 <div class="card">
-<h3>?? Fastest Renderer: {phase1["metadata"]["fastest_renderer"]}</h3>
+<h3>🏆 Fastest Renderer: {phase1["metadata"]["fastest_renderer"]}</h3>
 <p>Key factors for speed:
 <ul>
 <li><b>CUB DeviceRadixSort</b> replaces Thrust radix sort → ~15-30% faster tile binning</li>
