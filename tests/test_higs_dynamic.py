@@ -58,6 +58,23 @@ class TestDensifyPrune:
 
 class TestDynamicAPI:
     @_skip_no_cuda
+    def test_training_scene_callbacks_mark_topology_dirty(self):
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HIGS_DYNAMIC_SCENE,
+        )
+
+        _HIGS_DYNAMIC_SCENE.reset()
+        indices = torch.tensor([0], device=device)
+        for callback, args in (
+            (_HIGS_DYNAMIC_SCENE.on_duplicate, (indices,)),
+            (_HIGS_DYNAMIC_SCENE.on_split, (indices, indices)),
+            (_HIGS_DYNAMIC_SCENE.on_remove, (indices.bool(),)),
+        ):
+            _HIGS_DYNAMIC_SCENE._dirty = False
+            callback(*args)
+            assert _HIGS_DYNAMIC_SCENE.dirty
+
+    @_skip_no_cuda
     def test_dynamic_function_importable(self):
         from gsplat.experimental import rasterize_gaussian_higs_dynamic
         assert callable(rasterize_gaussian_higs_dynamic)

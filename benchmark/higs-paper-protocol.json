@@ -1,0 +1,234 @@
+{
+  "schema_version": "1.0",
+  "paper_track": "higs",
+  "training": {
+    "initialization": "from_scratch_sfm",
+    "iterations": 30000,
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "eval_split": "official",
+    "timing_boundary": "dataset_ready_to_final_checkpoint",
+    "synchronization": "cuda_synchronize_before_start_and_stop"
+  },
+  "scenes": [
+    {
+      "id": "mipnerf360/bicycle",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/bonsai",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/counter",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/garden",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/kitchen",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/room",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/stump",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "tanks_and_temples/train",
+      "family": "Tanks and Temples"
+    },
+    {
+      "id": "tanks_and_temples/truck",
+      "family": "Tanks and Temples"
+    },
+    {
+      "id": "deep_blending/drjohnson",
+      "family": "Deep Blending"
+    },
+    {
+      "id": "deep_blending/playroom",
+      "family": "Deep Blending"
+    }
+  ],
+  "methods": {
+    "original_3dgs": {
+      "role": "official_reference",
+      "implementation": "official",
+      "repository": "https://github.com/graphdeco-inria/gaussian-splatting",
+      "commit": "54c035f7834b564019656c3e3fcc3646292f727d",
+      "runner_status": "ready",
+      "patches": [
+        "patches/original-3dgs-seed.patch"
+      ],
+      "patch_sha256": "b916058a92e282896e88c443383bb167e88dfb871b13ad3575245026a998468a",
+      "source_diff_sha256": "b916058a92e282896e88c443383bb167e88dfb871b13ad3575245026a998468a",
+      "source_state_sha256": "ce30a649f86cd9b19dbd93e05c3d5006294cc412d995ee4e5cb30084e7b2c84d",
+      "trainer_sha256": "db60c195065e90735d55cecaa7759fcadf809435c1d069a3466061ce7a62c7b8",
+      "algorithm": {
+        "name": "Original3DGS",
+        "renderer": "diff_gaussian_rasterization",
+        "optimizer": "adam_full",
+        "resolution_schedule": null,
+        "trainer_cfg": {
+          "images_dir": "images_4",
+          "resolution": -1
+        }
+      }
+    },
+    "gsplat": {
+      "role": "modern_training_control",
+      "implementation": "official",
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "runner_status": "ready",
+      "runner_evidence": "paper/higs/runner-readiness.json"
+    },
+    "higs_full": {
+      "role": "same_backend_full_compute_control",
+      "implementation": "ours",
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-differentiable.patch"
+      ],
+      "patch_sha256": "1aa338154416b045a121484299cda77220eae07ca5528966bda45775ab1f1cf5",
+      "source_diff_sha256": "c1bad1d4ed33873f2860559433c53ce8d4164459e06f40b77038648154a1dd36",
+      "source_state_sha256": "f6b28979cdf18ccf6032d547f010d48246dce7042e7a2284870adb0f33409564",
+      "trainer_sha256": "1cdd902d66fbb6b90ddcaf743aa310dfb01944efc8435ccdfd7dcfff3fbcabbd",
+      "runner_status": "ready",
+      "algorithm": {
+        "name": "HiGS-Full",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "adam_full",
+        "resolution_schedule": null,
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "higs_method": "higs_full"
+        }
+      },
+      "runner_evidence": "paper/higs/higs-full-runner-readiness.json"
+    },
+    "higs_proposed": {
+      "role": "proposed_method",
+      "implementation": "ours",
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-differentiable.patch"
+      ],
+      "patch_sha256": "1aa338154416b045a121484299cda77220eae07ca5528966bda45775ab1f1cf5",
+      "source_diff_sha256": "c1bad1d4ed33873f2860559433c53ce8d4164459e06f40b77038648154a1dd36",
+      "source_state_sha256": "f6b28979cdf18ccf6032d547f010d48246dce7042e7a2284870adb0f33409564",
+      "trainer_sha256": "1cdd902d66fbb6b90ddcaf743aa310dfb01944efc8435ccdfd7dcfff3fbcabbd",
+      "runner_status": "ready",
+      "algorithm": {
+        "name": "HiGS-ProgressiveMasked",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.5,
+          "full_res_step": 24000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.5,
+          "higs_full_res_step": 24000
+        }
+      },
+      "runner_evidence": "paper/higs/higs-proposed-runner-readiness.json"
+    },
+    "speedy_splat": {
+      "role": "official_training_acceleration_baseline",
+      "implementation": "official",
+      "repository": "https://github.com/j-alex-hanson/speedy-splat",
+      "commit": "34c45c6d9b8bd6110231864f2f358b6d3abbf73d",
+      "runner_status": "blocked",
+      "blocking_gate": "Validate the official training entry point and map its output to the common evaluation contract."
+    },
+    "turbo_gs": {
+      "role": "official_training_acceleration_baseline",
+      "implementation": "official",
+      "runner_status": "identity_blocked",
+      "blocking_gate": "Locate and pin the authoritative public repository and commit; a Turbo-GS-style schedule is only an ablation."
+    }
+  },
+  "hardware": {
+    "a100": {
+      "class": "datacenter",
+      "runner_status": "ready"
+    },
+    "consumer": {
+      "class": "consumer",
+      "runner_status": "blocked",
+      "blocking_gate": "Acquire and record a consumer GPU cohort."
+    },
+    "second_datacenter": {
+      "class": "datacenter",
+      "runner_status": "blocked",
+      "blocking_gate": "Acquire a non-A100 data-center GPU cohort."
+    }
+  },
+  "required_outcomes": [
+    "wall_time_seconds",
+    "time_to_quality_seconds",
+    "psnr_db",
+    "ssim",
+    "lpips",
+    "peak_gpu_memory_mib",
+    "final_gaussian_count",
+    "energy_joules"
+  ],
+  "matrices": [
+    {
+      "id": "primary_full_convergence",
+      "methods": [
+        "original_3dgs",
+        "gsplat",
+        "higs_full",
+        "higs_proposed",
+        "speedy_splat",
+        "turbo_gs"
+      ],
+      "scenes": "all",
+      "hardware": [
+        "a100"
+      ],
+      "seeds": "all"
+    },
+    {
+      "id": "cross_hardware_generalization",
+      "methods": [
+        "gsplat",
+        "higs_full",
+        "higs_proposed"
+      ],
+      "scenes": [
+        "mipnerf360/bicycle",
+        "mipnerf360/bonsai",
+        "mipnerf360/garden",
+        "tanks_and_temples/train",
+        "tanks_and_temples/truck"
+      ],
+      "hardware": [
+        "a100",
+        "consumer",
+        "second_datacenter"
+      ],
+      "seeds": "all"
+    }
+  ]
+}

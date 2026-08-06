@@ -28,7 +28,7 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -r requirements-test.txt
       - name: Compile Python sources
-        run: python -m compileall -q src tests
+        run: python -m compileall -q src tests benchmark/run_higs_full_training.py
       - name: Generate leaderboard artifact smoke test
         run: >
           python src/scripts/generate_leaderboard.py
@@ -44,6 +44,14 @@ jobs:
           python src/scripts/validate_artifacts.py --schema schemas/leaderboard.schema.json --json results/leaderboard/leaderboard.json
       - name: Validate official training policy
         run: python src/scripts/validate_official_training.py
+      - name: Validate paper evidence claims
+        run: python src/scripts/validate_paper_evidence.py
+      - name: Validate research paper tracks
+        run: python src/scripts/validate_research_program.py
+      - name: Validate HiGS full-training paper protocol
+        run: python src/scripts/validate_higs_paper_protocol.py
+      - name: Validate public repository links
+        run: python src/scripts/validate_public_links.py --require-tracked
       - name: Regression check smoke test
         run: >
           python src/scripts/check_regressions.py

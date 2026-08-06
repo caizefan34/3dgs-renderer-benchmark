@@ -162,6 +162,15 @@ class BenchmarkMatrixTest(unittest.TestCase):
                 (Path(temp_dir) / "ranking.json").read_text(encoding="utf-8")
             )
             self.assertEqual(len(payload["tiers"]["measured"]["overall"]), 1)
+            aggregate = payload["tiers"]["measured"]["overall"][0]
+            self.assertEqual(
+                aggregate["fps_uncertainty_method"],
+                "geometric_mean_of_case_ci_endpoints_descriptive_envelope",
+            )
+
+            ranking = (Path(temp_dir) / "ranking.md").read_text(encoding="utf-8")
+            self.assertIn("FPS uncertainty envelope", ranking)
+            self.assertNotIn("FPS 95% CI", ranking)
 
             chart = (Path(temp_dir) / "measured-speed-vs-psnr.svg").read_text(
                 encoding="utf-8"

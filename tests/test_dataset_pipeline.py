@@ -31,6 +31,7 @@ class DatasetPipelineTest(unittest.TestCase):
     def test_official_manifests_pin_transport_identities(self):
         mip = json.loads((ROOT / "benchmark" / "datasets" / "mipnerf360.json").read_text(encoding="utf-8"))
         tandt = json.loads((ROOT / "benchmark" / "datasets" / "tanks_and_temples.json").read_text(encoding="utf-8"))
+        deep_blending = json.loads((ROOT / "benchmark" / "datasets" / "deep_blending.json").read_text(encoding="utf-8"))
         for scene in ("garden", "bicycle", "bonsai"):
             source = mip["scenes"][scene]["source"]
             self.assertGreater(source["size_bytes"], 1_000_000_000)
@@ -44,7 +45,7 @@ class DatasetPipelineTest(unittest.TestCase):
                 source["checksums"]["sha256"],
                 "816e62f22a161abbfe841d2a6b10cdf036e297c9fa289b3bfeee9c6ec526d7e1",
             )
-        for manifest in (mip, tandt):
+        for manifest in (mip, tandt, deep_blending):
             model = manifest["official_model_archive"]
             self.assertEqual(model["size_bytes"], 14660630999)
             for scene in manifest["scenes"]:

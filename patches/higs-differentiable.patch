@@ -1,5 +1,187 @@
+diff --git a/examples/simple_trainer.py b/examples/simple_trainer.py
+index 7b2375d4..4e4c6d21 100644
+--- a/examples/simple_trainer.py
++++ b/examples/simple_trainer.py
+@@ -185,6 +185,13 @@ class Config:
+     sparse_grad: bool = False
+     # Use visible adam from Taming 3DGS. (experimental)
+     visible_adam: bool = False
++    # Frozen HiGS paper protocol: algorithm id ("higs_full" or "higs_proposed").
++    higs_method: str = "higs_full"
++    # Proposed-method progressive-resolution schedule: training renders at
++    # `higs_train_res_scale` before `higs_full_res_step`, then at full
++    # resolution. (1.0 / 0 disable the schedule; evaluation is always full-res.)
++    higs_train_res_scale: float = 1.0
++    higs_full_res_step: int = 0
+     # Anti-aliasing in rasterization. Might slightly hurt quantitative metrics.
+     antialiased: bool = False
+ 
+@@ -365,13 +372,20 @@ def create_splats_with_optimizers(
+         optimizer_class = SelectiveAdam
+     else:
+         optimizer_class = torch.optim.Adam
++    optimizer_kwargs = {
++        "eps": 1e-15 / math.sqrt(BS),
++        # TODO: check betas logic when BS is larger than 10 betas[0] will be zero.
++        "betas": (1 - BS * (1 - 0.9), 1 - BS * (1 - 0.999)),
++    }
++    # SelectiveAdam exposes its own fused masked kernel and does not accept
++    # torch.optim's `fused` flag; the frozen HiGS protocol uses it for the
++    # visibility-masked proposed method.
++    if optimizer_class is torch.optim.Adam:
++        optimizer_kwargs["fused"] = True
+     optimizers = {
+         name: optimizer_class(
+             [{"params": splats[name], "lr": lr * math.sqrt(BS), "name": name}],
+-            eps=1e-15 / math.sqrt(BS),
+-            # TODO: check betas logic when BS is larger than 10 betas[0] will be zero.
+-            betas=(1 - BS * (1 - 0.9), 1 - BS * (1 - 0.999)),
+-            fused=True,
++            **optimizer_kwargs,
+         )
+         for name, _, lr in params
+     }
+@@ -723,34 +737,48 @@ class Runner:
+                     .unsqueeze(0)
+                 )
+ 
+-        render_colors, render_alphas, info = rasterization(
+-            means=means,
+-            quats=quats,
+-            scales=scales,
+-            opacities=opacities,
+-            colors=colors,
+-            viewmats=torch.linalg.inv_ex(camtoworlds).inverse,  # [C, 4, 4]
+-            Ks=Ks,  # [C, 3, 3]
++        if self.cfg.packed or self.cfg.sparse_grad or self.world_size != 1:
++            raise RuntimeError(
++                "HiGS paper training requires packed=False, sparse_grad=False, "
++                "and one process per GPU"
++            )
++        if rasterize_mode != "classic" or with_ut or self.cfg.with_eval3d:
++            raise RuntimeError("HiGS paper training currently requires classic 3DGS")
++        if any(
++            value is not None
++            for value in (
++                ftheta_coeffs,
++                radial_coeffs,
++                tangential_coeffs,
++                thin_prism_coeffs,
++            )
++        ):
++            raise RuntimeError("HiGS paper training does not support camera distortion")
++
++        from gsplat.experimental import rasterize_gaussian_higs_dynamic
++
++        higs_result = rasterize_gaussian_higs_dynamic(
++            means,
++            quats,
++            scales,
++            opacities,
++            colors,
++            viewmats=torch.linalg.inv_ex(camtoworlds).inverse,
++            Ks=Ks,
+             width=width,
+             height=height,
+-            packed=self.cfg.packed,
+-            absgrad=(
+-                self.cfg.strategy.absgrad
+-                if isinstance(self.cfg.strategy, DefaultStrategy)
+-                else False
+-            ),
+-            sparse_grad=self.cfg.sparse_grad,
+-            rasterize_mode=rasterize_mode,
+-            distributed=self.world_size > 1,
++            sh_degree=kwargs.pop("sh_degree", self.cfg.sh_degree),
++            near_plane=kwargs.pop("near_plane", self.cfg.near_plane),
++            far_plane=kwargs.pop("far_plane", self.cfg.far_plane),
++            render_mode=kwargs.pop("render_mode", "RGB"),
+             camera_model=camera_model,
+-            with_ut=with_ut,
+-            with_eval3d=self.cfg.with_eval3d,
+-            ftheta_coeffs=ftheta_coeffs,
+-            radial_coeffs=radial_coeffs,
+-            tangential_coeffs=tangential_coeffs,
+-            thin_prism_coeffs=thin_prism_coeffs,
+-            **kwargs,
++            backward_mode="higs_native",
+         )
++        if kwargs:
++            raise RuntimeError(f"unsupported HiGS rasterization options: {sorted(kwargs)}")
++        render_colors = higs_result["frame"]
++        render_alphas = higs_result["alpha"]
++        info = higs_result["densification_info"]
+         if masks is not None:
+             render_colors[~masks] = 0
+ 
+@@ -900,6 +928,44 @@ class Runner:
+ 
+             height, width = pixels.shape[1:3]
+ 
++            # Frozen HiGS protocol: progressive training resolution. The
++            # proposed method trains at a reduced resolution for the first
++            # `higs_full_res_step` iterations, then anchors the final stage at
++            # full resolution. Evaluation always uses the full dataset size.
++            if (
++                self.cfg.higs_method == "higs_proposed"
++                and self.cfg.higs_full_res_step > 0
++                and step < self.cfg.higs_full_res_step
++            ):
++                res_scale = float(self.cfg.higs_train_res_scale)
++                height = max(1, int(round(height * res_scale)))
++                width = max(1, int(round(width * res_scale)))
++                Ks = Ks.clone()
++                Ks[:, 0, 0] *= res_scale
++                Ks[:, 1, 1] *= res_scale
++                Ks[:, 0, 2] *= res_scale
++                Ks[:, 1, 2] *= res_scale
++                pixels = (
++                    F.interpolate(
++                        pixels.permute(0, 3, 1, 2),
++                        size=(height, width),
++                        mode="bilinear",
++                        align_corners=False,
++                    )
++                    .permute(0, 2, 3, 1)
++                    .contiguous()
++                )
++                if masks is not None:
++                    masks = (
++                        F.interpolate(
++                            masks.unsqueeze(1).float(),
++                            size=(height, width),
++                            mode="nearest",
++                        )
++                        .squeeze(1)
++                        .bool()
++                    )
++
+             if cfg.pose_noise:
+                 camtoworlds = self.pose_perturb(camtoworlds, image_ids)
+ 
+@@ -1150,6 +1216,7 @@ class Runner:
+ 
+             # Run post-backward steps after backward and optimizer
+             if isinstance(self.cfg.strategy, DefaultStrategy):
++                n_gaussians_before_refine = len(self.splats["means"])
+                 self.cfg.strategy.step_post_backward(
+                     params=self.splats,
+                     optimizers=self.optimizers,
+@@ -1159,6 +1226,12 @@ class Runner:
+                     packed=cfg.packed,
+                     scene=self.scene,
+                 )
++                if len(self.splats["means"]) != n_gaussians_before_refine:
++                    from gsplat.experimental.render.functional.gaussian_inference import (
++                        _HIGS_DYNAMIC_SCENE,
++                    )
++
++                    _HIGS_DYNAMIC_SCENE.mark_dirty()
+             elif isinstance(self.cfg.strategy, MCMCStrategy):
+                 self.cfg.strategy.step_post_backward(
+                     params=self.splats,
 diff --git a/gsplat/cuda/_torch_impl.py b/gsplat/cuda/_torch_impl.py
-index 7f1ee0f..11fe80a 100644
+index 7f1ee0f1..11fe80a9 100644
 --- a/gsplat/cuda/_torch_impl.py
 +++ b/gsplat/cuda/_torch_impl.py
 @@ -361,6 +361,7 @@ def _isect_tiles(
@@ -45,7 +227,7 @@ index 7f1ee0f..11fe80a 100644
                  # isect_ids[curr_idx] = (
                  #     (image_id << (tile_n_bits + 32))
 diff --git a/gsplat/cuda/_wrapper.py b/gsplat/cuda/_wrapper.py
-index 762c3c5..fe6c172 100644
+index 762c3c5c..fe6c1720 100644
 --- a/gsplat/cuda/_wrapper.py
 +++ b/gsplat/cuda/_wrapper.py
 @@ -1052,6 +1052,9 @@ def isect_tiles(
@@ -78,7 +260,7 @@ index 762c3c5..fe6c172 100644
      return tiles_per_gauss, isect_ids, flatten_ids
  
 diff --git a/gsplat/cuda/build.py b/gsplat/cuda/build.py
-index 1a3cbbf..101e7f3 100644
+index 1a3cbbfb..101e7f34 100644
 --- a/gsplat/cuda/build.py
 +++ b/gsplat/cuda/build.py
 @@ -115,6 +115,12 @@ def get_build_parameters():
@@ -115,7 +297,7 @@ index 1a3cbbf..101e7f3 100644
      extra_cflags = []
      extra_cuda_cflags = []
 diff --git a/gsplat/cuda/csrc/Intersect.cpp b/gsplat/cuda/csrc/Intersect.cpp
-index 4566974..4753e7e 100644
+index 4566974f..4753e7e9 100644
 --- a/gsplat/cuda/csrc/Intersect.cpp
 +++ b/gsplat/cuda/csrc/Intersect.cpp
 @@ -180,7 +180,8 @@ TileIntersectResult intersect_tile(
@@ -210,7 +392,7 @@ index 4566974..4753e7e 100644
  }
  
 diff --git a/gsplat/cuda/csrc/Intersect.h b/gsplat/cuda/csrc/Intersect.h
-index 2b5cee5..4a82ac7 100644
+index 2b5cee54..4a82ac77 100644
 --- a/gsplat/cuda/csrc/Intersect.h
 +++ b/gsplat/cuda/csrc/Intersect.h
 @@ -76,7 +76,8 @@ TileIntersectResult intersect_tile(
@@ -234,7 +416,7 @@ index 2b5cee5..4a82ac7 100644
  
  void launch_intersect_tile_lidar_kernel(
 diff --git a/gsplat/cuda/csrc/IntersectTile.cu b/gsplat/cuda/csrc/IntersectTile.cu
-index 415d029..8f47d53 100644
+index 415d0293..8f47d531 100644
 --- a/gsplat/cuda/csrc/IntersectTile.cu
 +++ b/gsplat/cuda/csrc/IntersectTile.cu
 @@ -109,6 +109,7 @@ inline __device__ uint32_t accutile_process_tiles(
@@ -294,11 +476,11 @@ index 415d029..8f47d53 100644
                      flatten_ids.data_ptr<int32_t>() + isect_offset
 diff --git a/gsplat/cuda/csrc/RasterizeToPixelsFromWorld3DGSStubs.cpp b/gsplat/cuda/csrc/RasterizeToPixelsFromWorld3DGSStubs.cpp
 new file mode 100644
-index 0000000..2364197
+index 00000000..9bef39fc
 --- /dev/null
 +++ b/gsplat/cuda/csrc/RasterizeToPixelsFromWorld3DGSStubs.cpp
 @@ -0,0 +1,193 @@
-+﻿// Link-time stubs for the RasterizeToPixelsFromWorld3DGS* kernels.
++// Link-time stubs for the RasterizeToPixelsFromWorld3DGS* kernels.
 +//
 +// When GSPLAT_SKIP_FROM_WORLD=1 the build drops the three
 +// RasterizeToPixelsFromWorld3DGS*.cu translation units (they take 1.5-3.5h
@@ -492,7 +674,7 @@ index 0000000..2364197
 +
 +} // namespace gsplat
 diff --git a/gsplat/cuda/csrc/Rendering.cpp b/gsplat/cuda/csrc/Rendering.cpp
-index 17d9125..a08b016 100644
+index 17d9125f..a08b0165 100644
 --- a/gsplat/cuda/csrc/Rendering.cpp
 +++ b/gsplat/cuda/csrc/Rendering.cpp
 @@ -1401,7 +1401,8 @@ Rasterization3DGSResult rasterization_3dgs(
@@ -516,7 +698,7 @@ index 17d9125..a08b016 100644
      at::Tensor isect_offsets
          = call_torch_op<&intersect_offset>("gsplat::intersect_offset", isects.isect_ids, I, tile_width, tile_height);
 diff --git a/gsplat/cuda/csrc/Utils.cpp b/gsplat/cuda/csrc/Utils.cpp
-index 06cba55..e27e715 100644
+index 06cba554..e27e715d 100644
 --- a/gsplat/cuda/csrc/Utils.cpp
 +++ b/gsplat/cuda/csrc/Utils.cpp
 @@ -36,12 +36,12 @@ void merge_streams()
@@ -535,7 +717,7 @@ index 06cba55..e27e715 100644
      for(const auto device_id: c10::irange(c10::cuda::device_count()))
      {
 diff --git a/gsplat/cuda/ext.cpp b/gsplat/cuda/ext.cpp
-index 8f54b86..4601daa 100644
+index 8f54b86f..4601daa5 100644
 --- a/gsplat/cuda/ext.cpp
 +++ b/gsplat/cuda/ext.cpp
 @@ -1005,7 +1005,7 @@ TORCH_LIBRARY(gsplat, m)
@@ -548,7 +730,7 @@ index 8f54b86..4601daa 100644
      m.def("intersect_offset(Tensor isect_ids, int I, int tile_width, int tile_height) -> Tensor");
      m.def(
 diff --git a/gsplat/cuda/include/Cameras.cuh b/gsplat/cuda/include/Cameras.cuh
-index abce151..d9a2dcf 100644
+index abce1519..d9a2dcf7 100644
 --- a/gsplat/cuda/include/Cameras.cuh
 +++ b/gsplat/cuda/include/Cameras.cuh
 @@ -779,7 +779,9 @@ struct OrthographicCameraModel
@@ -563,7 +745,7 @@ index abce151..d9a2dcf 100644
              return {
                  glm::fvec2{0.f, 0.f},
 diff --git a/gsplat/experimental/__init__.py b/gsplat/experimental/__init__.py
-index 7d12bf6..be7042a 100644
+index 7d12bf68..be7042a1 100644
 --- a/gsplat/experimental/__init__.py
 +++ b/gsplat/experimental/__init__.py
 @@ -19,6 +19,8 @@ __all__ = [
@@ -585,7 +767,7 @@ index 7d12bf6..be7042a 100644
  
          return getattr(render, name)
 diff --git a/gsplat/experimental/render/__init__.py b/gsplat/experimental/render/__init__.py
-index ddce75d..70aede3 100644
+index ddce75d5..70aede3d 100644
 --- a/gsplat/experimental/render/__init__.py
 +++ b/gsplat/experimental/render/__init__.py
 @@ -18,6 +18,9 @@ __all__ = [
@@ -619,7 +801,7 @@ index ddce75d..70aede3 100644
          from .functional.render_scene import render_scene
  
 diff --git a/gsplat/experimental/render/_common.py b/gsplat/experimental/render/_common.py
-index d0cbba6..337c6a2 100644
+index d0cbba64..337c6a22 100644
 --- a/gsplat/experimental/render/_common.py
 +++ b/gsplat/experimental/render/_common.py
 @@ -30,4 +30,25 @@ def check_inference_grad_mode() -> None:
@@ -650,7 +832,7 @@ index d0cbba6..337c6a2 100644
 +
 +__all__ = ["check_inference_grad_mode", "check_trainable_grad_mode"]
 diff --git a/gsplat/experimental/render/functional/__init__.py b/gsplat/experimental/render/functional/__init__.py
-index 18161be..54c9f2e 100644
+index 18161be0..54c9f2e8 100644
 --- a/gsplat/experimental/render/functional/__init__.py
 +++ b/gsplat/experimental/render/functional/__init__.py
 @@ -14,7 +14,7 @@
@@ -698,7 +880,7 @@ index 18161be..54c9f2e 100644
 +
 +
 diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
-index b6c1b13..f9e290b 100644
+index b6c1b132..65f1ae0d 100644
 --- a/gsplat/experimental/render/functional/gaussian_inference.py
 +++ b/gsplat/experimental/render/functional/gaussian_inference.py
 @@ -18,6 +18,8 @@
@@ -765,7 +947,7 @@ index b6c1b13..f9e290b 100644
  def _check_grad_mode() -> None:
      check_inference_grad_mode()
  
-@@ -385,3 +426,2405 @@ def rasterize_gaussian_inference_scene(
+@@ -385,3 +426,2541 @@ def rasterize_gaussian_inference_scene(
  
  
  __all__ = ["rasterize_gaussian_inference_scene"]
@@ -1090,6 +1272,7 @@ index b6c1b13..f9e290b 100644
 +    width, height, eps2d=0.3,
 +    near_plane=0.01, far_plane=1e10, radius_clip=0.0,
 +    camera_model="pinhole",
++    cache_key: str = "default",
 +):
 +    """Union-visibility culling with a refresh-interval cache.
 +
@@ -1103,19 +1286,16 @@ index b6c1b13..f9e290b 100644
 +    Gaussian count changes.
 +
 +    Args:
-+        handle: :class:`HigsRendererHandle` owning ``_cull_visible_ids`` /
-+            ``_fwd_count`` state (must be non-None).
++        handle: :class:`HigsRendererHandle` owning the per-camera-key cull
++            cache ``_cull_cache`` (must be non-None).
 +        interval: refresh cadence in forwards; 1 reproduces per-step culling.
 +    Returns:
 +        visible_ids: 1D int64 tensor of visible Gaussian indices.
 +    """
 +    interval = max(1, int(interval))
-+    cached = handle._cull_visible_ids
-+    if (
-+        cached is not None
-+        and (handle._fwd_count - handle._cull_fwd_count) < interval
-+    ):
-+        return cached
++    slot = handle._cull_cache.get(cache_key)
++    if slot is not None and (handle._fwd_count - slot[2]) < interval:
++        return slot[0]
 +    vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
 +        means, quats, scales, viewmats, Ks,
 +        width, height,
@@ -1123,8 +1303,7 @@ index b6c1b13..f9e290b 100644
 +        far_plane=far_plane, radius_clip=radius_clip,
 +        camera_model=camera_model,
 +    )
-+    handle._cull_visible_ids = vis_ids
-+    handle._cull_fwd_count = handle._fwd_count
++    handle._cull_cache[cache_key] = (vis_ids, _vis_mask, handle._fwd_count)
 +    return vis_ids
 +
 +
@@ -1518,8 +1697,7 @@ index b6c1b13..f9e290b 100644
 +        self._pending_backward: bool = False
 +        self._packed_stale: bool = False
 +        self._fwd_count: int = 0
-+        self._cull_visible_ids = None
-+        self._cull_fwd_count: int = -1
++        self._cull_cache: dict = {}
 +        if means is not None:
 +            self._param_versions = self._capture_param_versions(
 +                (means, quats, scales, opacities, colors)
@@ -1565,8 +1743,22 @@ index b6c1b13..f9e290b 100644
 +        self._dirty = True
 +        self._topology_rebuilt = False
 +        self._packed_stale = True
-+        self._cull_visible_ids = None
-+        self._cull_fwd_count = -1
++        self._cull_cache = {}
++
++    def on_duplicate(self, _sel: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_split(self, _sel: Tensor, _rest: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_remove(self, _mask: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_relocate(self, _dead_indices: Tensor, _sampled_indices: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_sample_add(self, _sampled_indices: Tensor) -> None:
++        self.mark_dirty()
 +
 +    def rebuild(self, means_planar, qso_packed, colors_packed, n_gaussians: int, packed_dtype: str, renderer=None, means=None, quats=None, scales=None, opacities=None, colors=None) -> None:
 +        """Replace the packed buffers + renderer after a topology change."""
@@ -1581,8 +1773,7 @@ index b6c1b13..f9e290b 100644
 +        self._topology_rebuilt = True
 +        self._packed_stale = False
 +        self._version += 1
-+        self._cull_visible_ids = None
-+        self._cull_fwd_count = -1
++        self._cull_cache = {}
 +        if means is not None:
 +            self._param_versions = self._capture_param_versions(
 +                (means, quats, scales, opacities, colors)
@@ -1746,6 +1937,21 @@ index b6c1b13..f9e290b 100644
 +        if self.renderer_handle is not None:
 +            self.renderer_handle.mark_dirty()
 +        self._dirty = True
++
++    def on_duplicate(self, _sel: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_split(self, _sel: Tensor, _rest: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_remove(self, _mask: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_relocate(self, _dead_indices: Tensor, _sampled_indices: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_sample_add(self, _sampled_indices: Tensor) -> None:
++        self.mark_dirty()
 +
 +    def mark_clean(self) -> None:
 +        self._dirty = False
@@ -1939,6 +2145,7 @@ index b6c1b13..f9e290b 100644
 +    def forward(
 +        ctx,
 +        means, quats, scales, opacities, colors,
++        means2d_proxy,
 +        viewmats, Ks,
 +        width, height, sh_degree, tile_size,
 +        near_plane, far_plane, radius_clip, eps2d, background,
@@ -1950,6 +2157,7 @@ index b6c1b13..f9e290b 100644
 +        sampling_mode="uniform",
 +        tile_mask=None,
 +        cull_refresh_interval=1,
++        cull_cache_key="default",
 +    ):
 +        if backward_mode not in ("higs_native", "gsplat_recompute"):
 +            raise ValueError(
@@ -2011,6 +2219,7 @@ index b6c1b13..f9e290b 100644
 +                )
 +        ctx.tile_mask_external = tile_mask
 +        ctx.cull_refresh_interval = max(1, int(cull_refresh_interval))
++        ctx.cull_cache_key = cull_cache_key
 +        if ctx.tile_sampling_ratio < 1.0 and not native:
 +            raise ValueError(
 +                "tile_sampling_ratio < 1.0 requires backward_mode='higs_native' "
@@ -2050,6 +2259,11 @@ index b6c1b13..f9e290b 100644
 +            Ks = Ks.unsqueeze(0)
 +        C = viewmats.shape[-3]
 +        N_total = means.shape[0]
++        if means2d_proxy.shape != (C, N_total, 2):
++            raise ValueError(
++                "means2d_proxy must have shape [C, N, 2], got "
++                f"{tuple(means2d_proxy.shape)} for C={C}, N={N_total}"
++            )
 +
 +        # -- culling (discrete, stop-gradient) -----------------------------
 +        visible_ids = None
@@ -2087,6 +2301,7 @@ index b6c1b13..f9e290b 100644
 +                        eps2d=eps2d, near_plane=near_plane,
 +                        far_plane=far_plane, radius_clip=radius_clip,
 +                        camera_model=camera_model,
++                        cache_key=ctx.cull_cache_key,
 +                    )
 +                else:
 +                    vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
@@ -2150,6 +2365,7 @@ index b6c1b13..f9e290b 100644
 +                )
 +            ctx.save_for_backward(
 +                means, quats, scales, opacities, colors,
++                means2d_proxy,
 +                viewmats, Ks,
 +                torch.empty(0, dtype=torch.long, device=means.device),
 +                None, None, None, None, None, None, None, None, None, None,
@@ -2188,6 +2404,12 @@ index b6c1b13..f9e290b 100644
 +                "tile_mask": None,
 +                "n_isects": 0,
 +                "n_isects_full": 0,
++                "densification_radii": torch.zeros(
++                    (C, N_total, 2), dtype=torch.int32, device=means.device
++                ),
++                "visible_gaussian_ids": torch.empty(
++                    0, dtype=torch.long, device=means.device
++                ),
 +            }
 +            if C == 1:
 +                return frame.squeeze(0)[None], alpha_ch.squeeze(0)[None]  # [1,H,W,3], [1,H,W,1]
@@ -2218,12 +2440,12 @@ index b6c1b13..f9e290b 100644
 +        else:
 +            from gsplat.rendering import rasterization
 +
-+            render_colors, render_alphas, _ = rasterization(
++            render_colors, render_alphas, std_info = rasterization(
 +                means=v_means_b, quats=v_quats_b, scales=v_scales_b,
 +                opacities=v_opacities_b, colors=v_colors_input,
 +                viewmats=viewmats, Ks=Ks, width=width, height=height,
 +                sh_degree=sh_degree, backgrounds=backgrounds_b,
-+                packed=True, tile_size=tile_size,
++                packed=False, tile_size=tile_size,
 +                near_plane=near_plane, far_plane=far_plane,
 +                radius_clip=radius_clip, eps2d=eps2d,
 +                camera_model=camera_model, render_mode=render_mode,
@@ -2234,11 +2456,25 @@ index b6c1b13..f9e290b 100644
 +        alpha_ch = render_alphas.squeeze(0).squeeze(0)
 +
 +        # -- save state for backward ---------------------------------------
++        master_visible_ids = (
++            visible_ids if visible_ids is not None
++            else torch.arange(N_total, device=means.device)
++        )
++        visible_radii = (
++            captured[8]
++            if captured is not None
++            else std_info["radii"].reshape(C, N_visible, 2)
++        )
++        densification_radii = torch.zeros(
++            (C, N_total, 2), dtype=visible_radii.dtype, device=means.device
++        )
++        densification_radii.index_copy_(1, master_visible_ids, visible_radii)
++
 +        ctx.save_for_backward(
 +            means, quats, scales, opacities, colors,
++            means2d_proxy,
 +            viewmats, Ks,
-+            visible_ids if visible_ids is not None
-+            else torch.arange(N_total, device=means.device),
++            master_visible_ids,
 +            *(captured if captured is not None else (None,) * 10),
 +            v_means, v_quats, v_scales, v_opacities,
 +            v_colors if sh_degree is not None else None,
@@ -2275,6 +2511,8 @@ index b6c1b13..f9e290b 100644
 +            "tile_mask": getattr(ctx, "tile_mask", None),
 +            "n_isects": getattr(ctx, "n_isects_sampled", 0),
 +            "n_isects_full": getattr(ctx, "n_isects_full", 0),
++            "densification_radii": densification_radii,
++            "visible_gaussian_ids": master_visible_ids,
 +        }
 +        return frame[None], alpha_ch[None]
 +
@@ -2517,7 +2755,8 @@ index b6c1b13..f9e290b 100644
 +
 +        saved = ctx.saved_tensors
 +        (
-+            means, quats, scales, opacities, colors, viewmats, Ks, visible_ids,
++            means, quats, scales, opacities, colors, means2d_proxy,
++            viewmats, Ks, visible_ids,
 +            means2d_f, conics_f, colors_eval_f, opacities_f,
 +            tile_offsets_f, flatten_ids_f, render_alphas_f, last_ids_f,
 +            radii_f, depth_acc,
@@ -2564,14 +2803,14 @@ index b6c1b13..f9e290b 100644
 +            grad_colors = torch.zeros_like(colors)
 +            grad_background = None
 +            if (
-+                ctx.needs_input_grad[15]
++                ctx.needs_input_grad[16]
 +                and backgrounds_b is not None
 +                and nch >= 3
 +            ):
 +                grad_background = v_render_colors[..., :3].sum(dim=(0, 1, 2))
 +            return _HigsAutogradFunction._assemble_grads(
 +                ctx, grad_means, grad_quats, grad_scales, grad_opacities,
-+                grad_colors, grad_background,
++                grad_colors, torch.zeros_like(means2d_proxy), grad_background,
 +            )
 +
 +        bg_kernel = None
@@ -2646,18 +2885,23 @@ index b6c1b13..f9e290b 100644
 +        )
 +        (
 +            _v_means_g, _v_quats_g, _v_scales_g, _v_opacities_g,
-+            _v_colors_master_g, v_backgrounds_g,
++            _v_colors_master_g, v_backgrounds_g, v_means2d_g,
 +        ) = out
 +
++        grad_means2d = torch.zeros_like(means2d_proxy)
++        grad_means2d.index_copy_(
++            1, visible_ids, v_means2d_g.reshape(I, ctx.N_visible, 2)
++        )
++
 +        grad_background = None
-+        if ctx.needs_input_grad[15] and backgrounds_b is not None and nch >= 3:
++        if ctx.needs_input_grad[16] and backgrounds_b is not None and nch >= 3:
 +            # the kernel accumulates a depth-channel background gradient too;
 +            # the RGB background input only receives the color-channel part.
 +            grad_background = v_backgrounds_g if nch == 3 else v_backgrounds_g[..., :3]
 +
 +        return _HigsAutogradFunction._assemble_grads(
 +            ctx, grad_means, grad_quats, grad_scales, grad_opacities,
-+            grad_colors, grad_background,
++            grad_colors, grad_means2d, grad_background,
 +        )
 +
 +    # ------------------------------------------------------------------
@@ -2667,7 +2911,8 @@ index b6c1b13..f9e290b 100644
 +
 +        saved = ctx.saved_tensors
 +        (
-+            means, quats, scales, opacities, colors, viewmats, Ks, visible_ids,
++            means, quats, scales, opacities, colors, means2d_proxy,
++            viewmats, Ks, visible_ids,
 +            _m2d, _con, _ce, _opa, _to, _fi, _ra, _li, _rad, _depth_acc,
 +            _v_m, _v_q, _v_s, _v_o, _sh, backgrounds_b,
 +        ) = saved
@@ -2700,7 +2945,7 @@ index b6c1b13..f9e290b 100644
 +                    tracked[name] = t.detach().requires_grad_(True)
 +
 +            if not tracked:
-+                return (None,) * 26
++                return (None,) * 29
 +
 +            alpha_final = None
 +            if ctx.N_visible == 0:
@@ -2721,13 +2966,13 @@ index b6c1b13..f9e290b 100644
 +                v_opacities_b = v_opacities.unsqueeze(0)
 +                v_colors_input = v_colors.unsqueeze(0) if v_colors.dim() == 2 else v_colors
 +
-+                render_colors, render_alphas, _ = rasterization(
++                render_colors, render_alphas, recompute_info = rasterization(
 +                    means=v_means_b, quats=v_quats_b, scales=v_scales_b,
 +                    opacities=v_opacities_b, colors=v_colors_input,
 +                    viewmats=viewmats, Ks=Ks,
 +                    width=ctx.width, height=ctx.height,
 +                    sh_degree=ctx.sh_degree, backgrounds=backgrounds_b,
-+                    packed=True, tile_size=ctx.tile_size,
++                    packed=False, tile_size=ctx.tile_size,
 +                    near_plane=ctx.near_plane, far_plane=ctx.far_plane,
 +                    radius_clip=ctx.radius_clip, eps2d=ctx.eps2d,
 +                    camera_model=ctx.camera_model, render_mode=ctx.render_mode,
@@ -2737,12 +2982,13 @@ index b6c1b13..f9e290b 100644
 +                outputs = (frame[None], alpha_ch[None])
 +                out_grads = torch.autograd.grad(
 +                    outputs,
-+                    tuple(tracked.values()),
++                    tuple(tracked.values()) + (recompute_info["means2d"],),
 +                    grad_outputs=(gf_out, ga_out),
 +                    allow_unused=True,
 +                )
 +                alpha_final = render_alphas
-+                grads = dict(zip(tracked.keys(), out_grads))
++                grads = dict(zip(tracked.keys(), out_grads[:-1]))
++                visible_means2d_grad = out_grads[-1]
 +                for k, g in list(grads.items()):
 +                    if g is None:
 +                        grads[k] = torch.zeros_like(tracked[k])
@@ -2752,10 +2998,17 @@ index b6c1b13..f9e290b 100644
 +        grad_scales = grads.get("scales")
 +        grad_opacities = grads.get("opacities")
 +        grad_colors = grads.get("colors")
++        grad_means2d = torch.zeros_like(means2d_proxy)
++        if ctx.N_visible > 0:
++            grad_means2d.index_copy_(
++                1,
++                visible_ids,
++                visible_means2d_grad.reshape(I, ctx.N_visible, 2),
++            )
 +
 +        grad_background = None
 +        if (
-+            ctx.needs_input_grad[15]
++            ctx.needs_input_grad[16]
 +            and backgrounds_b is not None
 +            and grad_frame is not None
 +            and nch >= 3
@@ -2771,14 +3024,14 @@ index b6c1b13..f9e290b 100644
 +
 +        return _HigsAutogradFunction._assemble_grads(
 +            ctx, grad_means, grad_quats, grad_scales, grad_opacities,
-+            grad_colors, grad_background,
++            grad_colors, grad_means2d, grad_background,
 +        )
 +
 +    # ------------------------------------------------------------------
 +    @staticmethod
 +    def _assemble_grads(
 +        ctx, grad_means, grad_quats, grad_scales, grad_opacities,
-+        grad_colors, grad_background,
++        grad_colors, grad_means2d, grad_background,
 +    ):
 +        needs = ctx.needs_input_grad
 +        return (
@@ -2787,6 +3040,7 @@ index b6c1b13..f9e290b 100644
 +            grad_scales if needs[2] else None,
 +            grad_opacities if needs[3] else None,
 +            grad_colors if needs[4] else None,
++            grad_means2d if needs[5] else None,
 +            None, None,  # viewmats, Ks
 +            None, None, None, None,  # width, height, sh_degree, tile_size
 +            None, None, None, None,  # near_plane, far_plane, radius_clip, eps2d
@@ -2798,7 +3052,39 @@ index b6c1b13..f9e290b 100644
 +            None,  # sampling_mode (non-tensor input)
 +            None,  # tile_mask (bool tensor, non-differentiable input)
 +            None,  # cull_refresh_interval (non-tensor input)
++            None,  # cull_cache_key (non-tensor input)
 +        )
++
++
++def _new_means2d_proxy(means: Tensor, viewmats: Tensor, *parameters: Tensor) -> Tensor:
++    n_cameras = 1 if viewmats.dim() == 2 else viewmats.shape[-3]
++    training = torch.is_grad_enabled() and any(
++        tensor.requires_grad for tensor in (means, *parameters)
++    )
++    return torch.zeros(
++        (n_cameras, means.shape[0], 2),
++        dtype=means.dtype,
++        device=means.device,
++        requires_grad=training,
++    )
++
++def _slice_colors_for_sh_degree(colors: Tensor, sh_degree: int | None) -> Tensor:
++    """Restrict master SH colors to the coefficients active at ``sh_degree``.
++
++    Training uses progressive SH: ``colors`` stays at the full ``[N, K_max, 3]``
++    master shape while each forward runs at ``min(step // interval, K_max)``.
++    HiGS renderer packing and the differentiable forward require the active
++    coefficient count, so a superset is sliced here. The slice is
++    differentiable, so gradients flow back to the full master tensor; inactive
++    coefficients simply receive zero gradient at this step.
++    """
++    if sh_degree is None:
++        return colors
++    k_active = (int(sh_degree) + 1) ** 2
++    if colors.dim() == 3 and colors.shape[1] > k_active:
++        return colors[:, :k_active, :].contiguous()
++    return colors
++
 +
 +def _higs_frozen_forward(
 +    means: Tensor,
@@ -2851,15 +3137,19 @@ index b6c1b13..f9e290b 100644
 +
 +    _HIGS_FROZEN_TRACKER.validate(means.shape[0], freeze_topology)
 +
++    means2d_proxy = _new_means2d_proxy(
++        means, viewmats, quats, scales, opacities, colors
++    )
 +    frame, alpha = _HigsAutogradFunction.apply(
 +        means, quats, scales, opacities, colors,
++        means2d_proxy,
 +        viewmats, Ks,
 +        width, height, sh_degree, tile_size,
 +        near_plane, far_plane, radius_clip, eps2d, background,
 +        render_mode, camera_model,
 +        enable_culling, use_higs_culling,
 +        backward_mode, scene, sh_compression_mode, tile_sampling_ratio,
-+        sampling_mode, tile_mask, cull_refresh_interval,
++        sampling_mode, tile_mask, cull_refresh_interval, "default",
 +    )
 +    fwd_meta = dict(_HigsAutogradFunction.last_forward_metadata)
 +    N_total = fwd_meta["n_gaussians"]
@@ -2895,6 +3185,15 @@ index b6c1b13..f9e290b 100644
 +    return {
 +        "frame": frame,
 +        "alpha": alpha,
++        "densification_info": {
++            "means2d": means2d_proxy,
++            "radii": fwd_meta["densification_radii"],
++            "gaussian_ids": torch.arange(N_total, device=means.device),
++            "visible_gaussian_ids": fwd_meta["visible_gaussian_ids"],
++            "width": width,
++            "height": height,
++            "n_cameras": means2d_proxy.shape[0],
++        },
 +        "metadata": {
 +            "n_gaussians": N_total,
 +            "n_visible": fwd_meta["n_visible"],
@@ -3021,6 +3320,7 @@ index b6c1b13..f9e290b 100644
 +    sampling_mode: str = "uniform",
 +    tile_mask=None,
 +    cull_refresh_interval: int = 1,
++    cull_cache_key: str = "default",
 +    scene=None,
 +) -> dict:
 +    """Forward pass for dynamic-topology HiGS diff. path (Stage C).
@@ -3033,16 +3333,22 @@ index b6c1b13..f9e290b 100644
 +    scene version and topology mutation raises while a backward is pending.
 +    """
 +
-+    _HIGS_DYNAMIC_SCENE.validate_count(means.shape[0])
++    tracker = scene if isinstance(scene, _HigsDynamicScene) else _HIGS_DYNAMIC_SCENE
++    tracker.validate_count(means.shape[0])
 +
-+    handle = scene
++    handle = scene if isinstance(scene, HigsRendererHandle) else None
++    colors_eff = _slice_colors_for_sh_degree(colors, sh_degree)
 +    if handle is None and _higs_backend_available():
-+        handle = _HIGS_DYNAMIC_SCENE.ensure_renderer(
-+            means, quats, scales, opacities, colors, sh_degree,
++        handle = tracker.ensure_renderer(
++            means, quats, scales, opacities, colors_eff, sh_degree,
 +        )
 +
++    means2d_proxy = _new_means2d_proxy(
++        means, viewmats, quats, scales, opacities, colors
++    )
 +    frame, alpha = _HigsAutogradFunction.apply(
-+        means, quats, scales, opacities, colors,
++        means, quats, scales, opacities, colors_eff,
++        means2d_proxy,
 +        viewmats, Ks,
 +        width, height, sh_degree, tile_size,
 +        near_plane, far_plane, radius_clip, eps2d, background,
@@ -3050,9 +3356,10 @@ index b6c1b13..f9e290b 100644
 +        enable_culling, use_higs_culling,
 +        backward_mode, handle, sh_compression_mode, tile_sampling_ratio,
 +        sampling_mode, tile_mask, cull_refresh_interval,
++        cull_cache_key,
 +    )
 +
-+    scene_version = _HIGS_DYNAMIC_SCENE.next_version(means.shape[0])
++    scene_version = tracker.next_version(means.shape[0])
 +    fwd_meta = dict(_HigsAutogradFunction.last_forward_metadata)
 +    N_total = means.shape[0]
 +
@@ -3083,6 +3390,15 @@ index b6c1b13..f9e290b 100644
 +    return {
 +        "frame": frame,
 +        "alpha": alpha,
++        "densification_info": {
++            "means2d": means2d_proxy,
++            "radii": fwd_meta["densification_radii"],
++            "gaussian_ids": torch.arange(N_total, device=means.device),
++            "visible_gaussian_ids": fwd_meta["visible_gaussian_ids"],
++            "width": width,
++            "height": height,
++            "n_cameras": means2d_proxy.shape[0],
++        },
 +        "metadata": {
 +            "n_gaussians": N_total,
 +            "scene_version": scene_version,
@@ -3134,6 +3450,7 @@ index b6c1b13..f9e290b 100644
 +    sampling_mode: str = "uniform",
 +    tile_mask=None,
 +    cull_refresh_interval: int = 1,
++    cull_cache_key: str = "default",
 +    scene=None,
 +) -> dict:
 +    """Differentiable HiGS rendering with dynamic-topology support (Stage C).
@@ -3169,10 +3486,11 @@ index b6c1b13..f9e290b 100644
 +        sampling_mode=sampling_mode,
 +        tile_mask=tile_mask,
 +        cull_refresh_interval=cull_refresh_interval,
++        cull_cache_key=cull_cache_key,
 +        scene=scene,
 +    )
 diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py
-index 50f357f..7815b38 100644
+index 50f357f2..7815b388 100644
 --- a/gsplat/experimental/render/kernels/cuda/build.py
 +++ b/gsplat/experimental/render/kernels/cuda/build.py
 @@ -101,6 +101,8 @@ def get_build_parameters():
@@ -3195,7 +3513,7 @@ index 50f357f..7815b38 100644
          )
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
 new file mode 100644
-index 0000000..fc99f69
+index 00000000..fc99f69c
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu
 @@ -0,0 +1,331 @@
@@ -3532,7 +3850,7 @@ index 0000000..fc99f69
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
 new file mode 100644
-index 0000000..560280c
+index 00000000..560280c5
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.h
 @@ -0,0 +1,76 @@
@@ -3613,7 +3931,7 @@ index 0000000..560280c
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
-index 15a4650..590c12c 100644
+index 15a46507..590c12c7 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
 @@ -517,7 +517,20 @@ namespace gaussian_render_inference_scene
@@ -3639,7 +3957,7 @@ index 15a4650..590c12c 100644
          const at::Tensor &qso_packed,
          const at::Tensor &colors_packed,
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
-index c01a046..892a0e3 100644
+index c01a046d..892a0e3f 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
 @@ -178,6 +178,11 @@ namespace gaussian_render_inference_scene
@@ -3656,10 +3974,10 @@ index c01a046..892a0e3 100644
          at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
 new file mode 100644
-index 0000000..ea50254
+index 00000000..f94c775b
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
-@@ -0,0 +1,1587 @@
+@@ -0,0 +1,1596 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -4810,7 +5128,8 @@ index 0000000..ea50254
 +    at::Tensor, // v_scales [N, 3]
 +    at::Tensor, // v_opacities [N]
 +    at::Tensor, // v_colors_master
-+    at::Tensor  // v_backgrounds [3]
++    at::Tensor, // v_backgrounds [3]
++    at::Tensor  // v_means2d [I*N, 2]
 +    >
 +higs_rasterize_backward(
 +    const at::Tensor &means2d,
@@ -5243,16 +5562,24 @@ index 0000000..ea50254
 +    }
 +
 +    (void)eps2d;
-+    return {grad_means, grad_quats, grad_scales, grad_opacities, grad_colors, v_backgrounds};
++    return {
++        grad_means,
++        grad_quats,
++        grad_scales,
++        grad_opacities,
++        grad_colors,
++        v_backgrounds,
++        v_means2d
++    };
 +}
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
 new file mode 100644
-index 0000000..c931655
+index 00000000..d0f2adf4
 --- /dev/null
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,96 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -5305,7 +5632,8 @@ index 0000000..c931655
 +        at::Tensor, // v_scales   [N, 3]
 +        at::Tensor, // v_opacities [N]
 +        at::Tensor, // v_colors_master
-+        at::Tensor  // v_backgrounds [3]
++        at::Tensor, // v_backgrounds [3]
++        at::Tensor  // v_means2d [I*N, 2]
 +        >
 +    higs_rasterize_backward(
 +        // ---- forward-captured rasterization state (flattened [I*N, ...]) ----
@@ -5349,7 +5677,7 @@ index 0000000..c931655
 +} // namespace gaussian_render_inference_scene
 +} // namespace gsplat
 diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
-index 13097f3..dc14afe 100644
+index 13097f39..dc14afec 100644
 --- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
 +++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
 @@ -28,21 +28,21 @@ __device__ __forceinline__ void AssignAs(U &u, const V &v)
@@ -5402,7 +5730,7 @@ index 13097f3..dc14afe 100644
      return __cvt_pack_sat_u8_f32(a.x, a.y, a.z, a.w);
  }
 diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
-index 2eb26d1..426d402 100644
+index 2eb26d11..426d402e 100644
 --- a/gsplat/experimental/render/kernels/cuda/ext.cpp
 +++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
 @@ -18,6 +18,8 @@
@@ -5503,7 +5831,7 @@ index 2eb26d1..426d402 100644
  // when no backward is available, which confuses callers that check grad_fn is None.
  TORCH_LIBRARY_IMPL(experimental, Autograd, m)
 diff --git a/gsplat/geometry/kernels/cuda/build.py b/gsplat/geometry/kernels/cuda/build.py
-index 6e57dbd..558591e 100644
+index 6e57dbd9..558591e7 100644
 --- a/gsplat/geometry/kernels/cuda/build.py
 +++ b/gsplat/geometry/kernels/cuda/build.py
 @@ -65,9 +65,8 @@ def get_build_parameters() -> SimpleNamespace:
@@ -5518,7 +5846,7 @@ index 6e57dbd..558591e 100644
      if torch.version.hip:
          extra_cflags += ["-DUSE_ROCM", "-U__HIP_NO_HALF_CONVERSIONS__"]
 diff --git a/gsplat/scene/kernels/cuda/build.py b/gsplat/scene/kernels/cuda/build.py
-index d76e669..a1fad3d 100644
+index d76e669b..a1fad3d7 100644
 --- a/gsplat/scene/kernels/cuda/build.py
 +++ b/gsplat/scene/kernels/cuda/build.py
 @@ -49,7 +49,7 @@ def get_build_parameters() -> SimpleNamespace:
@@ -5540,7 +5868,7 @@ index d76e669..a1fad3d 100644
              )
 diff --git a/tests/experimental/render/test_trainable.py b/tests/experimental/render/test_trainable.py
 new file mode 100644
-index 0000000..5d8d595
+index 00000000..5d8d5958
 --- /dev/null
 +++ b/tests/experimental/render/test_trainable.py
 @@ -0,0 +1,503 @@

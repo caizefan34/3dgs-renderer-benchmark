@@ -1,0 +1,119 @@
+{
+  "schema_version": "1.0",
+  "paper_scope": "A reproducible comparison of selected 3DGS renderers and compression codecs on one frozen five-scene NVIDIA A100 cohort.",
+  "contributions": [
+    {
+      "id": "protocol",
+      "statement": "A cohort-safe protocol and artifact contract for comparing 3DGS renderers without mixing hardware, checkpoints, cameras, quality references, or evidence tiers."
+    },
+    {
+      "id": "renderer_matrix",
+      "statement": "A complete five-renderer by five-scene A100 matrix with raw timing samples, quality metrics, memory, and immutable provenance."
+    },
+    {
+      "id": "compression_case_study",
+      "statement": "A five-scene compression case study that applies the same provenance and quality-gate discipline."
+    }
+  ],
+  "claims": [
+    {
+      "id": "frozen-five-case-protocol",
+      "contribution_id": "protocol",
+      "statement": "Suite v3.1.0 fixes five required 1920x1080 cases under protocol matrix-primary-1080p-v2.",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "benchmark/suite.json",
+          "sha256": "2b288432ff7d2ee3edb9a219c4c80dc8cfe2bde2358ad31588ce9873a29f8d2c",
+          "assertions": [
+            {"type": "select_count", "pointer": "/cases", "where": {"/required": true}, "equals": 5}
+          ]
+        },
+        {
+          "path": "benchmark/protocol.json",
+          "sha256": "892e18890501c408dc6746af69f17e16973604f0c02a3caddf1954d3bf1fede2",
+          "assertions": []
+        }
+      ]
+    },
+    {
+      "id": "complete-a100-renderer-matrix",
+      "contribution_id": "renderer_matrix",
+      "statement": "The measured A100 cohort contains five renderer configurations, each covering all five required cases.",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "docs/leaderboard/ranking.json",
+          "sha256": "19afd39b4596547b5719f00abbaa12aa6a95795946ef061d3d9b6e474660e4f4",
+          "assertions": [
+            {"type": "select_count", "pointer": "/tiers/measured/overall", "where": {}, "equals": 5},
+            {"type": "select_all", "pointer": "/tiers/measured/overall", "where": {}, "field": "/case_count", "equals": 5}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "a100-cohort-throughput-leader",
+      "contribution_id": "renderer_matrix",
+      "statement": "Within the frozen A100 cohort, gsplat_higs has a 5.671367x speed index and 696.910476 aggregate FPS.",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "docs/leaderboard/ranking.json",
+          "sha256": "19afd39b4596547b5719f00abbaa12aa6a95795946ef061d3d9b6e474660e4f4",
+          "assertions": [
+            {"type": "select_min", "pointer": "/tiers/measured/overall", "where": {"/competitor_id": "gsplat_higs"}, "field": "/speed_index", "equals": 5.671367382832446},
+            {"type": "select_min", "pointer": "/tiers/measured/overall", "where": {"/competitor_id": "gsplat_higs"}, "field": "/fps", "equals": 696.9104755682285}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "spz-five-scene-case-study",
+      "contribution_id": "compression_case_study",
+      "statement": "SPZ 8/8 passes the near-lossless gate on all five scenes at 5.572191x to 6.072361x compression and under 0.02 dB absolute PSNR change.",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "reports/generated/compression-expanded-final/compression-results.json",
+          "sha256": "2ef7ea9876cf9d89e9eb62fc1b54a635bbb3f84b768cf164a7c40364a350744c",
+          "assertions": [
+            {"type": "select_count", "pointer": "/results", "where": {"/codec/id": "spz"}, "equals": 5},
+            {"type": "select_all", "pointer": "/results", "where": {"/codec/id": "spz"}, "field": "/metrics/near_lossless_gate/overall_pass", "equals": true},
+            {"type": "select_min", "pointer": "/results", "where": {"/codec/id": "spz"}, "field": "/codec/artifact/compression_ratio", "equals": 5.572190756917695},
+            {"type": "select_max", "pointer": "/results", "where": {"/codec/id": "spz"}, "field": "/codec/artifact/compression_ratio", "equals": 6.0723614150187855},
+            {"type": "select_max_abs", "pointer": "/results", "where": {"/codec/id": "spz"}, "field": "/metrics/quality_delta/psnr_db", "less_than": 0.02}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cross-architecture-generalization",
+      "contribution_id": "renderer_matrix",
+      "statement": "The renderer ordering generalizes across data-center and consumer GPU architectures.",
+      "status": "blocked",
+      "blocking_gate": "Run the frozen matrix on at least two additional GPU architectures, including one consumer GPU, and publish separate cohorts."
+    },
+    {
+      "id": "independent-operator-reproduction",
+      "contribution_id": "protocol",
+      "statement": "An independent operator reproduced the headline matrix from a clean environment.",
+      "status": "blocked",
+      "blocking_gate": "Accept one externally operated, provenance-complete result submission and record its clean-environment procedure."
+    },
+    {
+      "id": "archival-doi",
+      "contribution_id": "protocol",
+      "statement": "The paper artifact has an immutable archival DOI.",
+      "status": "blocked",
+      "blocking_gate": "Create a tagged release, archive the checksummed bundle, then add the issued DOI to CITATION.cff."
+    },
+    {
+      "id": "higs-training-method",
+      "contribution_id": "renderer_matrix",
+      "statement": "HiGS training changes constitute a separate novel optimization method.",
+      "status": "out_of_scope",
+      "rationale": "The benchmark paper keeps method authorship and its extensive optimization study separate from the primary independent comparison; the tracked round artifacts remain available for a dedicated method paper."
+    }
+  ]
+}

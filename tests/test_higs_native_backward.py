@@ -108,6 +108,101 @@ def _run_frozen(params, viewmats, Ks, w, h, **kw):
     )
 
 
+class TestDensificationContract:
+    @_skip_no_cuda
+    def test_native_backward_supplies_default_strategy_signal(self):
+        _require_ext()
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HIGS_DYNAMIC_SCENE,
+        )
+        from gsplat.strategy import DefaultStrategy
+
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 64
+        params = _make_gaussians(N, 3, device)
+        for tensor in params:
+            tensor.requires_grad_(True)
+        viewmat, K, w, h = _full_view_camera(device)
+        result = rasterize_gaussian_higs_dynamic(
+            *params,
+            viewmats=viewmat[None, None],
+            Ks=K[None, None],
+            width=w,
+            height=h,
+            backward_mode="higs_native",
+        )
+        info = result["densification_info"]
+        assert info["means2d"].shape == (1, N, 2)
+        assert info["radii"].shape == (1, N, 2)
+        torch.testing.assert_close(
+            info["gaussian_ids"], torch.arange(N, device=device)
+        )
+        assert info["width"] == w
+        assert info["height"] == h
+        assert info["n_cameras"] == 1
+
+        strategy = DefaultStrategy(refine_start_iter=10)
+        state = strategy.initialize_state()
+        named_params = dict(zip(
+            ("means", "quats", "scales", "opacities", "colors"), params
+        ))
+        strategy.step_pre_backward(named_params, {}, state, 0, info)
+        result["frame"].mean().backward()
+        assert info["means2d"].grad is not None
+        assert torch.isfinite(info["means2d"].grad).all()
+        assert info["means2d"].grad.abs().sum() > 0
+        strategy.step_post_backward(
+            named_params, {}, state, 0, info, packed=False
+        )
+        assert state["count"].sum() > 0
+
+
+    @_skip_no_cuda
+    def test_progressive_sh_superset_colors_flow_gradients_to_master(self):
+        """Full SH3 master colors must work at a lower active sh_degree.
+
+        The paper trainer uses progressive SH: colors stay at [N, 16, 3]
+        while early steps render at sh_degree=0/1. The dynamic forward must
+        slice to the active coefficient count (differentiable), and backward
+        must deliver gradients to the full master tensor with exactly-zero
+        gradients on the inactive channels.
+        """
+        _require_ext()
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HIGS_DYNAMIC_SCENE,
+        )
+
+        _HIGS_DYNAMIC_SCENE.reset()
+        N = 64
+        means, quats, scales, opacities, _ = _make_gaussians(N, 3, device)
+        colors = torch.sigmoid(torch.randn(N, 16, 3, device=device))  # full SH3 master
+        for tensor in (means, quats, scales, opacities, colors):
+            tensor.requires_grad_(True)
+        viewmat, K, w, h = _full_view_camera(device)
+        for sh_degree in (0, 1, 2, 3):
+            _HIGS_DYNAMIC_SCENE.reset()
+            for tensor in (means, quats, scales, opacities, colors):
+                tensor.grad = None
+            result = rasterize_gaussian_higs_dynamic(
+                means, quats, scales, opacities, colors,
+                viewmats=viewmat[None, None],
+                Ks=K[None, None],
+                width=w,
+                height=h,
+                sh_degree=sh_degree,
+                backward_mode="higs_native",
+            )
+            result["frame"].mean().backward()
+            assert colors.grad is not None
+            assert colors.grad.shape == (N, 16, 3)
+            k_active = (sh_degree + 1) ** 2
+            assert torch.isfinite(colors.grad).all()
+            assert colors.grad[:, :k_active].abs().sum() > 0
+            assert colors.grad[:, k_active:].abs().sum() == 0
+
+
 class TestForwardParity:
     @_skip_no_cuda
     def test_rgb_forward_matches_standard_gsplat(self):

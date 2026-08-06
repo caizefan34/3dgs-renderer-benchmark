@@ -28,6 +28,16 @@ Changing antialiasing, precision, SH approximation, tile policy, pruning, or sor
 Retain samples by repeat and frame.
 Report arithmetic mean, median, P95, P99, coefficient of variation, and confidence intervals over independent repeats when enough repeats exist.
 Do not treat thousands of correlated frames as independent experimental replicates.
+New Matrix v2 records identify the interval method and retain both pooled FPS
+and repeat-level summaries. The per-case Student-t interval describes variation
+among repeats within one process execution; it is not evidence of cross-host or
+cross-day reproducibility.
+
+The current generated overall table propagates per-case interval endpoints
+through a geometric mean. That range is a descriptive uncertainty envelope,
+not a simultaneous 95% confidence interval for the aggregate. Submission-facing
+aggregate claims require fresh-process blocks and a blocked or hierarchical
+analysis as specified in the [paper-readiness audit](paper-readiness.md).
 
 ## Environment
 

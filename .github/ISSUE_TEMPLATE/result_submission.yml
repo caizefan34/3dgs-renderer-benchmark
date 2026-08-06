@@ -1,0 +1,54 @@
+name: Benchmark result submission
+description: Propose a reproducible hardware cohort or renderer result for review
+title: "[Result]: "
+labels: ["benchmark-result"]
+body:
+  - type: markdown
+    attributes:
+      value: Results enter the leaderboard only after cohort and provenance checks. Do not paste large raw samples into this issue; link an immutable artifact.
+  - type: input
+    id: renderer
+    attributes:
+      label: Renderer and configuration ID
+      placeholder: gsplat / gsplat_higs_tile16
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Upstream source commit
+      description: Repository URL and full 40-character commit.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Hardware and software cohort
+      description: GPU, UUID (redact only if necessary), power/clock policy, driver, CUDA, OS, Python, PyTorch, and benchmark commit.
+    validations:
+      required: true
+  - type: textarea
+    id: coverage
+    attributes:
+      label: Suite coverage
+      description: List completed, failed, unsupported, and OOM cases. Do not omit failures.
+    validations:
+      required: true
+  - type: input
+    id: artifact
+    attributes:
+      label: Immutable result artifact
+      description: URL containing result JSON, hashed raw samples, and environment metadata.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I used the canonical assets and protocol without editing generated metrics.
+          required: true
+        - label: I included every repeat and retained the repeat structure.
+          required: true
+        - label: I have disclosed deviations, local patches, failures, and conflicts of interest.
+          required: true

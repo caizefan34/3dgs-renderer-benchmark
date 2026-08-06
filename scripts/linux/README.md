@@ -236,3 +236,22 @@ After one-frame differential quality checks pass, run their separate 15-row
 matrix with `--profile candidate-renderers` and a separate session/report path.
 Do not add these rows to the primary recommendation table until all five cases
 pass the same camera order, raw NVML evidence, and quality contract.
+
+## HiGS paper full-training matrices
+
+The paper protocol (benchmark/higs-paper-protocol.json) runs four executable
+methods x 11 scenes x 3 seeds on the A100 cohort. Two 8-GPU schedulers drive
+them with session resume and power sampling:
+
+```bash
+# 144 jobs: gsplat + higs_full + higs_proposed (gsplat env)
+bash scripts/linux/run_higs_paper_a100_matrix.sh
+
+# 33 jobs: original_3dgs official trainer (train_original env, seed patch)
+bash scripts/linux/run_original_3dgs_a100_matrix.sh
+```
+
+Re-running a wrapper resumes the session: completed jobs are skipped, jobs
+whose training finished but result assembly failed (`needs_assembly`) are
+reassembled from their run directory without retraining, and interrupted
+jobs restart from scratch.

@@ -295,6 +295,7 @@ def _aggregate_renderer(rows: list[Mapping]) -> dict:
         "fps": _geometric_mean(row["fps"] for row in rows),
         "fps_ci95_low": _geometric_mean(row["fps_ci95_low"] for row in rows),
         "fps_ci95_high": _geometric_mean(row["fps_ci95_high"] for row in rows),
+        "fps_uncertainty_method": "geometric_mean_of_case_ci_endpoints_descriptive_envelope",
         "frame_time_ms": _geometric_mean(row["frame_time_ms"] for row in rows),
         "p95_frame_time_ms": max(row["p95_frame_time_ms"] for row in rows),
         "p99_frame_time_ms": max(row["p99_frame_time_ms"] for row in rows),
@@ -614,7 +615,7 @@ def _append_markdown_rows(lines: list[str], rows: list[Mapping]) -> None:
         lines.extend(("No renderer has complete suite coverage in this cohort.", ""))
         return
     lines.extend((
-        "| Renderer | Speed index | FPS | FPS 95% CI | Frame ms | PSNR | SSIM | LPIPS | VRAM MB | Efficiency |",
+        "| Renderer | Speed index | FPS | FPS uncertainty envelope | Frame ms | PSNR | SSIM | LPIPS | VRAM MB | Efficiency |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ))
     for row in rows:

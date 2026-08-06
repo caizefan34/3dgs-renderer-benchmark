@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "track_id": "higs",
+  "paper_scope": "A differentiable HiGS training method with a native CUDA backward and hierarchy-aware training acceleration.",
+  "contributions": [
+    {
+      "id": "native_backward",
+      "statement": "A native differentiable HiGS backward with explicit gradient and topology-lifecycle contracts."
+    },
+    {
+      "id": "training_method",
+      "statement": "A hierarchy-aware sparse and progressive training method that reduces end-to-end training cost."
+    },
+    {
+      "id": "evaluation",
+      "statement": "A reproducible analysis of speed, quality, memory, and failure modes across scene scales."
+    }
+  ],
+  "claims": [
+    {
+      "id": "tracked-multiseed-study",
+      "contribution_id": "evaluation",
+      "statement": "The tracked A100 R60 short-horizon, pretrained-Ply artifact contains three-seed aggregate groups for Train, Garden, and Bicycle under the masked-Adam study.",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "results/higs-round60/r60-summary.json",
+          "sha256": "08682e7c7b1f861165ef85d3b8457f632f8de49cbf61a04cafb9ceb4bcbec156",
+          "assertions": [
+            {"type": "value_equals", "pointer": "/device", "equals": "NVIDIA A100-SXM4-80GB"},
+            {"type": "value_equals", "pointer": "/groups/train_ma/n", "equals": 3},
+            {"type": "value_equals", "pointer": "/groups/garden_ma/n", "equals": 3},
+            {"type": "value_equals", "pointer": "/groups/bicycle_ma/n", "equals": 3}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "full-convergence-quality",
+      "contribution_id": "training_method",
+      "statement": "The proposed method reduces complete training wall time while matching final full-training quality across standard datasets.",
+      "status": "blocked",
+      "blocking_gate": "Complete every required job in benchmark/higs-paper-protocol.json and pass validate_higs_paper_results.py --require-complete."
+    },
+    {
+      "id": "official-training-baselines",
+      "contribution_id": "evaluation",
+      "statement": "The method outperforms current training accelerators under their official implementations and matched quality targets.",
+      "status": "blocked",
+      "blocking_gate": "Evaluate official Speedy-Splat, Turbo-GS, random-tile, standard 3DGS, and gsplat training paths; proxy-style reimplementations are ablations, not headline baselines."
+    },
+    {
+      "id": "cross-hardware-training",
+      "contribution_id": "evaluation",
+      "statement": "The training improvement generalizes beyond the A100 cohort.",
+      "status": "blocked",
+      "blocking_gate": "Repeat the frozen training matrix on at least one consumer GPU and one additional data-center architecture, reporting separate cohorts."
+    }
+  ]
+}

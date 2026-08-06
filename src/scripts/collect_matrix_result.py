@@ -6,7 +6,6 @@ import argparse
 import hashlib
 import json
 import platform
-import math
 import statistics
 import subprocess
 import sys
@@ -18,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from benchmark_matrix import validate_result  # noqa: E402
+from benchmark_statistics import summarize_repeat_throughput  # noqa: E402
 
 
 def _load(path: Path):
@@ -285,12 +285,7 @@ def collect(run_dir: Path, renderer_id: str, case_id: str) -> dict:
     if quality.get("num_views") != len(expected_images):
         raise ValueError("quality view count mismatch")
     measured_at = datetime.now(timezone.utc).isoformat()
-    fps = len(wall_samples) / (sum(wall_samples) / 1000.0)
-    repeat_fps = [len(repeat) / (sum(repeat) / 1000.0) for repeat in repeat_wall_samples]
-    fps_sem = statistics.stdev(repeat_fps) / math.sqrt(len(repeat_fps)) if len(repeat_fps) > 1 else 0.0
-    t_critical_95 = 2.776 if len(repeat_fps) == 5 else 1.96
-    fps_ci_low = max(0.0, statistics.mean(repeat_fps) - t_critical_95 * fps_sem)
-    fps_ci_high = statistics.mean(repeat_fps) + t_critical_95 * fps_sem
+    throughput = summarize_repeat_throughput(repeat_wall_samples)
     ordered = sorted(wall_samples)
 
     def percentile(fraction):
@@ -353,9 +348,14 @@ def collect(run_dir: Path, renderer_id: str, case_id: str) -> dict:
         },
         "metrics": {
             "performance": {
-                "fps": fps,
-                "fps_ci95_low": fps_ci_low,
-                "fps_ci95_high": fps_ci_high,
+                "fps": throughput["pooled_fps"],
+                "fps_repeat_mean": throughput["repeat_mean_fps"],
+                "fps_repeat_median": throughput["repeat_median_fps"],
+                "fps_repeat_cv": throughput["repeat_cv"],
+                "fps_ci95_low": throughput["fps_ci95_low"],
+                "fps_ci95_high": throughput["fps_ci95_high"],
+                "fps_ci95_method": throughput["ci95_method"],
+                "repeat_count": throughput["repeat_count"],
                 "frame_time_ms": statistics.mean(wall_samples),
                 "p95_frame_time_ms": percentile(.95), "p99_frame_time_ms": percentile(.99),
                 "peak_vram_mb": speed["nvml_peak_vram_mb"],
