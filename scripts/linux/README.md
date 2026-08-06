@@ -39,6 +39,10 @@ adapter import, metadata commit, and CUDA execution. When the canonical garden
 assets are present, it also renders the first camera and requires a CUDA
 `float32` HWC RGB tensor.
 
+The setup also seeds the LPIPS v0.1 linear weights into the torch hub
+checkpoint cache from the pip `lpips` package, so official PSNR/SSIM/LPIPS
+scoring works on hosts where `raw.githubusercontent.com` is unreachable.
+
 Defaults can be overridden when reproducing on an equivalent host:
 
 ```bash

@@ -119,7 +119,9 @@ class Original3dgsCommandTest(unittest.TestCase):
         self.assertIn("--resolution=-1", command)
         self.assertEqual(command[command.index("--seed") + 1], "2")
         self.assertIn("--eval", command)
-        self.assertIn("--quiet", command)
+        # --quiet must NOT be passed: official safe_state(silent=True) swallows
+        # stdout, hiding the "[ITER N] Saving Gaussians" markers the runner needs.
+        self.assertNotIn("--quiet", command)
         self.assertIn("--disable_viewer", command)
 
     def test_smoke_uses_single_eval_step(self):

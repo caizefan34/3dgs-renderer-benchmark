@@ -220,6 +220,12 @@ def main(argv=None) -> int:
     parser.add_argument("--poll-seconds", type=float, default=5.0)
     args = parser.parse_args(argv)
 
+    if args.session.is_file() and not args.resume:
+        raise SystemExit(
+            f"refusing to clobber existing session {args.session}: pass --resume "
+            "to continue/assemble, or move the session aside to start a fresh run"
+        )
+
     protocol = _load(args.protocol)
     methods = set(part.strip() for part in args.methods.split(",") if part.strip())
     unknown = methods - set(protocol["methods"])

@@ -20,4 +20,5 @@ METHODS="${METHODS:-gsplat,higs_full,higs_proposed}"
   --session "$SESSION" \
   --gpus "$GPUS" \
   --methods "$METHODS" \
+  --resume \
   "$@"

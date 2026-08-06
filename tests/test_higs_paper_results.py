@@ -70,3 +70,46 @@ class HigsPaperResultTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def _result_for(self, job):
+        return {
+            "schema_version": "1.0",
+            "job_id": job["job_id"],
+            "status": "complete",
+            "method": job["method"],
+            "scene": job["scene"],
+            "hardware": job["hardware"],
+            "seed": job["seed"],
+            "training": {"initialization": "from_scratch_sfm", "iterations": 30000},
+            "performance": {"wall_time_seconds": 600.0, "time_to_quality_seconds": 500.0},
+            "quality": {"psnr_db": 25.0, "ssim": 0.8, "lpips": 0.2},
+            "resources": {"peak_gpu_memory_mib": 12000.0, "energy_joules": 100000.0,
+                          "final_gaussian_count": 1000000},
+            "quality_curve": [
+                {"iteration": 7000, "wall_time_seconds": 100.0, "psnr_db": 20.0,
+                 "ssim": 0.6, "lpips": 0.4},
+                {"iteration": 30000, "wall_time_seconds": 600.0, "psnr_db": 25.0,
+                 "ssim": 0.8, "lpips": 0.2},
+            ],
+            "artifact": {"sha256": "a" * 64},
+            "provenance": {"timing_boundary": "dataset_ready_to_final_checkpoint",
+                           "clean_process": True},
+        }
+
+    def test_require_complete_with_method_filter_checks_only_executable_subset(self):
+        plan = build_experiment_plan(self.protocol)
+        original_jobs = [
+            job for job in plan
+            if job["method"] == "original_3dgs" and job["hardware"] == "a100"
+        ]
+        self.assertEqual(len(original_jobs), 33)
+        results = [self._result_for(job) for job in original_jobs]
+        report = validate_result_set(
+            results, self.protocol, require_complete=True,
+            methods={"original_3dgs"}, hardware={"a100"},
+        )
+        self.assertEqual(report, {"planned": 33, "complete": 33, "failed": 0, "missing": 0})
+
+        # without the filter the same result set is nowhere near full coverage
+        with self.assertRaisesRegex(HigsPaperResultError, "incomplete"):
+            validate_result_set(results, self.protocol, require_complete=True)

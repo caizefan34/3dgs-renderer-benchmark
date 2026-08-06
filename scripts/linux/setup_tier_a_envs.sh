@@ -146,7 +146,33 @@ echo "$SOURCE_ROOT/speedy-splat" > \
 "$ENV_ROOT/tcgs/bin/python" -m pip install --no-build-isolation -e \
   "$SOURCE_ROOT/3DGSTensorCore/submodules/tcgs_speedy_rasterizer"
 
+# The official VGG/Alex LPIPS criterion loads its linear weights from
+# raw.githubusercontent.com. That host is unreachable or MITM-blocked on some
+# networks, so seed the torch hub checkpoint cache from the pip `lpips`
+# package, which ships the byte-identical v0.1 weight files.
+seed_lpips_weights() {
+  local python="$1"
+  "$python" - <<'PYEOF'
+import shutil
+from pathlib import Path
+
+import lpips
+import torch
+
+hub = Path(torch.hub.get_dir()) / "checkpoints"
+hub.mkdir(parents=True, exist_ok=True)
+weights_dir = Path(lpips.__file__).resolve().parent / "weights" / "v0.1"
+for name in ("alex", "vgg", "squeeze"):
+    src = weights_dir / f"{name}.pth"
+    dst = hub / f"{name}.pth"
+    if src.is_file() and (not dst.is_file() or dst.stat().st_size != src.stat().st_size):
+        shutil.copyfile(src, dst)
+        print(f"seeded LPIPS {name}.pth -> {dst}", flush=True)
+PYEOF
+}
+
 for env_name in original3dgs gsplat speedy tcgs; do
+  seed_lpips_weights "$ENV_ROOT/$env_name/bin/python"
   "$ENV_ROOT/$env_name/bin/python" -m pip check
   "$ENV_ROOT/$env_name/bin/python" -c \
     "import torch; assert torch.__version__ == '$PYTORCH_VERSION'; assert torch.version.cuda == '12.8'; assert torch.cuda.is_available(); assert torch.cuda.get_device_capability() == (8, 0); x=torch.ones(1024, device='cuda'); assert (x + x).sum().item() == 2048"

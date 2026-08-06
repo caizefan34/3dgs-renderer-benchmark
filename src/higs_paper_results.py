@@ -87,8 +87,21 @@ def validate_result(result: dict, protocol: dict) -> None:
         raise HigsPaperResultError(f"{job_id}: invalid timing boundary or process provenance")
 
 
-def validate_result_set(results: list[dict], protocol: dict, require_complete: bool = False) -> dict:
+def validate_result_set(
+    results: list[dict],
+    protocol: dict,
+    require_complete: bool = False,
+    methods: set[str] | None = None,
+    hardware: set[str] | None = None,
+) -> dict:
     plan = build_experiment_plan(protocol)
+    if methods is not None or hardware is not None:
+        plan = [
+            job
+            for job in plan
+            if (methods is None or job["method"] in methods)
+            and (hardware is None or job["hardware"] in hardware)
+        ]
     planned_ids = {job["job_id"] for job in plan}
     seen = set()
     complete = failed = 0

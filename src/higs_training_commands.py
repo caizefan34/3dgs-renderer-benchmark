@@ -434,7 +434,9 @@ def build_original_3dgs_invocation(
         "--seed",
         str(seed),
         "--disable_viewer",
-        "--quiet",
+        # NOTE: no --quiet: official safe_state(silent=True) swallows stdout,
+        # which would hide the "[ITER N] Saving Gaussians" markers the runner
+        # needs to timestamp eval+save checkpoints.
     ]
     source = {
         "repository": method_spec.get("repository"),

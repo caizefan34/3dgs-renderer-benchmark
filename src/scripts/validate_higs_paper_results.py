@@ -19,11 +19,32 @@ def main() -> int:
     parser.add_argument("results", nargs="+", type=Path)
     parser.add_argument("--protocol", type=Path, default=ROOT / "benchmark" / "higs-paper-protocol.json")
     parser.add_argument("--require-complete", action="store_true")
+    parser.add_argument(
+        "--methods",
+        help="Comma-separated method filter (e.g. gsplat,higs_full,higs_proposed).",
+    )
+    parser.add_argument("--hardware", help="Comma-separated hardware filter (e.g. a100).")
     args = parser.parse_args()
     try:
         protocol = json.loads(args.protocol.read_text(encoding="utf-8"))
         results = [json.loads(path.read_text(encoding="utf-8")) for path in args.results]
-        report = validate_result_set(results, protocol, require_complete=args.require_complete)
+        methods = (
+            set(part.strip() for part in args.methods.split(",") if part.strip())
+            if args.methods
+            else None
+        )
+        hardware = (
+            set(part.strip() for part in args.hardware.split(",") if part.strip())
+            if args.hardware
+            else None
+        )
+        report = validate_result_set(
+            results,
+            protocol,
+            require_complete=args.require_complete,
+            methods=methods,
+            hardware=hardware,
+        )
     except (OSError, json.JSONDecodeError, HigsPaperResultError) as exc:
         print(f"HiGS paper results invalid: {exc}", file=sys.stderr)
         return 1

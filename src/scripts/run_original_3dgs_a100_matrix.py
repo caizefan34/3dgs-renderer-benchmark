@@ -170,6 +170,12 @@ def main(argv=None) -> int:
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
 
+    if args.session.is_file() and not args.resume:
+        raise SystemExit(
+            f"refusing to clobber existing session {args.session}: pass --resume "
+            "to continue/assemble, or move the session aside to start a fresh run"
+        )
+
     protocol = _load(args.protocol)
     gpus = [int(part) for part in args.gpus.split(",") if part.strip()]
     if not gpus:

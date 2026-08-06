@@ -12,4 +12,5 @@ exec "$PYTHON" src/scripts/run_original_3dgs_a100_matrix.py \
   --run-root artifacts/training-original/runs \
   --result-root artifacts/training-original/results \
   --session artifacts/training-original/session.json \
-  --gpus 0,1,2,3,4,5,6,7
+  --gpus 0,1,2,3,4,5,6,7 \
+  --resume
