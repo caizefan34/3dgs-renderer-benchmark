@@ -1,0 +1,226 @@
+# Frozen claim-to-artifact manifest.
+# Schema version 1: do not change field names without updating
+# tests/test_paper_claims_manifest.py.
+schema_version: 1
+
+# Claim freeze status. "draft" means confirmatory evidence is still open.
+# A paper may only cite claims whose status is "frozen" or "measured".
+freeze_status: draft
+
+# Canonical measurement protocol referenced by Tier A claims.
+protocol:
+  id: matrix-primary-1080p-v2
+  sha256: 892e18890501c408dc6746af69f17e16973604f0c02a3caddf1954d3bf1fede2
+  hardware: NVIDIA A100-SXM4-80GB
+  resolution: 1920x1080
+  scenes:
+    - garden
+    - bonsai
+    - truck
+    - train
+    - bicycle
+  evals_per_repeat: 100
+  repeats: 5
+
+claims:
+  - id: C-001
+    category: throughput
+    status: measured
+    statement: >-
+      On the A100-80GB EPIC-05 host, gsplat HiGS quarter-resolution is the
+      fastest measured renderer family variant on the garden scene at 1080p,
+      reaching 553 FPS (+12.4% over the gsplat_higs baseline).
+    scope:
+      scenes: [garden]
+      protocol: matrix-primary-1080p-v2
+    evidence:
+      - docs/epic05-higs-ablation-results-2026-07-25.md
+      - docs/leaderboard/ranking.json
+    statistics:
+      n_scenes: 1
+      n_runs: 5
+      metric: mean FPS over repeats
+    limitations:
+      - Garden single-scene result; not a 5-scene geometric mean.
+      - Single GPU architecture and single clock/power policy.
+
+  - id: C-002
+    category: throughput
+    status: measured
+    statement: >-
+      Five-scene geometric-mean FPS leaderboard for the A100 cohort is
+      published with per-scene values and 95% confidence intervals.
+    scope:
+      scenes: [garden, bonsai, truck, train, bicycle]
+      protocol: matrix-primary-1080p-v2
+    evidence:
+      - docs/leaderboard/ranking.json
+      - docs/leaderboard/ranking.md
+    statistics:
+      n_scenes: 5
+      metric: geometric mean of per-scene mean FPS
+    limitations:
+      - Single hardware cohort; cross-architecture comparison is out of scope.
+
+  - id: C-003
+    category: compression
+    status: measured
+    statement: >-
+      SPZ v4 8/8-bit achieves 5.57-6.07x per-scene compression with PSNR
+      change within +-0.02 dB on all five scenes (near-lossless gate).
+    scope:
+      scenes: [garden, bonsai, truck, train, bicycle]
+      protocol: matrix-primary-1080p-v2
+    evidence:
+      - results/measured-compression/
+      - reports/generated/compression-expanded-final/compression-results.json
+    statistics:
+      n_scenes: 5
+      metric: per-scene compression ratio and delta PSNR
+    limitations:
+      - Near-lossless is defined by this repository's +-0.02 dB gate.
+
+  - id: C-004
+    category: trainability
+    status: measured
+    statement: >-
+      HiGS native CUDA backward passes gradcheck and finite-difference
+      verification for means, quaternions, scales, opacities, and SH colors,
+      with CUDA-absent fallback.
+    scope:
+      scenes: [synthetic]
+      protocol: unit-tests
+    evidence:
+      - tests/test_higs_native_backward.py
+      - tests/test_higs_trainable.py
+    statistics:
+      n_tests: 65
+      metric: gradcheck + FD agreement (collected tests in test_higs_native_backward.py on this checkout)
+    limitations:
+      - Correctness in test scenes only; not a training-convergence claim.
+
+  - id: C-005
+    category: training-speed
+    status: exploratory
+    statement: >-
+      Masked-Adam updates on culled Gaussians reduce end-to-end training time
+      by 8-41% across three scenes at 720p with mostly improved quality in a
+      3-seed x 3-scene sweep at 3000 steps.
+    scope:
+      scenes: [train, garden, bicycle]
+      protocol: higs-round60-720p-eg
+    evidence:
+      - results/higs-round60/r60-summary.json
+    statistics:
+      n_scenes: 3
+      n_seeds: 3
+      horizon_steps: 3000
+      metric: train_ms, PSNR, SSIM, LPIPS
+    limitations:
+      - Exploratory sweep; not a frozen confirmatory protocol.
+      - 3000-step horizon, not full 30k convergence.
+      - Single GPU architecture.
+
+  - id: C-006
+    category: training-speed
+    status: exploratory
+    statement: >-
+      Progressive-resolution training with error-guided sampling reaches
+      roughly 2.4-2.7x wall-clock speedup over 1080p full-resolution training
+      at 720p on three scenes (round-56/58 evidence).
+    scope:
+      scenes: [train, garden, bicycle]
+      protocol: higs-round58-720p-eg
+    evidence:
+      - results/higs-round56/r56-summary.json
+      - results/higs-round58/r58-summary.json
+    statistics:
+      n_scenes: 3
+      n_seeds: 3
+      horizon_steps: 3000
+      metric: wall-clock speedup, PSNR, LPIPS
+    limitations:
+      - Exploratory; scene-dependent quality cost is explicit in artifacts.
+      - 720p-only conclusion; 1080p progressive-resolution is a negative.
+
+  - id: C-007
+    category: methodology
+    status: measured
+    statement: >-
+      Renderer and compression artifacts follow an evidence-tier model
+      (measured/reproduced/paper/quarantine/diagnostics) so rankings never
+      mix provenance.
+    scope:
+      scenes: [all]
+      protocol: repository-convention
+    evidence:
+      - results/README.md
+      - docs/methodology.md
+    statistics: {}
+    limitations: []
+
+  - id: C-008
+    category: diagnostics
+    status: measured
+    statement: >-
+      TC-GS five-scene PSNR is deterministic across three independent passes
+      (identical to 0.001 dB), while end-to-end FPS shows heavy-tail latency
+      with isolated frames reaching 229-423 ms despite medians of 1.5-4.0 ms.
+    scope:
+      scenes: [garden, bonsai, truck, train, bicycle]
+      protocol: tcgs-variance-20260805
+    evidence:
+      - results/diagnostics/tcgs-variance-20260805/
+      - reports/epic05-tcgs-variance-2026-08-05.md
+    statistics:
+      n_passes: 3
+      n_runs_per_pass: 5
+      metric: mean FPS, median/P95/P99/max latency, PSNR
+    limitations:
+      - Diagnostic runs are excluded from Tier A leaderboard by design.
+      - Warm-up length is confounded with host load; no causal claim.
+
+  - id: C-009
+    category: packaging
+    status: measured
+    statement: >-
+      The published wheel contains all runtime packages and the installed CLI
+      resolves the benchmark checkout from GSBENCH_ROOT or the current
+      directory's parent, failing with a clear message otherwise.
+    scope:
+      scenes: []
+      protocol: packaging-test
+    evidence:
+      - tests/test_packaging.py
+      - tests/test_benchmark_entrypoint.py
+    statistics:
+      n_tests: 8
+      metric: wheel contents + installed CLI exit behavior
+    limitations: []
+
+  - id: C-010
+    category: negative-result
+    status: exploratory
+    statement: >-
+      Exploratory rounds document closed negative results (720p x
+      progressive-resolution, stratified tile sampling, LPIPS downscaled
+      loss, union-mask prune) so the research space is bounded.
+    scope:
+      scenes: [train, garden, bicycle]
+      protocol: higs-rounds-54-61
+    evidence:
+      - results/higs-round54/r54-summary.json
+      - results/higs-round57/r57-summary.json
+      - results/higs-round58/r58-summary.json
+      - results/higs-round61/r61-summary.json
+    statistics: {}
+    limitations:
+      - Single-seed screens are labeled as such and are not confirmatory.
+
+# Gates that must pass before freeze_status becomes "frozen".
+required_gates:
+  - Run the frozen speed and quality configurations to 30k steps on all five scenes.
+  - Add a held-out dataset family not used in exploratory rounds.
+  - Collect per-seed values and block-bootstrap 95% confidence intervals.
+  - Repeat the frozen protocol on at least one consumer GPU and one second datacenter GPU.
+  - Validate every paper table cell against an immutable JSON artifact.

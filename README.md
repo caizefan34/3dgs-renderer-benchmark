@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/GPU-A100_80GB-46e970" alt="GPU">
   <img src="https://img.shields.io/badge/Renderers-5_families_%2B_7_variants-38bdf8" alt="Renderers">
   <img src="https://img.shields.io/badge/Compression_Codecs-10_tested-34d399" alt="Codecs">
-  <img src="https://img.shields.io/badge/Tests-162_tests_OK-22c55e" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-179_tests_OK-22c55e" alt="Tests">
 </p>
 
 <p align="center">
@@ -48,7 +48,7 @@ python benchmark.py run gsplat_higs --dataset garden   # any renderer in benchma
 
 That's it — the CLI downloads the scene, runs the suite, and writes results under `results/`. Want the full tour first? Browse the [live dashboard](https://caizefan34.github.io/3dgs-renderer-benchmark/) or start with [docs/README.md](docs/README.md).
 
-> **Run the test suite:** `python -m unittest discover -s tests -v` (162 tests, 1 skipped on CPU-only Windows). For the full suite including the pytest-style HiGS tests, run `python -m pytest tests -q` (HiGS tests skip cleanly when the CUDA extension is unavailable).
+> **Run the test suite:** `python -m unittest discover -s tests -v` (180 tests, 1 skipped on CPU-only Windows). For the full suite including the pytest-style HiGS tests, run `python -m pytest tests -q` (HiGS tests skip cleanly when the CUDA extension is unavailable).
 
 
 ### Choose your path
@@ -67,7 +67,7 @@ That's it — the CLI downloads the scene, runs the suite, and writes results un
 
 | 🚀 Fastest Renderer | 📦 Best Compression | 🔬 Tests |
 |---|---|---|
-| **gsplat HiGS quarter-res** | **SPZ v4 8/8-bit** | **161 pass + 1 skip** |
+| **gsplat HiGS quarter-res** | **SPZ v4 8/8-bit** | **179 pass + 1 skip** |
 | 553 FPS (+12% over baseline) | 5.57–6.07x ratio, < 0.02 dB PSNR drop | Full CI pipeline |
 | @ 1920x1080 on A100-80GB | Near-lossless on all 5 scenes (< 0.02 dB) | Automated validation |
 
@@ -149,14 +149,14 @@ flowchart LR
 
 ### 3. HiGS Trainability — Differentiable Training Path DELIVERED ✅
 
-HiGS was inference-only. We made it **trainable end-to-end** with three staged implementations plus a **native HiGS CUDA backward** (100 tests passing on EPIC-05, A100-80GB):
+HiGS was inference-only. We made it **trainable end-to-end** with three staged implementations plus a **native HiGS CUDA backward** (109 tests across all four stages; the [implementation report](reports/higs-trainability-implementation.md) documents the EPIC-05 A100 verification runs):
 
 | Stage | API | What it adds | Tests |
 |---|---|---|---|
 | **A. Correctness baseline** | `rasterize_gaussian_higs_trainable()` | `differentiable=True/False`; standard gsplat backward as recomputation proxy; no detach / no grad guard | 13 |
-| **B. Frozen topology native** | `rasterize_gaussian_higs_frozen(backward_mode="higs_native")` | Native CUDA backward from forward-captured state (blend + projection + SH VJP); HiGS-native culling; explicit `gsplat_recompute` fallback | 14 |
-| **C. Dynamic topology native** | `rasterize_gaussian_higs_dynamic(backward_mode="higs_native")` | Same native backward + versioned scene handle; densify/prune with Adam-state sync; topology mutation while a backward is pending is rejected | 11 |
-| **Native backward suite** | `tests/test_higs_native_backward.py` | FD + `gradcheck` for means/quats/scales/opacities/colors-SH; multi-camera + non-empty background; SH degree 0..3; mixed precision; SH compression STE; pinhole/ortho/fisheye; depth modes; CUDA-absent fallback | 61 |
+| **B. Frozen topology native** | `rasterize_gaussian_higs_frozen(backward_mode="higs_native")` | Native CUDA backward from forward-captured state (blend + projection + SH VJP); HiGS-native culling; explicit `gsplat_recompute` fallback | 16 |
+| **C. Dynamic topology native** | `rasterize_gaussian_higs_dynamic(backward_mode="higs_native")` | Same native backward + versioned scene handle; densify/prune with Adam-state sync; topology mutation while a backward is pending is rejected | 15 |
+| **Native backward suite** | `tests/test_higs_native_backward.py` | FD + `gradcheck` for means/quats/scales/opacities/colors-SH; multi-camera + non-empty background; SH degree 0..3; mixed precision; SH compression STE; pinhole/ortho/fisheye; depth modes; CUDA-absent fallback | 65 |
 
 **Key results**
 - **Correctness**: gradient cosine 0.999996–1.0 vs standard gsplat; forward PSNR parity on real scenes (19.27 vs 19.24 dB); all 5 parameter types stay FP32 master tensors (FP16 packed buffers are forward/culling-only).
