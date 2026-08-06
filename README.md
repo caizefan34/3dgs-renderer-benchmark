@@ -56,7 +56,7 @@ That's it — the CLI downloads the scene, runs the suite, and writes results un
 | I want to... | Start here |
 |---|---|
 | Compare renderers without implementation details | [Live dashboard](https://caizefan34.github.io/3dgs-renderer-benchmark/) |
-| Understand FPS, PSNR, SSIM, and LPIPS | [Metric glossary](#tldr--key-results) |
+| Understand FPS, PSNR, SSIM, and LPIPS | [Metric glossary](#-tldr--key-results) |
 | Reproduce the published A100 results | [Reproducibility guide](docs/reproducibility.md) |
 | Add another renderer | [Renderer integration guide](docs/adding-a-renderer.md) |
 | Audit claims and remaining evidence gaps | [Research readiness audit](docs/research-readiness-audit-2026-08-05.md) |
@@ -285,7 +285,7 @@ HiGS (Hierarchically Tiled Gaussian Splatting) is a macro-tile renderer inside g
 Every renderer gets the same GPU, checkpoints, 100-camera trajectory, and measurement protocol. Evidence tiers (measured / reproduced / paper) never mix into one ranking. Details: [docs/methodology.md](docs/methodology.md).
 
 **I’m new to 3DGS — where do I start?**
-先看上面的 [🎯 项目一览图](#what-this-project-does) 和 [📖 指标速览](#tldr--key-results)，再跟着 [Quickstart](#quickstart) 跑通第一个基准；想深入了解再看 [docs/README.md](docs/README.md)。
+先看上面的 [🎯 项目一览图](#-what-this-project-does) 和 [📖 指标速览](#-tldr--key-results)，再跟着 [Quickstart](#quickstart) 跑通第一个基准；想深入了解再看 [docs/README.md](docs/README.md)。
 
 **Can I add my own renderer or codec?**
 Yes. Follow [docs/adding-a-renderer.md](docs/adding-a-renderer.md) and use `community/submission_template.json` for new submissions.
