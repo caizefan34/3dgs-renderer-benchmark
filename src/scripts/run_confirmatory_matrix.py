@@ -107,6 +107,11 @@ def build_command(
         "--out", out_json,
     ]
     if arm == "pd":
+        if coarse is None:
+            raise ValueError(
+                f"pd arm requires a coarse res-schedule for scene {scene!r}; "
+                "pass a scene spec like 'family/scene:0.5:0,1.0:1500'"
+            )
         cmd += [
             "--masked-adam-union-decay", "0.99",
             "--masked-adam-union-decay-eval-proj",

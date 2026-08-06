@@ -122,3 +122,46 @@ Progress made after the audit date; the table above remains the original
   tests OK (1 skip); `pytest tests -q` = 228 passed; README Mermaid fences
   verified balanced and all evidence paths referenced by claims.yaml exist.
 
+
+## Confirmatory status 2026-08-06 (evening)
+
+The pre-registered confirmatory protocol (`paper/confirmatory-protocol.md`)
+has been executed on the primary host and the held-out family. The table
+above remains the original 08-05 snapshot; this section records the frozen-
+protocol evidence.
+
+- **P0 30k convergence (audit "Open"): closed.** The frozen ctrl/pd pair ran
+  to 30,000 steps on all five canonical scenes, 3 seeds x 2 arms = 30 runs,
+  zero failures (`results/confirmatory-matrix/`).
+- **P0 held-out confirmation (audit "Open"): closed.** Deep Blending
+  (playroom, drjohnson) was prepared from the official Graphdeco iteration-
+  30000 checkpoints and never touched exploratory rounds; 12/12 runs
+  completed (`results/confirmatory-db/`).
+- **P1 paired statistics (audit "Open"): closed for the primary matrix.**
+  Per-seed values and scene-level block-bootstrap 95% CIs are published for
+  train_ms, total_wall_s, PSNR, SSIM, LPIPS (`paper/tables/`); the primary
+  outcome (pd train_ms delta) is +0.739 ms/step (CI [+0.197, +1.511]) with
+  0/5 strict-dominance scenes, so the 1080p/30k speed hypothesis is a
+  pre-registered negative, while final quality improves (PSNR +0.612 dB,
+  LPIPS -0.014). On Deep Blending the pd cell is faster and better on average
+  (train_ms -0.261, PSNR +0.748), with strict dominance on drjohnson.
+- **P0 hardware breadth (audit "Open"): partial.** Consumer leg (RTX 5070
+  Laptop 8GB, 720p by pre-registration) is running; no second datacenter GPU
+  exists in this environment, so that sub-gate stays open with the launcher
+  recipe published (protocol section 7).
+- **P1 manuscript / claim set: in progress.** `paper/claims.yaml` now carries
+  the two measured confirmatory claims C-011/C-012 and per-gate statuses
+  (G-1..G-5); `freeze_status` remains "draft" until the consumer leg and the
+  second-datacenter decision close.
+- **P2 artifact validation: improved.** `build_confirmatory_tables.py`
+  generates per-seed JSON + markdown tables so every paper table cell traces
+  to an immutable artifact; the claims test still runs in CI.
+- **Launcher fix:** `run_confirmatory_matrix.py` now raises a clear error when
+  a pd arm is requested without a coarse res-schedule (was a silent None-crash
+  on custom scene specs); covered by a new unit test.
+
+Primary result in one line: at 1080p/30k the frozen pd cell is a quality win
+(PSNR +0.61 dB, LPIPS -0.014, ~4x fewer Gaussians, lower VRAM) and not a
+training-speed win on the canonical five; the held-out family shows the speed
+win too (train_ms -0.26), and the consumer 720p leg will decide whether the
+exploratory 720p speed result survives on a consumer GPU.

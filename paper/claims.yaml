@@ -5,6 +5,10 @@ schema_version: 1
 
 # Claim freeze status. "draft" means confirmatory evidence is still open.
 # A paper may only cite claims whose status is "frozen" or "measured".
+# 2026-08-06: the A100 confirmatory matrix (30/30) and the held-out Deep
+# Blending family (12/12) are complete and analyzed; the consumer 720p leg
+# is running and the second datacenter GPU gate is documented open, so the
+# global freeze stays "draft" until those legs close.
 freeze_status: draft
 
 # Canonical measurement protocol referenced by Tier A claims.
@@ -120,6 +124,8 @@ claims:
       - Exploratory sweep; not a frozen confirmatory protocol.
       - 3000-step horizon, not full 30k convergence.
       - Single GPU architecture.
+      - The 1080p/30k confirmatory matrix does not reproduce the speed gain on
+        the canonical five (see C-011); this claim stays 720p/3k-scoped.
 
   - id: C-006
     category: training-speed
@@ -142,6 +148,8 @@ claims:
     limitations:
       - Exploratory; scene-dependent quality cost is explicit in artifacts.
       - 720p-only conclusion; 1080p progressive-resolution is a negative.
+      - The 1080p/30k confirmatory matrix confirms the negative at full
+        resolution (see C-011); the quality benefit is the robust result.
 
   - id: C-007
     category: methodology
@@ -217,10 +225,116 @@ claims:
     limitations:
       - Single-seed screens are labeled as such and are not confirmatory.
 
-# Gates that must pass before freeze_status becomes "frozen".
+  - id: C-011
+    category: training-speed
+    status: measured
+    statement: >-
+      On EPIC-05 A100-80GB at 1080p with the frozen 30k protocol, the pd
+      (progressive-resolution + masked-Adam union-decay) cell does not reduce
+      mean per-step training latency on the canonical five scenes (paired
+      train_ms delta +0.739 ms/step, 95% block-bootstrap CI [+0.197, +1.511])
+      and does not achieve strict per-scene dominance on any scene (0 of 5);
+      it improves final quality (PSNR +0.612 dB, CI [+0.286, +1.027]; LPIPS
+      -0.014, CI [-0.026, -0.002]) and reduces final Gaussian count and peak
+      VRAM on every scene. All 30 runs completed with zero failures.
+    scope:
+      scenes: [garden, bonsai, truck, train, bicycle]
+      protocol: confirmatory-protocol-2026-08-06
+    evidence:
+      - results/confirmatory-matrix/
+      - results/confirmatory-matrix/summary.json
+      - paper/tables/confirmatory-matrix-per-seed.json
+      - paper/tables/confirmatory-matrix-table.md
+      - paper/tables/confirmatory-matrix-train_ms-bootstrap.json
+      - paper/confirmatory-protocol.md
+      - docs/confirmatory-results-2026-08-06.md
+    statistics:
+      n_scenes: 5
+      n_seeds: 3
+      n_runs: 30
+      n_failed: 0
+      horizon_steps: 30000
+      metric: train_ms, total_wall_s, PSNR, SSIM, LPIPS, final_n, peak_vram_gb
+    limitations:
+      - 1080p and 30k horizon only; the exploratory 720p/3k speed result does
+        not transfer to this regime.
+      - Single datacenter GPU architecture (A100); consumer leg reported
+        separately.
+      - Truck is the only scene with a per-scene LPIPS regression (+0.006),
+        which fails the per-scene LPIPS guardrail and is reported as such.
+
+  - id: C-012
+    category: training-speed
+    status: measured
+    statement: >-
+      On the held-out Deep Blending family (playroom, drjohnson) that was not
+      used in any exploratory round, the frozen pd cell at 1080p/30k on
+      EPIC-05 is faster on average (paired train_ms delta -0.261 ms/step,
+      95% CI [-0.473, -0.049]; total wall -7.67 s) and better in quality
+      (PSNR +0.748 dB, CI [+0.026, +1.470]; LPIPS -0.003) with 0 of 12 runs
+      failed; strict per-scene dominance holds on drjohnson only (1 of 2).
+    scope:
+      scenes: [playroom, drjohnson]
+      protocol: confirmatory-protocol-2026-08-06
+    evidence:
+      - results/confirmatory-db/
+      - results/confirmatory-db/summary.json
+      - paper/tables/confirmatory-db-per-seed.json
+      - paper/tables/confirmatory-db-table.md
+      - paper/tables/confirmatory-db-train_ms-bootstrap.json
+      - paper/confirmatory-protocol.md
+      - docs/confirmatory-results-2026-08-06.md
+    statistics:
+      n_scenes: 2
+      n_seeds: 3
+      n_runs: 12
+      n_failed: 0
+      horizon_steps: 30000
+      metric: train_ms, total_wall_s, PSNR, SSIM, LPIPS
+    limitations:
+      - Single held-out family; family-level claim only.
+      - playroom speed delta is near zero and is not strictly dominant.
+      - Same single datacenter GPU architecture as C-011.
+
+# Gates that must pass before freeze_status becomes "frozen". Each gate
+# records its own status and the artifacts that close it; "open" gates are
+# documented in the audit with a reproducible recipe when no resource exists.
 required_gates:
-  - Run the frozen speed and quality configurations to 30k steps on all five scenes.
-  - Add a held-out dataset family not used in exploratory rounds.
-  - Collect per-seed values and block-bootstrap 95% confidence intervals.
-  - Repeat the frozen protocol on at least one consumer GPU and one second datacenter GPU.
-  - Validate every paper table cell against an immutable JSON artifact.
+  - id: G-1
+    description: Run the frozen speed and quality configurations to 30k steps on all five scenes.
+    status: closed
+    evidence:
+      - results/confirmatory-matrix/
+      - results/confirmatory-matrix/summary.json
+  - id: G-2
+    description: Add a held-out dataset family not used in exploratory rounds.
+    status: closed
+    evidence:
+      - results/confirmatory-db/
+      - results/confirmatory-db/summary.json
+  - id: G-3
+    description: Collect per-seed values and block-bootstrap 95% confidence intervals.
+    status: closed
+    evidence:
+      - paper/tables/confirmatory-matrix-per-seed.json
+      - paper/tables/confirmatory-matrix-train_ms-bootstrap.json
+      - paper/tables/confirmatory-db-per-seed.json
+      - paper/tables/confirmatory-db-table.md
+  - id: G-4
+    description: Repeat the frozen protocol on at least one consumer GPU and one second datacenter GPU.
+    status: partial
+    notes: >-
+      Consumer leg (RTX 5070 Laptop 8GB, 720p) is running with the frozen
+      configs; second datacenter GPU is not available in this environment and
+      is documented as an open gate with the reproducible launcher recipe
+      (protocol section 7, docs/research-readiness-audit-2026-08-05.md).
+    evidence:
+      - results/confirmatory-consumer-720p/
+  - id: G-5
+    description: Validate every paper table cell against an immutable JSON artifact.
+    status: closed
+    evidence:
+      - paper/tables/confirmatory-matrix-per-seed.json
+      - paper/tables/confirmatory-matrix-table.md
+      - paper/tables/confirmatory-db-per-seed.json
+      - paper/tables/confirmatory-db-table.md

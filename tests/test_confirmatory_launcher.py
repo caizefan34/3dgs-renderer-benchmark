@@ -39,6 +39,15 @@ def test_pd_command_has_frozen_quality_max_flags():
     assert cmd[cmd.index("--res-schedule") + 1] == "0.5:0,1.0:1500"
 
 
+
+def test_pd_without_coarse_schedule_raises():
+    import pytest
+
+    with pytest.raises(ValueError, match="requires a coarse res-schedule"):
+        build_command(
+            "mipnerf360/garden", "pd", 3, 30000, 1920, 1080,
+            "/data/processed", "/out/garden_pd_s3.json", None,
+        )
 def test_default_scenes_match_protocol():
     assert len(DEFAULT_SCENES) == 5
     assert ("mipnerf360/garden", "0.75:0,1.0:1500") in DEFAULT_SCENES
