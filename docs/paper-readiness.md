@@ -1,6 +1,6 @@
 # Paper-readiness audit
 
-Status date: 2026-08-06. Target assumed here: a graphics/systems benchmark or
+Status date: 2026-08-07. Target assumed here: a graphics/systems benchmark or
 artifact paper. A HiGS algorithm paper needs a separate novelty and ablation
 argument.
 

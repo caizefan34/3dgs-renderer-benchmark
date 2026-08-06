@@ -77,8 +77,25 @@ of the frozen primary method.
 - `benchmark/run_higs_train_benchmark.py` loads `point_cloud.ply`; R60-R65 are
   short-horizon optimization of an existing Gaussian scene, not from-scratch
   reconstruction from SfM initialization.
-- These are not yet proof of full from-scratch convergence. They must not be
-  advertised as a universal 1.8x to 2.5x quality-preserving training speedup.
+- The frozen 177-job A100 matrix has now been executed from SfM initialization
+  with zero failed or missing jobs: original_3dgs (33 = 11 scenes x 3 seeds),
+  gsplat (48), higs_full (48), and higs_proposed (48) at 30k steps. Each HiGS
+  method's 48 jobs are the 33 primary jobs plus the 15-job A100 leg of the
+  cross-hardware matrix (bicycle, bonsai, garden, train, truck x 3 seeds), so
+  those five scenes carry six runs and the rest three.
+  `paper/higs/tables/matrix-summary.json` records the completion counts and
+  per-method aggregates.
+- Executed aggregates (144-job gsplat/HiGS cohort, A100, 30k steps): gsplat
+  PSNR 28.29 / wall 594 s / TTQ 516 s / peak memory 3.72 GiB; higs_full PSNR
+  28.27 / wall 577 s / TTQ 505 s / 3.69 GiB; higs_proposed PSNR 27.87 / wall
+  542 s / TTQ 539 s / 2.79 GiB. The proposed method uses 21.6% lower mean peak
+  GPU memory per job (per-job range -17.0% to +38.6%), but final PSNR is lower
+  on 10/11 scenes (tied on stump at +0.004 dB), mean wall time is lower on
+  7/11 scenes, and time-to-quality is lower on only 3/11 scenes (aggregate TTQ
+  +4.3%).
+- These results prove trainability and memory reduction, not a universal
+  quality-preserving training speedup. The 1.8x-2.5x short-horizon numbers must
+  not be advertised as full-convergence results.
 
 The executable submission contract is frozen in
 [`benchmark/higs-paper-protocol.json`](../benchmark/higs-paper-protocol.json).

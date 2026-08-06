@@ -74,12 +74,33 @@ def main(argv=None) -> int:
     parser.add_argument("--protocol", type=Path, default=ROOT / "benchmark" / "higs-paper-protocol.json")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "paper" / "higs" / "tables")
     parser.add_argument("--require-complete", action="store_true")
+    parser.add_argument(
+        "--methods",
+        help="Comma-separated method filter (e.g. original_3dgs,gsplat,higs_full,higs_proposed).",
+    )
+    parser.add_argument("--hardware", help="Comma-separated hardware filter (e.g. a100).")
     args = parser.parse_args(argv)
 
     protocol = json.loads(args.protocol.read_text(encoding="utf-8"))
     results = _load_all(args.results_dir)
+    methods = (
+        set(part.strip() for part in args.methods.split(",") if part.strip())
+        if args.methods
+        else None
+    )
+    hardware = (
+        set(part.strip() for part in args.hardware.split(",") if part.strip())
+        if args.hardware
+        else None
+    )
     try:
-        report = validate_result_set(results, protocol, require_complete=args.require_complete)
+        report = validate_result_set(
+            results,
+            protocol,
+            require_complete=args.require_complete,
+            methods=methods,
+            hardware=hardware,
+        )
     except HigsPaperResultError as exc:
         raise SystemExit(f"cannot build tables from invalid results: {exc}")
     if args.require_complete and report["missing"]:

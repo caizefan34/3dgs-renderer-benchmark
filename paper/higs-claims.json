@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "track_id": "higs",
-  "paper_scope": "A differentiable HiGS training method with a native CUDA backward and hierarchy-aware training acceleration.",
+  "paper_scope": "A differentiable HiGS training method with a native CUDA backward and hierarchy-aware sparse/progressive training.",
   "contributions": [
     {
       "id": "native_backward",
@@ -25,7 +25,7 @@
       "evidence": [
         {
           "path": "results/higs-round60/r60-summary.json",
-          "sha256": "08682e7c7b1f861165ef85d3b8457f632f8de49cbf61a04cafb9ceb4bcbec156",
+          "sha256": "fe5191806c0c70bc94b600e0e95db31b28b48e8d9b3ec93b11e8165da411b604",
           "assertions": [
             {"type": "value_equals", "pointer": "/device", "equals": "NVIDIA A100-SXM4-80GB"},
             {"type": "value_equals", "pointer": "/groups/train_ma/n", "equals": 3},
@@ -40,7 +40,34 @@
       "contribution_id": "training_method",
       "statement": "The proposed method reduces complete training wall time while matching final full-training quality across standard datasets.",
       "status": "blocked",
-      "blocking_gate": "Complete every required job in benchmark/higs-paper-protocol.json and pass validate_higs_paper_results.py --require-complete."
+      "blocking_gate": "The executed 177-job matrix shows final PSNR below the same-backend gsplat control on 10 of 11 scenes and aggregate time-to-quality 4.3% above the control; a quality-preserving wall-time reduction was not observed."
+    },
+    {
+      "id": "full-convergence-matrix-executed",
+      "contribution_id": "evaluation",
+      "statement": "A frozen 177-job A100 full-training matrix executed end-to-end with zero failed or missing jobs (original_3dgs 33, gsplat 48, higs_full 48, higs_proposed 48); the proposed method trains from SfM initialization with lower mean peak GPU memory than the gsplat control (2.79 vs 3.72 GiB; mean per-job reduction 21.6%).",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "paper/higs/tables/matrix-summary.json",
+          "sha256": "9d55d1ecfddea83da245a22c6b77f79da0a0e8037f608d07a5777e8cf212e1bb",
+          "assertions": [
+            {"type": "value_equals", "pointer": "/report/complete", "equals": 177},
+            {"type": "value_equals", "pointer": "/report/failed", "equals": 0},
+            {"type": "value_equals", "pointer": "/report/missing", "equals": 0},
+            {"type": "value_equals", "pointer": "/per_method/original_3dgs/jobs", "equals": 33},
+            {"type": "value_equals", "pointer": "/per_method/gsplat/jobs", "equals": 48},
+            {"type": "value_equals", "pointer": "/per_method/higs_full/jobs", "equals": 48},
+            {"type": "value_equals", "pointer": "/per_method/higs_proposed/jobs", "equals": 48},
+            {"type": "value_equals", "pointer": "/per_method/gsplat/peak_gpu_memory_mib_mean", "equals": 3809.487132, "tolerance": 1.0},
+            {"type": "value_equals", "pointer": "/per_method/higs_proposed/peak_gpu_memory_mib_mean", "equals": 2854.155518, "tolerance": 1.0},
+            {"type": "value_equals", "pointer": "/per_method/gsplat/psnr_db_mean", "equals": 28.287642, "tolerance": 0.01},
+            {"type": "value_equals", "pointer": "/per_method/higs_proposed/psnr_db_mean", "equals": 27.871767, "tolerance": 0.01},
+            {"type": "value_equals", "pointer": "/per_method/gsplat/time_to_quality_seconds_mean", "equals": 516.257097, "tolerance": 1.0},
+            {"type": "value_equals", "pointer": "/per_method/higs_proposed/time_to_quality_seconds_mean", "equals": 538.704195, "tolerance": 1.0}
+          ]
+        }
+      ]
     },
     {
       "id": "official-training-baselines",

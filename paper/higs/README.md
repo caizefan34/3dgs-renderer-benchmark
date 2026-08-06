@@ -5,17 +5,23 @@
 Hierarchy-aware differentiable rendering can reduce time-to-quality for 3DGS
 training while preserving the final reconstruction target.
 
-This thesis is not yet supported by the existing short-horizon experiments.
-The manuscript becomes submission-ready only when the full-training result gate
-passes without missing or failed jobs.
+The full-training result gate has been executed end-to-end: a frozen 177-job
+A100 matrix (original 3DGS 33, gsplat 48, higs_full 48, higs_proposed 48) with
+zero failed or missing jobs. The executed evidence supports trainability and a
+memory reduction, but not a quality-preserving training speedup: the proposed
+method converges from SfM initialization and uses less peak GPU memory, while
+final PSNR is lower than the same-backend control on 10 of 11 scenes (tied on
+stump). The manuscript is therefore submission-ready for the trainability and
+memory contributions; the speed claim remains blocked by the measured quality
+gap.
 
 ## Contribution and evidence map
 
 | Contribution | Main evidence | Paper item | Current state |
 | --- | --- | --- | --- |
 | Native HiGS backward | Finite differences, gradcheck, native/recompute parity, topology lifecycle | Figure 2 system diagram; Table 1 gradient and kernel validation | Implementation exists; freeze a tracked aggregate artifact |
-| Hierarchy-aware training algorithm | Final frozen pseudocode and component ablation | Algorithm 1; Figure 3 component diagram; Table 2 ablation | Blocked until one final from-scratch trainer replaces the R60-R65 recipe history |
-| Faster converged training | Full wall-clock and quality curves | Figure 4 time-to-quality; Table 3 complete dataset results | Blocked by 333-job paper protocol |
+| Hierarchy-aware training algorithm | Frozen pseudocode and the 177-job from-scratch execution (masked Adam + progressive resolution vs same-backend control) | Algorithm 1; Figure 3 component diagram; Table 2 ablation | Implemented and executed from scratch; ablation table available in `tables/summary.md` |
+| Faster converged training | Full wall-clock and quality curves | Figure 4 time-to-quality; Table 3 complete dataset results | 177-job executed; mean wall time lower on 7/11 scenes but aggregate time-to-quality higher (+4.3%) and final PSNR lower on 10/11, so no quality-preserving speedup is claimed |
 | Generalization and scaling | Gaussian-count, resolution, and hardware cohorts | Figure 5 scaling; Table 4 hardware results | Consumer and second data-center GPU blocked |
 | Failure analysis | Low-N and high-N behavior, perceptual-quality limits | Figure 6 failure cases and quality-speed frontier | Short-horizon evidence exists; repeat under full training |
 
@@ -46,14 +52,13 @@ python src/scripts/validate_higs_paper_results.py \
   artifacts/higs-paper/results/*.json --require-complete
 ```
 
-The command builder is also a runner-readiness gate. At present it emits the
-official gsplat control and rejects both HiGS methods because native backward
-does not yet expose `DefaultStrategy`-compatible densification information.
-This is an explicit implementation blocker, not a missing documentation item.
-
 ## Writing boundary
 
-The abstract may currently claim a native differentiable implementation and a
-released evaluation protocol. It may not claim full-training acceleration,
-cross-hardware generalization, or superiority to official training baselines.
-Those claims unlock only after the corresponding machine-readable gates pass.
+The abstract may claim a native differentiable implementation, a released
+evaluation protocol, and a frozen 177-job from-scratch execution in which the
+proposed method reduces mean peak GPU memory relative to gsplat. It may not
+claim full-training acceleration, cross-hardware generalization, or
+superiority to official training baselines: the executed data shows final
+PSNR below the same-backend control on 10 of 11 scenes and aggregate
+time-to-quality above the control. Those claims unlock only after the
+corresponding machine-readable gates pass.

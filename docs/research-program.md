@@ -8,15 +8,17 @@ It does not make the three tracks one scientific contribution.
 | Track | Scientific question | Current evidence | Paper boundary |
 | --- | --- | --- | --- |
 | Survey | Which open 3DGS methods are reproducible, comparable, and relevant to rendering, training, or storage? | Ten-family source-pinned renderer registry and a five-renderer A100 matrix | Systematic-review claims remain blocked until the search and screening log is frozen |
-| Differentiable HiGS | Can hierarchical rendering support correct gradients and reduce end-to-end training cost without sacrificing converged quality? | Native CUDA backward, topology lifecycle, tracked multi-seed short-horizon studies, and extensive ablations | Full-convergence and official-baseline claims remain blocked |
+| Differentiable HiGS | Can hierarchical rendering support correct gradients and reduce end-to-end training cost without sacrificing converged quality? | Native CUDA backward, topology lifecycle, multi-seed studies, and a frozen 177-job from-scratch A100 matrix; trainability and a 21.6% mean peak-memory reduction are measured | Quality-preserving full-convergence speedup and official-baseline claims remain blocked |
 | Storage compression | Which same-checkpoint format minimizes storage subject to a declared quality gate? | Five-scene round-trip comparison of bit-exact and near-lossless formats | Learned codecs that require retraining form a separate cohort |
 
 ## Recommended publication strategy
 
-The HiGS method is the strongest candidate for a primary method paper once its
-full-training gates are complete. The survey can become an artifact or survey
-paper after a systematic search audit. The storage work can become an empirical
-study after adding decode and deployment costs plus current learned codecs.
+The HiGS method is the strongest candidate for a primary method paper: the
+frozen 177-job from-scratch matrix supports trainability and a memory
+reduction, while the quality-preserving speed claim stays blocked by the
+measured quality gap. The survey can become an artifact or survey paper after
+a systematic search audit. The storage work can become an empirical study
+after adding decode and deployment costs plus current learned codecs.
 
 Do not combine all three as co-equal contributions in one full paper. A shared
 repository and artifact is useful; a manuscript still needs one central causal

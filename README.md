@@ -31,7 +31,7 @@ codec rankings.
 | Track | What is available | Current scientific boundary | Start here |
 | --- | --- | --- | --- |
 | Reproducible 3DGS survey | Source-pinned registry, evidence tiers, integration status, five-renderer A100 matrix | A systematic/latest-survey claim still needs a frozen search and screening audit | [Survey protocol](docs/survey-protocol.md) |
-| Differentiable HiGS | Native CUDA backward, dynamic topology, sparse/progressive training studies, positive and negative ablations | Existing quality-prioritized results use 3000-step studies; full from-scratch convergence and official baselines remain open | [HiGS paper plan](docs/higs-paper-plan.md) |
+| Differentiable HiGS | Native CUDA backward, dynamic topology, sparse/progressive training studies, positive and negative ablations, frozen 177-job from-scratch matrix | Trainability and mean peak-memory reduction are measured; quality-preserving training speedup is not supported (final PSNR lower on 10 of 11 scenes) | [HiGS paper plan](docs/higs-paper-plan.md) |
 | Storage compression | Bit-exact and same-checkpoint near-lossless round trips across five scenes | Learned retraining codecs and decode/deployment cost require a separate completed cohort | [Compression protocol](docs/compression-protocol.md) |
 
 The [research program](docs/research-program.md) explains why these tracks share
@@ -80,7 +80,17 @@ The implementation provides:
 The research log reports quality-prioritized 3000-step A100 configurations that
 reduce per-step time by 8.6% to 21.7% against the same-backend full-resolution
 control on four high/mid Gaussian-count scenes. Train is a documented exception.
-These values are not a substitute for full from-scratch convergence.
+The frozen 177-job A100 matrix (original_3dgs 33 = 11 scenes x 3 seeds;
+gsplat/HiGS 48 each, with the five cross-hardware scenes run twice, 30k steps)
+has now been executed from SfM initialization with zero failed jobs. The
+proposed method (visibility-masked Adam + progressive resolution) trains to a
+complete scene with 21.6% lower mean peak GPU memory per job than the gsplat
+control (2.79 vs 3.72 GiB aggregate), but final PSNR is lower on 10 of 11
+scenes (tied on stump), mean wall time is faster on 7 of 11, and aggregate
+time-to-quality is 4.3% higher, so no quality-preserving speedup is claimed.
+Machine-readable aggregates live in
+[`paper/higs/tables/matrix-summary.json`](paper/higs/tables/matrix-summary.json).
+The short-horizon 1.8x-2.5x numbers are not full-convergence results.
 
 - [Implementation report](reports/higs-trainability-implementation.md)
 - [Training research and negative results](reports/higs-training-speedup-research-2026-08-03.md)

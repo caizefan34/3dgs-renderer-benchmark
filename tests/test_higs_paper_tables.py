@@ -95,3 +95,26 @@ def test_build_requires_full_matrix_when_flag_set(tmp_path):
         assert False, "expected SystemExit for incomplete matrix"
     except SystemExit as exc:
         assert exc.code != 0
+
+
+def test_build_filters_plan_by_method_and_hardware(tmp_path):
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    for seed, psnr, wall in ((0, 27.0, 1200.0), (1, 27.1, 1250.0), (2, 26.9, 1180.0)):
+        run_dir = tmp_path / f"run{seed}"
+        result = _result(run_dir, seed, psnr, wall)
+        (results_dir / f"{result['job_id']}.json").write_text(
+            json.dumps(result, indent=2) + "\n", encoding="utf-8"
+        )
+    output = tmp_path / "tables"
+    rc = build_main([
+        "--results-dir", str(results_dir),
+        "--output-dir", str(output),
+        "--methods", "higs_full",
+        "--hardware", "a100",
+    ])
+    assert rc == 0
+    summary_json = json.loads((output / "matrix-summary.json").read_text(encoding="utf-8"))
+    # filtered plan: 33 primary + 15 cross-hardware A100 jobs for higs_full
+    assert summary_json["report"]["planned"] == 48
+    assert summary_json["report"]["complete"] == 3

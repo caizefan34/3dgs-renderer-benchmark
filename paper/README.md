@@ -51,6 +51,8 @@ claim must not be written as a result until its named gate is completed.
 `out_of_scope` keeps attractive but distracting claims out of this paper.
 
 The benchmark scope remains deliberately narrow: selected renderers and codecs
-on one five-scene NVIDIA A100 cohort. The HiGS manifest does not yet claim full
-from-scratch convergence. The survey does not yet claim exhaustive coverage.
-The compression manifest does not equate near-lossless with bit-exact lossless.
+on one five-scene NVIDIA A100 cohort. The HiGS manifest claims the executed
+177-job from-scratch A100 matrix and the measured memory reduction; it does not
+claim a quality-preserving training speedup. The survey does not yet claim
+exhaustive coverage. The compression manifest does not equate near-lossless
+with bit-exact lossless.
