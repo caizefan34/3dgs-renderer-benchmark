@@ -114,7 +114,20 @@ def _load_ext():
         _ext_error = RuntimeError("masked_adam requires CUDA")
         raise _ext_error
     old_arch = os.environ.get("TORCH_CUDA_ARCH_LIST")
-    os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "8.0")
+    if old_arch is None:
+        # Default to the actual device so the JIT'd kernel runs on
+        # anything (A100 sm_80, RTX 50-series sm_120, ...) instead of
+        # hard-coding sm_80.
+        cap = torch.cuda.get_device_capability()
+        os.environ["TORCH_CUDA_ARCH_LIST"] = f"{cap[0]}.{cap[1]}"
+    # CUDA 13.x bundles CCCL 3.0 whose headers hard-error when MSVC is used
+    # with the traditional preprocessor; gsplat's own build.py passes this
+    # flag on Windows for the same reason.
+    extra_cuda_cflags = []
+    if os.name == "nt":
+        # nvcc treats a bare /Zc:preprocessor as an input file; it must be
+        # forwarded to the MSVC host compiler via -Xcompiler.
+        extra_cuda_cflags += ["-Xcompiler", "/Zc:preprocessor"]
     try:
         _ext = load_inline(
             name="higs_masked_adam_cuda",
@@ -123,6 +136,7 @@ def _load_ext():
             functions=["masked_adam_step"],
             with_cuda=True,
             verbose=False,
+            extra_cuda_cflags=extra_cuda_cflags,
         )
     except Exception as e:  # pragma: no cover - toolchain-dependent
         _ext_error = e

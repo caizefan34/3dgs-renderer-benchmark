@@ -5,11 +5,35 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "3dgs-renderer-benchmark"
 version = "0.2.0"
+description = "Reproducible, quality-gated benchmarking for 3D Gaussian Splatting renderers"
+readme = "README.md"
 requires-python = ">=3.10"
+license = {file = "LICENSE"}
 
 [project.scripts]
-benchmark = "benchmark_cli:main"
+benchmark = "benchmark_entrypoint:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-py-modules = ["benchmark_cli", "benchmark_matrix"]
+py-modules = [
+  "benchmark_cli",
+  "benchmark_entrypoint",
+  "benchmark_matrix",
+  "benchmark_suite",
+  "compression_artifact",
+  "run_benchmark",
+  "run_full_benchmark",
+  "schema_validation",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = [
+  "adapters*",
+  "analysis*",
+  "benchmark*",
+  "benchmark_framework*",
+  "leaderboard*",
+  "renderers*",
+  "scripts*",
+]

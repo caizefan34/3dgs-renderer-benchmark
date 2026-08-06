@@ -18,6 +18,8 @@
 - [Reproducibility](reproducibility.md)
 - [2026 renderer and compression research roadmap](research-roadmap-2026.md)
 - [HiGS trainable implementation (Stage A/B/C)](higs-trainable-implementation.md)
+- [Research readiness audit (2026-08-05)](research-readiness-audit-2026-08-05.md)
+- [Paper workspace and evidence-freeze rules](../paper/README.md)
 
 ## Research and historical context
 

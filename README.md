@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/GPU-A100_80GB-46e970" alt="GPU">
   <img src="https://img.shields.io/badge/Renderers-5_families_%2B_7_variants-38bdf8" alt="Renderers">
   <img src="https://img.shields.io/badge/Compression_Codecs-10_tested-34d399" alt="Codecs">
-  <img src="https://img.shields.io/badge/Tests-155_tests_OK-22c55e" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-179_tests_OK-22c55e" alt="Tests">
 </p>
 
 <p align="center">
@@ -48,8 +48,18 @@ python benchmark.py run gsplat_higs --dataset garden   # any renderer in benchma
 
 That's it — the CLI downloads the scene, runs the suite, and writes results under `results/`. Want the full tour first? Browse the [live dashboard](https://caizefan34.github.io/3dgs-renderer-benchmark/) or start with [docs/README.md](docs/README.md).
 
-> **Run the test suite:** `python -m unittest discover -s tests -v` (155 tests, CPU-safe). For the full suite including the pytest-style HiGS tests, run `python -m pytest tests -q` (HiGS tests skip cleanly when the CUDA extension is unavailable).
+> **Run the test suite:** `python -m unittest discover -s tests -v` (180 tests, 1 skipped on CPU-only Windows). For the full suite including the pytest-style HiGS tests, run `python -m pytest tests -q` (HiGS tests skip cleanly when the CUDA extension is unavailable).
 
+
+### Choose your path
+
+| I want to... | Start here |
+|---|---|
+| Compare renderers without implementation details | [Live dashboard](https://caizefan34.github.io/3dgs-renderer-benchmark/) |
+| Understand FPS, PSNR, SSIM, and LPIPS | [Metric glossary](#-tldr--key-results) |
+| Reproduce the published A100 results | [Reproducibility guide](docs/reproducibility.md) |
+| Add another renderer | [Renderer integration guide](docs/adding-a-renderer.md) |
+| Audit claims and remaining evidence gaps | [Research readiness audit](docs/research-readiness-audit-2026-08-05.md) |
 
 ## ⚡ TL;DR — Key Results
 
@@ -57,7 +67,7 @@ That's it — the CLI downloads the scene, runs the suite, and writes results un
 
 | 🚀 Fastest Renderer | 📦 Best Compression | 🔬 Tests |
 |---|---|---|
-| **gsplat HiGS quarter-res** | **SPZ v4 8/8-bit** | **154 pass + 1 skip** |
+| **gsplat HiGS quarter-res** | **SPZ v4 8/8-bit** | **179 pass + 1 skip** |
 | 553 FPS (+12% over baseline) | 5.57–6.07x ratio, < 0.02 dB PSNR drop | Full CI pipeline |
 | @ 1920x1080 on A100-80GB | Near-lossless on all 5 scenes (< 0.02 dB) | Automated validation |
 
@@ -139,14 +149,14 @@ flowchart LR
 
 ### 3. HiGS Trainability — Differentiable Training Path DELIVERED ✅
 
-HiGS was inference-only. We made it **trainable end-to-end** with three staged implementations plus a **native HiGS CUDA backward** (100 tests passing on EPIC-05, A100-80GB):
+HiGS was inference-only. We made it **trainable end-to-end** with three staged implementations plus a **native HiGS CUDA backward** (109 tests across all four stages; the [implementation report](reports/higs-trainability-implementation.md) documents the EPIC-05 A100 verification runs):
 
 | Stage | API | What it adds | Tests |
 |---|---|---|---|
 | **A. Correctness baseline** | `rasterize_gaussian_higs_trainable()` | `differentiable=True/False`; standard gsplat backward as recomputation proxy; no detach / no grad guard | 13 |
-| **B. Frozen topology native** | `rasterize_gaussian_higs_frozen(backward_mode="higs_native")` | Native CUDA backward from forward-captured state (blend + projection + SH VJP); HiGS-native culling; explicit `gsplat_recompute` fallback | 14 |
-| **C. Dynamic topology native** | `rasterize_gaussian_higs_dynamic(backward_mode="higs_native")` | Same native backward + versioned scene handle; densify/prune with Adam-state sync; topology mutation while a backward is pending is rejected | 11 |
-| **Native backward suite** | `tests/test_higs_native_backward.py` | FD + `gradcheck` for means/quats/scales/opacities/colors-SH; multi-camera + non-empty background; SH degree 0..3; mixed precision; SH compression STE; pinhole/ortho/fisheye; depth modes; CUDA-absent fallback | 61 |
+| **B. Frozen topology native** | `rasterize_gaussian_higs_frozen(backward_mode="higs_native")` | Native CUDA backward from forward-captured state (blend + projection + SH VJP); HiGS-native culling; explicit `gsplat_recompute` fallback | 16 |
+| **C. Dynamic topology native** | `rasterize_gaussian_higs_dynamic(backward_mode="higs_native")` | Same native backward + versioned scene handle; densify/prune with Adam-state sync; topology mutation while a backward is pending is rejected | 15 |
+| **Native backward suite** | `tests/test_higs_native_backward.py` | FD + `gradcheck` for means/quats/scales/opacities/colors-SH; multi-camera + non-empty background; SH degree 0..3; mixed precision; SH compression STE; pinhole/ortho/fisheye; depth modes; CUDA-absent fallback | 65 |
 
 **Key results**
 - **Correctness**: gradient cosine 0.999996–1.0 vs standard gsplat; forward PSNR parity on real scenes (19.27 vs 19.24 dB); all 5 parameter types stay FP32 master tensors (FP16 packed buffers are forward/culling-only).
@@ -259,6 +269,21 @@ The benchmark provides **complete Tier A coverage** across 5 renderers × 5 scen
 
 close the high-N scene (garden/bicycle) quality bound at ≥1.8x; sampling-side levers are closed (alpha sweep and densify grad-accum both negative, [round-43/44](results/higs-round43/r43-summary.json)), the high-N quality bound is now narrowed by `--anchor-densify` (round-47, 3-seed: LPIPS +0.050 → +0.037/+0.038 on garden/bicycle at 1.98x/1.87x, garden PSNR gap halved) and the round-50 cost-quality frontier is explicit (3-seed: `--anchor-densify-every 2` keeps ~half the gain at ~half the cost — garden +0.10 dB / LPIPS +0.044 at 2.06x, bicycle LPIPS +0.046 at 1.92x — as the recommended default opt-in; every 1 = quality-max, every 4 collapses, not recommended); all other levers are closed as negatives (rounds 43-46); density-axis levers under anchor are also closed (round-48/49: densify-threshold and prune-threshold sweeps are flat or slightly negative, single-seed screening), so the high-N envelope is final at this recipe; M6 baselines 1/3 and 2/3 are done (round-51, ICCV random-tile loss: error-guided advantage limited to low/mid-N scenes at matched realized sr; high-N quality is tile-count-driven; round-52, Turbo-GS-style progressive resolution `--res-schedule 0.5:0,1.0:1500`: ~2.1-2.5x wall speed at 3-seed with PSNR parity on train/garden and a modest bicycle PSNR loss, garden/bicycle LPIPS cost explicit, and the coarse-stage full-res-signal variant a clear negative — alternating-resolution densify destabilizes high-N scenes; round-55 isolated the perceptual side with `--res-schedule-full-lpips` (full-res LPIPS steps only during the coarse stage, anchor densify at stage scale): also negative, 3-seed — garden/bicycle/train LPIPS 0.4545/0.5225/0.3920 vs plain-progressive 0.4489/0.5204/0.3888 at +4..+22% wall, so any full-res signal during the coarse stage is closed; plain progressive-resolution stays the best speed arm); M6 comparisons are now 3/3 done (round-53, Speedy-Splat-style sparse-pixel training signal: at matched ~35% pixel coverage with full-frame rendering, quality returns to near full — garden LPIPS 0.408 vs 0.443 (tile eg) / 0.399 (full), bicycle 0.487 vs 0.526 (tile eg) / 0.480 (full) — isolating the high-N tile-sampling bound as sampling-correlation noise, not pixel count; the arm is signal-only, ~1.0x wall speed because frozen gsplat has no pixel-sparse rasterizer); round-54 closed the in-harness sampling levers: stratified tiles are quality-equivalent to uniform tiles at matched sr (garden LPIPS 0.4346 vs 0.4335, bicycle 0.5103 vs 0.5106, 3-seed) — the high-N loss is tile-granularity correlation; round-57 (3-seed, 18 runs) then implemented the renderer-level finer-than-tile lever itself (new `higs_sparse_px` backend, upstream gsplat sparse-pixel kernels): quality recovers to near full at ~40% pixel coverage (bicycle PSNR +0.51 dB / LPIPS parity vs its own dense baseline, garden LPIPS +0.011), but wall speed is only 1.06-1.09x because iid pixel masks keep all tiles active and projection/SH/intersection/backward costs do not scale with pixel count — the pixel-sparse lever is a quality-recovery lever, not a speed lever; the >=1.8x operating point remains tile-level sampling (error_guided r=0.35); R58 closes the 720p×progressive cell as negative (no speed, quality cost — the per-step cost at 720p is already at the resolution-invariant per-Gaussian floor, probe-verified), so the frontier is complete: speed-max = 720p+eg (2.4-2.7x wall vs 1080p full), quality-max ≥1.8x = 1080p eg + anchor-densify-every-2; round-59 adds the cull-mask cache (camera-set-keyed, K4 opt-in) as the first per-Gaussian-floor speed increment (2-4% wall, LPIPS/SSIM neutral); round-60 adds the cull-masked Adam step (--masked-adam, benchmark/higs_masked_adam.py): a fused CUDA kernel runs the exact torch fused-Adam math only on rows whose train-forward union-visibility mask is True, skipping culled Gaussians (isolated probe: fused 4.2 ms -> masked 2.4 ms at 42% visible / 2.8 ms at 58%; correctness probe: params within 1-2 float32 ulps, frozen rows bit-identical); 3-seed x 3-scene sweep at 720p-eg: end-to-end train_ms -8% train / -34% garden / -41% bicycle, quality mostly improved (garden PSNR +1.90 dB / LPIPS -0.105 / SSIM +0.085, train neutral, bicycle PSNR/SSIM +0.05/+0.027 with LPIPS +0.017) - freezing out-of-view rows stops the zero-grad momentum drift that decays eval-relevant Gaussians, keeps total N higher while the rendered visible set shrinks ~half, making this the first quality-positive per-Gaussian-floor speed increment; round-61 closes the remaining per-Gaussian-floor speed candidates as quality-gated negatives (3-seed evidence): union-mask prune collapses PSNR (>=0.2 dB even with grace windows; union-invisible set is mid-migration geometry that later becomes needed); LPIPS train-loss work-size 256 (--lpips-work-size, [r61-summary](results/higs-round61/r61-summary.json)) = 1.03-1.05x train_ms but LPIPS +0.006..+0.013 / PSNR -0.03..-0.14 - the downscaled surrogate loss measurably degrades full-res eval quality; K4 x masked-Adam stack = 1.03-1.04x train_ms but PSNR -0.08..-0.23 (1-seed screen, same direction as round-59 K4 3-seed bicycle -0.34) - the round-60 k1 masked-Adam op point is the final per-Gaussian-floor frontier round-62 tests the mask/prune-decay decoupling ([--masked-adam-union-decay](benchmark/run_higs_train_benchmark.py), [r62 evidence](results/higs-round62)): per-step opacity decay on rows invisible in both train+eval masks lets stale geometry retire via the normal opacity prune - quality-positive in-wave (garden PSNR +0.14 / LPIPS -0.010 at 0.99, retires 1.66M rows) but fails the speed gate - the quality-valid config requires a fresh eval mask every densify (~1 ms/step full-res 3-cam eval forward), train_ms +6.3-7.2%, cross-scene non-robust, and stale masks collapse decay quality (PSNR 13.88 at 0.99) - closed as a quality-gated negative; round-63 revives the lever with projection-only eval-mask refresh (--masked-adam-union-decay-eval-proj, [r63 evidence](results/higs-round63/exp2)): the decay mask is projection-based and the projection cull mask is bitwise-identical to the full eval-forward mask (probe: 1.35 ms vs 13.5 ms, low-res rendering is slower not faster), so in-wave 3000-step 3-seed garden shows the same quality at +2.3% train_ms instead of +6.8% (PSNR +0.21 / LPIPS -0.009 vs R60) - exp3 cross-scene 3-seed confirms the lever is quality-safe everywhere (bicycle PSNR +0.22 / LPIPS -0.009 at -0.7% train_ms; train +0.03 / +0.001 at +4.9%; R62's 1-seed train -0.23 was seed noise, not reproduced at 3-seed) - the lever stays opt-in, now recommended as a quality opt-in for high-N scenes (garden/bicycle), not for low-N train; round-64 confirms the lever also stacks with the 1080p quality-max cell (garden 1080p 3-seed: PSNR +0.11 / LPIPS -0.007 at +2.4% train_ms) - the lever is now a recommended quality opt-in covering both the speed-max (720p) and quality-max (1080p) cells across all three scenes (6-cell matrix, 3-seed where applicable: PSNR -0.03..+0.22 / LPIPS -0.017..+0.001, train_ms -0.7%..+4.9%; 1080p bicycle LPIPS -0.017 and 1080p train cost shrinks to +1.2%); round-64 exp3 then closes the decay-rate question at 1080p (d0.999 3-seed x garden/bicycle with in-wave d0.99 anchors, anchors bit-consistent vs exp1/exp2): 0.999 retires too slowly (final_N 2.41M/2.70M vs 0.99 1.26M/0.63M), n_vis stays near ctrl, quality gain mostly lost (LPIPS -0.001/-0.005 vs -0.007/-0.017) while saving only ~1.1-1.4% train_ms - the +2.4% cost of 0.99 is the price of the quality mechanism itself (retired stale invisible geometry replaced by finer visible Gaussians), not overhead, so 0.99 remains the sole recommended rate; R60 masked-Adam remains the final op point, and the recommended refresh for any decay config is the projection path; round-65 then validates the last untested cell, progressive-resolution x decay+projection-refresh at 1080p (3-seed x bicycle/garden/train, in-wave A/B): bicycle decay cost collapses from +2.4% to -0.04% because retirement is front-loaded into the cheap 0.5x coarse phase (full-res phase runs at 5.6x fewer Gaussians), making prog+decay strictly dominate the full-res quality-max baseline (train_ms -21.7%, PSNR +0.33, LPIPS -0.0155) - the first faster-and-better high-res cell (R52's bicycle prog-res PSNR loss of -0.15 becomes +0.33); garden in-cell quality-positive (+0.22/-0.008 @ +2.1%) but stays below full-res decay (20.249/0.3359) so garden keeps full-res; train quality-neutral @ +0.6%, still not recommended; round-65 exp2 generalizes the strict dominance to truck (high-N: train_ms -16.5%, PSNR +0.16, LPIPS -0.0066) and bonsai (mid-N: train_ms -19.0%, PSNR +0.91, LPIPS -0.0137, all 3-seed in-wave) - 4/5 scenes strictly dominated, and round-65 exp3 closes the garden exception with a 0.75x coarse stage (0.75:0,1.0:1500): train_ms -9.6%, PSNR +0.09, LPIPS -0.0049 vs full-res ctrl, quality equal to full-res+decay at -10.7% speed (ramp 0.5->0.75->1.0 is a bust, single switch at densify-window boundary is what works) - 4/5 scenes now have a strictly-dominant prog x decay config (train stays not-recommended: faster but quality-neutral); projection mask remains bitwise-identical under res-schedule; the complete per-round lever matrix with evidence links and reproducible flag sets is consolidated in [§13](reports/higs-training-speedup-research-2026-08-03.md), the round-65 cell validation in [§14](reports/higs-training-speedup-research-2026-08-03.md), and the paper-facing 5-scene results table in [§15](reports/higs-training-speedup-research-2026-08-03.md); a single reproducible entry point is now provided by `--higs-quality-max` in [run_higs_train_benchmark.py](benchmark/run_higs_train_benchmark.py) (enables masked-adam + decay 0.99 + projection refresh + `--res-schedule 0.5:0,1.0:1500`; garden passes `--res-schedule 0.75:0,1.0:1500` instead; explicit flags override the preset)
 
+
+
+**Confirmatory follow-up (30k, pre-registered):** the exploratory findings in
+this block are 3,000-step in-wave results. A pre-registered 30k confirmatory
+protocol ([paper/confirmatory-protocol.md](paper/confirmatory-protocol.md),
+results in [docs/confirmatory-results-2026-08-06.md](docs/confirmatory-results-2026-08-06.md))
+shows that at full 1080p convergence on A100 the progressive-resolution x
+decay cell no longer reduces mean per-step latency on the canonical five
+(train_ms +0.74 ms/step, 0/5 strict-dominance scenes) but consistently
+improves final quality (PSNR +0.61 dB, LPIPS -0.014) with about 4x fewer
+Gaussians; on the held-out Deep Blending family it is faster and better on
+average (train_ms -0.26, PSNR +0.75). Per-seed values and 95% block-bootstrap
+intervals are committed under `results/confirmatory-*` and
+`paper/tables/`; the speed claims in this README remain 720p/3k-scoped.
+
 </details>
 
 ---
@@ -275,7 +300,7 @@ HiGS (Hierarchically Tiled Gaussian Splatting) is a macro-tile renderer inside g
 Every renderer gets the same GPU, checkpoints, 100-camera trajectory, and measurement protocol. Evidence tiers (measured / reproduced / paper) never mix into one ranking. Details: [docs/methodology.md](docs/methodology.md).
 
 **I’m new to 3DGS — where do I start?**
-先看上面的 [🎯 项目一览图](#what-this-project-does) 和 [📖 指标速览](#tldr--key-results)，再跟着 [Quickstart](#quickstart) 跑通第一个基准；想深入了解再看 [docs/README.md](docs/README.md)。
+先看上面的 [🎯 项目一览图](#-what-this-project-does) 和 [📖 指标速览](#-tldr--key-results)，再跟着 [Quickstart](#quickstart) 跑通第一个基准；想深入了解再看 [docs/README.md](docs/README.md)。
 
 **Can I add my own renderer or codec?**
 Yes. Follow [docs/adding-a-renderer.md](docs/adding-a-renderer.md) and use `community/submission_template.json` for new submissions.

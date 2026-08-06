@@ -1,0 +1,156 @@
+% Manuscript skeleton for the HiGS training-speed submission.
+%
+% Status: DRAFT - no confirmatory claims are asserted yet. Every number must
+% trace to paper/claims.yaml after the frozen confirmatory matrix completes.
+% Replace this preamble with the target venue template before submission.
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\title{Trainable Hierarchical Gaussian Splatting:\\Skipping Irrelevant Work During Training}
+\author{%
+  \textbf{TODO: author list and affiliations}\\*
+  \texttt{TODO: contact email}
+}
+\date{\today}
+
+\newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO] }#1}}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\TODO{Write after the confirmatory matrix (30k steps, held-out scenes, paired
+seeds, block-bootstrap intervals) is complete. Current draft claims are
+exploratory and must not be presented as final results.}
+\end{abstract}
+
+\section{Introduction}
+
+\label{sec:intro}
+
+\TODO{State the problem: end-to-end 3D Gaussian Splatting training cost.
+Position the contribution as a trainable hierarchical representation that
+spends compute only on currently relevant geometry. Explicitly separate
+upstream components (gsplat, Official 3DGS), this repository's
+implementation contribution, the frozen method, exploratory negative results,
+and confirmatory results.}
+
+\section{Related Work}
+
+\label{sec:related}
+
+\TODO{Cover differentiable Gaussian rasterization, hierarchical and sparse
+training, tile-sampled training, progressive-resolution schedules, and
+per-Gaussian culling. Keep primary-source citations in
+\texttt{references.bib} and only cite claims verified against the pinned
+artifacts.}
+
+\section{Method}
+
+\label{sec:method}
+
+\subsection{Overview}
+
+\TODO{One figure showing the training pipeline: progressive-resolution
+schedule, error-guided tile sampling, projection-only visibility refresh,
+masked-Adam updates, and cull-mask caching.}
+
+\subsection{Error-guided sampling}
+
+\TODO{Describe the sampling rule and why tile granularity creates correlation
+noise at high Gaussian counts (rounds 51, 53, 54).}
+
+\subsection{Visibility refresh and masked updates}
+
+\TODO{Describe the camera-set-keyed cull-mask cache (round 59) and the
+masked-Adam kernel (round 60). Report correctness verification: masked rows
+bit-identical, unmasked rows within 1--2 float32 ULPs.}
+
+\subsection{Frozen configuration}
+
+\TODO{List the exact flags and hyperparameters of the frozen speed and
+quality configurations once confirmatory evaluation starts. Until then this
+subsection stays empty: exploration is not a method.}
+
+\section{Experiments}
+
+\label{sec:experiments}
+
+\subsection{Benchmark protocol}
+
+All Tier~A measurements use protocol
+\texttt{matrix-primary-1080p-v2}
+(SHA-256 \texttt{892e18890501c408dc6746af69f17e16973604f0c02a3caddf1954d3bf1fede2})
+on a single NVIDIA A100-SXM4-80GB host (EPIC-05) at 1920$\times$1080.
+Each case runs 100 evaluated frames per repeat and five repeats. Quality
+metrics are PSNR, SSIM, and LPIPS against the canonical ground-truth crop.
+
+\subsection{Datasets}
+
+Five canonical scenes: Mip-NeRF 360 (garden, bicycle, bonsai) and
+Tanks and Temples (truck, train). \TODO{Add a held-out dataset family not used
+in exploratory rounds before any confirmatory claim.}
+
+\subsection{Training configurations}
+
+\TODO{Tabulate the frozen speed and quality configurations, the baseline
+(upstream gsplat full-resolution), the 30k-step convergence horizon, the
+paired seed set, and per-scene/per-seed wall time, time-to-target-quality,
+final Gaussian count, and peak VRAM.}
+
+\subsection{Statistical protocol}
+
+The experimental unit is one training run (scene $\times$ seed). Paired
+method-baseline deltas are summarized per scene and the scene-level bootstrap
+distribution is computed with the block bootstrap in
+\texttt{src/scripts/bootstrap\_analysis.py}; we report 95\% percentile
+intervals and a paired effect size. \TODO{Add per-seed raw values and
+pre-registered stopping rules before submission.}
+
+\section{Results}
+
+\label{sec:results}
+
+\TODO{Insert tables generated from \texttt{paper/tables/}; every cell must map
+to an immutable JSON artifact listed in \texttt{claims.yaml}. Current
+exploratory round summaries (R56--R61) are evidence of a bounded research
+space, not confirmatory results.}
+
+\section{Limitations}
+
+\label{sec:limitations}
+
+\TODO{State: single GPU family; 3,000-step exploratory horizon; five scenes
+used during development; host contention as a confounder in latency studies;
+and any negative results that bound the method.}
+
+\section{Reproducibility}
+
+\label{sec:reproducibility}
+
+The canonical suite, protocol hash, renderer pinning, and evidence tiers are
+documented in \texttt{docs/reproducibility.md}. All Tier~A artifacts live
+under \texttt{results/measured/} and are never mixed with diagnostic runs
+under \texttt{results/diagnostics/}. \TODO{Add the clean-machine artifact
+evaluation recipe and the single claim-to-JSON manifest.}
+
+\section{Ethics and Impact}
+
+\TODO{Brief standard statement: datasets used under their original terms (see
+\texttt{paper/LICENSE-STATEMENT.md}), no human subjects, no new environmental
+footprint beyond documented benchmark runs.}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

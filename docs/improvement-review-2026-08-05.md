@@ -1,108 +1,101 @@
 # Improvement Review — 2026-08-05
 
-Scope: beginner-friendliness and correctness review of the README + full-repo
-quality audit. Every claim below was verified against committed data or
-reproducible commands (not memory).
+This review covers README readability, rendering correctness, test health,
+packaging, leaderboard consistency, and the TC-GS variance investigation.
+Claims below are tied to committed data or reproducible commands.
 
-## 1. What was fixed
+## Completed fixes
 
-### README (beginner-friendly + rendering errors)
+### README and documentation
 
-- Replaced the old text-only intro with a visual banner, a mermaid
-  architecture diagram, a plain-language "What is this?" section, a glossary,
-  and collapsible research-history blocks so new readers get the big picture
-  before any numbers.
-- Closed the first mermaid code fence (was unclosed, breaking GitHub
-  rendering of that diagram) and normalized line endings to LF.
-- Repaired mojibake em-dashes/arrows in the README and report scripts.
-- Fixed the tests badge (`155_passing` -> `155_tests_OK`; the count text in
-  TL;DR is now `154 pass + 1 skip`, matching the real suite).
-- Compression numbers now match the per-scene evidence exactly:
-  - Per-scene SPZ 8/8 ratios are `5.57-6.07x` (bicycle 5.78x, bonsai 6.07x,
-    garden 5.57x, train 5.74x, truck 5.83x), so the README now says
-    `5.57-6.07x (median 5.78x)` instead of a single `5.73x` that matched no
-    scene.  Source: `reports/epic05-spz-qualification-2026-07-24.md`
-    (byte counts verify every row) and `results/measured-compression/spz/`.
-  - `docs/epic05-higs-ablation-results-2026-07-25.md`: Truck compression was
-    `~5.732x` (that figure is the byte-weighted **aggregate** across scenes);
-    corrected to `~5.83x`, which is Truck's actual measured ratio.
-  - The README roadmap bullet still said `5.73x`; aligned to the per-scene
-    range as well.
-- Corrected `4/5` strict-dominance statement in the HiGS research report:
-  the original text was confusingly worded; it now names each scene and its
-  config (bicycle/truck/bonsai 0.5x, garden 0.75x; low-N train stays
-  not-recommended).
+- Added a visual project overview, plain-language introduction, glossary, and
+  collapsible research history so new readers see the purpose before details.
+- Closed the broken Mermaid fence, normalized line endings, and repaired
+  mojibake in the README and report generators.
+- Corrected the test badge and TL;DR test count.
+- Replaced misleading single compression ratios with the measured SPZ 8/8
+  per-scene range: `5.57-6.07x` (median `5.78x`). The `5.73x` value remains
+  valid only as the byte-weighted five-scene aggregate and is now labeled.
+- Clarified the HiGS strict-dominance result: bicycle, truck, and bonsai use
+  the 0.5x schedule; garden uses 0.75x; low-N train is not recommended.
 
-### Report generator scripts
+### Test and CI health
 
-- `src/scripts/gen_report.py`: `??` placeholders (mojibake of an emoji) in
-  the HTML header / fastest-renderer tag replaced with `🚀` / `🏆`.
-- `src/scripts/generate_report.py`: `? Active` -> `✅ Active`,
-  `?? Wrapper` -> `🔌 Wrapper`, bare `?` -> `🚫`.
+- Fixed three benchmark-module tests that could not import
+  `benchmark/higs_masked_adam.py` under unittest or pytest collection.
+- Verified the historical baseline after that fix:
+  `155 tests OK (1 skip)` under unittest and `203 passed` under pytest.
 
-### Test suite — CI was red on master (fixed)
+### Packaging and installed CLI
 
-- `tests/test_benchmark_progressive_res.py`,
-  `tests/test_benchmark_tile_sampling.py`,
-  `tests/test_higs_sparse_pixel_raster.py` could not be collected:
-  they load `benchmark/run_higs_train_benchmark.py` via importlib, and that
-  module does `from higs_masked_adam import masked_adam_step`, which requires
-  `benchmark/` on `sys.path`.  Neither `unittest discover` nor pytest adds it.
-- Fix: each of the three test files inserts its repo `benchmark/` directory
-  into `sys.path` before executing the module (CPU-safe; the CUDA extension is
-  lazy-loaded only when CUDA is actually present).
-- Verified: `python -m unittest discover -s tests` -> `155 tests OK (1 skip)`;
-  `python -m pytest tests -q` -> `203 passed`.  These are the exact same
-  green numbers as the historical baseline, so the fix restores CI parity.
+- Reproduced a release defect: the 0.2.0 wheel contained only
+  `benchmark_cli.py` and `benchmark_matrix.py`.
+- Added complete `src/` package discovery and all top-level runtime modules.
+- Added an installed entry point that locates the source checkout through
+  `GSBENCH_ROOT` or a parent of the current directory. It now fails with an
+  actionable message instead of searching the Python installation directory.
+- Added wheel-content and outside-checkout CLI regression tests. A clean
+  isolated install successfully ran `benchmark list renderers`.
 
-## 2. Leaderboard — verified, no change needed
+## Leaderboard verification
 
-`docs/leaderboard/ranking.md` (Tier A) is fully reproducible from
-`results/measured/**/metrics.json`:
+The Tier A table is reproducible from `results/measured/**/metrics.json`.
+It intentionally uses the first complete 2026-07-20 batch for all five cases
+and geometric-mean speed aggregation:
 
-- Each renderer row uses the **first-run batch (2026-07-20)** for all 5 cases
-  (bicycle/bonsai/garden/train/truck) and geometric-mean aggregation, exactly
-  as `_aggregate_renderer` in `src/benchmark_matrix.py` defines:
-  - gsplat 241.60 FPS / 4.139 ms, gsplat_higs 696.91 / 1.435,
-    original_3dgs 122.88 / 8.138, speedy_splat 293.03 / 3.413,
-    tcgs 251.62 / 3.974 — all match to the printed 2-3 decimals.
-- PSNR / SSIM / LPIPS (arithmetic mean) and VRAM (per-case max) also match.
-- The later 2026-07-23 re-runs are additional evidence batches; the published
-  table intentionally reports the first complete Linux Tier A matrix.  This is
-  worth a one-line note in `docs/leaderboard/README.md` (see recommendations).
+| renderer | aggregate FPS | frame time ms |
+| --- | ---: | ---: |
+| gsplat | 241.60 | 4.139 |
+| gsplat HiGS | 696.91 | 1.435 |
+| Original 3DGS | 122.88 | 8.138 |
+| Speedy-Splat | 293.03 | 3.413 |
+| TC-GS | 251.62 | 3.974 |
 
-## 3. What is still open (honest list)
+Later runs remain additional evidence. They do not replace the first batch
+after outcome inspection.
 
-- **Ranking.md aggregation note**: the committed table does not state which
-  batch it aggregates.  Recommend adding "first complete run of 2026-07-20,
-  geometric mean over 5 cases" to the leaderboard doc so future readers do not
-  re-derive it.
-- **fast-gaussian-rasterization**: skipped on this Windows/CPU environment
-  (requires EGL/GL); it is GPU/CI-only.  The CI manual benchmark workflow
-  (`.github/workflows/benchmark-regression.yml`) is self-hosted GPU and not
-  run in the standard test job.
-- **tcgs variance**: TC-GS FPS varies wildly between runs (64-365 FPS across
-  batches; CI width 153-396 in the published table).  The geometric mean of
-  the first batch is what is published; if TC-GS numbers matter, a
-  dedicated warm-up/steady-state protocol would tighten the CI.
-- **`reports/final-conclusions.md`**: uses `5.73x` for SPZ 8/8, which is the
-  byte-weighted aggregate (not wrong, but different from the per-scene range
-  in the README).  A clarifying note was added under the codec table
-  (per-scene 5.57-6.07x, median 5.78x).
-- Not changed (out of scope): GPU kernel code, benchmark protocol JSON, and
-  the CSV/JSON evidence artifacts under `results/` — those are raw data.
+## TC-GS variance re-test
 
-## 4. Recommendations for the next pass
+Three complete EPIC-05 passes used the same A100 GPU UUID, TC-GS commit,
+assets, cameras, and 500 measured frames per scene:
 
-1. Add the batch + aggregation note to `docs/leaderboard/README.md`
-   (one paragraph, prevents future re-derivation).
-2. Publish `docs/improvement-review-2026-08-05.md` (this file) link from the
-   README repository-layout section so the audit is findable.
-3. If TC-GS is a headline number, add a per-renderer warm-up knob to the
-   protocol (e.g., `--warmup-frames 100`) and re-measure; otherwise keep the
-   published CI as-is and document the variance.
-4. Consider a `conftest.py` at the repo root adding `benchmark/` to
-   `sys.path`, which would make future benchmark-module tests import-clean
-   without repeating the three-file patch (kept minimal for now).
-5. Add a `make check` / `scripts/check.sh` alias that runs both
-   `unittest discover` and `pytest` so contributors run the same gate CI does.
+| pass | warm-up | five-scene geometric-mean FPS | scenes with >100 ms max |
+| --- | ---: | ---: | ---: |
+| A | 30 | 217.70 | 5/5 |
+| B | 150 | 312.56 | 1/5 |
+| C | 30 | 275.46 | 1/5 |
+
+Median latency stays at 1.48-3.99 ms, while isolated frames reach 229-423 ms.
+Quality is exactly repeatable for every scene. Longer warm-up coincides with
+fewer stalls but does not eliminate them, and Pass C improves with the
+original warm-up. Warm-up and changing host load are therefore confounded;
+neither a kernel defect nor host contention is proven.
+
+The 105 JSON artifacts are isolated under
+`results/diagnostics/tcgs-variance-20260805/` and cannot enter the leaderboard.
+Full results: `reports/epic05-tcgs-variance-2026-08-05.md`.
+
+## Remaining gaps
+
+- `fast-gaussian-rasterization` still needs a validated Linux EGL environment
+  and framebuffer readback path.
+- GPU performance CI remains manual rather than scheduled and pinned.
+- A paper submission still needs a frozen claim set, full-convergence runs,
+  held-out confirmation data, stronger compatible baselines, multi-GPU-
+  architecture evidence, and paired confidence intervals.
+- Independent replication on a second host or institution is not available.
+
+The submission-facing gap analysis and minimum confirmatory matrix are in
+`docs/research-readiness-audit-2026-08-05.md`. The paper workspace is under
+`paper/` and must not be called submission-ready until every P0 item is closed.
+
+## Verification gates
+
+```text
+python -m unittest discover -s tests
+python -m pytest tests -q
+python src/scripts/validate_benchmark_suite.py
+```
+
+The packaging test also builds a wheel without build isolation, inspects its
+contents, and executes its entry point from outside the checkout.
