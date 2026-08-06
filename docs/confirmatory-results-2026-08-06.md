@@ -11,7 +11,8 @@ criteria were locked before any confirmatory run started; see
 | --- | --- | --- | --- | --- |
 | Primary matrix | EPIC-05 | 8x NVIDIA A100-SXM4-80GB | 1920x1080 | complete, 30/30 runs OK |
 | Held-out family | EPIC-05 | A100 (same pool) | 1920x1080 | complete, 12/12 runs OK |
-| Consumer | local RTX 5070 Laptop 8GB | 1x GPU | 960x540 (720p) | running (protocol section 7) |
+| 720p resolution leg | EPIC-05 | A100 (same pool) | 960x540 (720p) | complete, 30/30 runs OK; within-resolution analysis only |
+| Consumer GPU (RTX 5070 Laptop 8GB) | local | 1x GPU | 960x540 (720p) | open gate: 8 GB VRAM cannot fit the frozen HiGS workload (protocol section 9) |
 | Second datacenter GPU | none available | - | - | open gate, documented in the audit |
 
 Software: torch 2.7.0+cu128 / gsplat 1.5.3 fork on EPIC-05; torch
@@ -83,17 +84,51 @@ average, and generalizes the quality benefit. Per-scene strict dominance is
 not universal (playroom is a near-tie on speed), so claims must stay
 family-level and per-scene.
 
-## 3. Consumer leg (RTX 5070 Laptop, 720p) - in progress
+## 3. 720p resolution leg (EPIC-05 A100, 30k steps) - complete
 
-The full 5-scene x 3-seed x 2-arm matrix at 720p (960x540) is running with the
-identical frozen flags (protocol section 7). 1080p cells exceed 8 GB VRAM on
-several scenes, so the consumer leg is 720p by pre-registration and is
-analyzed within resolution only. Results will be committed under
-`results/confirmatory-consumer-720p/` and analyzed in a follow-up section of
-this document.
+Runs: 5 scenes x 3 seeds x 2 arms = 30; failures: 0; failure rate: 0%.
+Raw per-run values: `paper/tables/confirmatory-consumer-720p-per-seed.json`;
+rendered tables: `paper/tables/confirmatory-consumer-720p-table.md`.
+
+| metric | mean paired delta (pd - ctrl) | 95% block-bootstrap CI |
+| --- | ---: | --- |
+| train_ms (ms/step) | +0.902 | [+0.481, +1.433] |
+| total wall (s) | +27.20 | [+14.58, +43.12] |
+| PSNR (dB) | +0.531 | [+0.134, +0.968] |
+| SSIM | -0.004 | [-0.013, +0.003] |
+| LPIPS | -0.013 | [-0.029, +0.000] |
+
+- Strict per-scene dominance: 0 of 5 scenes; the pd cell is not faster at 720p
+  at the 30k horizon either.
+- Quality guardrail passes on the mean (PSNR +0.53 dB, LPIPS -0.013), but
+  quality is not universally positive: truck delta PSNR -0.002 / SSIM -0.021
+  and bonsai delta LPIPS +0.006 are per-scene regressions on those metrics.
+- Time to target quality: 15/15 pd runs reach the paired ctrl final PSNR at
+  the first eval point (step 300).
+- Hardware note (protocol addendum, section 9): the pre-registered consumer
+  leg was to run on the local RTX 5070 Laptop 8GB at 720p. The local GPU
+  cannot fit the frozen HiGS workload: even 200-step smoke runs on the
+  5.83M-Gaussian garden scene pinned 7.6 GB of 8.15 GB and dropped to ~10
+  s/step under WDDM paging (A100 runs at ~13 ms/step), and 720p peak VRAM in
+  this matrix reaches 12.6 GB (bicycle ctrl), so no 30k cell is feasible
+  locally. The 720p leg was therefore executed on EPIC-05 A100 with the
+  identical frozen configs and seeds and is analyzed within resolution only;
+  absolute timings are never compared across the two hardware pools.
+
+Interpretation: the exploratory 720p/3k speed win (C-005/C-006) does not
+survive the 30k horizon at 720p either; at 720p/30k the pd cell is slower on
+average (+0.90 ms/step) with a robust average quality gain (PSNR +0.53 dB),
+the same qualitative pattern as the 1080p/30k leg (C-011). The genuine
+consumer-GPU sub-gate (RTX 5070 Laptop) remains open with the reproducible
+launcher recipe.
 
 ## 4. Open gates and limitations
 
+- Consumer GPU (RTX 5070 Laptop 8GB): the 8 GB VRAM floor of the frozen HiGS
+  workload (720p peak VRAM 2.7-12.6 GB per cell) makes the 30k matrix
+  infeasible on the local consumer GPU; this sub-gate stays open with the
+  reproducible launcher recipe. The completed 720p leg on EPIC-05 A100 is
+  evidence for the resolution regime, not for consumer hardware.
 - Second datacenter GPU: no second datacenter GPU is available in this
   environment; the reproducible recipe is the launcher
   (`src/scripts/run_confirmatory_matrix.py`) and this protocol, documented as
@@ -110,9 +145,21 @@ this document.
 
 - `results/confirmatory-matrix/` - manifest, 30 per-run JSON + logs
 - `results/confirmatory-db/` - manifest, 12 per-run JSON + logs
-- `results/confirmatory-matrix/summary.json`, `results/confirmatory-db/summary.json`
-- `paper/tables/confirmatory-{matrix,db}-per-seed.json`
-- `paper/tables/confirmatory-{matrix,db}-table.md`
-- `paper/tables/confirmatory-{matrix,db}-<metric>-bootstrap.json` (5 metrics each)
+- `results/confirmatory-consumer-720p/` - manifest, 30 per-run JSON + logs
+- `results/confirmatory-{matrix,db,consumer-720p}/summary.json`
+- `paper/tables/confirmatory-{matrix,db,consumer-720p}-per-seed.json`
+- `paper/tables/confirmatory-{matrix,db,consumer-720p}-table.md`
+- `paper/tables/confirmatory-{matrix,db,consumer-720p}-<metric>-bootstrap.json` (5 metrics each)
 - `src/scripts/collect_confirmatory_results.py`, `src/scripts/bootstrap_analysis.py`,
   `src/scripts/build_confirmatory_tables.py`
+
+Consumer-family analysis recipe (same commands reproduce the A100 matrix and
+DB legs by substituting the family name and arm regexes):
+
+```bash
+python src/scripts/collect_confirmatory_results.py   --in-dir results/confirmatory-consumer-720p --out results/confirmatory-consumer-720p/summary.json
+for m in train_ms total_wall_s psnr ssim lpips; do
+  python src/scripts/bootstrap_analysis.py     --baseline results/confirmatory-consumer-720p/summary.json     --method results/confirmatory-consumer-720p/summary.json     --baseline-arm ctrl --method-arm pd     --metric $m     --key-regex '(?P<scene>garden|bicycle|bonsai|train|truck)_(?:ctrl|pd)_s(?P<seed>\d+)     --strict --out paper/tables/confirmatory-consumer-720p-$m-bootstrap.json
+done
+python src/scripts/build_confirmatory_tables.py --family confirmatory-consumer-720p
+```

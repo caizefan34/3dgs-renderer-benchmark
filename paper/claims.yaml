@@ -5,10 +5,11 @@ schema_version: 1
 
 # Claim freeze status. "draft" means confirmatory evidence is still open.
 # A paper may only cite claims whose status is "frozen" or "measured".
-# 2026-08-06: the A100 confirmatory matrix (30/30) and the held-out Deep
-# Blending family (12/12) are complete and analyzed; the consumer 720p leg
-# is running and the second datacenter GPU gate is documented open, so the
-# global freeze stays "draft" until those legs close.
+# 2026-08-06: the A100 confirmatory matrix (30/30), the held-out Deep
+# Blending family (12/12), and the 720p resolution leg (30/30) are complete
+# and analyzed. G-4 stays "partial": the genuine consumer-GPU and
+# second-datacenter-GPU sub-gates remain open with a reproducible recipe, so
+# the global freeze stays "draft" until those close.
 freeze_status: draft
 
 # Canonical measurement protocol referenced by Tier A claims.
@@ -125,7 +126,8 @@ claims:
       - 3000-step horizon, not full 30k convergence.
       - Single GPU architecture.
       - The 1080p/30k confirmatory matrix does not reproduce the speed gain on
-        the canonical five (see C-011); this claim stays 720p/3k-scoped.
+        the canonical five (see C-011), and the 720p/30k confirmatory leg does
+        not reproduce it either (see C-013); this claim stays 720p/3k-scoped.
 
   - id: C-006
     category: training-speed
@@ -149,7 +151,9 @@ claims:
       - Exploratory; scene-dependent quality cost is explicit in artifacts.
       - 720p-only conclusion; 1080p progressive-resolution is a negative.
       - The 1080p/30k confirmatory matrix confirms the negative at full
-        resolution (see C-011); the quality benefit is the robust result.
+        resolution (see C-011) and the 720p/30k leg confirms it at 720p too
+        (see C-013); the quality benefit is the robust result at both
+        resolutions.
 
   - id: C-007
     category: methodology
@@ -296,6 +300,45 @@ claims:
       - playroom speed delta is near zero and is not strictly dominant.
       - Same single datacenter GPU architecture as C-011.
 
+  - id: C-013
+    category: training-speed
+    status: measured
+    statement: >-
+      On EPIC-05 A100 at 720p (960x540) with the frozen 30k protocol, the pd
+      cell does not reduce mean per-step training latency on the canonical
+      five scenes (paired train_ms delta +0.902 ms/step, 95% CI [+0.481,
+      +1.433]; 0 of 5 scenes strictly dominant) and again improves average
+      quality (PSNR +0.531 dB, CI [+0.134, +0.968]; LPIPS -0.013, CI
+      [-0.029, +0.000]) with 30/30 runs completed and zero failures. Quality
+      is not universally positive: truck PSNR/SSIM and bonsai LPIPS regress
+      slightly per scene.
+    scope:
+      scenes: [garden, bonsai, truck, train, bicycle]
+      protocol: confirmatory-protocol-2026-08-06
+    evidence:
+      - results/confirmatory-consumer-720p/
+      - results/confirmatory-consumer-720p/summary.json
+      - paper/tables/confirmatory-consumer-720p-per-seed.json
+      - paper/tables/confirmatory-consumer-720p-table.md
+      - paper/tables/confirmatory-consumer-720p-train_ms-bootstrap.json
+      - docs/confirmatory-results-2026-08-06.md
+    statistics:
+      n_scenes: 5
+      n_seeds: 3
+      n_runs: 30
+      n_failed: 0
+      horizon_steps: 30000
+      metric: train_ms, total_wall_s, PSNR, SSIM, LPIPS
+    limitations:
+      - 720p leg executed on EPIC-05 A100, not the pre-registered consumer
+        GPU (RTX 5070 Laptop 8GB); see protocol section 9 addendum. It is
+        evidence for the resolution regime only and is analyzed within
+        resolution only.
+      - The genuine consumer-GPU and second-datacenter-GPU sub-gates of G-4
+        remain open.
+      - Truck and bonsai per-scene quality metrics show small regressions and
+        are reported as such.
+
 # Gates that must pass before freeze_status becomes "frozen". Each gate
 # records its own status and the artifacts that close it; "open" gates are
 # documented in the audit with a reproducible recipe when no resource exists.
@@ -324,12 +367,19 @@ required_gates:
     description: Repeat the frozen protocol on at least one consumer GPU and one second datacenter GPU.
     status: partial
     notes: >-
-      Consumer leg (RTX 5070 Laptop 8GB, 720p) is running with the frozen
-      configs; second datacenter GPU is not available in this environment and
-      is documented as an open gate with the reproducible launcher recipe
-      (protocol section 7, docs/research-readiness-audit-2026-08-05.md).
+      The pre-registered 720p leg is complete (30/30 runs, zero failures) and
+      is analyzed within resolution only; it ran on EPIC-05 A100 because the
+      local RTX 5070 Laptop 8GB cannot fit the frozen HiGS workload (720p
+      peak VRAM 2.7-12.6 GB per cell; protocol section 9 addendum). The
+      genuine consumer-GPU sub-gate and the second-datacenter-GPU sub-gate
+      remain open with the reproducible launcher recipe (protocol section 7,
+      docs/research-readiness-audit-2026-08-05.md); freeze_status stays
+      "draft" until those close.
     evidence:
       - results/confirmatory-consumer-720p/
+      - results/confirmatory-consumer-720p/summary.json
+      - paper/tables/confirmatory-consumer-720p-per-seed.json
+      - paper/tables/confirmatory-consumer-720p-table.md
   - id: G-5
     description: Validate every paper table cell against an immutable JSON artifact.
     status: closed

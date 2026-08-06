@@ -145,14 +145,16 @@ protocol evidence.
   pre-registered negative, while final quality improves (PSNR +0.612 dB,
   LPIPS -0.014). On Deep Blending the pd cell is faster and better on average
   (train_ms -0.261, PSNR +0.748), with strict dominance on drjohnson.
-- **P0 hardware breadth (audit "Open"): partial.** Consumer leg (RTX 5070
-  Laptop 8GB, 720p by pre-registration) is running; no second datacenter GPU
-  exists in this environment, so that sub-gate stays open with the launcher
-  recipe published (protocol section 7).
+- **P0 hardware breadth (audit "Open"): partial.** The 720p resolution leg
+  is complete (30/30 on EPIC-05 A100, zero failures, within-resolution
+  analysis; protocol section 9 addendum documents why the local RTX 5070
+  Laptop 8GB cannot fit the frozen workload). The genuine consumer-GPU and
+  second-datacenter-GPU sub-gates remain open with the launcher recipe
+  published (protocol section 7).
 - **P1 manuscript / claim set: in progress.** `paper/claims.yaml` now carries
-  the two measured confirmatory claims C-011/C-012 and per-gate statuses
-  (G-1..G-5); `freeze_status` remains "draft" until the consumer leg and the
-  second-datacenter decision close.
+  the three measured confirmatory claims C-011/C-012/C-013 and per-gate
+  statuses (G-1..G-5); `freeze_status` remains "draft" until the
+  consumer-GPU and second-datacenter sub-gates close.
 - **P2 artifact validation: improved.** `build_confirmatory_tables.py`
   generates per-seed JSON + markdown tables so every paper table cell traces
   to an immutable artifact; the claims test still runs in CI.
@@ -163,5 +165,6 @@ protocol evidence.
 Primary result in one line: at 1080p/30k the frozen pd cell is a quality win
 (PSNR +0.61 dB, LPIPS -0.014, ~4x fewer Gaussians, lower VRAM) and not a
 training-speed win on the canonical five; the held-out family shows the speed
-win too (train_ms -0.26), and the consumer 720p leg will decide whether the
-exploratory 720p speed result survives on a consumer GPU.
+win too (train_ms -0.26). The completed 720p/30k leg (C-013) shows the
+exploratory 720p speed result does not survive the 30k horizon at 720p
+either; the genuine consumer-GPU test remains open.

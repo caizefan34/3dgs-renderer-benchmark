@@ -117,3 +117,19 @@ from the strict-dominance claim.
   `results/confirmatory-*` and `paper/tables/`.
 - The claims manifest `freeze_status` becomes `frozen` only after the
   required gates pass with this protocol's artifacts as evidence.
+
+## 9. Addendum 2026-08-06: executed hardware for the 720p leg
+
+The pre-registered consumer leg (section 7) targets an RTX 5070 Laptop 8GB at
+720p. During execution the local 5070 could not fit the frozen HiGS workload:
+a 200-step smoke run on the 5.83M-Gaussian garden scene pinned 7.6 GB of the
+8.15 GB VRAM budget and slowed to ~10 s/step under WDDM memory paging (A100:
+~13 ms/step), and the completed 720p matrix peaks at 12.6 GB per cell
+(bicycle ctrl), so no 30k 720p cell is feasible on that GPU. The 720p leg was
+executed instead on EPIC-05 (8 x A100-SXM4-80GB) with the identical frozen
+flags, seeds (3/4/5), and pairing rules, and is recorded under
+`results/confirmatory-consumer-720p/`. All 720p results are analyzed within
+resolution only; absolute wall times are never compared across hardware
+pools. The genuine consumer-GPU sub-gate and the second-datacenter-GPU
+sub-gate remain open with the reproducible launcher recipe
+(`src/scripts/run_confirmatory_matrix.py`).

@@ -29,7 +29,7 @@ METRIC_ORDER = [
 TITLES = {
     "confirmatory-matrix": "canonical five scenes (A100, 1080p)",
     "confirmatory-db": "Deep Blending held-out family (A100, 1080p)",
-    "confirmatory-consumer-720p": "consumer RTX 5070 Laptop, 720p",
+    "confirmatory-consumer-720p": "720p resolution leg (EPIC-05 A100, 960x540)",
 }
 
 # Quality guardrail from paper/confirmatory-protocol.md section 5.
