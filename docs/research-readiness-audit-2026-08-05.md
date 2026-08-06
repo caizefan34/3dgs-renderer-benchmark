@@ -93,3 +93,32 @@ positioned as a benchmark paper.
 
 The repository should not label itself "submission-ready" until every P0 item
 has direct evidence and the confirmatory experiment package is complete.
+
+## Status updates — 2026-08-06
+
+Progress made after the audit date; the table above remains the original
+08-05 snapshot.
+
+- **P0 manuscript / claim set: in progress.** `paper/main.tex` is a draft
+  manuscript skeleton and `paper/claims.yaml` is a schema-v1 claim-to-artifact
+  manifest (10 claims, measured/exploratory statuses, evidence paths, and the
+  required freeze gates before `freeze_status` may become `frozen`).
+  `tests/test_paper_claims_manifest.py` validates the schema, the protocol
+  hash against `benchmark/suite.json`, and that every evidence path exists.
+- **P0 adaptive search: in progress.** The round-65 sweep is committed and the
+  `--higs-quality-max` preset gives one reproducible frozen-configuration
+  entry point; the untouched confirmatory scenes/seeds remain open.
+- **P1 statistical analysis: closed for the script, open for the frozen
+  protocol.** `src/scripts/bootstrap_analysis.py` implements paired
+  per-scene/per-seed deltas with a scene-level block bootstrap, 95%
+  percentile intervals, and a paired effect size (11 unit tests,
+  `tests/test_bootstrap_analysis.py`); `paper/tables/` holds a generated
+  example table. Pre-registered stopping rules for the confirmatory protocol
+  still need to be declared.
+- **P2 artifact validation: improved.** The claims-manifest test now runs in
+  CI, so committed claim evidence paths and the canonical protocol hash are
+  continuously checked.
+- **Engineering gates re-verified 2026-08-06:** `unittest discover` = 180
+  tests OK (1 skip); `pytest tests -q` = 228 passed; README Mermaid fences
+  verified balanced and all evidence paths referenced by claims.yaml exist.
+
