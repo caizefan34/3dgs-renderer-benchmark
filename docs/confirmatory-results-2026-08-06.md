@@ -157,9 +157,16 @@ Consumer-family analysis recipe (same commands reproduce the A100 matrix and
 DB legs by substituting the family name and arm regexes):
 
 ```bash
-python src/scripts/collect_confirmatory_results.py   --in-dir results/confirmatory-consumer-720p --out results/confirmatory-consumer-720p/summary.json
+python src/scripts/collect_confirmatory_results.py \
+  --in-dir results/confirmatory-consumer-720p --out results/confirmatory-consumer-720p/summary.json
 for m in train_ms total_wall_s psnr ssim lpips; do
-  python src/scripts/bootstrap_analysis.py     --baseline results/confirmatory-consumer-720p/summary.json     --method results/confirmatory-consumer-720p/summary.json     --baseline-arm ctrl --method-arm pd     --metric $m     --key-regex '(?P<scene>garden|bicycle|bonsai|train|truck)_(?:ctrl|pd)_s(?P<seed>\d+)     --strict --out paper/tables/confirmatory-consumer-720p-$m-bootstrap.json
+  python src/scripts/bootstrap_analysis.py \
+    --baseline results/confirmatory-consumer-720p/summary.json \
+    --method results/confirmatory-consumer-720p/summary.json \
+    --baseline-arm ctrl --method-arm pd \
+    --metric $m \
+    --key-regex '(?P<scene>garden|bicycle|bonsai|train|truck)_(?:ctrl|pd)_s(?P<seed>\d+)$' \
+    --strict --out paper/tables/confirmatory-consumer-720p-$m-bootstrap.json
 done
 python src/scripts/build_confirmatory_tables.py --family confirmatory-consumer-720p
 ```
