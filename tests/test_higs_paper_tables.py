@@ -65,6 +65,10 @@ def test_build_higs_paper_tables(tmp_path):
     assert conv.count("\n") == 10  # header + 3 seeds x 3 curve points
     aggregate = json.loads((output / "aggregate.json").read_text(encoding="utf-8"))
     assert aggregate["scenes"] == 1
+    summary_json = json.loads((output / "matrix-summary.json").read_text(encoding="utf-8"))
+    assert summary_json["report"]["complete"] == 3
+    assert summary_json["per_method"]["higs_full"]["jobs"] == 3
+    assert summary_json["per_method"]["higs_full"]["peak_gpu_memory_mib_mean"] > 0
 
 
 def test_build_rejects_invalid_result(tmp_path):

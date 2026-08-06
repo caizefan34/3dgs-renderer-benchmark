@@ -184,6 +184,35 @@ def main(argv=None) -> int:
         json.dumps(aggregate, indent=2) + "\n", encoding="utf-8"
     )
 
+    per_method = {}
+    for method in methods:
+        cells = [row for row in rows if row["method"] == method]
+        if not cells:
+            continue
+        per_method[method] = {
+            "jobs": len(cells),
+            "psnr_db_mean": statistics.fmean(c["quality"]["psnr_db"] for c in cells),
+            "wall_time_seconds_mean": statistics.fmean(
+                c["performance"]["wall_time_seconds"] for c in cells
+            ),
+            "time_to_quality_seconds_mean": statistics.fmean(
+                c["performance"]["time_to_quality_seconds"] for c in cells
+            ),
+            "peak_gpu_memory_mib_mean": statistics.fmean(
+                c["resources"]["peak_gpu_memory_mib"] for c in cells
+            ),
+        }
+    matrix_summary = {
+        "schema_version": "1.0",
+        "report": report,
+        "scenes": len(scenes),
+        "methods": methods,
+        "per_method": per_method,
+    }
+    (args.output_dir / "matrix-summary.json").write_text(
+        json.dumps(matrix_summary, indent=2) + "\n", encoding="utf-8"
+    )
+
     aggregate_lines = [
         "# Aggregate speed and quality (A100, 30k, 3 seeds)",
         "",
