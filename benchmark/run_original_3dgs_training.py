@@ -174,17 +174,20 @@ def main() -> int:
     sampler = Sampler(args.gpu_id)
     watcher = LogWatcher(log_path, eval_steps)
     wall_started = time.monotonic()
-    with log_path.open("wb") as log:
-        process = subprocess.Popen(
-            invocation["command"],
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            env=env,
-            cwd=str(Path(args.source_dir).resolve()),
-        )
-        sampler.start()
-        watcher.start()
-        returncode = process.wait()
+    # Single-writer log: the caller points this process stdout at
+    # training.log, so the trainer inherits it. Reopening the file here would
+    # create a second independent file offset and interleave writes, corrupting
+    # the log and breaking marker wall-time capture.
+    process = subprocess.Popen(
+        invocation["command"],
+        stdout=None,
+        stderr=subprocess.STDOUT,
+        env=env,
+        cwd=str(Path(args.source_dir).resolve()),
+    )
+    sampler.start()
+    watcher.start()
+    returncode = process.wait()
     wall = time.monotonic() - wall_started
     sampler.stop()
     watcher.stop()

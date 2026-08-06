@@ -115,6 +115,9 @@ class Original3dgsCommandTest(unittest.TestCase):
         self.assertEqual(invocation["iterations"], 30000)
         self.assertEqual(invocation["eval_steps"], [7000, 15000, 30000])
         self.assertEqual(command[command.index("-i") + 1], "images_4")
+        # -u is required: the official trainer must flush the "[ITER N] Saving
+        # Gaussians" markers immediately so the runner can timestamp them.
+        self.assertEqual(command[command.index("-u") + 1].endswith("train.py"), True)
         self.assertEqual(command[command.index("--iterations") + 1], "30000")
         self.assertIn("--resolution=-1", command)
         self.assertEqual(command[command.index("--seed") + 1], "2")

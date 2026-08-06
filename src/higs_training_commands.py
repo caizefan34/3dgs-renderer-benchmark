@@ -416,6 +416,10 @@ def build_original_3dgs_invocation(
     executable = python_executable or sys.executable
     command = [
         executable,
+        # -u: stdout must flush as soon as each "[ITER N] Saving Gaussians"
+        # marker is printed; a buffered non-tty stdout only flushes at exit,
+        # so the runner could not timestamp the three checkpoints in time.
+        "-u",
         str(source_dir / "train.py"),
         "-s",
         str(data_dir.resolve()),
