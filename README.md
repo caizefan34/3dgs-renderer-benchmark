@@ -56,7 +56,7 @@ That's it — the CLI downloads the scene, runs the suite, and writes results un
 | I want to... | Start here |
 |---|---|
 | Compare renderers without implementation details | [Live dashboard](https://caizefan34.github.io/3dgs-renderer-benchmark/) |
-| Understand FPS, PSNR, SSIM, and LPIPS | [Metric glossary](#-tldr--key-results) |
+| Understand FPS, PSNR, SSIM, and LPIPS | [Metric glossary](#tldr--key-results) |
 | Reproduce the published A100 results | [Reproducibility guide](docs/reproducibility.md) |
 | Add another renderer | [Renderer integration guide](docs/adding-a-renderer.md) |
 | Audit claims and remaining evidence gaps | [Research readiness audit](docs/research-readiness-audit-2026-08-05.md) |
