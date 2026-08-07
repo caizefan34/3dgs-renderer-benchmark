@@ -56,7 +56,7 @@
       "contribution_id": "training_method",
       "statement": "The proposed method reduces complete training wall time while matching final full-training quality across standard datasets.",
       "status": "blocked",
-      "blocking_gate": "The executed 210-job matrix shows final PSNR below the same-backend gsplat control on 10 of 11 scenes and aggregate time-to-quality 4.3% above the control; a quality-preserving wall-time reduction was not observed."
+      "blocking_gate": "The frozen 165-job confirmatory matrix (5 methods x 11 scenes x 3 seeds, 30k steps, A100) shows neither frozen candidate preserves quality at the pre-registered margins: higs_switch_12k PSNR paired-delta mean -0.196 dB (95% CI [-0.351, -0.054], margin >= -0.10 dB), SSIM CI [-0.00831, -0.00265] (margin >= -0.003), LPIPS CI [0.00260, 0.00720] (margin <= +0.005); higs_switch_21k PSNR CI [-0.618, -0.184] is likewise below margin. Neither candidate meets the >=10% wall-time reduction gate either (switch_12k speedup-ratio mean 1.102 < 1.111 required; switch_21k mean 1.164 but ratio 95% CI lower 0.753 < 1.0). higs_full preserves PSNR/SSIM/LPIPS at the margins (PSNR CI [-0.052, 0.037]) but is not faster (wall-time delta +19.9 s, speedup ratio 0.965). A quality-preserving >=10% end-to-end wall-time reduction was not demonstrated."
     },
     {
       "id": "full-convergence-matrix-executed",
@@ -295,6 +295,139 @@
       "statement": "The 30k from-SfM ablation pilot (5 scenes x seed 0, 40 A100 jobs) isolates visibility-masked Adam, progressive resolution, and switch-step sensitivity in benchmark/higs-ablation-protocol.json.",
       "status": "blocked",
       "blocking_gate": "Requires completed ablation pilot results validated by validate_higs_ablation_results.py; do not mark supported until per-method tables and paired statistics exist."
+    },
+    {
+      "id": "confirmatory-matrix-executed",
+      "contribution_id": "evaluation",
+      "statement": "A frozen 165-job confirmatory matrix (5 methods x 11 scenes x 3 seeds, 30k steps, A100) executed end-to-end with zero failed or missing jobs and passed validation by validate_higs_ablation_results.py against the frozen protocol (frozen_candidates=switch_12k,switch_21k).",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "paper/higs/tables/confirmatory-summary.json",
+          "sha256": "8720fcdef60b7f0d6e03b26d204e87b214f511a25d63a0f6d7822f6ed05c35a8",
+          "assertions": [
+            {
+              "type": "value_equals",
+              "pointer": "/matrix",
+              "equals": "confirmatory_formal_30k"
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/jobs_planned",
+              "equals": 165
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/analysis/n_jobs",
+              "equals": 165
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/analysis/n_scenes",
+              "equals": 11
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/analysis/paired_cells",
+              "equals": 33
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat/jobs_complete",
+              "equals": 33
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_full/jobs_complete",
+              "equals": 33
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_current/jobs_complete",
+              "equals": 33
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_switch_12k/jobs_complete",
+              "equals": 33
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_switch_21k/jobs_complete",
+              "equals": 33
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "confirmatory-ni-decisions",
+      "contribution_id": "evaluation",
+      "statement": "Under the pre-registered non-inferiority margins (PSNR paired-delta 95% CI lower >= -0.10 dB; SSIM >= -0.003; LPIPS <= +0.005; wall-time >= 10% reduction), the confirmatory matrix shows neither frozen candidate (higs_switch_12k, higs_switch_21k) passes the PSNR/SSIM/LPIPS quality gates nor the >=10% wall-time reduction gate (switch_12k speedup-ratio mean 1.102 with CI lower 0.826; switch_21k mean 1.164 with CI lower 0.753); higs_full passes the PSNR/SSIM/LPIPS quality gates but is not faster than the gsplat control (wall-time delta +19.9 s, speedup ratio 0.965).",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "paper/higs/tables/confirmatory-summary.json",
+          "sha256": "8720fcdef60b7f0d6e03b26d204e87b214f511a25d63a0f6d7822f6ed05c35a8",
+          "assertions": [
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_switch_12k/psnr_db/ni_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_switch_12k/ssim/ni_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_switch_12k/lpips/ni_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_switch_12k/wall_speedup_ratio/accel_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_switch_21k/psnr_db/ni_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_switch_21k/wall_speedup_ratio/accel_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_full/psnr_db/ni_passed",
+              "equals": true
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_full/ssim/ni_passed",
+              "equals": true
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_full/lpips/ni_passed",
+              "equals": true
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_full/wall_speedup_ratio/accel_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/higs_current/psnr_db/ni_passed",
+              "equals": false
+            }
+          ]
+        }
+      ]
     }
   ]
 }
