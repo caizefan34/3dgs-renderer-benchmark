@@ -4,3 +4,4 @@
 | --- | --- | --- |
 | gsplat vs higs proposed | 1.04x | -0.380 |
 | higs full vs higs proposed | 1.02x | -0.354 |
+| gsplat vs speedy splat | 0.41x | -0.800 |

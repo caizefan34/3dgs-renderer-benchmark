@@ -47,8 +47,13 @@ def _validate_runner_evidence(method_id: str, method: dict) -> None:
     if len(evidence.get("dataset", {}).get("inventory_sha256", "")) != 64:
         raise HigsPaperProtocolError(f"runner evidence lacks dataset hash: {method_id}")
     artifacts = evidence.get("artifacts", [])
-    required = ("ckpts/", "stats/train_", "stats/val_")
-    if not all(
+    required = ("stats/train_", "stats/val_")
+    checkpoint_ok = any(
+        item.get("path", "").startswith(prefix) and len(item.get("sha256", "")) == 64
+        for item in artifacts
+        for prefix in ("ckpts/", "point_cloud/")
+    )
+    if not checkpoint_ok or not all(
         any(item.get("path", "").startswith(prefix) and len(item.get("sha256", "")) == 64
             for item in artifacts)
         for prefix in required

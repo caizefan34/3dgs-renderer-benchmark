@@ -77,9 +77,10 @@ of the frozen primary method.
 - `benchmark/run_higs_train_benchmark.py` loads `point_cloud.ply`; R60-R65 are
   short-horizon optimization of an existing Gaussian scene, not from-scratch
   reconstruction from SfM initialization.
-- The frozen 177-job A100 matrix has now been executed from SfM initialization
+- The frozen 210-job A100 matrix has now been executed from SfM initialization
   with zero failed or missing jobs: original_3dgs (33 = 11 scenes x 3 seeds),
-  gsplat (48), higs_full (48), and higs_proposed (48) at 30k steps. Each HiGS
+  gsplat (48), higs_full (48), higs_proposed (48), and the official
+  Speedy-Splat baseline (33 = 11 scenes x 3 seeds) at 30k steps. Each HiGS
   method's 48 jobs are the 33 primary jobs plus the 15-job A100 leg of the
   cross-hardware matrix (bicycle, bonsai, garden, train, truck x 3 seeds), so
   those five scenes carry six runs and the rest three.
@@ -100,12 +101,12 @@ of the frozen primary method.
 The executable submission contract is frozen in
 [`benchmark/higs-paper-protocol.json`](../benchmark/higs-paper-protocol.json).
 It expands to 333 auditable jobs: a complete 11-scene primary matrix and a
-five-scene cross-hardware matrix. The protocol validator reports 177
-executable A100 jobs: original_3dgs (33), gsplat (48), higs_full (48), and
-higs_proposed (48). Speedy-Splat, Turbo-GS, consumer, and second-data-center
-cohorts remain explicit blockers.
+five-scene cross-hardware matrix. The protocol validator reports 210
+executable A100 jobs: original_3dgs (33), gsplat (48), higs_full (48),
+higs_proposed (48), and Speedy-Splat (33). Turbo-GS, consumer, and
+second-data-center cohorts remain explicit blockers.
 
-All four executable methods have fail-closed runners bound to pinned source
+All five executable methods have fail-closed runners bound to pinned source
 trees with SHA-256 locks:
 
 - `gsplat` runs the clean upstream gsplat checkout (77ab983f) through
@@ -123,6 +124,12 @@ trees with SHA-256 locks:
   images and official every-8th-image test split as the gsplat/HiGS cohort,
   and each checkpoint is scored with the official PSNR/SSIM and VGG LPIPS
   implementations (`src/scripts/eval_original_3dgs_checkpoint.py`).
+- `speedy_splat` runs the official j-alex-hanson/speedy-splat trainer
+  (34c45c6d) plus the audited seed patch
+  (`patches/speedy-splat-seed.patch`) and the simple-knn `FLT_MAX`
+  portability patch (`patches/speedy-splat-cfloat.patch`) through
+  `benchmark/run_speedy_splat_training.py`, on the same factor-4 images and
+  official every-8th-image test split as the gsplat/HiGS cohort.
 
 ## Running the full-training matrices
 
@@ -135,6 +142,15 @@ bash scripts/linux/run_higs_paper_a100_matrix.sh
 
 # 33 jobs: original_3dgs x 11 scenes x 3 seeds (train_original env)
 bash scripts/linux/run_original_3dgs_a100_matrix.sh
+
+# 33 jobs: speedy_splat x 11 scenes x 3 seeds (speedy env)
+python src/scripts/run_speedy_splat_a100_matrix.py \
+  --protocol benchmark/higs-paper-protocol.json \
+  --data-root /datasets/raw --source-speedy artifacts/renderer-sources/speedy-splat \
+  --run-root artifacts/training-speedy/runs \
+  --result-root artifacts/training-speedy/results \
+  --session artifacts/training-speedy/session.json \
+  --gpus 0,1,2,3,4,5,6,7 --python /path/to/speedy/env/bin/python
 ```
 
 A job that trains successfully but fails assembly is recorded as

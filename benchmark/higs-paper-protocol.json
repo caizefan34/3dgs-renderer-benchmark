@@ -156,14 +156,36 @@
       "implementation": "official",
       "repository": "https://github.com/j-alex-hanson/speedy-splat",
       "commit": "34c45c6d9b8bd6110231864f2f358b6d3abbf73d",
-      "runner_status": "blocked",
-      "blocking_gate": "Validate the official training entry point and map its output to the common evaluation contract."
+      "patches": [
+        "patches/speedy-splat-seed.patch"
+      ],
+      "patch_sha256": "48a8662e29a6d2b036a051c519345f37ea9b88a0c3a3d1523f6af9b3214ab493",
+      "cfloat_patch_sha256": "efef8966851c4603138bfed7094a14f4861e638758fbfe2a13e804639918befa",
+      "simple_knn_patch": "patches/speedy-splat-cfloat.patch",
+      "simple_knn_commit": "8aacb6ec9ef548315d2c71289aea881f2d640e2d",
+      "source_diff_sha256": "369d2ff69d58554f3f72051fc84f74de97964f85d83bd9ec09c904c179e1f12c",
+      "source_state_sha256": "c9916bccd25248d92c1fbb4cc93daadac06b496fb2df9f5a916272240e4e03b9",
+      "trainer_sha256": "20a5b0ec1538f67af8915b61ba331e98d3af505de312204f533d36853939321e",
+      "runner_status": "ready",
+      "runner_evidence": "paper/higs/speedy-splat-runner-readiness.json",
+      "algorithm": {
+        "name": "Speedy-Splat",
+        "renderer": "speedy_rasterizer",
+        "optimizer": "adam_full",
+        "resolution_schedule": null,
+        "trainer_cfg": {
+          "images_dir": "images_4",
+          "resolution": -1
+        }
+      }
     },
     "turbo_gs": {
       "role": "official_training_acceleration_baseline",
       "implementation": "official",
-      "runner_status": "identity_blocked",
-      "blocking_gate": "Locate and pin the authoritative public repository and commit; a Turbo-GS-style schedule is only an ablation."
+      "repository": "https://github.com/inspirelt/Turbo-GS",
+      "commit": "aeddd12d9020a5afed68b13b370b354f10398e77",
+      "runner_status": "blocked",
+      "blocking_gate": "Authoritative repository is pinned (inspirelt/Turbo-GS @ aeddd12d), but upstream has not released training code; a Turbo-GS-style schedule is only an ablation until upstream publishes code."
     }
   },
   "hardware": {

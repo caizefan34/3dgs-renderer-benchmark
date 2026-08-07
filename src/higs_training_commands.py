@@ -465,3 +465,236 @@ def build_original_3dgs_invocation(
         "source": source,
         "source_audit": audit,
     }
+
+
+def audit_speedy_splat_source(source_dir: Path) -> dict:
+    """Inspect the pinned official Speedy-Splat tree for the audited seed patch."""
+    source_dir = Path(source_dir).resolve()
+    train_py = source_dir / "train.py"
+    general_utils = source_dir / "utils" / "general_utils.py"
+    renderer = source_dir / "gaussian_renderer" / "__init__.py"
+    rasterizer_setup = (
+        source_dir / "submodules" / "diff-gaussian-rasterization" / "setup.py"
+    )
+    train_text = train_py.read_text(encoding="utf-8") if train_py.is_file() else ""
+    gu_text = (
+        general_utils.read_text(encoding="utf-8")
+        if general_utils.is_file()
+        else ""
+    )
+    render_text = renderer.read_text(encoding="utf-8") if renderer.is_file() else ""
+    git_root = None
+    head_commit = None
+    diff_sha256 = None
+    state_sha256 = None
+    untracked_files = []
+    try:
+        git_root_text = subprocess.run(
+            ["git", "-C", str(source_dir), "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        candidate_root = Path(git_root_text).resolve()
+        if candidate_root == source_dir:
+            git_root = str(candidate_root)
+            head_commit = subprocess.run(
+                ["git", "-C", str(source_dir), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            diff = subprocess.run(
+                ["git", "-C", str(source_dir), "diff", "--binary", "HEAD"],
+                check=True,
+                capture_output=True,
+            ).stdout
+            diff_sha256 = hashlib.sha256(diff).hexdigest()
+            untracked_files = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(source_dir),
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.splitlines()
+            state_digest = hashlib.sha256()
+            state_digest.update(b"tracked-diff\0")
+            state_digest.update(diff)
+            for relative in sorted(untracked_files):
+                state_digest.update(b"untracked\0")
+                state_digest.update(relative.encode("utf-8"))
+                state_digest.update(b"\0")
+                state_digest.update((source_dir / relative).read_bytes())
+            state_sha256 = state_digest.hexdigest()
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return {
+        "source_dir": str(source_dir),
+        "git_root_verified": git_root is not None,
+        "head_commit": head_commit,
+        "source_diff_sha256": diff_sha256,
+        "source_state_sha256": state_sha256,
+        "untracked_files": untracked_files,
+        "has_train_py": train_py.is_file(),
+        "trainer_sha256": _sha256(train_py) if train_py.is_file() else None,
+        "has_seed_argument": (
+            "parser.add_argument('--seed', type=int, default=0)" in train_text
+            or 'parser.add_argument("--seed", type=int, default=0)' in train_text
+        ),
+        "uses_seeded_safe_state": "safe_state(args.quiet, args.seed)" in train_text,
+        "safe_state_seeded": "def safe_state(silent, seed=0):" in gu_text,
+        "has_network_gui_init": "network_gui.init(args.ip, args.port)" in train_text,
+        "has_speedy_render_scores": "scores = None" in render_text,
+        "has_speedy_rasterizer_submodule": rasterizer_setup.is_file(),
+    }
+
+
+def build_speedy_splat_invocation(
+    *,
+    protocol: dict,
+    scene: str,
+    seed: int,
+    data_dir: Path,
+    result_dir: Path,
+    source_dir: Path,
+    python_executable: str | None = None,
+    repository_root: Path | None = None,
+    smoke_steps: int | None = None,
+    images_dir: str = "images_4",
+    gui_port: int | None = None,
+) -> dict:
+    """Build an auditable single-GPU official Speedy-Splat invocation.
+
+    ``gui_port`` is the port for the official trainer's inert localhost
+    network_gui server. Concurrent jobs must use distinct ports because the
+    official train.py binds it unconditionally (there is no --disable_viewer).
+    """
+    _validate_selection(protocol, "speedy_splat", scene, seed)
+    training = protocol.get("training", {})
+    if training.get("initialization") != "from_scratch_sfm":
+        raise HigsTrainingCommandError("paper training must initialize from SfM")
+    if training.get("iterations") != 30_000:
+        raise HigsTrainingCommandError("paper training budget must be exactly 30000")
+    if smoke_steps is not None and smoke_steps < 1:
+        raise HigsTrainingCommandError("smoke_steps must be positive")
+    iterations = training["iterations"]
+    effective_steps = smoke_steps or iterations
+
+    data_dir = Path(data_dir)
+    if data_dir.suffix.lower() in _CHECKPOINT_SUFFIXES:
+        raise HigsTrainingCommandError(
+            "data_dir must be a dataset directory, not a PLY or checkpoint"
+        )
+    result_dir = Path(result_dir)
+    source_dir = Path(source_dir).resolve()
+    audit = audit_speedy_splat_source(source_dir)
+    method_spec = protocol["methods"]["speedy_splat"]
+    if not audit["git_root_verified"] or audit["head_commit"] != method_spec.get(
+        "commit"
+    ):
+        raise HigsTrainingCommandError(
+            "official source identity is not verified: source_dir must be its own "
+            f"Git checkout at {method_spec.get('commit')}"
+        )
+    if not (
+        audit["has_train_py"]
+        and audit["has_seed_argument"]
+        and audit["uses_seeded_safe_state"]
+        and audit["safe_state_seeded"]
+        and audit["has_network_gui_init"]
+        and audit["has_speedy_rasterizer_submodule"]
+    ):
+        raise HigsTrainingCommandError(
+            "official Speedy-Splat trainer is missing the audited seed patch "
+            "or a required fork component"
+        )
+    for key in ("trainer_sha256", "source_diff_sha256", "source_state_sha256"):
+        expected = method_spec.get(key)
+        if expected and audit[key] != expected:
+            raise HigsTrainingCommandError(
+                f"official Speedy-Splat source {key} does not match the frozen protocol"
+            )
+
+    root = Path(repository_root or Path(__file__).resolve().parents[1]).resolve()
+    patch_path = root / "patches" / "speedy-splat-seed.patch"
+    if patch_path.is_file():
+        patch_sha256 = _sha256(patch_path)
+        expected_patch = method_spec.get("patch_sha256")
+        if expected_patch and patch_sha256 != expected_patch:
+            raise HigsTrainingCommandError(
+                "Speedy-Splat seed patch SHA-256 does not match the frozen protocol"
+            )
+
+    cfloat_patch = root / "patches" / "speedy-splat-cfloat.patch"
+    if cfloat_patch.is_file():
+        cfloat_patch_sha256 = _sha256(cfloat_patch)
+        expected_cfloat = method_spec.get("cfloat_patch_sha256")
+        if expected_cfloat and cfloat_patch_sha256 != expected_cfloat:
+            raise HigsTrainingCommandError(
+                "Speedy-Splat cfloat compatibility patch SHA-256 does not match "
+                "the frozen protocol"
+            )
+
+    eval_steps = sorted({min(s, effective_steps) for s in (7_000, 15_000, 30_000)})
+    executable = python_executable or sys.executable
+    command = [
+        executable,
+        # -u: stdout must flush as soon as each "[ITER N] Saving Gaussians"
+        # marker is printed; a buffered non-tty stdout only flushes at exit,
+        # so the runner could not timestamp the three checkpoints in time.
+        "-u",
+        str(source_dir / "train.py"),
+        "-s",
+        str(data_dir.resolve()),
+        "-m",
+        str(result_dir.resolve()),
+        "-i",
+        images_dir,
+        "--resolution=-1",
+        "--eval",
+        "--iterations",
+        str(effective_steps),
+        "--test_iterations",
+        *[str(step) for step in eval_steps],
+        "--save_iterations",
+        *[str(step) for step in eval_steps],
+        "--seed",
+        str(seed),
+        # NOTE: the official Speedy-Splat train.py has no --disable_viewer; its
+        # network_gui.init() binds a localhost server unconditionally, so each
+        # concurrent job must pass a unique --port (6009 + gpu index).
+        # NOTE: no --quiet: official safe_state(silent=True) swallows stdout,
+        # which would hide the "[ITER N] Saving Gaussians" markers the runner
+        # needs to timestamp eval+save checkpoints.
+    ]
+    if gui_port is not None:
+        command += ["--port", str(gui_port)]
+    source = {
+        "repository": method_spec.get("repository"),
+        "commit": method_spec.get("commit"),
+        "trainer_sha256": audit["trainer_sha256"],
+        "source_diff_sha256": audit["source_diff_sha256"],
+        "source_state_sha256": audit["source_state_sha256"],
+    }
+    if patch_path.is_file():
+        source["patch_sha256"] = _sha256(patch_path)
+    return {
+        "schema_version": "1.0",
+        "method": "speedy_splat",
+        "scene": scene,
+        "seed": seed,
+        "initialization": "from_scratch_sfm",
+        "iterations": effective_steps,
+        "eval_steps": eval_steps,
+        "images_dir": images_dir,
+        "command": command,
+        "environment": {"PYTHONPATH": str(source_dir)},
+        "source": source,
+        "source_audit": audit,
+    }

@@ -26,7 +26,13 @@ sys.path.insert(0, str(ROOT / "src"))
 from higs_paper_protocol import build_experiment_plan  # noqa: E402
 from higs_paper_results import HigsPaperResultError, validate_result_set  # noqa: E402
 
-METHOD_ORDER = ["original_3dgs", "gsplat", "higs_full", "higs_proposed"]
+METHOD_ORDER = [
+    "original_3dgs",
+    "gsplat",
+    "speedy_splat",
+    "higs_full",
+    "higs_proposed",
+]
 FAMILY = {
     "mipnerf360/bicycle": "Mip-NeRF 360",
     "mipnerf360/bonsai": "Mip-NeRF 360",
@@ -180,7 +186,13 @@ def main(argv=None) -> int:
         writer.writerows(convergence)
 
     aggregate = {"schema_version": "1.0", "scenes": len(scenes), "methods": methods}
-    baseline_pairs = [("gsplat", "higs_proposed"), ("higs_full", "higs_proposed")]
+    baseline_pairs = [
+        ("gsplat", "higs_proposed"),
+        ("higs_full", "higs_proposed"),
+        # Official accelerated baseline sanity pair: how the frozen 30k
+        # Speedy-Splat runs compare to the same-backend gsplat control.
+        ("gsplat", "speedy_splat"),
+    ]
     for baseline, proposed in baseline_pairs:
         speed_ratios = []
         psnr_deltas = []

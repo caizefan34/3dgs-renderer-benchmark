@@ -35,7 +35,7 @@ codec rankings.
 | Track | What is available | Current scientific boundary | Start here |
 | --- | --- | --- | --- |
 | Reproducible 3DGS survey | Source-pinned registry, evidence tiers, integration status, five-renderer A100 matrix | A systematic/latest-survey claim still needs a frozen search and screening audit | [Survey protocol](docs/survey-protocol.md) |
-| Differentiable HiGS | Native CUDA backward, dynamic topology, sparse/progressive training studies, positive and negative ablations, frozen 177-job from-scratch matrix | Trainability and mean peak-memory reduction are measured; quality-preserving training speedup is not supported (final PSNR lower on 10 of 11 scenes) | [HiGS paper plan](docs/higs-paper-plan.md) |
+| Differentiable HiGS | Native CUDA backward, dynamic topology, sparse/progressive training studies, positive and negative ablations, frozen 210-job from-scratch matrix (incl. official Speedy-Splat baseline) | Trainability and mean peak-memory reduction are measured; quality-preserving training speedup is not supported (final PSNR lower on 10 of 11 scenes) | [HiGS paper plan](docs/higs-paper-plan.md) |
 | Storage compression | Bit-exact and same-checkpoint near-lossless round trips across five scenes | Learned retraining codecs and decode/deployment cost require a separate completed cohort | [Compression protocol](docs/compression-protocol.md) |
 
 The [research program](docs/research-program.md) explains why these tracks share
@@ -84,8 +84,9 @@ The implementation provides:
 The research log reports quality-prioritized 3000-step A100 configurations that
 reduce per-step time by 8.6% to 21.7% against the same-backend full-resolution
 control on four high/mid Gaussian-count scenes. Train is a documented exception.
-The frozen 177-job A100 matrix (original_3dgs 33 = 11 scenes x 3 seeds;
-gsplat/HiGS 48 each, with the five cross-hardware scenes run twice, 30k steps)
+The frozen 210-job A100 matrix (original_3dgs 33 = 11 scenes x 3 seeds;
+gsplat/HiGS 48 each, with the five cross-hardware scenes run twice; official
+Speedy-Splat 33 = 11 scenes x 3 seeds; 30k steps)
 has now been executed from SfM initialization with zero failed jobs. The
 proposed method (visibility-masked Adam + progressive resolution) trains to a
 complete scene with 21.6% lower mean peak GPU memory per job than the gsplat
