@@ -95,15 +95,17 @@ def validate_result_set(
     require_complete: bool = False,
     methods: set[str] | None = None,
     hardware: set[str] | None = None,
+    matrices: set[str] | None = None,
     protocol_validator=validate_protocol,
 ) -> dict:
     plan = build_experiment_plan(protocol)
-    if methods is not None or hardware is not None:
+    if methods is not None or hardware is not None or matrices is not None:
         plan = [
             job
             for job in plan
             if (methods is None or job["method"] in methods)
             and (hardware is None or job["hardware"] in hardware)
+            and (matrices is None or job["matrix"] in matrices)
         ]
     planned_ids = {job["job_id"] for job in plan}
     seen = set()

@@ -29,6 +29,7 @@ def validate_ablation_result_set(
     require_complete: bool = False,
     methods: set[str] | None = None,
     hardware: set[str] | None = None,
+    matrices: set[str] | None = None,
 ) -> dict:
     """Validate a set of ablation results and report coverage."""
     try:
@@ -38,6 +39,7 @@ def validate_ablation_result_set(
             require_complete=require_complete,
             methods=methods,
             hardware=hardware,
+            matrices=matrices,
             protocol_validator=validate_ablation_protocol,
         )
     except HigsPaperResultError as exc:

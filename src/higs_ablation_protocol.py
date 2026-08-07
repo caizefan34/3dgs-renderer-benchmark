@@ -19,6 +19,14 @@ _REQUIRED_OUTCOMES = {
     "final_gaussian_count",
 }
 
+_REQUIRED_CONFIRMATORY_METHODS = {
+    "gsplat",
+    "higs_full",
+    "higs_current",
+    "higs_switch_12k",
+    "higs_switch_21k",
+}
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 _REQUIRED_ABLATION_METHODS = {
@@ -63,6 +71,31 @@ def build_ablation_experiment_plan(protocol: dict) -> list[dict]:
     return jobs
 
 
+def _validate_confirmatory_matrix(
+    matrix: dict, methods: dict, scene_ids: list[str], training_seeds: list
+) -> None:
+    """Fail-closed checks for the frozen confirmatory matrix."""
+    if set(matrix["methods"]) != _REQUIRED_CONFIRMATORY_METHODS:
+        raise HigsAblationProtocolError(
+            f"{matrix['id']}: confirmatory methods must be exactly "
+            f"{sorted(_REQUIRED_CONFIRMATORY_METHODS)}"
+        )
+    if _selected(matrix["scenes"], scene_ids) != scene_ids:
+        raise HigsAblationProtocolError(
+            f"{matrix['id']}: confirmatory matrix must cover all 11 scenes"
+        )
+    seeds = _selected(matrix["seeds"], training_seeds)
+    if len(set(seeds)) < 3:
+        raise HigsAblationProtocolError(
+            f"{matrix['id']}: confirmatory matrix requires >= 3 unique seeds"
+        )
+    controls = matrix.get("matched_controls", [])
+    if set(controls) != {"gsplat", "higs_full", "higs_current"}:
+        raise HigsAblationProtocolError(
+            f"{matrix['id']}: matched_controls must be gsplat/higs_full/higs_current"
+        )
+
+
 def validate_ablation_protocol(protocol: dict) -> dict:
     """Fail-closed validation of the independent ablation/sensitivity protocol."""
     if protocol.get("schema_version") != "1.0" or protocol.get("paper_track") != "higs_ablation":
@@ -82,8 +115,14 @@ def validate_ablation_protocol(protocol: dict) -> dict:
 
     scenes = protocol.get("scenes", [])
     scene_ids = [scene.get("id") for scene in scenes]
-    if len(scene_ids) != len(set(scene_ids)) or len(scene_ids) < 5:
-        raise HigsAblationProtocolError("the ablation protocol requires 5 unique pilot scenes")
+    if len(scene_ids) != len(set(scene_ids)) or len(scene_ids) < 11:
+        raise HigsAblationProtocolError(
+            "the ablation protocol requires 11 unique official scenes"
+        )
+    families = {scene.get("family") for scene in scenes}
+    required_families = {"Mip-NeRF 360", "Tanks and Temples", "Deep Blending"}
+    if not required_families.issubset(families):
+        raise HigsAblationProtocolError("all three official dataset families are required")
 
     methods = protocol.get("methods", {})
     missing = _REQUIRED_ABLATION_METHODS - set(methods)
@@ -126,6 +165,15 @@ def validate_ablation_protocol(protocol: dict) -> dict:
             raise HigsAblationProtocolError(
                 f"{matrix['id']}: unknown matrix member {sorted(unknown)}"
             )
+        if matrix.get("phase") == "confirmatory":
+            _validate_confirmatory_matrix(matrix, methods, scene_ids, seeds)
+
+    frozen = protocol.get("frozen_candidates", [])
+    if set(frozen) != {"higs_switch_12k", "higs_switch_21k"}:
+        raise HigsAblationProtocolError(
+            "confirmatory phase requires frozen_candidates == "
+            "[higs_switch_12k, higs_switch_21k]"
+        )
 
     plan = build_ablation_experiment_plan(protocol)
     job_ids = [job["job_id"] for job in plan]
@@ -137,9 +185,12 @@ def validate_ablation_protocol(protocol: dict) -> dict:
         "initialization": training["initialization"],
         "iterations": training["iterations"],
         "seed_count": len(set(seeds)),
-        "pilot_scene_count": len(scene_ids),
+        "scene_count": len(scene_ids),
         "planned_jobs": len(plan),
         "executable_jobs": sum(job["executable"] for job in plan),
+        "confirmatory_jobs": sum(
+            job["matrix"] == "confirmatory_formal_30k" for job in plan
+        ),
         "blocked_methods": sorted(
             method_id for method_id, method in methods.items()
             if method["runner_status"] != "ready"

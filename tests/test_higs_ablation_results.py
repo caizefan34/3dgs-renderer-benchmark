@@ -82,7 +82,26 @@ class HigsAblationResultTest(unittest.TestCase):
         summary = validate_ablation_result_set([self._result()], self.protocol)
         self.assertEqual(summary["complete"], 1)
         self.assertEqual(summary["failed"], 0)
-        self.assertEqual(summary["missing"], 39)
+        self.assertEqual(summary["missing"], 204)
+
+    def test_result_set_matrix_filter(self):
+        confirmatory_jobs = [
+            job for job in build_ablation_experiment_plan(self.protocol)
+            if job["matrix"] == "confirmatory_formal_30k"
+        ]
+        result = self._result()
+        result["job_id"] = confirmatory_jobs[0]["job_id"]
+        result["method"] = confirmatory_jobs[0]["method"]
+        result["scene"] = confirmatory_jobs[0]["scene"]
+        result["seed"] = confirmatory_jobs[0]["seed"]
+        summary = validate_ablation_result_set(
+            [result],
+            self.protocol,
+            matrices={"confirmatory_formal_30k"},
+        )
+        self.assertEqual(summary["planned"], 165)
+        self.assertEqual(summary["complete"], 1)
+        self.assertEqual(summary["missing"], 164)
 
 
 if __name__ == "__main__":

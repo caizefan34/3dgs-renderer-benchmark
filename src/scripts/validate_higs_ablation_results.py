@@ -31,6 +31,7 @@ def main() -> int:
         help="Comma-separated method filter (e.g. higs_visible_only).",
     )
     parser.add_argument("--hardware", help="Comma-separated hardware filter (e.g. a100).")
+    parser.add_argument("--matrix", help="Comma-separated matrix id filter (e.g. confirmatory_formal_30k).")
     args = parser.parse_args()
     try:
         protocol = json.loads(args.protocol.read_text(encoding="utf-8"))
@@ -45,12 +46,18 @@ def main() -> int:
             if args.hardware
             else None
         )
+        matrices = (
+            set(part.strip() for part in args.matrix.split(",") if part.strip())
+            if args.matrix
+            else None
+        )
         report = validate_ablation_result_set(
             results,
             protocol,
             require_complete=args.require_complete,
             methods=methods,
             hardware=hardware,
+            matrices=matrices,
         )
     except (OSError, json.JSONDecodeError, HigsAblationResultError) as exc:
         print(f"HiGS ablation results invalid: {exc}", file=sys.stderr)

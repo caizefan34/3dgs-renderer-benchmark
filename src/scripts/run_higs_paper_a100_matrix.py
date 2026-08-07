@@ -189,16 +189,37 @@ def _done(job: dict, session: dict, result_root: Path) -> bool:
     return (result_root / f"{job['job_id']}.json").is_file()
 
 
-def _plan_jobs(protocol: dict, methods: set[str]) -> list[dict]:
+def _plan_jobs(
+    protocol: dict, methods: set[str], matrices: set[str] | None = None
+) -> list[dict]:
     jobs = [
         job
         for job in build_experiment_plan(protocol)
         if job["executable"]
         and job["hardware"] == "a100"
         and job["method"] in methods
+        and (matrices is None or job["matrix"] in matrices)
     ]
-    # deterministic interleave: scene-major keeps one scene's methods near each
-    # other while seeds rotate across GPUs
+    if any(job["matrix"] == "confirmatory_formal_30k" for job in jobs):
+        # confirmatory: matched controls and candidates for the same scene+seed
+        # run close in time; rotate method order per scene to balance which
+        # method starts first across GPUs
+        scene_order = sorted({job["scene"] for job in jobs})
+        matrix = next(
+            m for m in protocol["matrices"]
+            if m["id"] == "confirmatory_formal_30k"
+        )
+        method_order = matrix["methods"]
+
+        def key(job: dict):
+            scene_idx = scene_order.index(job["scene"])
+            method_idx = method_order.index(job["method"])
+            rotated = (method_idx - scene_idx) % len(method_order)
+            return (job["scene"], job["seed"], rotated)
+
+        jobs.sort(key=key)
+        return jobs
+    # pilot/interim: deterministic interleave, scene-major with seeds rotating
     jobs.sort(key=lambda job: (job["scene"], job["method"], job["seed"]))
     return jobs
 
@@ -217,6 +238,7 @@ def main(argv=None) -> int:
     parser.add_argument("--session", type=Path, default=ROOT / "artifacts" / "training-paper" / "session.json")
     parser.add_argument("--gpus", default="0,1,2,3,4,5,6,7")
     parser.add_argument("--methods", default="gsplat,higs_full,higs_proposed")
+    parser.add_argument("--matrix", help="Comma-separated matrix id filter")
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--smoke-steps", type=int, default=None)
     parser.add_argument("--max-jobs", type=int, default=None)
@@ -238,7 +260,17 @@ def main(argv=None) -> int:
     gpus = [int(part) for part in args.gpus.split(",") if part.strip()]
     if not gpus:
         raise SystemExit("--gpus must list at least one GPU")
-    jobs = _plan_jobs(protocol, methods)
+    matrices = (
+        set(part.strip() for part in args.matrix.split(",") if part.strip())
+        if args.matrix
+        else None
+    )
+    if matrices:
+        known = {m["id"] for m in protocol["matrices"]}
+        unknown = matrices - known
+        if unknown:
+            raise SystemExit(f"unknown matrix ids: {sorted(unknown)}")
+    jobs = _plan_jobs(protocol, methods, matrices)
     if args.max_jobs is not None:
         jobs = jobs[: args.max_jobs]
 
