@@ -53,8 +53,8 @@ the deployment can use its CUDA path.
 ### TC-GS: quality-preserving Tensor Core path
 
 TC-GS has the best aggregate PSNR and LPIPS, while SSIM is effectively tied
-with the reference group. Its aggregate FPS confidence interval is wider than
-the other candidates because performance varies more by scene. It is attractive
+with the reference group. Its propagated FPS uncertainty envelope is wider than
+the other candidates because performance varies more by scene and repeat. It is attractive
 when Tensor Core execution and quality preservation matter more than having the
 most predictable speedup.
 

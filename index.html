@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="3D Gaussian Splatting Renderer Benchmark — 7 renderers, 10 compression codecs, all measured on the same GPU with the same protocol.">
-  <meta property="og:title" content="3DGS Renderer Benchmark — all renderers, one GPU, real data">
-  <meta property="og:description" content="5+ 3DGS renderers and 10 compression codecs measured on identical hardware, scenes, and protocol. Live charts, raw data, and a trainable HiGS.">
+  <meta name="description" content="A reproducible 3D Gaussian Splatting research suite for renderer comparison, differentiable HiGS training, and storage compression.">
+  <meta property="og:title" content="3DGS Renderer Benchmark and Research Suite">
+  <meta property="og:description" content="Cohort-safe renderer evidence, differentiable HiGS research, and lossless or near-lossless storage qualification.">
   <meta property="og:image" content="https://caizefan34.github.io/3dgs-renderer-benchmark/assets/social-preview.png">
   <meta property="og:url" content="https://caizefan34.github.io/3dgs-renderer-benchmark/">
   <meta name="twitter:card" content="summary_large_image">
@@ -63,61 +63,64 @@
 
 <div class="hero">
   <span class="badge">Tier A complete: 25/25 runs</span>
-  <h1>🏆 3D Gaussian Splatting Renderer Benchmark</h1>
-  <p class="subtitle">7 renderer variants &amp; 10 compression codecs measured on the same A100 GPU, scenes, and protocol. No cherry-picking. Just real data.</p>
+  <h1>3DGS Renderer Benchmark and Research Suite</h1>
+  <p class="subtitle">Three evidence-separated tracks: reproducible method survey, differentiable HiGS training, and storage compression. Published rankings remain limited to their declared A100 cohort.</p>
   <img src="assets/social-preview.png" alt="3DGS Renderer Benchmark preview" style="max-width:100%;border-radius:14px;border:1px solid var(--line);margin-top:18px">
 
-  <a class="star-cta" href="https://github.com/caizefan34/3dgs-renderer-benchmark">⭐ Star on GitHub — Support open science</a>
+  <a class="star-cta" href="https://github.com/caizefan34/3dgs-renderer-benchmark">Star on GitHub</a>
 </div>
 
 <div class="metric-bar">
   <div class="metric-card"><span class="num gold">696</span><span class="lbl">Fastest FPS (HiGS)</span></div>
-  <div class="metric-card"><span class="num green">5.73×</span><span class="lbl">Best compression ratio</span></div>
+  <div class="metric-card"><span class="num green">5.73×</span><span class="lbl">SPZ near-lossless cohort</span></div>
   <div class="metric-card"><span class="num blue">25/25</span><span class="lbl">Accepted runs</span></div>
-  <div class="metric-card"><span class="num" style="color:#a78bfa">162</span><span class="lbl">Tests collected</span></div>
-  <div class="metric-card"><span class="num" style="color:#f472b6">99</span><span class="lbl">HiGS trainability tests</span></div>
+  <div class="metric-card"><span class="num" style="color:#a78bfa">3</span><span class="lbl">Independent research tracks</span></div>
+  <div class="metric-card"><span class="num" style="color:#f472b6">CI</span><span class="lbl">Claims and artifact gates</span></div>
   <div class="metric-card"><span class="num" style="color:#f472b6">5</span><span class="lbl">Scenes measured</span></div>
 </div>
 
 <h2>New here? Start with the quickstart</h2>
 <div class="notice">
-  <strong>1</strong> clone &amp; install &middot; <strong>2</strong> run <code>python benchmark.py run gsplat_higs --dataset garden</code> &middot; <strong>3</strong> read the results under <code>results/</code>.
+  <strong>1</strong> clone &amp; install &middot; <strong>2</strong> prepare the pinned Garden case &middot; <strong>3</strong> run an installed backend and inspect <code>results/</code>.
 </div>
 <pre class="code">git clone https://github.com/caizefan34/3dgs-renderer-benchmark.git
 cd 3dgs-renderer-benchmark
 pip install -r requirements-benchmark.txt
+python benchmark.py prepare mipnerf360 --scene garden
+python benchmark.py prepare-case small-garden-1080p
 python benchmark.py run gsplat_higs --dataset garden</pre>
 
 <div class="links">
   <a href="https://github.com/caizefan34/3dgs-renderer-benchmark"><strong>README</strong><span>Full project guide: quickstart, FAQ, repository layout</span></a>
   <a href="README.md"><strong>Documentation guide</strong><span>Where to find everything in the repo</span></a>
-  <a href="higs-trainable-implementation.md"><strong>Trainable HiGS</strong><span>Make the fastest renderer trainable end-to-end</span></a>
+  <a href="research-program.md"><strong>Research program</strong><span>Three tracks, evidence contract, and publication boundaries</span></a>
+  <a href="higs-paper-plan.md"><strong>Differentiable HiGS</strong><span>Current evidence and full-training submission gates</span></a>
   <a href="methodology.md"><strong>Methodology</strong><span>How the numbers were measured (evidence tiers)</span></a>
 </div>
 
-<h2>🏎️ Bottom Line</h2>
+<h2>Measured renderer cohort</h2>
 <div class="notice"><strong>Choose gsplat HiGS</strong> for maximum throughput (696 FPS aggregate), <strong>Speedy-Splat</strong> for reference-level quality and balanced deployment, <strong>gsplat</strong> for the lowest peak memory (4,206 MiB), and <strong>Original 3DGS</strong> when an official reference path matters most.</div>
 
-<h2>Three optimization goals: delivered evidence</h2>
+<h2>Three research tracks</h2>
 <div class="goals">
   <article class="goal">
-    <div class="status">Goal 1 · DELIVERED — 99 tests passing</div>
-    <h3>HiGS is now trainable end-to-end (A/B/C)</h3>
-    <p>Three staged differentiable paths delivered: <b>trainable</b> (correctness baseline), <b>frozen-topology</b> (native autograd + HiGS culling), and <b>dynamic topology</b> (densify/prune with versioned scene buffers). Gradients flow to all 5 parameter types with pinhole/ortho/fisheye cameras and lossy SH compression via a straight-through estimator; training dynamics identical to standard gsplat (cosine similarity = 1.0). <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/higs-trainability-implementation.md">Implementation report →</a></p>
+    <div class="status">Track 1 · Full convergence blocked</div>
+    <h3>Differentiable HiGS</h3>
+    <p>Native CUDA backward, frozen and dynamic topology paths, gradient checks, and a frozen 177-job from-scratch A100 matrix are available; the proposed method trains with 21.6% lower mean peak GPU memory than gsplat. A quality-preserving training-speedup claim and official training baselines remain submission gates. <a href="higs-paper-plan.md">Open paper plan →</a></p>
   </article>
   <article class="goal">
-    <div class="status">Goal 2 · 2 prototypes measured</div>
-    <h3>Fuse renderer acceleration ideas into HiGS</h3>
-    <p>30 ideas registered with EPIC-05 gates. Calibrated tile selection (-0.97%) and LPT scheduling (-0.63%) measured; conditional scheduling is the next refinement. <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/epic05-higs-p99-lpt-2026-07-25.md">See measured evidence →</a></p>
+    <div class="status">Track 2 · Search audit blocked</div>
+    <h3>Reproducible 3DGS survey</h3>
+    <p>The registry pins sources and separates reported, reproduced, comparable, and blocked evidence. Exhaustive or latest-survey language requires a frozen database search and second-reviewer audit. <a href="survey-protocol.md">Open survey protocol →</a></p>
   </article>
   <article class="goal">
-    <div class="status">Goal 3 · Winner established</div>
-    <h3>Maximum near-lossless checkpoint compression</h3>
-    <p>SPZ 8/8 compresses compressed checkpoint from 4.16 GB to 725 MB (5.73×) passing every numerical &amp; visual gate on all 5 scenes. FCGS reaches 12.84× but fails strict gates on 3/5. <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/reports/epic05-expanded-compression-qualification-2026-07-24.md">Open compression comparison →</a></p>
+    <div class="status">Track 3 · Five-scene qualification</div>
+    <h3>Lossless and near-lossless storage</h3>
+    <p>SPZ 8/8 passes the declared same-checkpoint near-lossless gate on five scenes at 5.572x to 6.072x compression. Bit-exact XZ and retraining-required codecs remain separate categories. <a href="compression-protocol.md">Open compression protocol →</a></p>
   </article>
 </div>
 
-<h2>📊 Renderer Rankings</h2>
+<h2>Renderer rankings</h2>
 <p>Below: 25 accepted runs (5 renderers × 5 scenes). Colors stay consistent. Bars show within-cohort rank with exact measured values.</p>
 
 <div class="chart-block">
@@ -131,7 +134,7 @@ python benchmark.py run gsplat_higs --dataset garden</pre>
   </div>
 </div>
 
-<h2>📋 Overall Comparison Table</h2>
+<h2>Overall comparison table</h2>
 <p><strong>Chart data:</strong> 25 accepted runs (5 renderers × 5 cases), within one EPIC-05 A100 Tier A cohort.</p>
 <table>
   <thead><tr><th>Renderer</th><th>Speed index</th><th>FPS</th><th>PSNR</th><th>SSIM</th><th>LPIPS</th><th>Peak VRAM</th></tr></thead>
@@ -144,19 +147,19 @@ python benchmark.py run gsplat_higs --dataset garden</pre>
   </tbody>
 </table>
 
-<h2>📂 Explore the Evidence</h2>
+<h2>Explore the evidence</h2>
 <div class="links">
   <a href="comparison-analysis.md"><strong>Comparison analysis</strong><span>Trade-offs, case winners, limitations, decision guide</span></a>
   <a href="leaderboard/ranking.md"><strong>Ranking tables</strong><span>Overall, speed, quality, memory, efficiency, Pareto</span></a>
   <a href="leaderboard/ranking.json"><strong>Machine-readable data</strong><span>Metrics, confidence intervals, cohorts, recommendations</span></a>
   <a href="methodology.md"><strong>Methodology</strong><span>Evidence tiers, canonical workload, measurement rules</span></a>
   <a href="README.md"><strong>Documentation guide</strong><span>Integration references, historical context</span></a>
-  <a href="higs-trainable-implementation.md"><strong>HiGS trainable implementation</strong><span>Stage A/B/C differentiable paths, 99 tests, benchmark data</span></a>
+  <a href="higs-paper-plan.md"><strong>HiGS paper plan</strong><span>Method scope, current support, and missing full-training evidence</span></a>
   <a href="../reports/final-conclusions.md"><strong>Final conclusions</strong><span>Comprehensive data analysis, winners, future directions</span></a>
   <a href="../reports/README.md"><strong>Run reports</strong><span>Machine cohort, dataset hashes, archived Windows audit</span></a>
 </div>
 
-<h2 style="text-align:center;margin-top:40px">⭐ Support This Project</h2>
+<h2 style="text-align:center;margin-top:40px">Support this project</h2>
 <p style="text-align:center;color:var(--muted);font-size:1.05rem">
   If this benchmark helps your research or engineering decisions,<br>
   <a href="https://github.com/caizefan34/3dgs-renderer-benchmark" style="font-weight:700;font-size:1.15rem">star the repo on GitHub →</a>
@@ -164,7 +167,7 @@ python benchmark.py run gsplat_higs --dataset garden</pre>
 
 <footer>
   Evidence tiers never mix. Recommendations apply to the EPIC-05 A100 common-representation cohort.<br>
-  <span style="font-size:.82rem">Last updated: 2026-08-03</span>
+  <span style="font-size:.82rem">Last updated: 2026-08-07</span>
 </footer>
 
 </body>

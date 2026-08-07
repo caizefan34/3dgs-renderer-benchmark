@@ -90,6 +90,11 @@ Per-scene tables remain primary evidence.
 - VRAM: maximum across required cases.
 - Startup and load: median across required cases.
 
+Geometrically averaging per-case confidence-interval endpoints produces a
+descriptive envelope only; it is not a simultaneous aggregate confidence
+interval. Paper-facing aggregate uncertainty must be estimated from retained
+repeat/block structure rather than inferred from those endpoints.
+
 The report also publishes quality deltas against the reference renderer.
 
 ## Efficiency

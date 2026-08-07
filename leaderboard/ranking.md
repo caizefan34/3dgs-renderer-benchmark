@@ -4,6 +4,10 @@ Evidence tiers are intentionally separate. Empty tables mean that no complete, c
 
 **Aggregation basis (Tier A):** each row aggregates the first complete Linux run (2026-07-20) over the 5 canonical cases (bicycle/bonsai/garden/train/truck) exactly as `_aggregate_renderer` in `src/benchmark_matrix.py`: FPS / frame time / speed index = geometric mean, PSNR / SSIM / LPIPS = arithmetic mean, VRAM = per-case max. Later re-runs (2026-07-23) are published as raw evidence under `results/measured/`.
 
+> **Uncertainty note:** the displayed bounds geometrically aggregate per-case
+> 95% interval endpoints. They are a descriptive envelope, not a simultaneous
+> 95% confidence interval for the five-scene aggregate.
+
 ## Tier A: Measured
 
 | Renderer | Speed index | FPS | FPS 95% CI | Frame ms | PSNR | SSIM | LPIPS | VRAM MB | Efficiency |
