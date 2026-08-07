@@ -1,9 +1,13 @@
-# 3DGS Renderer Benchmark and Research Suite
+# 🚀 3DGS Renderer Benchmark and Research Suite
 
 <p align="center">
   <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/ci.yml"><img src="https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/ci.yml/badge.svg" alt="Tests"></a>
   <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-2563eb" alt="MIT license"></a>
   <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/stargazers"><img src="https://img.shields.io/github/stars/caizefan34/3dgs-renderer-benchmark?style=flat&label=Stars&color=f59e0b" alt="GitHub stars"></a>
+  <img src="https://img.shields.io/badge/GPU-EPIC--05_A100_80GB-46e970" alt="GPU">
+  <img src="https://img.shields.io/badge/Renderers-5_families_%2B_7_HiGS_variants-38bdf8" alt="Renderers">
+  <img src="https://img.shields.io/badge/Codecs-10_tested-34d399" alt="Codecs">
+  <img src="https://img.shields.io/badge/Tests-277_pass-22c55e" alt="Tests">
 </p>
 
 <p align="center">

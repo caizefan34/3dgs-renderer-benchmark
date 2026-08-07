@@ -933,6 +933,7 @@ def run_backend(
     cur_scale = None
     cur_cull_interval = cull_interval
     torch.cuda.reset_peak_memory_stats(device)
+    run_wall_t0 = time.time()
 
     if mask_prune:
         with torch.no_grad():
@@ -1363,6 +1364,7 @@ def run_backend(
                     )
                     eval_curve.append({
                         "step": int(it + 1),
+                        "wall_s": float(time.time() - run_wall_t0),
                         "psnr": float(psnr(ev_frame, refs_eval)),
                         "ssim": float(ssim(
                             ev_frame.permute(0, 3, 1, 2),
@@ -1476,6 +1478,7 @@ def run_backend(
         "n_mask_pruned": int(n_mask_pruned),
         "mask_prune_hist": mask_prune_hist,
         "eval_curve": eval_curve,
+        "total_wall_s": float(time.time() - run_wall_t0),
     }
 
 
