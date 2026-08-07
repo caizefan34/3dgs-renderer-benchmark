@@ -26,7 +26,6 @@ from higs_paper_protocol import build_experiment_plan  # noqa: E402
 from higs_training_commands import build_training_invocation  # noqa: E402
 from scripts.assemble_higs_paper_results import assemble  # noqa: E402
 
-HIGS_METHODS = {"higs_full", "higs_proposed"}
 
 
 def _load(path: Path) -> dict:
@@ -85,9 +84,13 @@ def _run_job(job: dict, args, gpu: int, protocol: dict) -> dict:
     scene = job["scene"]
     data_dir = (args.data_root / scene).resolve()
     result_dir = (args.run_root / job["method"] / scene / f"s{job['seed']}").resolve()
+    method_spec = protocol["methods"][job["method"]]
+    use_higs_source = (method_spec.get("algorithm") or {}).get(
+        "renderer"
+    ) == "higs_dynamic_native_backward"
     source_dir = (
         args.source_higs.resolve()
-        if job["method"] in HIGS_METHODS
+        if use_higs_source
         else args.source_gsplat.resolve()
     )
     invocation = build_training_invocation(
@@ -100,6 +103,7 @@ def _run_job(job: dict, args, gpu: int, protocol: dict) -> dict:
         source_dir=source_dir,
         python_executable=args.python,
         repository_root=args.root,
+        protocol_path=args.protocol,
     )
     command = invocation["command"]
     if args.smoke_steps is not None:

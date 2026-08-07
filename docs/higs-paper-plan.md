@@ -197,6 +197,62 @@ Completed job JSON files must pass `validate_higs_paper_results.py`. The final
 paper gate uses `--require-complete`; failed or missing jobs cannot silently
 disappear from an aggregate table.
 
+## Independent ablation pilot (30k, seed 0)
+
+The frozen 210-job protocol is untouched. Mechanism isolation runs as a
+separate ablation protocol in
+[`benchmark/higs-ablation-protocol.json`](../benchmark/higs-ablation-protocol.json)
+(`paper_track: higs_ablation`, 5 development scenes x seed 0 = 40 executable
+A100 jobs, 30k from-SfM steps). It is validated by
+`validate_ablation_protocol` / `validate_ablation_result(_set)` in
+[`src/higs_ablation_protocol.py`](../src/higs_ablation_protocol.py) and
+[`src/higs_ablation_results.py`](../src/higs_ablation_results.py); the
+ablation result contract is a superset of the paper result contract (energy
+and Gaussian count included) so it can reuse the paper validator with a
+protocol-aware wrapper.
+
+Methods (all reuse the frozen `higs-differentiable.patch` SHA-256 lock):
+
+- `higs_full`: full-computation control (no masked Adam, no progressive res).
+- `higs_visible_only`: visibility-masked Adam only, full resolution
+  (`visible_adam=true`, `higs_method=higs_visible_only`).
+- `higs_progressive_only`: 0.5x to step 24000 only, standard Adam
+  (`visible_adam=false`).
+- `higs_current`: masked Adam + 0.5x to 24000 (the frozen proposed method).
+- `higs_switch_12k/15k/18k/21k`: switch-step sensitivity of the same recipe.
+- `higs_three_stage`: blocked (needs a new auditable multi-scale trainer
+  patch; explicit `blocking_gate`).
+
+Commands:
+
+```bash
+python src/scripts/validate_higs_ablation_protocol.py \
+  --output-plan artifacts/higs-ablation/experiment-plan.json
+python src/scripts/validate_higs_ablation_results.py artifacts/higs-ablation/results/*.json \
+  --require-complete
+```
+
+On EPIC, run the pilot with its own run/result/session dirs so the frozen
+evidence is never clobbered:
+
+```bash
+python src/scripts/run_higs_paper_a100_matrix.py \
+  --protocol benchmark/higs-ablation-protocol.json \
+  --data-root /mnt/workspace/codex-3dgs-epic05/datasets/raw \
+  --source-higs artifacts/renderer-sources/gsplat-higs \
+  --source-gsplat artifacts/renderer-sources/gsplat \
+  --run-root artifacts/training-ablation/runs \
+  --result-root artifacts/training-ablation/results \
+  --session artifacts/training-ablation/session.json \
+  --methods higs_full,higs_visible_only,higs_progressive_only,higs_current,\
+    higs_switch_12k,higs_switch_15k,higs_switch_18k,higs_switch_21k \
+  --gpus 0,1,2,3,4,5,6,7 --python /path/to/gsplat/env/bin/python
+```
+
+Smoke runs (`--smoke-steps`) are never paper-eligible; only the full 30k
+jobs feed the ablation tables. Ablation results are exploratory evidence for
+mechanism attribution and Pareto selection, not confirmatory claims.
+
 ## Required ablations
 
 - native backward versus standard gsplat backward and explicit recomputation;

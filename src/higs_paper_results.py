@@ -19,8 +19,10 @@ def _finite(value, label: str, *, minimum=None, maximum=None):
         raise HigsPaperResultError(f"{label} must be <= {maximum}")
 
 
-def validate_result(result: dict, protocol: dict) -> None:
-    validate_protocol(protocol)
+def validate_result(
+    result: dict, protocol: dict, protocol_validator=validate_protocol
+) -> None:
+    protocol_validator(protocol)
     jobs = {job["job_id"]: job for job in build_experiment_plan(protocol)}
     job_id = result.get("job_id")
     if result.get("schema_version") != "1.0" or job_id not in jobs:
@@ -93,6 +95,7 @@ def validate_result_set(
     require_complete: bool = False,
     methods: set[str] | None = None,
     hardware: set[str] | None = None,
+    protocol_validator=validate_protocol,
 ) -> dict:
     plan = build_experiment_plan(protocol)
     if methods is not None or hardware is not None:
@@ -110,7 +113,7 @@ def validate_result_set(
         if job_id in seen:
             raise HigsPaperResultError(f"duplicate job_id: {job_id}")
         seen.add(job_id)
-        validate_result(result, protocol)
+        validate_result(result, protocol, protocol_validator=protocol_validator)
         complete += result["status"] == "complete"
         failed += result["status"] == "failed"
     missing = len(planned_ids - seen)

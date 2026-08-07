@@ -12,8 +12,28 @@ class HigsTrainingCommandError(ValueError):
 
 
 _CHECKPOINT_SUFFIXES = {".ckpt", ".ply", ".pt", ".pth"}
-_HIGS_METHODS = {"higs_full", "higs_proposed"}
+def _higs_method_ids(protocol: dict) -> set[str]:
+    """Protocol-driven HiGS method identification via the renderer contract."""
+    return {
+        method_id
+        for method_id, spec in protocol.get("methods", {}).items()
+        if (spec.get("algorithm") or {}).get("renderer")
+        == "higs_dynamic_native_backward"
+    }
+
+
 _EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+def trainer_cfg_kwargs(method_spec: dict) -> dict:
+    """Protocol-driven trainer kwargs; HiGS methods force packed=False, sparse_grad=False."""
+    algorithm = method_spec.get("algorithm") or {}
+    trainer_cfg = algorithm.get("trainer_cfg", {})
+    cfg_kwargs = {}
+    if algorithm.get("renderer") == "higs_dynamic_native_backward":
+        cfg_kwargs.update(packed=False, sparse_grad=False)
+        cfg_kwargs.update(trainer_cfg)
+    return cfg_kwargs
+
+
 
 
 def _sha256(path: Path) -> str:
@@ -142,9 +162,11 @@ def build_training_invocation(
     source_dir: Path,
     python_executable: str | None = None,
     repository_root: Path | None = None,
+    protocol_path: Path | None = None,
 ) -> dict:
     """Build an auditable single-GPU invocation without executing training."""
     _validate_selection(protocol, method, scene, seed)
+    higs_methods = _higs_method_ids(protocol)
     training = protocol.get("training", {})
     if training.get("initialization") != "from_scratch_sfm":
         raise HigsTrainingCommandError("paper training must initialize from SfM")
@@ -162,7 +184,7 @@ def build_training_invocation(
         raise HigsTrainingCommandError("source tree lacks the audited SfM trainer")
     if audit["loads_pretrained_ply"]:
         raise HigsTrainingCommandError("source trainer loads point_cloud.ply")
-    if method in _HIGS_METHODS:
+    if method in higs_methods:
         if not audit["has_higs_dynamic_api"]:
             raise HigsTrainingCommandError("source tree lacks the dynamic HiGS API")
         if not audit["has_higs_densification_info"]:
@@ -178,11 +200,16 @@ def build_training_invocation(
 
     root = Path(repository_root or Path(__file__).resolve().parents[1]).resolve()
     launcher = root / "benchmark" / "run_higs_full_training.py"
+    protocol_path = Path(
+        protocol_path or root / "benchmark" / "higs-paper-protocol.json"
+    ).resolve()
     executable = python_executable or sys.executable
     iterations = training["iterations"]
     command = [
         executable,
         str(launcher),
+        "--protocol",
+        str(protocol_path),
         "--method",
         method,
         "--scene",
@@ -216,13 +243,13 @@ def build_training_invocation(
             "official gsplat requires a clean checkout; use a separate patched "
             "source tree for HiGS"
         )
-    if method in _HIGS_METHODS and audit["source_state_sha256"] != method_spec.get(
+    if method in higs_methods and audit["source_state_sha256"] != method_spec.get(
         "source_state_sha256"
     ):
         raise HigsTrainingCommandError(
             "patched HiGS source state does not match the frozen protocol"
         )
-    if method in _HIGS_METHODS and audit["trainer_sha256"] != method_spec.get(
+    if method in higs_methods and audit["trainer_sha256"] != method_spec.get(
         "trainer_sha256"
     ):
         raise HigsTrainingCommandError(
@@ -242,7 +269,7 @@ def build_training_invocation(
         "source_diff_sha256": audit["source_diff_sha256"],
         "source_state_sha256": audit["source_state_sha256"],
     }
-    if method in _HIGS_METHODS and patch_path.is_file():
+    if method in higs_methods and patch_path.is_file():
         patch_sha256 = _sha256(patch_path)
         if patch_sha256 != method_spec.get("patch_sha256"):
             raise HigsTrainingCommandError(
