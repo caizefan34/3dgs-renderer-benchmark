@@ -89,6 +89,9 @@ class HigsTopologyProtocolTest(unittest.TestCase):
         self.assertTrue(cfg["higs_calibrate_scene"])
         self.assertEqual(cfg["higs_calibrate_min_speedup_ratio"], 0.85)
         self.assertTrue(cfg["higs_segment_timing"])
+        self.assertTrue(cfg["higs_densify_anchor_fullres"])
+        cfg30 = self.protocol["methods"]["higs_topology_30k"]["algorithm"]["trainer_cfg"]
+        self.assertTrue(cfg30["higs_densify_anchor_fullres"])
         self.assertEqual(self.protocol["methods"]["higs_topology_30k"]["algorithm"]["max_steps"], 30000)
 
     def test_trainer_cfg_kwargs_passes_topology_fields(self):
