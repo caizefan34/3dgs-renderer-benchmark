@@ -1,4 +1,4 @@
-"""Focused tests for the Phase-4c error-guided sparse tile-sampling protocol.
+﻿"""Focused tests for the Phase-4c error-guided sparse tile-sampling protocol.
 
 Pre-registered exploration matrix exploration_accel4_11s0: 5 methods x 11 scenes
 x seed 0 = 55 jobs. All HiGS candidates use the accel4 source tree
@@ -35,8 +35,8 @@ ACCEL4_METHODS = [
     "higs_eg_sparse_phase_30k_r07",
 ]
 EG_METHODS = ACCEL4_METHODS[1:]
-PATCH_SHA256 = "004dc6c62b365bb892aef4319bfb9752f7d5f5547c6663883d6e40213afd9667"
-TRAINER_SHA256 = "fd7865499e3f7cd1fb6d45342a265991279563e80d72509d0d0892975e8bce8f"
+PATCH_SHA256 = "56b2d49889ffd63b1627c65c760ccf83a406981dde177852a26fd562994a8cb6"
+TRAINER_SHA256 = "1d2fac9659f02d39c42314d7aa0ec1776e283ac771cec2beaf14cc1f77fd37b5"
 DENSIFY_END = 15000
 
 
@@ -146,5 +146,24 @@ class HigsAccel4ProtocolTest(unittest.TestCase):
         self.assertEqual(digest, PATCH_SHA256)
 
 
+    def test_patch_guards_ssim_outside_sparse_branch(self):
+        """Regression: the sparse branch must not fall through to the
+        unconditional ``ssimloss = ssim_loss(colors_ssim, ...)`` line. Before
+        the fix, that line reused the previous step's ``colors_ssim`` /
+        ``pixels_ssim`` loop variables (already-backwarded graph), crashing
+        with "Trying to backward through the graph a second time" at the
+        first sparse step (15000)."""
+        patch = (ROOT / "patches" / "higs-accel4.patch").read_text(encoding="utf-8")
+        self.assertIn("if not use_sparse_loss:", patch)
+        self.assertNotIn(
+            "            ssimloss = ssim_loss(\n"
+            "                colors_ssim.permute(0, 3, 1, 2), pixels_ssim.permute(0, 3, 1, 2)\n"
+            "            )\n"
+            "            loss = torch.lerp(l1loss, ssimloss, cfg.ssim_lambda)",
+            patch,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
+
