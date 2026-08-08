@@ -106,3 +106,18 @@
 | higs_sched_27k | mipnerf360/stump | 1.271 | 1574 | 1239 |
 | higs_sched_27k | tanks_and_temples/train | 1.005 | 516 | 514 |
 | higs_sched_27k | tanks_and_temples/truck | 1.220 | 498 | 408 |
+## Contamination note (GPU co-tenancy)
+
+During the accel8 run, EPIC GPUs 2 and 3 were concurrently occupied by
+other tenants (confirmed via nvidia-smi at run completion: 61 GB / 59 GB
+resident, ~40-50% util). Jobs scheduled on those GPUs therefore include
+wall-clock contention artifacts, most visibly:
+
+- `gsplat_27k_dens600` mipnerf360/stump: 2824 s vs 1412 s control (speedup 0.557)
+- `gsplat_27k_preload_accum8` tanks_and_temples/train: 1166 s vs 467 s control (speedup 0.443)
+
+Quality metrics (PSNR/SSIM/LPIPS) are checkpoint-based and unaffected by
+co-tenancy; all quality gates fail regardless, so the negative conclusion
+for accel8 is robust to this contamination. Speed gates for the affected
+jobs are treated as uninformative. accel9 was launched on the 6 idle GPUs
+(0,1,4,5,6,7) to keep speed measurements clean.
