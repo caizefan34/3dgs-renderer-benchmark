@@ -272,7 +272,8 @@ def build_training_invocation(
         raise HigsTrainingCommandError(
             "patched HiGS trainer does not match the frozen protocol"
         )
-    patch_path = root / "patches" / "higs-differentiable.patch"
+    patch_relative = (method_spec.get("patches") or ["patches/higs-differentiable.patch"])[0]
+    patch_path = root / patch_relative
     extension_cache = (
         root
         / "artifacts"
