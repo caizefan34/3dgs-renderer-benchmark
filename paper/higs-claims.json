@@ -1,433 +1,492 @@
 {
-  "schema_version": "1.0",
-  "track_id": "higs",
-  "paper_scope": "A differentiable HiGS training method with a native CUDA backward and hierarchy-aware sparse/progressive training.",
-  "contributions": [
+ "schema_version": "1.0",
+ "track_id": "higs",
+ "paper_scope": "A differentiable HiGS training method with a native CUDA backward and hierarchy-aware sparse/progressive training.",
+ "contributions": [
+  {
+   "id": "native_backward",
+   "statement": "A native differentiable HiGS backward with explicit gradient and topology-lifecycle contracts."
+  },
+  {
+   "id": "training_method",
+   "statement": "A hierarchy-aware sparse and progressive training method that reduces end-to-end training cost."
+  },
+  {
+   "id": "evaluation",
+   "statement": "A reproducible analysis of speed, quality, memory, and failure modes across scene scales."
+  }
+ ],
+ "claims": [
+  {
+   "id": "tracked-multiseed-study",
+   "contribution_id": "evaluation",
+   "statement": "The tracked A100 R60 short-horizon, pretrained-Ply artifact contains three-seed aggregate groups for Train, Garden, and Bicycle under the masked-Adam study.",
+   "status": "supported",
+   "evidence": [
     {
-      "id": "native_backward",
-      "statement": "A native differentiable HiGS backward with explicit gradient and topology-lifecycle contracts."
-    },
-    {
-      "id": "training_method",
-      "statement": "A hierarchy-aware sparse and progressive training method that reduces end-to-end training cost."
-    },
-    {
-      "id": "evaluation",
-      "statement": "A reproducible analysis of speed, quality, memory, and failure modes across scene scales."
+     "path": "results/higs-round60/r60-summary.json",
+     "sha256": "fe5191806c0c70bc94b600e0e95db31b28b48e8d9b3ec93b11e8165da411b604",
+     "assertions": [
+      {
+       "type": "value_equals",
+       "pointer": "/device",
+       "equals": "NVIDIA A100-SXM4-80GB"
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/groups/train_ma/n",
+       "equals": 3
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/groups/garden_ma/n",
+       "equals": 3
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/groups/bicycle_ma/n",
+       "equals": 3
+      }
+     ]
     }
-  ],
-  "claims": [
+   ]
+  },
+  {
+   "id": "full-convergence-quality",
+   "contribution_id": "training_method",
+   "statement": "The proposed method reduces complete training wall time while matching final full-training quality across standard datasets.",
+   "status": "blocked",
+   "blocking_gate": "The frozen 165-job confirmatory matrix (5 methods x 11 scenes x 3 seeds, 30k steps, A100) shows neither frozen candidate preserves quality at the pre-registered margins: higs_switch_12k PSNR paired-delta mean -0.196 dB (95% CI [-0.351, -0.054], margin >= -0.10 dB), SSIM CI [-0.00831, -0.00265] (margin >= -0.003), LPIPS CI [0.00260, 0.00720] (margin <= +0.005); higs_switch_21k PSNR CI [-0.618, -0.184] is likewise below margin. Neither candidate meets the >=10% wall-time reduction gate either (switch_12k speedup-ratio mean 1.102 < 1.111 required; switch_21k mean 1.164 but ratio 95% CI lower 0.753 < 1.0). higs_full preserves PSNR/SSIM/LPIPS at the margins (PSNR CI [-0.052, 0.037]) but is not faster (wall-time delta +19.9 s, speedup ratio 0.965). A quality-preserving >=10% end-to-end wall-time reduction was not demonstrated. Phase-3 topology-preserving exploration (exploration_topology_11s0, 4 methods x 11 scenes x seed 0, 44 jobs) additionally shows no HiGS candidate preserves quality at the seed-0 margins (higs_visible_27k PSNR CI [-0.275, +0.022], SSIM/LPIPS fail; higs_topology_27k PSNR CI [-1.462, -0.034]; higs_topology_30k PSNR CI [-0.925, -0.030] with speedup-ratio CI lower 0.796), while the plain official gsplat_27k early-stop control passes all gates at seed 0 (speedup-ratio mean 1.120, CI lower 1.067) - confirming the observed 27k speedup is ordinary early-stop rather than a HiGS mechanism. No HiGS candidate was frozen; no confirmatory matrix was run for HiGS."
+  },
+  {
+   "id": "full-convergence-matrix-executed",
+   "contribution_id": "evaluation",
+   "statement": "A frozen 210-job A100 full-training matrix executed end-to-end with zero failed or missing jobs (original_3dgs 33, gsplat 48, higs_full 48, higs_proposed 48, speedy_splat 33); the proposed method trains from SfM initialization with lower mean peak GPU memory than the gsplat control (2.79 vs 3.72 GiB).",
+   "status": "supported",
+   "evidence": [
     {
-      "id": "tracked-multiseed-study",
-      "contribution_id": "evaluation",
-      "statement": "The tracked A100 R60 short-horizon, pretrained-Ply artifact contains three-seed aggregate groups for Train, Garden, and Bicycle under the masked-Adam study.",
-      "status": "supported",
-      "evidence": [
-        {
-          "path": "results/higs-round60/r60-summary.json",
-          "sha256": "fe5191806c0c70bc94b600e0e95db31b28b48e8d9b3ec93b11e8165da411b604",
-          "assertions": [
-            {
-              "type": "value_equals",
-              "pointer": "/device",
-              "equals": "NVIDIA A100-SXM4-80GB"
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/groups/train_ma/n",
-              "equals": 3
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/groups/garden_ma/n",
-              "equals": 3
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/groups/bicycle_ma/n",
-              "equals": 3
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "full-convergence-quality",
-      "contribution_id": "training_method",
-      "statement": "The proposed method reduces complete training wall time while matching final full-training quality across standard datasets.",
-      "status": "blocked",
-      "blocking_gate": "The frozen 165-job confirmatory matrix (5 methods x 11 scenes x 3 seeds, 30k steps, A100) shows neither frozen candidate preserves quality at the pre-registered margins: higs_switch_12k PSNR paired-delta mean -0.196 dB (95% CI [-0.351, -0.054], margin >= -0.10 dB), SSIM CI [-0.00831, -0.00265] (margin >= -0.003), LPIPS CI [0.00260, 0.00720] (margin <= +0.005); higs_switch_21k PSNR CI [-0.618, -0.184] is likewise below margin. Neither candidate meets the >=10% wall-time reduction gate either (switch_12k speedup-ratio mean 1.102 < 1.111 required; switch_21k mean 1.164 but ratio 95% CI lower 0.753 < 1.0). higs_full preserves PSNR/SSIM/LPIPS at the margins (PSNR CI [-0.052, 0.037]) but is not faster (wall-time delta +19.9 s, speedup ratio 0.965). A quality-preserving >=10% end-to-end wall-time reduction was not demonstrated."
-    },
-    {
-      "id": "full-convergence-matrix-executed",
-      "contribution_id": "evaluation",
-      "statement": "A frozen 210-job A100 full-training matrix executed end-to-end with zero failed or missing jobs (original_3dgs 33, gsplat 48, higs_full 48, higs_proposed 48, speedy_splat 33); the proposed method trains from SfM initialization with lower mean peak GPU memory than the gsplat control (2.79 vs 3.72 GiB).",
-      "status": "supported",
-      "evidence": [
-        {
-          "path": "paper/higs/tables/matrix-summary.json",
-          "sha256": "7012fbe106527b2bfa1e12576b861919435f6cbca8021cf470b61dccd7eef6bb",
-          "assertions": [
-            {
-              "type": "value_equals",
-              "pointer": "/report/complete",
-              "equals": 210
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/report/failed",
-              "equals": 0
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/report/missing",
-              "equals": 0
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/original_3dgs/jobs",
-              "equals": 33
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/gsplat/jobs",
-              "equals": 48
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_full/jobs",
-              "equals": 48
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_proposed/jobs",
-              "equals": 48
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/speedy_splat/jobs",
-              "equals": 33
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/gsplat/peak_gpu_memory_mib_mean",
-              "equals": 3809.487,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/gsplat/psnr_db_mean",
-              "equals": 28.288,
-              "tolerance": 0.01
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/gsplat/time_to_quality_seconds_mean",
-              "equals": 516.257,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/gsplat/wall_time_seconds_mean",
-              "equals": 594.006,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_full/peak_gpu_memory_mib_mean",
-              "equals": 3780.027,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_full/psnr_db_mean",
-              "equals": 28.27,
-              "tolerance": 0.01
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_full/time_to_quality_seconds_mean",
-              "equals": 505.27,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_full/wall_time_seconds_mean",
-              "equals": 576.823,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_proposed/peak_gpu_memory_mib_mean",
-              "equals": 2854.156,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_proposed/psnr_db_mean",
-              "equals": 27.872,
-              "tolerance": 0.01
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_proposed/time_to_quality_seconds_mean",
-              "equals": 538.704,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_proposed/wall_time_seconds_mean",
-              "equals": 541.863,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/speedy_splat/peak_gpu_memory_mib_mean",
-              "equals": 6094.091,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/speedy_splat/psnr_db_mean",
-              "equals": 27.958,
-              "tolerance": 0.01
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/speedy_splat/time_to_quality_seconds_mean",
-              "equals": 1064.981,
-              "tolerance": 1
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/speedy_splat/wall_time_seconds_mean",
-              "equals": 1288.745,
-              "tolerance": 1
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "official-speedy-splat-cohort-executed",
-      "contribution_id": "evaluation",
-      "statement": "The official Speedy-Splat training path (pinned 34c45c6d with audited seed and simple-knn portability patches) executed a frozen 33-job A100 full-training cohort with zero failed or missing jobs on the same 11 scenes and 3 seeds as the HiGS matrix.",
-      "status": "supported",
-      "evidence": [
-        {
-          "path": "paper/higs/tables/matrix-summary.json",
-          "sha256": "7012fbe106527b2bfa1e12576b861919435f6cbca8021cf470b61dccd7eef6bb",
-          "assertions": [
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/speedy_splat/jobs",
-              "equals": 33
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/report/complete",
-              "equals": 210
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/speedy_splat/psnr_db_mean",
-              "equals": 27.958,
-              "tolerance": 0.01
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/speedy_splat/wall_time_seconds_mean",
-              "equals": 1288.745,
-              "tolerance": 1
-            }
-          ]
-        },
-        {
-          "path": "paper/higs/speedy-splat-runner-readiness.json",
-          "sha256": "0961f62649de8530a89f7a16295400d8237f0aa3b95d87463d2763278af6be0b",
-          "assertions": [
-            {
-              "type": "value_equals",
-              "pointer": "/method",
-              "equals": "speedy_splat"
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/run_kind",
-              "equals": "smoke"
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/paper_eligible",
-              "equals": false
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/clean_process",
-              "equals": true
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/source/commit",
-              "equals": "34c45c6d9b8bd6110231864f2f358b6d3abbf73d"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "official-training-baselines",
-      "contribution_id": "evaluation",
-      "statement": "The method outperforms current training accelerators under their official implementations and matched quality targets.",
-      "status": "blocked",
-      "blocking_gate": "Official Speedy-Splat runs (33 jobs) are now executed from the pinned upstream source (34c45c6d) under the frozen protocol; the claim remains blocked because Turbo-GS has not released training code and a quality-matched acceleration advantage over the official accelerators has not been demonstrated."
-    },
-    {
-      "id": "cross-hardware-training",
-      "contribution_id": "evaluation",
-      "statement": "The training improvement generalizes beyond the A100 cohort.",
-      "status": "blocked",
-      "blocking_gate": "Repeat the frozen training matrix on at least one consumer GPU and one additional data-center architecture, reporting separate cohorts."
-    },
-    {
-      "id": "ablation-mechanism-isolation",
-      "contribution_id": "training_method",
-      "statement": "The 30k from-SfM ablation pilot (5 scenes x seed 0, 40 A100 jobs) isolates visibility-masked Adam, progressive resolution, and switch-step sensitivity in benchmark/higs-ablation-protocol.json.",
-      "status": "blocked",
-      "blocking_gate": "Requires completed ablation pilot results validated by validate_higs_ablation_results.py; do not mark supported until per-method tables and paired statistics exist."
-    },
-    {
-      "id": "confirmatory-matrix-executed",
-      "contribution_id": "evaluation",
-      "statement": "A frozen 165-job confirmatory matrix (5 methods x 11 scenes x 3 seeds, 30k steps, A100) executed end-to-end with zero failed or missing jobs and passed validation by validate_higs_ablation_results.py against the frozen protocol (frozen_candidates=switch_12k,switch_21k).",
-      "status": "supported",
-      "evidence": [
-        {
-          "path": "paper/higs/tables/confirmatory-summary.json",
-          "sha256": "8720fcdef60b7f0d6e03b26d204e87b214f511a25d63a0f6d7822f6ed05c35a8",
-          "assertions": [
-            {
-              "type": "value_equals",
-              "pointer": "/matrix",
-              "equals": "confirmatory_formal_30k"
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/jobs_planned",
-              "equals": 165
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/analysis/n_jobs",
-              "equals": 165
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/analysis/n_scenes",
-              "equals": 11
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/analysis/paired_cells",
-              "equals": 33
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/gsplat/jobs_complete",
-              "equals": 33
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_full/jobs_complete",
-              "equals": 33
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_current/jobs_complete",
-              "equals": 33
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_switch_12k/jobs_complete",
-              "equals": 33
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_switch_21k/jobs_complete",
-              "equals": 33
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "confirmatory-ni-decisions",
-      "contribution_id": "evaluation",
-      "statement": "Under the pre-registered non-inferiority margins (PSNR paired-delta 95% CI lower >= -0.10 dB; SSIM >= -0.003; LPIPS <= +0.005; wall-time >= 10% reduction), the confirmatory matrix shows neither frozen candidate (higs_switch_12k, higs_switch_21k) passes the PSNR/SSIM/LPIPS quality gates nor the >=10% wall-time reduction gate (switch_12k speedup-ratio mean 1.102 with CI lower 0.826; switch_21k mean 1.164 with CI lower 0.753); higs_full passes the PSNR/SSIM/LPIPS quality gates but is not faster than the gsplat control (wall-time delta +19.9 s, speedup ratio 0.965).",
-      "status": "supported",
-      "evidence": [
-        {
-          "path": "paper/higs/tables/confirmatory-summary.json",
-          "sha256": "8720fcdef60b7f0d6e03b26d204e87b214f511a25d63a0f6d7822f6ed05c35a8",
-          "assertions": [
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_switch_12k/psnr_db/ni_passed",
-              "equals": false
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_switch_12k/ssim/ni_passed",
-              "equals": false
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_switch_12k/lpips/ni_passed",
-              "equals": false
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_switch_12k/wall_speedup_ratio/accel_passed",
-              "equals": false
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_switch_21k/psnr_db/ni_passed",
-              "equals": false
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_switch_21k/wall_speedup_ratio/accel_passed",
-              "equals": false
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_full/psnr_db/ni_passed",
-              "equals": true
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_full/ssim/ni_passed",
-              "equals": true
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_full/lpips/ni_passed",
-              "equals": true
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_full/wall_speedup_ratio/accel_passed",
-              "equals": false
-            },
-            {
-              "type": "value_equals",
-              "pointer": "/per_method/higs_current/psnr_db/ni_passed",
-              "equals": false
-            }
-          ]
-        }
-      ]
+     "path": "paper/higs/tables/matrix-summary.json",
+     "sha256": "7012fbe106527b2bfa1e12576b861919435f6cbca8021cf470b61dccd7eef6bb",
+     "assertions": [
+      {
+       "type": "value_equals",
+       "pointer": "/report/complete",
+       "equals": 210
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/report/failed",
+       "equals": 0
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/report/missing",
+       "equals": 0
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/original_3dgs/jobs",
+       "equals": 33
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/gsplat/jobs",
+       "equals": 48
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_full/jobs",
+       "equals": 48
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_proposed/jobs",
+       "equals": 48
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/speedy_splat/jobs",
+       "equals": 33
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/gsplat/peak_gpu_memory_mib_mean",
+       "equals": 3809.487,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/gsplat/psnr_db_mean",
+       "equals": 28.288,
+       "tolerance": 0.01
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/gsplat/time_to_quality_seconds_mean",
+       "equals": 516.257,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/gsplat/wall_time_seconds_mean",
+       "equals": 594.006,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_full/peak_gpu_memory_mib_mean",
+       "equals": 3780.027,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_full/psnr_db_mean",
+       "equals": 28.27,
+       "tolerance": 0.01
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_full/time_to_quality_seconds_mean",
+       "equals": 505.27,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_full/wall_time_seconds_mean",
+       "equals": 576.823,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_proposed/peak_gpu_memory_mib_mean",
+       "equals": 2854.156,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_proposed/psnr_db_mean",
+       "equals": 27.872,
+       "tolerance": 0.01
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_proposed/time_to_quality_seconds_mean",
+       "equals": 538.704,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_proposed/wall_time_seconds_mean",
+       "equals": 541.863,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/speedy_splat/peak_gpu_memory_mib_mean",
+       "equals": 6094.091,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/speedy_splat/psnr_db_mean",
+       "equals": 27.958,
+       "tolerance": 0.01
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/speedy_splat/time_to_quality_seconds_mean",
+       "equals": 1064.981,
+       "tolerance": 1
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/speedy_splat/wall_time_seconds_mean",
+       "equals": 1288.745,
+       "tolerance": 1
+      }
+     ]
     }
-  ]
+   ]
+  },
+  {
+   "id": "official-speedy-splat-cohort-executed",
+   "contribution_id": "evaluation",
+   "statement": "The official Speedy-Splat training path (pinned 34c45c6d with audited seed and simple-knn portability patches) executed a frozen 33-job A100 full-training cohort with zero failed or missing jobs on the same 11 scenes and 3 seeds as the HiGS matrix.",
+   "status": "supported",
+   "evidence": [
+    {
+     "path": "paper/higs/tables/matrix-summary.json",
+     "sha256": "7012fbe106527b2bfa1e12576b861919435f6cbca8021cf470b61dccd7eef6bb",
+     "assertions": [
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/speedy_splat/jobs",
+       "equals": 33
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/report/complete",
+       "equals": 210
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/speedy_splat/psnr_db_mean",
+       "equals": 27.958,
+       "tolerance": 0.01
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/speedy_splat/wall_time_seconds_mean",
+       "equals": 1288.745,
+       "tolerance": 1
+      }
+     ]
+    },
+    {
+     "path": "paper/higs/speedy-splat-runner-readiness.json",
+     "sha256": "0961f62649de8530a89f7a16295400d8237f0aa3b95d87463d2763278af6be0b",
+     "assertions": [
+      {
+       "type": "value_equals",
+       "pointer": "/method",
+       "equals": "speedy_splat"
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/run_kind",
+       "equals": "smoke"
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/paper_eligible",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/clean_process",
+       "equals": true
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/source/commit",
+       "equals": "34c45c6d9b8bd6110231864f2f358b6d3abbf73d"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "official-training-baselines",
+   "contribution_id": "evaluation",
+   "statement": "The method outperforms current training accelerators under their official implementations and matched quality targets.",
+   "status": "blocked",
+   "blocking_gate": "Official Speedy-Splat runs (33 jobs) are now executed from the pinned upstream source (34c45c6d) under the frozen protocol; the claim remains blocked because Turbo-GS has not released training code and a quality-matched acceleration advantage over the official accelerators has not been demonstrated."
+  },
+  {
+   "id": "cross-hardware-training",
+   "contribution_id": "evaluation",
+   "statement": "The training improvement generalizes beyond the A100 cohort.",
+   "status": "blocked",
+   "blocking_gate": "Repeat the frozen training matrix on at least one consumer GPU and one additional data-center architecture, reporting separate cohorts."
+  },
+  {
+   "id": "ablation-mechanism-isolation",
+   "contribution_id": "training_method",
+   "statement": "The 30k from-SfM ablation pilot (5 scenes x seed 0, 40 A100 jobs) isolates visibility-masked Adam, progressive resolution, and switch-step sensitivity in benchmark/higs-ablation-protocol.json.",
+   "status": "blocked",
+   "blocking_gate": "Requires completed ablation pilot results validated by validate_higs_ablation_results.py; do not mark supported until per-method tables and paired statistics exist."
+  },
+  {
+   "id": "confirmatory-matrix-executed",
+   "contribution_id": "evaluation",
+   "statement": "A frozen 165-job confirmatory matrix (5 methods x 11 scenes x 3 seeds, 30k steps, A100) executed end-to-end with zero failed or missing jobs and passed validation by validate_higs_ablation_results.py against the frozen protocol (frozen_candidates=switch_12k,switch_21k).",
+   "status": "supported",
+   "evidence": [
+    {
+     "path": "paper/higs/tables/confirmatory-summary.json",
+     "sha256": "8720fcdef60b7f0d6e03b26d204e87b214f511a25d63a0f6d7822f6ed05c35a8",
+     "assertions": [
+      {
+       "type": "value_equals",
+       "pointer": "/matrix",
+       "equals": "confirmatory_formal_30k"
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/jobs_planned",
+       "equals": 165
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/analysis/n_jobs",
+       "equals": 165
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/analysis/n_scenes",
+       "equals": 11
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/analysis/paired_cells",
+       "equals": 33
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/gsplat/jobs_complete",
+       "equals": 33
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_full/jobs_complete",
+       "equals": 33
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_current/jobs_complete",
+       "equals": 33
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_switch_12k/jobs_complete",
+       "equals": 33
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_switch_21k/jobs_complete",
+       "equals": 33
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "confirmatory-ni-decisions",
+   "contribution_id": "evaluation",
+   "statement": "Under the pre-registered non-inferiority margins (PSNR paired-delta 95% CI lower >= -0.10 dB; SSIM >= -0.003; LPIPS <= +0.005; wall-time >= 10% reduction), the confirmatory matrix shows neither frozen candidate (higs_switch_12k, higs_switch_21k) passes the PSNR/SSIM/LPIPS quality gates nor the >=10% wall-time reduction gate (switch_12k speedup-ratio mean 1.102 with CI lower 0.826; switch_21k mean 1.164 with CI lower 0.753); higs_full passes the PSNR/SSIM/LPIPS quality gates but is not faster than the gsplat control (wall-time delta +19.9 s, speedup ratio 0.965).",
+   "status": "supported",
+   "evidence": [
+    {
+     "path": "paper/higs/tables/confirmatory-summary.json",
+     "sha256": "8720fcdef60b7f0d6e03b26d204e87b214f511a25d63a0f6d7822f6ed05c35a8",
+     "assertions": [
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_switch_12k/psnr_db/ni_passed",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_switch_12k/ssim/ni_passed",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_switch_12k/lpips/ni_passed",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_switch_12k/wall_speedup_ratio/accel_passed",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_switch_21k/psnr_db/ni_passed",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_switch_21k/wall_speedup_ratio/accel_passed",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_full/psnr_db/ni_passed",
+       "equals": true
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_full/ssim/ni_passed",
+       "equals": true
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_full/lpips/ni_passed",
+       "equals": true
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_full/wall_speedup_ratio/accel_passed",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_current/psnr_db/ni_passed",
+       "equals": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "topology-exploration-11s0",
+   "contribution_id": "evaluation",
+   "statement": "The frozen topology-preserving exploration matrix exploration_topology_11s0 (4 methods x 11 scenes x seed 0 = 44 A100 jobs) executed end-to-end with zero failed or missing jobs. Under the pre-registered seed-0 gates, the plain official 27k-step gsplat early-stop control passes all gates (PSNR paired-delta 95% CI lower -0.092 >= -0.10 dB; SSIM lower -0.0017 >= -0.003; LPIPS upper +0.0039 <= +0.005; wall speedup-ratio mean 1.120 >= 1.111 with ratio CI lower 1.067 > 1.0; TTQ faster), while every HiGS candidate fails the quality non-inferiority margins: higs_visible_27k PSNR CI [-0.275, +0.022], higs_topology_27k PSNR CI [-1.462, -0.034], higs_topology_30k PSNR CI [-0.925, -0.030]. The observed 27k acceleration is therefore attributable to ordinary early-stop, not to the HiGS mechanisms (visible/selective Adam, cached low-resolution window, full-resolution densification anchors); no HiGS candidate qualifies for a confirmatory matrix.",
+   "status": "supported",
+   "evidence": [
+    {
+     "path": "paper/higs/tables/topology-exploration-summary.json",
+     "sha256": "69df8e92ee5b9c1a1bcc5af2a077e576f29db3b3cd5d608a67b439f5fd3fffd7",
+     "assertions": [
+      {
+       "type": "value_equals",
+       "pointer": "/n_jobs",
+       "equals": 44
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/gsplat_27k/psnr_db/ni_passed",
+       "equals": true
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/gsplat_27k/ssim/ni_passed",
+       "equals": true
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/gsplat_27k/lpips/ni_passed",
+       "equals": true
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/gsplat_27k/wall_speedup_ratio/accel_passed",
+       "equals": true
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_visible_27k/psnr_db/ni_passed",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_topology_27k/psnr_db/ni_passed",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_topology_30k/psnr_db/ni_passed",
+       "equals": false
+      },
+      {
+       "type": "value_equals",
+       "pointer": "/per_method/higs_topology_30k/wall_speedup_ratio/accel_passed",
+       "equals": false
+      }
+     ]
+    }
+   ]
+  }
+ ]
 }
