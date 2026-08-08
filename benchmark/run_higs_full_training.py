@@ -45,7 +45,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--result-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--init-type", choices=("sfm",), default="sfm")
-    parser.add_argument("--max-steps", type=int, choices=(30_000,), default=30_000)
+    parser.add_argument("--max-steps", type=int, default=30_000,
+                        help="training budget in steps (1..30000; audited per-method protocol override)")
     parser.add_argument(
         "--smoke-steps",
         type=int,
@@ -110,6 +111,8 @@ def main() -> int:
     trainer, imported_gsplat = _load_trainer(args.source_dir)
     if args.smoke_steps is not None and args.smoke_steps < 1:
         raise SystemExit("--smoke-steps must be positive")
+    if not (1 <= args.max_steps <= 30_000):
+        raise SystemExit("--max-steps must be in [1, 30000]")
     effective_steps = args.smoke_steps or args.max_steps
 
     upstream_set_seed = trainer.set_random_seed

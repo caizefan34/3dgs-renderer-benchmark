@@ -62,7 +62,7 @@ def build_ablation_experiment_plan(protocol: dict) -> list[dict]:
                 "hardware": hardware,
                 "seed": seed,
                 "initialization": training["initialization"],
-                "iterations": training["iterations"],
+                "iterations": (method_spec.get("algorithm") or {}).get("max_steps") or training["iterations"],
                 "executable": (
                     method_spec["runner_status"] == "ready"
                     and hardware_spec["runner_status"] == "ready"
@@ -131,6 +131,13 @@ def validate_ablation_protocol(protocol: dict) -> dict:
             f"ablation protocol is missing required methods: {sorted(missing)}"
         )
     for method_id, method in methods.items():
+        override = (method.get("algorithm") or {}).get("max_steps")
+        if override is not None and (
+            not isinstance(override, int) or not (1 <= override <= 30_000)
+        ):
+            raise HigsAblationProtocolError(
+                f"method {method_id}: algorithm.max_steps must be an integer in [1, 30000]"
+            )
         if method.get("runner_status") == "ready" and not (
             method.get("repository") and method.get("commit")
         ):

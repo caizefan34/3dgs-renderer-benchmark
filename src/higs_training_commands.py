@@ -34,6 +34,26 @@ def trainer_cfg_kwargs(method_spec: dict) -> dict:
     return cfg_kwargs
 
 
+def _method_iterations(protocol: dict, method_spec: dict) -> int:
+    """Audited per-method training budget (steps).
+
+    A method may declare ``algorithm.max_steps`` to override the protocol-wide
+    30k budget (short-tail exploration); otherwise the frozen protocol requires
+    exactly 30_000 iterations.
+    """
+    override = (method_spec.get("algorithm") or {}).get("max_steps")
+    if override is None:
+        training = protocol.get("training", {})
+        if training.get("iterations") != 30_000:
+            raise HigsTrainingCommandError("paper training budget must be exactly 30000")
+        return training["iterations"]
+    if not isinstance(override, int) or not (1 <= override <= 30_000):
+        raise HigsTrainingCommandError(
+            f"per-method max_steps must be an integer in [1, 30000], got {override!r}"
+        )
+    return override
+
+
 
 
 def _sha256(path: Path) -> str:
@@ -170,9 +190,6 @@ def build_training_invocation(
     training = protocol.get("training", {})
     if training.get("initialization") != "from_scratch_sfm":
         raise HigsTrainingCommandError("paper training must initialize from SfM")
-    if training.get("iterations") != 30_000:
-        raise HigsTrainingCommandError("paper training budget must be exactly 30000")
-
     data_dir = Path(data_dir)
     if data_dir.suffix.lower() in _CHECKPOINT_SUFFIXES:
         raise HigsTrainingCommandError(
@@ -204,7 +221,8 @@ def build_training_invocation(
         protocol_path or root / "benchmark" / "higs-paper-protocol.json"
     ).resolve()
     executable = python_executable or sys.executable
-    iterations = training["iterations"]
+    method_spec = protocol["methods"][method]
+    iterations = _method_iterations(protocol, method_spec)
     command = [
         executable,
         str(launcher),
@@ -227,7 +245,6 @@ def build_training_invocation(
         "--max-steps",
         str(iterations),
     ]
-    method_spec = protocol["methods"][method]
     expected_commit = method_spec.get("commit")
     if not audit["git_root_verified"] or audit["head_commit"] != expected_commit:
         raise HigsTrainingCommandError(

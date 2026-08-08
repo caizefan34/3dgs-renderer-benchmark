@@ -319,3 +319,39 @@ class HigsAblationTrainingCommandTest(unittest.TestCase):
         command = invocation["command"]
         self.assertEqual(command[command.index("--method") + 1], "higs_switch_15k")
         self.assertEqual(invocation["iterations"], 30000)
+    def test_per_method_max_steps_override_sets_exact_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, commit = self._higs_source(Path(tmp))
+            protocol = self._ablation_protocol(commit, source)
+            protocol["methods"]["higs_visible_only"]["algorithm"]["max_steps"] = 25000
+            invocation = build_training_invocation(
+                protocol=protocol,
+                method="higs_visible_only",
+                scene="mipnerf360/garden",
+                seed=0,
+                data_dir=Path(tmp) / "garden",
+                result_dir=Path(tmp) / "result",
+                source_dir=source,
+                python_executable="python",
+                protocol_path=ROOT / "benchmark" / "higs-ablation-protocol.json",
+            )
+        command = invocation["command"]
+        self.assertEqual(invocation["iterations"], 25000)
+        self.assertEqual(command[command.index("--max-steps") + 1], "25000")
+
+    def test_rejects_out_of_range_per_method_max_steps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, commit = self._higs_source(Path(tmp))
+            protocol = self._ablation_protocol(commit, source)
+            protocol["methods"]["higs_visible_only"]["algorithm"]["max_steps"] = 50000
+            with self.assertRaisesRegex(HigsTrainingCommandError, "max_steps"):
+                build_training_invocation(
+                    protocol=protocol,
+                    method="higs_visible_only",
+                    scene="mipnerf360/garden",
+                    seed=0,
+                    data_dir=Path(tmp) / "garden",
+                    result_dir=Path(tmp) / "result",
+                    source_dir=source,
+                    protocol_path=ROOT / "benchmark" / "higs-ablation-protocol.json",
+                )

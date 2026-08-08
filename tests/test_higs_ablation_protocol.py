@@ -115,6 +115,26 @@ class HigsAblationProtocolTest(unittest.TestCase):
         with self.assertRaisesRegex(HigsAblationProtocolError, "a100"):
             validate_ablation_protocol(protocol)
 
+    def test_shorttail_protocol_plans_per_method_budgets(self):
+        path = ROOT / "benchmark" / "higs-shorttail-protocol.json"
+        protocol = json.loads(path.read_text(encoding="utf-8"))
+        report = validate_ablation_protocol(protocol)
+        self.assertEqual(report["status"], "ablation_protocol_ready")
+        plan = build_ablation_experiment_plan(protocol)
+        shorttail = [job for job in plan if job["matrix"] == "exploration_shorttail_11s0"]
+        self.assertEqual(len(shorttail), 44)
+        by_method = {job["method"]: job["iterations"] for job in shorttail}
+        self.assertEqual(by_method["gsplat_25k"], 25000)
+        self.assertEqual(by_method["higs_visible_24k"], 24000)
+        self.assertEqual(by_method["higs_visible_25k"], 25000)
+        self.assertEqual(by_method["higs_visible_27k"], 27000)
+
+    def test_rejects_out_of_range_per_method_max_steps(self):
+        protocol = copy.deepcopy(self.protocol)
+        protocol["methods"]["higs_visible_only"]["algorithm"]["max_steps"] = 40000
+        with self.assertRaisesRegex(HigsAblationProtocolError, "max_steps"):
+            validate_ablation_protocol(protocol)
+
 
 if __name__ == "__main__":
     unittest.main()
