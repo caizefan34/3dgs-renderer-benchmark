@@ -27,6 +27,31 @@ _REQUIRED_CONFIRMATORY_METHODS = {
     "higs_switch_21k",
 }
 
+# Confirmatory matrices are fail-closed: each frozen id pins its exact method
+# set, matched controls, and frozen candidates. New confirmatory matrices must
+# be added here (with tests) before they can appear in a protocol.
+_CONFIRMATORY_MATRIX_SPECS = {
+    "confirmatory_formal_30k": {
+        "methods": frozenset(_REQUIRED_CONFIRMATORY_METHODS),
+        "matched_controls": frozenset({"gsplat", "higs_full", "higs_current"}),
+        "frozen_candidates": ("higs_switch_12k", "higs_switch_21k"),
+    },
+    "confirmatory_higs_sched_11s3": {
+        "methods": frozenset({
+            "gsplat",
+            "gsplat_27k",
+            "gsplat_27k_preload_accum8",
+            "higs_sched_27k",
+        }),
+        "matched_controls": frozenset({
+            "gsplat",
+            "gsplat_27k",
+            "gsplat_27k_preload_accum8",
+        }),
+        "frozen_candidates": ("higs_sched_27k",),
+    },
+}
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 _REQUIRED_ABLATION_METHODS = {
@@ -73,12 +98,18 @@ def build_ablation_experiment_plan(protocol: dict) -> list[dict]:
 
 def _validate_confirmatory_matrix(
     matrix: dict, methods: dict, scene_ids: list[str], training_seeds: list
-) -> None:
-    """Fail-closed checks for the frozen confirmatory matrix."""
-    if set(matrix["methods"]) != _REQUIRED_CONFIRMATORY_METHODS:
+) -> tuple:
+    """Fail-closed checks for a frozen confirmatory matrix; returns its frozen candidates."""
+    spec = _CONFIRMATORY_MATRIX_SPECS.get(matrix["id"])
+    if spec is None:
+        raise HigsAblationProtocolError(
+            f"{matrix['id']}: unknown confirmatory matrix id; add it to "
+            "_CONFIRMATORY_MATRIX_SPECS with tests"
+        )
+    if set(matrix["methods"]) != spec["methods"]:
         raise HigsAblationProtocolError(
             f"{matrix['id']}: confirmatory methods must be exactly "
-            f"{sorted(_REQUIRED_CONFIRMATORY_METHODS)}"
+            f"{sorted(spec['methods'])}"
         )
     if _selected(matrix["scenes"], scene_ids) != scene_ids:
         raise HigsAblationProtocolError(
@@ -90,10 +121,11 @@ def _validate_confirmatory_matrix(
             f"{matrix['id']}: confirmatory matrix requires >= 3 unique seeds"
         )
     controls = matrix.get("matched_controls", [])
-    if set(controls) != {"gsplat", "higs_full", "higs_current"}:
+    if set(controls) != spec["matched_controls"]:
         raise HigsAblationProtocolError(
-            f"{matrix['id']}: matched_controls must be gsplat/higs_full/higs_current"
+            f"{matrix['id']}: matched_controls must be {sorted(spec['matched_controls'])}"
         )
+    return spec["frozen_candidates"]
 
 
 def validate_ablation_protocol(protocol: dict) -> dict:
@@ -176,10 +208,16 @@ def validate_ablation_protocol(protocol: dict) -> dict:
             _validate_confirmatory_matrix(matrix, methods, scene_ids, seeds)
 
     frozen = protocol.get("frozen_candidates", [])
-    if set(frozen) != {"higs_switch_12k", "higs_switch_21k"}:
+    required_frozen = set()
+    for matrix in protocol.get("matrices", []):
+        if matrix.get("phase") == "confirmatory":
+            required_frozen.update(_validate_confirmatory_matrix(matrix, methods, scene_ids, seeds))
+    if not required_frozen:
+        # Exploration-only protocols keep the legacy frozen-candidate default.
+        required_frozen = set(("higs_switch_12k", "higs_switch_21k"))
+    if set(frozen) != required_frozen:
         raise HigsAblationProtocolError(
-            "confirmatory phase requires frozen_candidates == "
-            "[higs_switch_12k, higs_switch_21k]"
+            f"confirmatory phase requires frozen_candidates == {sorted(required_frozen)}"
         )
 
     plan = build_ablation_experiment_plan(protocol)
@@ -196,7 +234,7 @@ def validate_ablation_protocol(protocol: dict) -> dict:
         "planned_jobs": len(plan),
         "executable_jobs": sum(job["executable"] for job in plan),
         "confirmatory_jobs": sum(
-            job["matrix"] == "confirmatory_formal_30k" for job in plan
+            job["matrix"] in _CONFIRMATORY_MATRIX_SPECS for job in plan
         ),
         "blocked_methods": sorted(
             method_id for method_id, method in methods.items()
