@@ -1,0 +1,4180 @@
+diff --git a/examples/simple_trainer.py b/examples/simple_trainer.py
+index 7b2375d4..802adb83 100644
+--- a/examples/simple_trainer.py
++++ b/examples/simple_trainer.py
+@@ -60,6 +60,80 @@ from gsplat.distributed import cli
+ from gsplat.optimizers import SelectiveAdam
+ from gsplat.rendering import rasterization, RasterizeMode
+ 
++# accel4 sparse / error-guided tile training helpers. Tile masks follow the
++# renderer layout [B, tile_height, tile_width]; frames are channel-last
++# [B, H, W, 3]. The sampled-tile mean is an unbiased estimator of the
++# full-frame mean; the error-guided variant additionally importance-weights
++# tiles so the estimator stays unbiased for any p > 0.
++_HIGS_TILE_SIZE = 16  # must match the renderer tile_size
++
++def _higs_tile_mean_errors(frame, ref, tile_size):
++    """Exact per-tile mean |diff| over RGB (border tiles by real pixels)."""
++    diff = (frame - ref).abs()  # [B, H, W, 3]
++    B, H, W, _ = diff.shape
++    th = (H + tile_size - 1) // tile_size
++    tw = (W + tile_size - 1) // tile_size
++    Hp, Wp = th * tile_size, tw * tile_size
++    diff_pad = torch.nn.functional.pad(diff, (0, 0, 0, Wp - W, 0, Hp - H))
++    tile_sum = diff_pad.reshape(B, th, tile_size, tw, tile_size, 3).sum(
++        dim=(2, 4, 5)
++    )  # [B, th, tw]
++    rows = torch.full((th,), tile_size, dtype=torch.long, device=diff.device)
++    cols = torch.full((tw,), tile_size, dtype=torch.long, device=diff.device)
++    rows[-1] = H - (th - 1) * tile_size
++    cols[-1] = W - (tw - 1) * tile_size
++    count = (rows[:, None] * cols[None, :] * 3).to(diff.dtype)
++    return tile_sum / count  # [B, th, tw]
++
++def _higs_error_guided_mask(tile_err, ratio, alpha, device, lambda_mix=1.0):
++    """Importance-sample k tiles per image with p proportional to err^alpha.
++
++    Returns (mask [B, th*tw] bool, weights [B, th*tw] float32) with weights =
++    m / (k * p) so the weighted sampled estimate is unbiased for any p > 0.
++    """
++    B, th, tw = tile_err.shape
++    n = th * tw
++    k = max(1, int(round(n * ratio)))
++    e = tile_err.reshape(B, n)
++    floor = (1e-3 * e.mean(dim=1, keepdim=True)).clamp_min(1e-6)
++    p = (e + floor) ** alpha
++    p = p / p.sum(dim=1, keepdim=True)
++    if 0.0 <= lambda_mix < 1.0:
++        p = (1.0 - lambda_mix) / n + lambda_mix * p
++    idx = torch.multinomial(p, k, replacement=True)  # [B, k]
++    m = torch.zeros(B, n, dtype=torch.float32, device=e.device)
++    m.scatter_add_(1, idx, torch.ones_like(idx, dtype=torch.float32))
++    mask = m > 0
++    weights = m / (k * p)
++    return mask, weights
++
++def _higs_masked_tile_l1(frame, ref, tile_mask, tile_size, width, height):
++    """Unbiased sampled-tile L1: mean |diff| over sampled-tile pixels."""
++    diff = (frame - ref).abs()  # [B, H, W, 3]
++    pm = (
++        tile_mask.repeat_interleave(tile_size, dim=1)
++        .repeat_interleave(tile_size, dim=2)[:, :height, :width]
++        .unsqueeze(-1)
++    )
++    return diff.masked_select(pm.expand_as(diff)).mean()
++
++def _higs_importance_tile_l1(frame, ref, mask, weights, tile_size, width, height):
++    """Unbiased tile-level importance estimate of the full-frame L1."""
++    diff = (frame - ref).abs()  # [B, H, W, 3]
++    B, H, W, _ = diff.shape
++    th = (H + tile_size - 1) // tile_size
++    tw = (W + tile_size - 1) // tile_size
++    Hp, Wp = th * tile_size, tw * tile_size
++    diff_pad = torch.nn.functional.pad(diff, (0, 0, 0, Wp - W, 0, Hp - H))
++    tile_sum = diff_pad.reshape(B, th, tile_size, tw, tile_size, 3).sum(
++        dim=(2, 4, 5)
++    )
++    p_total = B * width * height * 3
++    m = mask.reshape(B, th, tw).to(diff.dtype)
++    w = weights.reshape(B, th, tw)
++    return (m * w * tile_sum).sum() / p_total
++
++
+ try:
+     from gsplat.scene import GaussianScene
+     from gsplat.stage import Stage
+@@ -185,6 +259,60 @@ class Config:
+     sparse_grad: bool = False
+     # Use visible adam from Taming 3DGS. (experimental)
+     visible_adam: bool = False
++    # Frozen HiGS paper protocol: algorithm id ("higs_full" or "higs_proposed").
++    higs_method: str = "higs_full"
++    # Proposed-method progressive-resolution schedule: training renders at
++    # `higs_train_res_scale` before `higs_full_res_step`, then at full
++    # resolution. (1.0 / 0 disable the schedule; evaluation is always full-res.)
++    higs_train_res_scale: float = 1.0
++    higs_full_res_step: int = 0
++    # Phase-3 topology-preserving schedule: render at `higs_train_res_scale`
++    # during [higs_lowres_start_step, higs_lowres_end_step). When either is
++    # set, the window schedule takes precedence over `higs_full_res_step`.
++    higs_lowres_start_step: int = 0
++    higs_lowres_end_step: int = 0
++    # Cache downscaled training images/masks/intrinsics per image so the
++    # reduced-resolution phase avoids per-step interpolation/clone work.
++    higs_res_cache: bool = True
++    # Measure per-step forward+backward time at full and reduced resolution
++    # before training and force full-resolution training unless the reduced
++    # resolution is at least (1 - higs_calibrate_min_speedup_ratio) faster.
++    higs_calibrate_scene: bool = False
++    higs_calibrate_min_speedup_ratio: float = 0.85
++    higs_calibrate_steps: int = 10
++    # Run full-resolution forward+backward at densification boundaries during
++    # reduced-resolution phases so split/duplicate decisions use full-res
++    # screen-space gradients instead of reduced-resolution ones.
++    higs_densify_anchor_fullres: bool = False
++    # CUDA segmented timing over a bounded window of training steps. Per-step
++    # synchronize is only performed inside the window, so steady-state wall
++    # clock is unaffected.
++    higs_segment_timing: bool = False
++    higs_timing_start_step: int = 100
++    higs_timing_end_step: int = 400
++
++    # HiGS tile-sampled training: render and backprop over a random subset
++    # of image tiles each step (stratified or uniform), imputing unsampled
++    # tiles with ground truth in the loss so the per-step gradient is an
++    # unbiased estimator of the full-frame gradient. Sampling is active in
++    # [higs_tile_sampling_start_step, higs_tile_sampling_end_step); a zero
++    # end step means until max_steps.
++    higs_tile_sampling_ratio: float = 1.0
++    higs_tile_sampling_mode: str = "stratified"
++    higs_tile_sampling_start_step: int = 0
++    higs_tile_sampling_end_step: int = 0
++    # accel4 sparse / error-guided tile training. When ``higs_sparse_loss`` is
++    # True the GT-imputation is skipped: L1 is computed only over sampled tiles
++    # (an unbiased estimator of the full-frame mean) and the SSIM term is
++    # deferred to the full-resolution phases. ``error_guided`` sampling
++    # importance-samples tiles proportional to per-tile error (``alpha``
++    # exponent, blended with the uniform distribution by
++    # ``higs_error_lambda_mix``); per-image error maps are refreshed with a
++    # full-res no-grad forward every ``higs_error_refresh_every`` steps.
++    higs_sparse_loss: bool = False
++    higs_error_alpha: float = 1.0
++    higs_error_lambda_mix: float = 1.0
++    higs_error_refresh_every: int = 100
+     # Anti-aliasing in rasterization. Might slightly hurt quantitative metrics.
+     antialiased: bool = False
+ 
+@@ -365,13 +493,20 @@ def create_splats_with_optimizers(
+         optimizer_class = SelectiveAdam
+     else:
+         optimizer_class = torch.optim.Adam
++    optimizer_kwargs = {
++        "eps": 1e-15 / math.sqrt(BS),
++        # TODO: check betas logic when BS is larger than 10 betas[0] will be zero.
++        "betas": (1 - BS * (1 - 0.9), 1 - BS * (1 - 0.999)),
++    }
++    # SelectiveAdam exposes its own fused masked kernel and does not accept
++    # torch.optim's `fused` flag; the frozen HiGS protocol uses it for the
++    # visibility-masked proposed method.
++    if optimizer_class is torch.optim.Adam:
++        optimizer_kwargs["fused"] = True
+     optimizers = {
+         name: optimizer_class(
+             [{"params": splats[name], "lr": lr * math.sqrt(BS), "name": name}],
+-            eps=1e-15 / math.sqrt(BS),
+-            # TODO: check betas logic when BS is larger than 10 betas[0] will be zero.
+-            betas=(1 - BS * (1 - 0.9), 1 - BS * (1 - 0.999)),
+-            fused=True,
++            **optimizer_kwargs,
+         )
+         for name, _, lr in params
+     }
+@@ -408,6 +543,19 @@ class Runner:
+         # Tensorboard
+         self.writer = SummaryWriter(log_dir=f"{cfg.result_dir}/tb")
+ 
++        # HiGS resolution cache / diagnostics.
++        self._res_cache = {}
++        self._res_scale_override = None
++        self._anchor_step = None
++        self._seg_times = defaultdict(float)
++        self._seg_counts = defaultdict(int)
++        self._calibration_report = None
++
++        # accel4: per-image error-guided sampling caches (image_id ->
++        # (tile-error tensor, refresh step) / (mask, importance weights)).
++        self._higs_err_cache = {}
++        self._higs_mask_cache = {}
++
+         # Load data: Training data should contain initial points and colors.
+         if cfg.data_type == "ncore":
+             from datasets.ncore import NCoreDataset, NCoreParser
+@@ -723,33 +871,67 @@ class Runner:
+                     .unsqueeze(0)
+                 )
+ 
+-        render_colors, render_alphas, info = rasterization(
+-            means=means,
+-            quats=quats,
+-            scales=scales,
+-            opacities=opacities,
+-            colors=colors,
+-            viewmats=torch.linalg.inv_ex(camtoworlds).inverse,  # [C, 4, 4]
+-            Ks=Ks,  # [C, 3, 3]
++        if self.cfg.packed or self.cfg.sparse_grad or self.world_size != 1:
++            raise RuntimeError(
++                "HiGS paper training requires packed=False, sparse_grad=False, "
++                "and one process per GPU"
++            )
++        if rasterize_mode != "classic" or with_ut or self.cfg.with_eval3d:
++            raise RuntimeError("HiGS paper training currently requires classic 3DGS")
++        if any(
++            value is not None
++            for value in (
++                ftheta_coeffs,
++                radial_coeffs,
++                tangential_coeffs,
++                thin_prism_coeffs,
++            )
++        ):
++            raise RuntimeError("HiGS paper training does not support camera distortion")
++
++        from gsplat.experimental import rasterize_gaussian_higs_dynamic
++
++        tile_sampling_ratio = kwargs.pop("higs_tile_sampling_ratio", 1.0)
++        tile_sampling_mode = kwargs.pop(
++            "higs_tile_sampling_mode", self.cfg.higs_tile_sampling_mode
++        )
++        tile_mask = kwargs.pop("higs_tile_mask", None)
++        sampled_tile_ratio = kwargs.pop("higs_sampled_tile_ratio", None)
++        # error_guided is a harness-level sampling policy: the explicit
++        # tile_mask drives which tiles are rendered, so the backend sees the
++        # mask directly and only accepts uniform/stratified as the fallback
++        # sampling_mode string.
++        if tile_sampling_mode == "error_guided":
++            tile_sampling_mode = "uniform"
++        higs_result = rasterize_gaussian_higs_dynamic(
++            means,
++            quats,
++            scales,
++            opacities,
++            colors,
++            viewmats=torch.linalg.inv_ex(camtoworlds).inverse,
++            Ks=Ks,
+             width=width,
+             height=height,
+-            packed=self.cfg.packed,
+-            absgrad=(
+-                self.cfg.strategy.absgrad
+-                if isinstance(self.cfg.strategy, DefaultStrategy)
+-                else False
+-            ),
+-            sparse_grad=self.cfg.sparse_grad,
+-            rasterize_mode=rasterize_mode,
+-            distributed=self.world_size > 1,
++            sh_degree=kwargs.pop("sh_degree", self.cfg.sh_degree),
++            near_plane=kwargs.pop("near_plane", self.cfg.near_plane),
++            far_plane=kwargs.pop("far_plane", self.cfg.far_plane),
++            render_mode=kwargs.pop("render_mode", "RGB"),
+             camera_model=camera_model,
+-            with_ut=with_ut,
+-            with_eval3d=self.cfg.with_eval3d,
+-            ftheta_coeffs=ftheta_coeffs,
+-            radial_coeffs=radial_coeffs,
+-            tangential_coeffs=tangential_coeffs,
+-            thin_prism_coeffs=thin_prism_coeffs,
+-            **kwargs,
++            backward_mode="higs_native",
++            tile_sampling_ratio=tile_sampling_ratio,
++            sampling_mode=tile_sampling_mode,
++            tile_mask=tile_mask,
++            sampled_tile_ratio=sampled_tile_ratio,
++        )
++        if kwargs:
++            raise RuntimeError(f"unsupported HiGS rasterization options: {sorted(kwargs)}")
++        render_colors = higs_result["frame"]
++        render_alphas = higs_result["alpha"]
++        info = higs_result["densification_info"]
++        info["tile_mask"] = higs_result["metadata"].get("tile_mask")
++        info["sampled_tile_ratio"] = higs_result["metadata"].get(
++            "sampled_tile_ratio", 1.0
+         )
+         if masks is not None:
+             render_colors[~masks] = 0
+@@ -796,6 +978,251 @@ class Runner:
+ 
+         return render_colors, render_alphas, info
+ 
++    def _schedule_has_lowres(self) -> bool:
++        return (
++            self.cfg.higs_lowres_start_step > 0
++            or self.cfg.higs_lowres_end_step > 0
++            or self.cfg.higs_full_res_step > 0
++        )
++
++    def _effective_res_scale(self, step: int) -> float:
++        if self._res_scale_override is not None:
++            return self._res_scale_override
++        if self.cfg.higs_lowres_start_step > 0 or self.cfg.higs_lowres_end_step > 0:
++            if self.cfg.higs_lowres_start_step <= step < self.cfg.higs_lowres_end_step:
++                return float(self.cfg.higs_train_res_scale)
++            return 1.0
++        if self.cfg.higs_full_res_step > 0 and step < self.cfg.higs_full_res_step:
++            return float(self.cfg.higs_train_res_scale)
++        return 1.0
++
++    def _prepare_train_batch(
++        self, data, device, res_scale, image_ids, measure_resize=False
++    ):
++        """Return (pixels, masks, Ks, height, width) at the requested scale.
++
++        Downscaled images, masks, and intrinsics are cached per (image, scale)
++        so the reduced-resolution phase skips per-step interpolation work.
++        """
++        use_cache = self.cfg.higs_res_cache and res_scale < 1.0
++        if use_cache:
++            cache_key = (int(image_ids[0].item()), round(float(res_scale), 4))
++            cached = self._res_cache.get(cache_key)
++            if cached is not None:
++                pixels, masks, Ks = cached
++                return pixels, masks, Ks, pixels.shape[1], pixels.shape[2]
++        Ks = data["K"].to(device)  # [1, 3, 3]
++        pixels = data["image"].to(device) / 255.0  # [1, H, W, 3]
++        masks = data["mask"].to(device) if "mask" in data else None  # [1, H, W]
++        height, width = pixels.shape[1:3]
++        if res_scale < 1.0:
++            height = max(1, int(round(height * res_scale)))
++            width = max(1, int(round(width * res_scale)))
++            Ks = Ks.clone()
++            Ks[:, 0, 0] *= res_scale
++            Ks[:, 1, 1] *= res_scale
++            Ks[:, 0, 2] *= res_scale
++            Ks[:, 1, 2] *= res_scale
++            resize_ev = self._timing_start("resize", measure_resize)
++            pixels = (
++                F.interpolate(
++                    pixels.permute(0, 3, 1, 2),
++                    size=(height, width),
++                    mode="bilinear",
++                    align_corners=False,
++                )
++                .permute(0, 2, 3, 1)
++                .contiguous()
++            )
++            if masks is not None:
++                masks = (
++                    F.interpolate(
++                        masks.unsqueeze(1).float(),
++                        size=(height, width),
++                        mode="nearest",
++                    )
++                    .squeeze(1)
++                    .bool()
++                )
++            self._timing_end("resize", resize_ev, measure_resize)
++            if use_cache:
++                self._res_cache[cache_key] = (pixels, masks, Ks)
++        return pixels, masks, Ks, height, width
++
++    def _timing_start(self, name, active):
++        if not active:
++            return None
++        event = torch.cuda.Event(enable_timing=True)
++        event.record()
++        return event
++
++    def _timing_end(self, name, event, active):
++        if not active or event is None:
++            return
++        end = torch.cuda.Event(enable_timing=True)
++        end.record()
++        torch.cuda.synchronize()
++        self._seg_times[name] += event.elapsed_time(end) / 1000.0
++        self._seg_counts[name] += 1
++
++    def _calibrate_resolution(self, trainloader, device):
++        """Measure per-step forward+backward time at full and reduced
++        resolution and disable the reduced-resolution phase unless it is at
++        least (1 - higs_calibrate_min_speedup_ratio) faster per step."""
++        scale = float(self.cfg.higs_train_res_scale)
++        n = max(1, int(self.cfg.higs_calibrate_steps))
++        sh_degree_to_use = min(0, self.cfg.sh_degree)
++
++        def measure(res_scale):
++            iterator = iter(trainloader)
++            timings = []
++
++            def next_data():
++                nonlocal iterator
++                try:
++                    return next(iterator)
++                except StopIteration:
++                    iterator = iter(trainloader)
++                    return next(iterator)
++
++            def run_step(data):
++                image_ids = data["image_id"].to(device)
++                pixels, masks, Ks, height, width = self._prepare_train_batch(
++                    data, device, res_scale, image_ids
++                )
++                exposure = data["exposure"].to(device) if "exposure" in data else None
++                renders, alphas, info = self.stage.render(
++                    self.scene.id,
++                    camtoworlds=data["camtoworld"].to(device),
++                    Ks=Ks,
++                    width=width,
++                    height=height,
++                    sh_degree=sh_degree_to_use,
++                    near_plane=self.cfg.near_plane,
++                    far_plane=self.cfg.far_plane,
++                    image_ids=image_ids,
++                    render_mode="RGB",
++                    masks=masks,
++                    frame_idcs=image_ids,
++                    camera_idcs=data["camera_idx"].to(device),
++                    exposure=exposure,
++                )
++                colors, depths = (
++                    (renders[..., 0:3], renders[..., 3:4])
++                    if renders.shape[-1] == 4
++                    else (renders, None)
++                )
++                if masks is not None:
++                    loss = l1_loss(colors[masks], pixels[masks]).mean()
++                else:
++                    loss = l1_loss(colors, pixels).mean()
++                loss.backward()
++
++            # One untimed warmup step per resolution so lazy CUDA init and
++            # one-off allocations are not attributed to the measured step time.
++            run_step(next_data())
++            torch.cuda.synchronize()
++            for param in self.splats.values():
++                if param.grad is not None:
++                    param.grad.zero_()
++            for _ in range(n):
++                data = next_data()
++                start = torch.cuda.Event(enable_timing=True)
++                end = torch.cuda.Event(enable_timing=True)
++                start.record()
++                run_step(data)
++                end.record()
++                torch.cuda.synchronize()
++                timings.append(start.elapsed_time(end) / 1000.0)
++                for param in self.splats.values():
++                    if param.grad is not None:
++                        param.grad.zero_()
++            return float(np.mean(timings)) if timings else 1.0
++
++        full_time = measure(1.0)
++        low_time = measure(scale)
++        ratio = low_time / max(full_time, 1e-9)
++        enabled = ratio <= float(self.cfg.higs_calibrate_min_speedup_ratio)
++        self._res_scale_override = scale if enabled else 1.0
++        self._calibration_report = {
++            "full_res_seconds_per_step": full_time,
++            "lowres_seconds_per_step": low_time,
++            "ratio": ratio,
++            "threshold": float(self.cfg.higs_calibrate_min_speedup_ratio),
++            "lowres_enabled": enabled,
++        }
++        print(
++            f"[HiGS calibration] full={full_time:.4f}s lowres={low_time:.4f}s "
++            f"ratio={ratio:.3f} threshold={self.cfg.higs_calibrate_min_speedup_ratio} "
++            f"enabled={enabled}"
++        )
++
++    def _densify_anchor_pass(self, data, device, step):
++        """Run a full-resolution forward+backward at a densification boundary
++        so split/duplicate decisions use full-resolution screen-space
++        gradients instead of reduced-resolution ones."""
++        image_ids = data["image_id"].to(device)
++        pixels, masks, Ks, height, width = self._prepare_train_batch(
++            data, device, 1.0, image_ids
++        )
++        exposure = data["exposure"].to(device) if "exposure" in data else None
++        sh_degree_to_use = min(
++            step // self.cfg.sh_degree_interval, self.cfg.sh_degree
++        )
++        renders, alphas, info = self.stage.render(
++            self.scene.id,
++            camtoworlds=data["camtoworld"].to(device),
++            Ks=Ks,
++            width=width,
++            height=height,
++            sh_degree=sh_degree_to_use,
++            near_plane=self.cfg.near_plane,
++            far_plane=self.cfg.far_plane,
++            image_ids=image_ids,
++            render_mode="RGB+ED" if self.cfg.depth_loss else "RGB",
++            masks=masks,
++            frame_idcs=image_ids,
++            camera_idcs=data["camera_idx"].to(device),
++            exposure=exposure,
++        )
++        colors, depths = (
++            (renders[..., 0:3], renders[..., 3:4])
++            if renders.shape[-1] == 4
++            else (renders, None)
++        )
++        if masks is not None:
++            l1loss = l1_loss(colors[masks], pixels[masks]).mean()
++        else:
++            l1loss = l1_loss(colors, pixels).mean()
++        self.cfg.strategy.step_pre_backward(
++            params=self.splats,
++            optimizers=self.optimizers,
++            state=self.strategy_state,
++            step=step,
++            info=info,
++        )
++        l1loss.backward()
++        n_gaussians_before_refine = len(self.splats["means"])
++        self.cfg.strategy.step_post_backward(
++            params=self.splats,
++            optimizers=self.optimizers,
++            state=self.strategy_state,
++            step=step,
++            info=info,
++            packed=self.cfg.packed,
++            scene=self.scene,
++        )
++        if len(self.splats["means"]) != n_gaussians_before_refine:
++            from gsplat.experimental.render.functional.gaussian_inference import (
++                _HIGS_DYNAMIC_SCENE,
++            )
++
++            _HIGS_DYNAMIC_SCENE.mark_dirty()
++        for param in self.splats.values():
++            if param.grad is not None:
++                param.grad.zero_()
++        self._anchor_step = step
++
+     def train(self):
+         cfg = self.cfg
+         device = self.device
+@@ -858,6 +1285,13 @@ class Runner:
+         )
+         trainloader_iter = iter(trainloader)
+ 
++        if (
++            self.cfg.higs_calibrate_scene
++            and self.cfg.higs_method == "higs_proposed"
++            and self._schedule_has_lowres()
++        ):
++            self._calibrate_resolution(trainloader, device)
++
+         # Training loop.
+         global_tic = time.time()
+         pbar = tqdm.tqdm(range(init_step, max_steps))
+@@ -884,13 +1318,7 @@ class Runner:
+                 data = next(trainloader_iter)
+ 
+             camtoworlds = camtoworlds_gt = data["camtoworld"].to(device)  # [1, 4, 4]
+-            Ks = data["K"].to(device)  # [1, 3, 3]
+-            pixels = data["image"].to(device) / 255.0  # [1, H, W, 3]
+-            num_train_rays_per_step = (
+-                pixels.shape[0] * pixels.shape[1] * pixels.shape[2]
+-            )
+             image_ids = data["image_id"].to(device)
+-            masks = data["mask"].to(device) if "mask" in data else None  # [1, H, W]
+             exposure = (
+                 data["exposure"].to(device) if "exposure" in data else None
+             )  # [B,]
+@@ -898,7 +1326,77 @@ class Runner:
+                 points = data["points"].to(device)  # [1, M, 2]
+                 depths_gt = data["depths"].to(device)  # [1, M]
+ 
+-            height, width = pixels.shape[1:3]
++            seg = (
++                self.cfg.higs_segment_timing
++                and self.cfg.higs_timing_start_step <= step < self.cfg.higs_timing_end_step
++            )
++            seg_ev = self._timing_start("data_load_transfer", seg)
++            res_scale = self._effective_res_scale(step)
++            tile_sampling_ratio = 1.0
++            if self.cfg.higs_tile_sampling_ratio < 1.0:
++                sample_end = self.cfg.higs_tile_sampling_end_step or max_steps
++                if self.cfg.higs_tile_sampling_start_step <= step < sample_end:
++                    tile_sampling_ratio = self.cfg.higs_tile_sampling_ratio
++            pixels, masks, Ks, height, width = self._prepare_train_batch(
++                data, device, res_scale, image_ids, measure_resize=seg
++            )
++            num_train_rays_per_step = (
++                pixels.shape[0] * pixels.shape[1] * pixels.shape[2]
++            )
++            higs_tile_mask = None
++            higs_sampled_tile_ratio = None
++            if (
++                tile_sampling_ratio < 1.0
++                and self.cfg.higs_tile_sampling_mode == "error_guided"
++            ):
++                img_key = int(image_ids[0].item())
++                cached = self._higs_err_cache.get(img_key)
++                err = None if cached is None else cached[0]
++                err_step = -1 if cached is None else cached[1]
++                if (
++                    err is None
++                    or step - err_step >= self.cfg.higs_error_refresh_every
++                ):
++                    with torch.no_grad():
++                        err_renders, _, _ = self.stage.render(
++                            self.scene.id,
++                            camtoworlds=camtoworlds,
++                            Ks=Ks,
++                            width=width,
++                            height=height,
++                            sh_degree=sh_degree_to_use,
++                            near_plane=cfg.near_plane,
++                            far_plane=cfg.far_plane,
++                            image_ids=image_ids,
++                            render_mode="RGB",
++                            masks=masks,
++                            frame_idcs=image_ids,
++                            camera_idcs=data["camera_idx"].to(device),
++                            exposure=exposure,
++                        )
++                    err = _higs_tile_mean_errors(
++                        err_renders, pixels, _HIGS_TILE_SIZE
++                    )
++                    self._higs_err_cache[img_key] = (err, step)
++                mask, weights = _higs_error_guided_mask(
++                    err,
++                    tile_sampling_ratio,
++                    self.cfg.higs_error_alpha,
++                    device,
++                    self.cfg.higs_error_lambda_mix,
++                )
++                self._higs_mask_cache[img_key] = (mask, weights)
++                higs_tile_mask = mask
++                higs_sampled_tile_ratio = float(tile_sampling_ratio)
++            self._timing_end("data_load_transfer", seg_ev, seg)
++
++            if (
++                self.cfg.higs_densify_anchor_fullres
++                and res_scale < 1.0
++                and step < self.cfg.strategy.refine_stop_iter
++                and step % self.cfg.strategy.refine_every == 0
++            ):
++                self._densify_anchor_pass(data, device, step)
+ 
+             if cfg.pose_noise:
+                 camtoworlds = self.pose_perturb(camtoworlds, image_ids)
+@@ -910,6 +1408,7 @@ class Runner:
+             sh_degree_to_use = min(step // cfg.sh_degree_interval, cfg.sh_degree)
+ 
+             # forward
++            fwd_ev = self._timing_start("render_forward", seg)
+             renders, alphas, info = self.stage.render(
+                 self.scene.id,
+                 camtoworlds=camtoworlds,
+@@ -925,7 +1424,12 @@ class Runner:
+                 frame_idcs=image_ids,
+                 camera_idcs=data["camera_idx"].to(device),
+                 exposure=exposure,
++                higs_tile_sampling_ratio=tile_sampling_ratio,
++                higs_tile_sampling_mode=self.cfg.higs_tile_sampling_mode,
++                higs_tile_mask=higs_tile_mask,
++                higs_sampled_tile_ratio=higs_sampled_tile_ratio,
+             )
++            self._timing_end("render_forward", fwd_ev, seg)
+             if renders.shape[-1] == 4:
+                 colors, depths = renders[..., 0:3], renders[..., 3:4]
+             else:
+@@ -934,17 +1438,53 @@ class Runner:
+             if cfg.random_bkgd:
+                 bkgd = torch.rand(1, 3, device=device)
+                 colors = colors + bkgd * (1.0 - alphas)
+-
+-            self.cfg.strategy.step_pre_backward(
+-                params=self.splats,
+-                optimizers=self.optimizers,
+-                state=self.strategy_state,
+-                step=step,
+-                info=info,
++            tile_mask = info.get("tile_mask")
++            use_sparse_loss = (
++                tile_mask is not None
++                and self.cfg.higs_sparse_loss
++                and tile_sampling_ratio < 1.0
++                and masks is None
+             )
++            if tile_mask is not None and not use_sparse_loss:
++                # Impute unsampled tiles with ground truth so they contribute
++                # no gradient; sampled tiles see the standard full-frame loss.
++                tile_pixels = (
++                    tile_mask[0]
++                    .repeat_interleave(16, dim=0)
++                    .repeat_interleave(16, dim=1)[:height, :width]
++                )
++                colors = torch.where(tile_pixels[..., None], colors, pixels)
++
++            if not (self.cfg.higs_densify_anchor_fullres and res_scale < 1.0):
++                self.cfg.strategy.step_pre_backward(
++                    params=self.splats,
++                    optimizers=self.optimizers,
++                    state=self.strategy_state,
++                    step=step,
++                    info=info,
++                )
+ 
+             # loss
+-            if masks is not None:
++            loss_ev = self._timing_start("loss_compute", seg)
++            if use_sparse_loss:
++                # Sparse loss: no GT imputation. L1 over the sampled tiles
++                # only (unbiased estimator); SSIM is deferred to the
++                # full-resolution phases, so the sampled window skips the
++                # expensive full-frame SSIM forward/backward entirely.
++                if self.cfg.higs_tile_sampling_mode == "error_guided":
++                    _, eg_weights = self._higs_mask_cache.get(
++                        int(image_ids[0].item()), (None, None)
++                    )
++                    l1loss = _higs_importance_tile_l1(
++                        colors, pixels, tile_mask, eg_weights,
++                        _HIGS_TILE_SIZE, width, height,
++                    )
++                else:
++                    l1loss = _higs_masked_tile_l1(
++                        colors, pixels, tile_mask, _HIGS_TILE_SIZE, width, height
++                    )
++                ssimloss = l1loss.new_zeros(())
++            elif masks is not None:
+                 # Exclude masked pixels (e.g. ego vehicle) from L1.
+                 # For SSIM (patch-based), zero out both sides at masked locations
+                 # so masked patches don't pull colors toward an arbitrary value.
+@@ -995,7 +1535,10 @@ class Runner:
+             if cfg.scale_reg > 0.0:
+                 loss += cfg.scale_reg * scale_reg_loss(self.splats["scales"])
+ 
++            bwd_ev = self._timing_start("backward", seg)
+             loss.backward()
++            self._timing_end("backward", bwd_ev, seg)
++            self._timing_end("loss_compute", loss_ev, seg)
+ 
+             desc = f"loss={loss.item():.3f}| sh degree={sh_degree_to_use}| "
+             if cfg.depth_loss:
+@@ -1130,6 +1673,7 @@ class Runner:
+                     visibility_mask = (info["radii"] > 0).all(-1).any(0)
+ 
+             # optimize
++            opt_ev = self._timing_start("optimizer", seg)
+             for optimizer in self.optimizers.values():
+                 if cfg.visible_adam:
+                     optimizer.step(visibility_mask)
+@@ -1147,18 +1691,32 @@ class Runner:
+                 optimizer.zero_grad(set_to_none=True)
+             for scheduler in schedulers:
+                 scheduler.step()
++            self._timing_end("optimizer", opt_ev, seg)
+ 
+             # Run post-backward steps after backward and optimizer
+             if isinstance(self.cfg.strategy, DefaultStrategy):
+-                self.cfg.strategy.step_post_backward(
+-                    params=self.splats,
+-                    optimizers=self.optimizers,
+-                    state=self.strategy_state,
+-                    step=step,
+-                    info=info,
+-                    packed=cfg.packed,
+-                    scene=self.scene,
+-                )
++                if self.cfg.higs_densify_anchor_fullres and res_scale < 1.0:
++                    # Densification is handled by full-resolution anchor passes.
++                    pass
++                else:
++                    dens_ev = self._timing_start("densification", seg)
++                    n_gaussians_before_refine = len(self.splats["means"])
++                    self.cfg.strategy.step_post_backward(
++                        params=self.splats,
++                        optimizers=self.optimizers,
++                        state=self.strategy_state,
++                        step=step,
++                        info=info,
++                        packed=cfg.packed,
++                        scene=self.scene,
++                    )
++                    if len(self.splats["means"]) != n_gaussians_before_refine:
++                        from gsplat.experimental.render.functional.gaussian_inference import (
++                            _HIGS_DYNAMIC_SCENE,
++                        )
++
++                        _HIGS_DYNAMIC_SCENE.mark_dirty()
++                    self._timing_end("densification", dens_ev, seg)
+             elif isinstance(self.cfg.strategy, MCMCStrategy):
+                 self.cfg.strategy.step_post_backward(
+                     params=self.splats,
+@@ -1194,6 +1752,22 @@ class Runner:
+                 # Update the scene.
+                 self.viewer.update(step, num_train_rays_per_step)
+ 
++        if self._seg_times or self._calibration_report is not None:
++            timing_doc = {
++                "schema_version": "1.0",
++                "segments": {
++                    name: {
++                        "seconds": self._seg_times[name],
++                        "steps": self._seg_counts[name],
++                    }
++                    for name in sorted(self._seg_times)
++                },
++            }
++            if self._calibration_report is not None:
++                timing_doc["calibration"] = self._calibration_report
++            with open(f"{self.stats_dir}/segmented_timing.json", "w") as f:
++                json.dump(timing_doc, f, indent=2)
++
+     @torch.no_grad()
+     def eval(self, step: int, stage: str = "val"):
+         """Entry for evaluation."""
+diff --git a/gsplat/cuda/_torch_impl.py b/gsplat/cuda/_torch_impl.py
+index 7f1ee0f1..11fe80a9 100644
+--- a/gsplat/cuda/_torch_impl.py
++++ b/gsplat/cuda/_torch_impl.py
+@@ -361,6 +361,7 @@ def _isect_tiles(
+     tile_width: int,
+     tile_height: int,
+     sort: bool = True,
++    tile_mask: Optional[Tensor] = None,
+ ) -> Tuple[Tensor, Tensor, Tensor]:
+     """Pytorch implementation of `gsplat.cuda._wrapper.isect_tiles()`.
+ 
+@@ -392,6 +393,24 @@ def _isect_tiles(
+     tile_maxs[..., 1] = torch.clamp(tile_maxs[..., 1], 0, tile_height)
+     tiles_per_gauss = (tile_maxs - tile_mins).prod(dim=-1)  # [..., C, N]
+     tiles_per_gauss *= (radii > 0.0).all(dim=-1)
++    if tile_mask is not None:
++        # Restrict counts and emitted isects to the selected tiles (parity
++        # with the CUDA op's tile_mask path).
++        tile_mask = tile_mask.reshape(I, tile_height, tile_width)
++        masked = torch.zeros_like(tiles_per_gauss)
++        for image_id in range(I):
++            for gauss_id in range(N):
++                if radii[image_id, gauss_id, 0] <= 0.0 or radii[image_id, gauss_id, 1] <= 0.0:
++                    continue
++                y0, y1 = int(tile_mins[image_id, gauss_id, 1]), int(tile_maxs[image_id, gauss_id, 1])
++                x0, x1 = int(tile_mins[image_id, gauss_id, 0]), int(tile_maxs[image_id, gauss_id, 0])
++                c = 0
++                for y in range(y0, y1):
++                    for x in range(x0, x1):
++                        if tile_mask[image_id, y, x]:
++                            c += 1
++                masked[image_id, gauss_id] = c
++        tiles_per_gauss = masked
+ 
+     n_isects = tiles_per_gauss.sum().item()
+     # store in two int32 tensors instead, otherwise it will trigger out of bounds error
+@@ -424,6 +443,8 @@ def _isect_tiles(
+         tile_max = tile_maxs[image_id, gauss_id]
+         for y in range(tile_min[1], tile_max[1]):
+             for x in range(tile_min[0], tile_max[0]):
++                if tile_mask is not None and not tile_mask[image_id, y, x]:
++                    continue
+                 tile_id = y * tile_width + x
+                 # isect_ids[curr_idx] = (
+                 #     (image_id << (tile_n_bits + 32))
+diff --git a/gsplat/cuda/_wrapper.py b/gsplat/cuda/_wrapper.py
+index 762c3c5c..fe6c1720 100644
+--- a/gsplat/cuda/_wrapper.py
++++ b/gsplat/cuda/_wrapper.py
+@@ -1052,6 +1052,9 @@ def isect_tiles(
+     opacities: Optional[
+         Tensor
+     ] = None,  # [..., N] or [nnz], enables AccuTile when provided
++    tile_mask: Optional[
++        Tensor
++    ] = None,  # [I, tile_height, tile_width] bool, restrict enumeration to selected tiles
+ ) -> Tuple[Tensor, Tensor, Tensor]:
+     """Maps projected Gaussians to intersecting tiles.
+ 
+@@ -1073,6 +1076,10 @@ def isect_tiles(
+         gaussian_ids: The column indices of the projected Gaussians. Required if packed is True.
+         conics: Inverse of projected covariances (upper triangle). [..., N, 3] if packed is False, [nnz, 3] if packed is True. Enables AccuTile when provided together with opacities.
+         opacities: Gaussian opacities. [..., N] if packed is False, [nnz] if packed is True. Enables AccuTile when provided together with conics.
++        tile_mask: Optional bool tensor of shape [I, tile_height, tile_width]. When
++            provided, only intersections whose (image, tile) is selected are
++            counted/emitted and sorted, so both the radix sort and the output
++            sizes scale with the selected tile count (used by sparse training).
+ 
+     Returns:
+         A tuple:
+@@ -1102,6 +1109,7 @@ def isect_tiles(
+         tile_height,
+         sort,
+         segmented,
++        tile_mask.contiguous() if tile_mask is not None else None,
+     )
+     return tiles_per_gauss, isect_ids, flatten_ids
+ 
+diff --git a/gsplat/cuda/build.py b/gsplat/cuda/build.py
+index 1a3cbbfb..101e7f34 100644
+--- a/gsplat/cuda/build.py
++++ b/gsplat/cuda/build.py
+@@ -115,6 +115,12 @@ def get_build_parameters():
+                     p := os.path.join(CUDA_HOME, "targets", arch, "include", "cccl")
+                 ):
+                     extra_include_paths.append(p)
++    # Direct include/cccl layout (standard for CUDA 13.x on Windows): CCCL ships
++    # under <CUDA_HOME>/include/cccl, not targets/<arch>/include/cccl.
++    if CUDA_HOME:
++        p = os.path.join(CUDA_HOME, "include", "cccl")
++        if os.path.isdir(p) and p not in extra_include_paths:
++            extra_include_paths.append(p)
+ 
+     # Source files ------------------------------------
+     sources = (
+@@ -123,6 +129,19 @@ def get_build_parameters():
+         + [os.path.join(PATH, "ext.cpp")]
+     )
+ 
++    # Local-only build accelerator: the three RasterizeToPixelsFromWorld3DGS*
++    # kernels take 1.5-3.5h each to compile with CUDA 13.x + sm_120 (cicc
++    # blowup) and are unused by the HiGS training path. Set
++    # GSPLAT_SKIP_FROM_WORLD=1 to drop them from this build only.
++    if os.environ.get("GSPLAT_SKIP_FROM_WORLD", "0") == "1":
++        sources = [
++            s for s in sources
++            if not (os.path.basename(s).startswith("RasterizeToPixelsFromWorld3DGS"))
++        ]
++        # Link-time throwing stubs so Rasterization.cpp/Rendering.cpp still link
++        # without the three from-world TUs (see the stub file header for rationale).
++        sources.append(os.path.join(PATH, "csrc", "RasterizeToPixelsFromWorld3DGSStubs.cpp"))
++
+     # Compiler flags ----------------------------------
+     extra_cflags = []
+     extra_cuda_cflags = []
+diff --git a/gsplat/cuda/csrc/Intersect.cpp b/gsplat/cuda/csrc/Intersect.cpp
+index 4566974f..4753e7e9 100644
+--- a/gsplat/cuda/csrc/Intersect.cpp
++++ b/gsplat/cuda/csrc/Intersect.cpp
+@@ -180,7 +180,8 @@ TileIntersectResult intersect_tile(
+     int64_t tile_width,
+     int64_t tile_height,
+     bool sort,
+-    bool segmented
++    bool segmented,
++    const at::optional<at::Tensor> &tile_mask  // [I, tile_height, tile_width] bool, optional
+ )
+ {
+     DEVICE_GUARD(means2d);
+@@ -203,6 +204,21 @@ TileIntersectResult intersect_tile(
+     {
+         I = c10::multiply_integers(means2d.sizes().slice(0, means2d.dim() - 2));
+     }
++    if(tile_mask.has_value())
++    {
++        const at::Tensor &tm = tile_mask.value();
++        TORCH_CHECK(tm.scalar_type() == at::kBool, "intersect_tile: tile_mask must be bool");
++        TORCH_CHECK(
++            tm.dim() == 3 && tm.size(0) == static_cast<int64_t>(I) && tm.size(1) == tile_height
++                && tm.size(2) == tile_width,
++            "intersect_tile: tile_mask must be [I=%lld, tile_height=%lld, tile_width=%lld] bool, got %s",
++            static_cast<long long>(I),
++            static_cast<long long>(tile_height),
++            static_cast<long long>(tile_width),
++            c10::str(tm.sizes()).c_str()
++        );
++        TORCH_CHECK(!segmented, "intersect_tile: tile_mask is not supported with segmented sort");
++    }
+ 
+     // packed-mode `offsets` (below) reduce a 1-D [nnz] tiles_per_gauss and
+     // collapse to a single [0, total] segment, so a per-image segmented sort
+@@ -252,7 +268,8 @@ TileIntersectResult intersect_tile(
+             // outputs
+             at::optional<at::Tensor>(tiles_per_gauss),
+             c10::nullopt, // isect_ids
+-            c10::nullopt  // flatten_ids
++            c10::nullopt, // flatten_ids
++            tile_mask     // optional [I, tile_height, tile_width] bool
+         );
+         // Explicit int64 to match the kernel's int64 read of cum_tiles_per_gauss.
+         cum_tiles_per_gauss = at::cumsum(tiles_per_gauss.view({-1}), 0, at::kLong);
+@@ -291,7 +308,8 @@ TileIntersectResult intersect_tile(
+             // outputs
+             c10::nullopt, // tiles_per_gauss
+             at::optional<at::Tensor>(isect_ids),
+-            at::optional<at::Tensor>(flatten_ids)
++            at::optional<at::Tensor>(flatten_ids),
++            tile_mask // optional [I, tile_height, tile_width] bool
+         );
+     }
+ 
+@@ -341,7 +359,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_privateuseone(
+     int64_t tile_width,
+     int64_t tile_height,
+     bool sort,
+-    bool segmented
++    bool segmented,
++    const at::optional<at::Tensor> &tile_mask  // [I, tile_height, tile_width] bool, optional
+ )
+ {
+     DEVICE_GUARD(means2d);
+@@ -354,6 +373,18 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_privateuseone(
+     TORCH_CHECK(!segmented, "segmented mGPU intersect_tile is not supported");
+ 
+     int64_t I = packed ? n_images.value() : c10::multiply_integers(means2d.sizes().slice(0, means2d.dim() - 2));
++    if(tile_mask.has_value())
++    {
++        const at::Tensor &tm = tile_mask.value();
++        TORCH_CHECK(tm.scalar_type() == at::kBool, "intersect_tile: tile_mask must be bool");
++        TORCH_CHECK(
++            tm.dim() == 3 && tm.size(0) == I && tm.size(1) == tile_height && tm.size(2) == tile_width,
++            "intersect_tile: tile_mask must be [I=%lld, tile_height=%lld, tile_width=%lld] bool",
++            static_cast<long long>(I),
++            static_cast<long long>(tile_height),
++            static_cast<long long>(tile_width)
++        );
++    }
+ 
+     uint32_t n_tiles            = tile_width * tile_height;
+     const uint32_t image_n_bits = bits_for_count(I);
+@@ -381,7 +412,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_privateuseone(
+         tile_size,
+         tile_width,
+         tile_height,
+-        sort
++        sort,
++        tile_mask
+     );
+ }
+ 
+diff --git a/gsplat/cuda/csrc/Intersect.h b/gsplat/cuda/csrc/Intersect.h
+index 2b5cee54..4a82ac77 100644
+--- a/gsplat/cuda/csrc/Intersect.h
++++ b/gsplat/cuda/csrc/Intersect.h
+@@ -76,7 +76,8 @@ TileIntersectResult intersect_tile(
+     int64_t tile_width,
+     int64_t tile_height,
+     bool sort,
+-    bool segmented
++    bool segmented,
++    const at::optional<at::Tensor> &tile_mask  // [I, tile_height, tile_width] bool, optional
+ );
+ 
+ TileIntersectResult intersect_tile_lidar(
+@@ -181,7 +182,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+     const uint32_t tile_size,
+     const uint32_t tile_width,
+     const uint32_t tile_height,
+-    const bool sort
++    const bool sort,
++    const at::optional<at::Tensor> tile_mask // [I, tile_height, tile_width] bool, optional
+ );
+ 
+ void launch_intersect_tile_lidar_kernel(
+diff --git a/gsplat/cuda/csrc/IntersectTile.cu b/gsplat/cuda/csrc/IntersectTile.cu
+index 415d0293..8f47d531 100644
+--- a/gsplat/cuda/csrc/IntersectTile.cu
++++ b/gsplat/cuda/csrc/IntersectTile.cu
+@@ -109,6 +109,7 @@ inline __device__ uint32_t accutile_process_tiles(
+     uint32_t tile_size,
+     uint32_t tile_width,
+     uint32_t n_tiles,
++    const bool *__restrict__ tile_mask, // [I, n_tiles] or null
+     bool isY,
+     int64_t image_id,
+     int64_t key_start,
+@@ -190,6 +191,10 @@ inline __device__ uint32_t accutile_process_tiles(
+             {
+                 continue;
+             }
++            if(tile_mask != nullptr && !tile_mask[image_id * n_tiles + tile_id])
++            {
++                continue;
++            }
+             ++tiles_count;
+ 
+             if(isect_ids != nullptr)
+@@ -353,6 +358,7 @@ __global__ void intersect_tile_kernel(
+             tile_size,
+             tile_width,
+             tile_width * tile_height,
++            tile_mask,
+             isY,
+             iid,
+             key_start,
+@@ -696,7 +702,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+     const uint32_t tile_size,
+     const uint32_t tile_width,
+     const uint32_t tile_height,
+-    const bool sort
++    const bool sort,
++    const at::optional<at::Tensor> tile_mask // [I, tile_height, tile_width] bool, optional
+ )
+ {
+     bool packed = means2d.dim() == 2;
+@@ -784,7 +791,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+                     image_n_bits,
+                     key_start,
+                     key_end,
+-                    nullptr,
++                    tile_mask.has_value() ? tile_mask.value().const_data_ptr<bool>() : nullptr,
+                     device_counts[device_id],
+                     nullptr,
+                     nullptr
+@@ -883,7 +890,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_kernels_privateuse
+                     image_n_bits,
+                     key_start,
+                     key_end,
+-                    nullptr,
++                    tile_mask.has_value() ? tile_mask.value().const_data_ptr<bool>() : nullptr,
+                     nullptr,
+                     isect_ids.data_ptr<int64_t>() + isect_offset,
+                     flatten_ids.data_ptr<int32_t>() + isect_offset
+diff --git a/gsplat/cuda/csrc/Rendering.cpp b/gsplat/cuda/csrc/Rendering.cpp
+index 17d9125f..a08b0165 100644
+--- a/gsplat/cuda/csrc/Rendering.cpp
++++ b/gsplat/cuda/csrc/Rendering.cpp
+@@ -1401,7 +1401,8 @@ Rasterization3DGSResult rasterization_3dgs(
+                                                                                   tile_width,
+                                                                                   tile_height,
+                                                                                   true, // sort
+-                                                                                  segmented
++                                                                                  segmented,
++                                                                                  at::optional<at::Tensor>() // tile_mask
+                                                                               );
+ 
+     at::Tensor isect_offsets
+@@ -1923,7 +1924,8 @@ Rasterization2DGSResult rasterization_2dgs(
+         tile_width,
+         tile_height,
+         true, // sort
+-        false // segmented
++        false, // segmented
++        at::optional<at::Tensor>() // tile_mask
+     );
+     at::Tensor isect_offsets
+         = call_torch_op<&intersect_offset>("gsplat::intersect_offset", isects.isect_ids, I, tile_width, tile_height);
+diff --git a/gsplat/cuda/csrc/Utils.cpp b/gsplat/cuda/csrc/Utils.cpp
+index 06cba554..e27e715d 100644
+--- a/gsplat/cuda/csrc/Utils.cpp
++++ b/gsplat/cuda/csrc/Utils.cpp
+@@ -36,12 +36,12 @@ void merge_streams()
+     {
+         C10_CUDA_CHECK(cudaSetDevice(device_id));
+         auto stream = c10::cuda::getCurrentCUDAStream(device_id);
+-        C10_CUDA_CHECK(cudaEventCreate(&events[device_id], cudaEventDisableTiming));
++        C10_CUDA_CHECK(cudaEventCreateWithFlags(&events[device_id], cudaEventDisableTiming));
+         C10_CUDA_CHECK(cudaEventRecord(events[device_id], stream));
+     }
+ 
+     C10_CUDA_CHECK(cudaSetDevice(merge_device_id));
+-    C10_CUDA_CHECK(cudaEventCreate(&merge_event, cudaEventDisableTiming));
++    C10_CUDA_CHECK(cudaEventCreateWithFlags(&merge_event, cudaEventDisableTiming));
+     auto merge_stream = c10::cuda::getCurrentCUDAStream(merge_device_id);
+     for(const auto device_id: c10::irange(c10::cuda::device_count()))
+     {
+diff --git a/gsplat/cuda/ext.cpp b/gsplat/cuda/ext.cpp
+index 8f54b86f..4601daa5 100644
+--- a/gsplat/cuda/ext.cpp
++++ b/gsplat/cuda/ext.cpp
+@@ -1005,7 +1005,7 @@ TORCH_LIBRARY(gsplat, m)
+     m.def(
+         "intersect_tile(Tensor means2d, Tensor radii, Tensor depths, Tensor? conics, Tensor? opacities, Tensor? "
+         "image_ids, Tensor? gaussian_ids, int? n_images, int tile_size, int tile_width, int tile_height, bool sort, "
+-        "bool segmented) -> (Tensor, Tensor, Tensor)"
++        "bool segmented, Tensor? tile_mask) -> (Tensor, Tensor, Tensor)"
+     );
+     m.def("intersect_offset(Tensor isect_ids, int I, int tile_width, int tile_height) -> Tensor");
+     m.def(
+diff --git a/gsplat/cuda/include/Cameras.cuh b/gsplat/cuda/include/Cameras.cuh
+index abce1519..d9a2dcf7 100644
+--- a/gsplat/cuda/include/Cameras.cuh
++++ b/gsplat/cuda/include/Cameras.cuh
+@@ -779,7 +779,9 @@ struct OrthographicCameraModel
+         }
+ 
+         const auto point = glm::fvec2{ray.x, ray.y} / ray.z;
+-        if(!std::isfinite(point.x) || !std::isfinite(point.y))
++        const float ax = fabsf(point.x);
++        const float ay = fabsf(point.y);
++        if(!(ax == ax) || !(ay == ay) || ax == INFINITY || ay == INFINITY)
+         {
+             return {
+                 glm::fvec2{0.f, 0.f},
+diff --git a/gsplat/experimental/__init__.py b/gsplat/experimental/__init__.py
+index 7d12bf68..be7042a1 100644
+--- a/gsplat/experimental/__init__.py
++++ b/gsplat/experimental/__init__.py
+@@ -19,6 +19,8 @@ __all__ = [
+     "GaussianInferenceScene",
+     "RenderReturn",
+     "rasterize_gaussian_inference_scene",
++    "rasterize_gaussian_higs_trainable", "rasterize_gaussian_higs_frozen", "rasterize_gaussian_higs_dynamic",
++    "rasterize_gaussian_higs_frozen",
+     "render_scene",
+ ]
+ 
+@@ -32,7 +34,7 @@ def __getattr__(name):
+         from .render.components import GaussianInferenceRenderer
+ 
+         return GaussianInferenceRenderer
+-    if name in {"RenderReturn", "rasterize_gaussian_inference_scene", "render_scene"}:
++    if name in {"RenderReturn", "rasterize_gaussian_inference_scene", "rasterize_gaussian_higs_trainable", "rasterize_gaussian_higs_frozen", "rasterize_gaussian_higs_dynamic", "render_scene"}:
+         from . import render
+ 
+         return getattr(render, name)
+diff --git a/gsplat/experimental/render/__init__.py b/gsplat/experimental/render/__init__.py
+index ddce75d5..70aede3d 100644
+--- a/gsplat/experimental/render/__init__.py
++++ b/gsplat/experimental/render/__init__.py
+@@ -18,6 +18,9 @@ __all__ = [
+     "GaussianInferenceRenderer",
+     "RenderReturn",
+     "rasterize_gaussian_inference_scene",
++    "rasterize_gaussian_higs_trainable",
++    "rasterize_gaussian_higs_frozen",
++    "rasterize_gaussian_higs_dynamic",
+     "render_scene",
+ ]
+ 
+@@ -35,6 +38,19 @@ def __getattr__(name):
+         from .functional.gaussian_inference import rasterize_gaussian_inference_scene
+ 
+         return rasterize_gaussian_inference_scene
++    if name == "rasterize_gaussian_higs_trainable":
++        from .functional.gaussian_inference import rasterize_gaussian_higs_trainable
++
++        return rasterize_gaussian_higs_trainable
++    if name == "rasterize_gaussian_higs_frozen":
++        from .functional.gaussian_inference import rasterize_gaussian_higs_frozen
++
++        return rasterize_gaussian_higs_frozen
++
++    if name == "rasterize_gaussian_higs_dynamic":
++        from .functional.gaussian_inference import rasterize_gaussian_higs_dynamic
++
++        return rasterize_gaussian_higs_dynamic
+     if name == "render_scene":
+         from .functional.render_scene import render_scene
+ 
+diff --git a/gsplat/experimental/render/_common.py b/gsplat/experimental/render/_common.py
+index d0cbba64..337c6a22 100644
+--- a/gsplat/experimental/render/_common.py
++++ b/gsplat/experimental/render/_common.py
+@@ -30,4 +30,25 @@ def check_inference_grad_mode() -> None:
+         )
+ 
+ 
+-__all__ = ["check_inference_grad_mode"]
++def check_trainable_grad_mode(differentiable: bool = False) -> None:
++    """Raise if grad mode is incompatible with the requested mode.
++
++    - When ``differentiable=False``: behaves like :func:`check_inference_grad_mode`.
++    - When ``differentiable=True``: requires autograd enabled and inference mode OFF.
++    """
++    if not differentiable:
++        check_inference_grad_mode()
++    else:
++        if torch.is_inference_mode_enabled():
++            raise RuntimeError(
++                "rasterize_gaussian_higs_trainable(differentiable=True) requires "
++                "autograd to be enabled, but inference mode is active."
++            )
++        if not torch.is_grad_enabled():
++            raise RuntimeError(
++                "rasterize_gaussian_higs_trainable(differentiable=True) requires "
++                "grad to be enabled."
++            )
++
++
++__all__ = ["check_inference_grad_mode", "check_trainable_grad_mode"]
+diff --git a/gsplat/experimental/render/functional/__init__.py b/gsplat/experimental/render/functional/__init__.py
+index 18161be0..54c9f2e8 100644
+--- a/gsplat/experimental/render/functional/__init__.py
++++ b/gsplat/experimental/render/functional/__init__.py
+@@ -14,7 +14,7 @@
+ # limitations under the License.
+ 
+ 
+-__all__ = ["RenderReturn", "rasterize_gaussian_inference_scene", "render_scene"]
++__all__ = ["RenderReturn", "rasterize_gaussian_inference_scene", "rasterize_gaussian_higs_trainable", "rasterize_gaussian_higs_frozen", "rasterize_gaussian_higs_dynamic", "create_higs_renderer", "HigsRendererHandle", "sync_optimizer_state_for_topology_change", "render_scene"]
+ 
+ 
+ def __getattr__(name):
+@@ -26,8 +26,34 @@ def __getattr__(name):
+         from .gaussian_inference import rasterize_gaussian_inference_scene
+ 
+         return rasterize_gaussian_inference_scene
++    if name == "rasterize_gaussian_higs_trainable":
++        from .gaussian_inference import rasterize_gaussian_higs_trainable
++
++        return rasterize_gaussian_higs_trainable
++    if name == "rasterize_gaussian_higs_frozen":
++        from .gaussian_inference import rasterize_gaussian_higs_frozen
++
++        return rasterize_gaussian_higs_frozen
++    if name == "rasterize_gaussian_higs_dynamic":
++        from .gaussian_inference import rasterize_gaussian_higs_dynamic
++
++        return rasterize_gaussian_higs_dynamic
++    if name == "create_higs_renderer":
++        from .gaussian_inference import create_higs_renderer
++
++        return create_higs_renderer
++    if name == "HigsRendererHandle":
++        from .gaussian_inference import HigsRendererHandle
++
++        return HigsRendererHandle
++    if name == "sync_optimizer_state_for_topology_change":
++        from .gaussian_inference import sync_optimizer_state_for_topology_change
++
++        return sync_optimizer_state_for_topology_change
+     if name == "render_scene":
+         from .render_scene import render_scene
+ 
+         return render_scene
+     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
++
++
+diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
+index b6c1b132..79bb7d49 100644
+--- a/gsplat/experimental/render/functional/gaussian_inference.py
++++ b/gsplat/experimental/render/functional/gaussian_inference.py
+@@ -18,6 +18,8 @@
+ 
+ from __future__ import annotations
+ 
++import math
++
+ from typing import Any, Optional
+ 
+ import torch
+@@ -25,7 +27,7 @@ from torch import Tensor
+ 
+ from gsplat.scene import GaussianInferenceScene
+ 
+-from .._common import check_inference_grad_mode
++from .._common import check_inference_grad_mode, check_trainable_grad_mode
+ from ..kernels.gaussian_inference_ops import (
+     gaussian_render_inference_only,
+ )
+@@ -84,6 +86,45 @@ _INFERENCE_ACCEPTED_KWARGS = frozenset(
+ )
+ 
+ 
++_SH_COMPRESSION_NONE = None  # resolved lazily below to avoid import cycles
++
++
++def _get_sh_compression_none():
++    if _SH_COMPRESSION_NONE is None:
++        from gsplat.scene.components.gaussian_inference_scene import SHCompressionMode
++
++        globals()["_SH_COMPRESSION_NONE"] = SHCompressionMode.NONE
++    return _SH_COMPRESSION_NONE
++
++
++def _expand_background(background, C, device):
++    """Normalize a per-scene background to the rasterization [1, C, D] layout."""
++    if background is None:
++        return None
++    bg = background
++    if bg.dim() == 1:
++        bg = bg.unsqueeze(0).unsqueeze(0).expand(1, C, -1)
++    elif bg.dim() == 2:
++        bg = bg.unsqueeze(0)
++    return bg.contiguous()
++
++def _render_mode_color_channels(render_mode: str) -> int:
++    """Number of color channels produced by a render mode (0 for depth-only)."""
++    return 3 if render_mode in ("RGB", "RGB+D", "RGB+ED") else 0
++
++
++def _render_mode_has_depth(render_mode: str) -> bool:
++    """Whether the render mode composites a depth channel."""
++    return render_mode in ("D", "ED", "RGB+D", "RGB+ED")
++
++
++def _render_mode_channel_count(render_mode: str) -> int:
++    """Total output channels (color + optional depth)."""
++    return _render_mode_color_channels(render_mode) + (
++        1 if _render_mode_has_depth(render_mode) else 0
++    )
++
++
+ def _check_grad_mode() -> None:
+     check_inference_grad_mode()
+ 
+@@ -385,3 +426,2548 @@ def rasterize_gaussian_inference_scene(
+ 
+ 
+ __all__ = ["rasterize_gaussian_inference_scene"]
++
++# ---------------------------------------------------------------------------
++# rasterize_gaussian_higs_trainable  (trainable entry point, Stage A proxy)
++# ---------------------------------------------------------------------------
++
++_TRAINABLE_ACCEPTED_KWARGS = frozenset({
++    "viewmat", "viewmats", "K", "Ks",
++    "width", "height",
++    "tile_size", "near_plane", "far_plane", "radius_clip", "eps2d",
++    "background", "render_mode", "camera_model",
++})
++
++
++def _normalize_cameras_trainable(
++    kwargs: dict[str, Any],
++) -> tuple[Tensor, Tensor, dict[str, Any]]:
++    """Normalize viewmat/K from request kwargs for the trainable path.
++
++    Returns ``(viewmats, Ks, cleaned_kwargs)`` where both have a leading
++    batch dim ``[1, ...]`` suitable for :func:`gsplat.rasterization`.
++    """
++    viewmat_val = kwargs.pop("viewmat", None)
++    viewmats_val = kwargs.pop("viewmats", None)
++    K_val = kwargs.pop("K", None)
++    Ks_val = kwargs.pop("Ks", None)
++
++    if viewmat_val is not None and viewmats_val is not None:
++        raise RuntimeError("pass exactly one of viewmat or viewmats, not both")
++    if viewmat_val is None and viewmats_val is None:
++        raise RuntimeError("pass exactly one of viewmat or viewmats")
++
++    if viewmats_val is not None:
++        viewmats = viewmats_val  # keep as-is (may already have batch dim)
++    else:
++        viewmats = viewmat_val.unsqueeze(0).unsqueeze(0)  # [4,4] -> [1,1,4,4]
++
++    if K_val is not None and Ks_val is not None:
++        raise RuntimeError("pass exactly one of K or Ks, not both")
++    if K_val is None and Ks_val is None:
++        raise RuntimeError("pass exactly one of K or Ks")
++
++    if Ks_val is not None:
++        Ks = Ks_val
++    else:
++        Ks = K_val.unsqueeze(0).unsqueeze(0)  # [3,3] -> [1,1,3,3]
++
++    return viewmats, Ks, kwargs
++
++
++def _validate_trainable_request(request: dict[str, Any]) -> dict[str, Any]:
++    """Validate and extract kwargs for the trainable path."""
++    # Reject known-unsupported inference features
++    for key in _INFERENCE_UNSUPPORTED_FEATURES:
++        if key in request:
++            raise TypeError(f"Trainable path does not support {key}")
++
++    for key in request:
++        if key not in _TRAINABLE_ACCEPTED_KWARGS:
++            raise TypeError(
++                f"rasterize_gaussian_higs_trainable got unexpected keyword "
++                f"argument '{key}'"
++            )
++    # Return all validated kwargs with defaults for optional fields
++    result = dict(request)
++    result.setdefault("tile_size", 16)
++    result.setdefault("near_plane", 0.01)
++    result.setdefault("far_plane", 1e10)
++    result.setdefault("radius_clip", 0.0)
++    result.setdefault("eps2d", 0.3)
++    result.setdefault("background", None)
++    result.setdefault("render_mode", "RGB")
++    result.setdefault("camera_model", "pinhole")
++    return result
++
++
++def rasterize_gaussian_higs_trainable(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    out: Optional[RenderReturn] = None,
++    sh_degree: Optional[int] = None,
++    differentiable: bool = False,
++    **request: Any,
++) -> RenderReturn:
++    """Render Gaussians with an optional HiGS preview and a differentiable path.
++
++    This is the trainable entry point for the HiGS renderer.
++
++    When ``differentiable=False`` (default): delegates to
++    :func:`rasterize_gaussian_inference_scene` for inference-only rendering.
++    Requires ``torch.inference_mode()`` or ``torch.no_grad()``.
++
++    When ``differentiable=True``:
++    - Skips the inference-only grad guard.
++    - Runs the standard differentiable gsplat rasterization pipeline, which
++      supports autograd and gradient flow to all Gaussian parameters.
++    - Optionally (if the HiGS backend is available) runs the HiGS inference
++      path under ``torch.no_grad()`` for preview / forward comparison.
++    - The HiGS result, if available, is stored in ``metadata["higs_preview"]``.
++
++    .. note::
++        Stage A uses the standard gsplat rasterization for the backward pass.
++        The HiGS path is used only for forward preview. No training speed
++        improvement is expected from Stage A.
++
++    Args:
++        means: Gaussian means. [N, 3] float32 CUDA.
++        quats: Quaternions (normalized). [N, 4] float32 CUDA.
++        scales: Scales (activated, positive). [N, 3] float32 CUDA.
++        opacities: Opacities (activated, in [0,1]). [N] float32 CUDA.
++        colors: Colors or SH coefficients. If ``sh_degree`` is None, expected
++            shape [N, D] (post-activation RGB). If ``sh_degree`` is set,
++            expected shape [N, K, D] (SH coefficients).
++        out: Optional output buffer (:class:`RenderReturn`). If provided, the
++            result is written in-place.
++        sh_degree: SH degree. If set, ``colors`` are SH coefficients shared
++            across cameras.
++        differentiable: If True, enables gradient flow through rendering.
++        **request: Camera parameters and rendering options. See
++            :func:`rasterize_gaussian_inference_scene` for details.
++
++    Returns:
++        :class:`RenderReturn` with ``frame`` [1, H, W, 3] and alpha in
++        ``metadata["alpha"]``. When ``differentiable=True`` and HiGS backend
++        is available, ``metadata["higs_preview"]`` contains the HiGS forward
++        result.
++    """
++    check_trainable_grad_mode(differentiable)
++
++    if not isinstance(means, Tensor) or means.device.type != "cuda":
++        raise RuntimeError("All tensors must be CUDA tensors")
++
++    if not differentiable:
++        # --- Delegate to the existing HiGS inference path ---
++        from gsplat.scene import GaussianInferenceScene
++
++        scene = GaussianInferenceScene.from_gaussian_tensors(
++            means, quats, scales, opacities, colors,
++            sh_degree=sh_degree,
++            id="trainable_fallback",
++        )
++        return rasterize_gaussian_inference_scene(
++            scene, out=out, **request,
++        )
++
++    # --- Differentiable path: use standard gsplat rasterization ---
++    from gsplat.rendering import rasterization
++
++    validated = _validate_trainable_request(request)
++    viewmats, Ks, rest = _normalize_cameras_trainable(validated)
++
++    width = rest["width"]
++    height = rest["height"]
++    if not isinstance(width, int) or width <= 0:
++        raise ValueError(f"width must be a positive integer, got {width!r}")
++    if not isinstance(height, int) or height <= 0:
++        raise ValueError(f"height must be a positive integer, got {height!r}")
++
++    bg = rest.get("background")
++
++    # Expand dims for the standard rasterization API
++    # means: [N,3] -> [1, N, 3], etc. (add batch dim)
++    means_b = means.unsqueeze(0)
++    quats_b = quats.unsqueeze(0)
++    scales_b = scales.unsqueeze(0)
++    opacities_b = opacities.unsqueeze(0)
++    if colors.dim() == 2:
++        colors_b = colors.unsqueeze(0)  # [N, D] -> [1, N, D] for pre-activated
++    else:
++        colors_b = colors  # [N, K, D] shared across batch/cameras
++
++    # Background: expand for batch/camera dims
++    backgrounds = None
++    if bg is not None:
++        backgrounds = bg.unsqueeze(0).unsqueeze(0)  # [D] -> [1, 1, D]
++
++    # Run standard differentiable rasterization
++    render_colors, render_alphas, meta = rasterization(
++        means=means_b,
++        quats=quats_b,
++        scales=scales_b,
++        opacities=opacities_b,
++        colors=colors_b,
++        viewmats=viewmats,
++        Ks=Ks,
++        width=width,
++        height=height,
++        sh_degree=sh_degree,
++        backgrounds=backgrounds,
++        packed=True,
++        tile_size=rest.get("tile_size", 16),
++        near_plane=rest.get("near_plane", 0.01),
++        far_plane=rest.get("far_plane", 1e10),
++        radius_clip=rest.get("radius_clip", 0.0),
++        eps2d=rest.get("eps2d", 0.3),
++        camera_model=rest.get("camera_model", "pinhole"),
++        render_mode=rest.get("render_mode", "RGB"),
++    )
++
++    # Squeeze batch/camera dims for RenderReturn [1, H, W, 3]
++    frame = render_colors.squeeze(0).squeeze(0)  # [1, 1, H, W, 3] -> [H, W, 3]
++    alpha = render_alphas.squeeze(0).squeeze(0)  # [1, 1, H, W, 1] -> [H, W, 1]
++
++    metadata: dict[str, Any] = {"alpha": alpha[None]}  # [1, H, W, 1]
++
++    # Optional: run HiGS for preview under no_grad
++    try:
++        from gsplat.scene import GaussianInferenceScene
++
++        with torch.no_grad():
++            scene = GaussianInferenceScene.from_gaussian_tensors(
++                means, quats, scales, opacities, colors,
++                sh_degree=sh_degree,
++                id="trainable_preview",
++            )
++            higs_result = rasterize_gaussian_inference_scene(
++                scene, **request,
++            )
++            metadata["higs_preview"] = higs_result.frame  # [1, H, W, 3]
++    except (ImportError, RuntimeError, ValueError, TypeError):
++        # HiGS preview is optional; skip when the extension/scene is unavailable
++        pass
++
++    if out is not None:
++        out.metadata.clear()
++        out.metadata.update(metadata)
++        out.frame = frame[None]  # [1, H, W, 3]
++        return out
++
++    return RenderReturn(
++        frame=frame[None],  # [1, H, W, 3]
++        metadata=metadata,
++    )
++
++
++
++def _cull_gaussians(means, quats, scales, viewmats, Ks, width, height, eps2d=0.3):
++    """Determine visible Gaussians via projection culling.
++    
++    Uses fully_fused_projection (under no_grad) to compute per-Gaussian
++    2D radii. Gaussians with both radius components > 0 are visible.
++    
++    Returns:
++        visible_ids: 1D int64 tensor of visible Gaussian indices.
++        visible_mask: bool tensor [N] where True means visible.
++    """
++    from gsplat.cuda._wrapper import fully_fused_projection
++    with torch.no_grad():
++        radii, _, _, _, _ = fully_fused_projection(
++            means=means.unsqueeze(0).contiguous(),
++            covars=None,
++            quats=quats.unsqueeze(0).contiguous(),
++            scales=scales.unsqueeze(0).contiguous(),
++            viewmats=viewmats.contiguous(),
++            Ks=Ks.contiguous(),
++            width=width, height=height, eps2d=eps2d,
++            packed=False,
++        )
++    r = radii.squeeze()  # [N] or [N, 2]
++    visible_mask = (r > 0).all(dim=-1) if r.dim() > 1 else (r > 0)
++    visible_ids = torch.where(visible_mask)[0]
++    return visible_ids, visible_mask
++
++
++def _cull_gaussians_batched(
++    means, quats, scales, viewmats, Ks,
++    width, height, eps2d=0.3,
++    near_plane=0.01, far_plane=1e10, radius_clip=0.0,
++    camera_model="pinhole",
++):
++    """Union-visibility culling over all cameras with ONE batched projection.
++
++    Runs ``fully_fused_projection`` once for every camera in parallel and marks
++    a Gaussian visible when any camera projects it with a positive radius. The
++    projection uses the exact same near/far/radius_clip/eps2d/camera_model
++    criteria as the render path and operates on the FP32 master params, so the
++    mask is projection-consistent with the forward (the FP16-packed HiGS
++    renderer is not needed for this and would add a full per-camera render per
++    step).
++
++    Returns:
++        visible_ids: 1D int64 tensor of visible Gaussian indices (ascending).
++        visible_mask: bool tensor [N] where True means visible.
++        culling_ratio: float fraction of culled (invisible) Gaussians.
++    """
++    from gsplat.cuda._wrapper import fully_fused_projection
++
++    with torch.no_grad():
++        radii, means2d, depths, conics, _ = fully_fused_projection(
++            means=means.unsqueeze(0).contiguous(),
++            covars=None,
++            quats=quats.unsqueeze(0).contiguous(),
++            scales=scales.unsqueeze(0).contiguous(),
++            viewmats=viewmats.contiguous(),
++            Ks=Ks.contiguous(),
++            width=width,
++            height=height,
++            eps2d=eps2d,
++            near_plane=near_plane,
++            far_plane=far_plane,
++            radius_clip=radius_clip,
++            camera_model=camera_model,
++            packed=False,
++        )
++    r = radii.squeeze(0)  # [C, N, 2]
++    visible_mask = _union_visible_mask_native(r)  # [N] union over cameras
++    visible_ids = torch.where(visible_mask)[0]
++    culling_ratio = 1.0 - (visible_ids.numel() / max(radii.shape[-2], 1))
++    return visible_ids, visible_mask, culling_ratio
++
++
++def _cull_visible_cached(
++    handle,
++    interval: int,
++    means, quats, scales, viewmats, Ks,
++    width, height, eps2d=0.3,
++    near_plane=0.01, far_plane=1e10, radius_clip=0.0,
++    camera_model="pinhole",
++    cache_key: str = "default",
++):
++    """Union-visibility culling with a refresh-interval cache.
++
++    The batched full-N projection is the only forward stage that touches every
++    Gaussian (isect/rasterize already run on the visible subset), so on the
++    dynamic training loop reusing its result for ``interval`` forwards removes
++    one full-N projection (and the union-mask bookkeeping) per step. The
++    visible set changes slowly under optimizer steps (~lr * grad per step), and
++    every topology change (densify/prune -> ``mark_dirty`` / ``rebuild``)
++    invalidates the cache, so a fresh cull is guaranteed exactly when the
++    Gaussian count changes.
++
++    Args:
++        handle: :class:`HigsRendererHandle` owning the per-camera-key cull
++            cache ``_cull_cache`` (must be non-None).
++        interval: refresh cadence in forwards; 1 reproduces per-step culling.
++    Returns:
++        visible_ids: 1D int64 tensor of visible Gaussian indices.
++    """
++    interval = max(1, int(interval))
++    slot = handle._cull_cache.get(cache_key)
++    if slot is not None and (handle._fwd_count - slot[2]) < interval:
++        return slot[0]
++    vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
++        means, quats, scales, viewmats, Ks,
++        width, height,
++        eps2d=eps2d, near_plane=near_plane,
++        far_plane=far_plane, radius_clip=radius_clip,
++        camera_model=camera_model,
++    )
++    handle._cull_cache[cache_key] = (vis_ids, _vis_mask, handle._fwd_count)
++    return vis_ids
++
++
++def _gather_rows_fast(t, row_ids):
++    """Compact-copy arbitrary row subsets of one FP32 tensor.
++
++    Uses the single-tensor ``higs_gather_rows`` CUDA kernel when available
++    (bypasses PyTorch's slow vectorized row gather for row widths divisible
++    by four, which the densify/prune and Adam-state-sync paths hit with
++    ``colors [N,16,3]``); falls back to ``t[row_ids]`` otherwise.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_gather_rows")
++        and t.is_cuda
++        and t.dtype == torch.float32
++    ):
++        try:
++            return ext.higs_gather_rows(t, row_ids)
++        except RuntimeError:
++            pass
++    return t[row_ids]
++
++
++def _gather_rows_new_zeros(t, row_ids):
++    """Gather rows with ``row_ids[i] == -1`` writing zeros, in one kernel.
++
++    Used by the Adam-state sync: every row of the new state tensor is either
++    copied from its source row (``row_ids[i] >= 0``) or zero-initialized
++    (``row_ids[i] == -1`` for brand-new Gaussians). Fusing the zero-fill into
++    the gather removes the ``zeros_like`` memset plus the scatter pass, and the
++    output can be allocated uninitialized. Falls back to zeros + indexed copy
++    when the CUDA extension is unavailable.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_gather_rows")
++        and t.is_cuda
++        and t.dtype == torch.float32
++    ):
++        try:
++            return ext.higs_gather_rows(t, row_ids.to(torch.long), True)
++        except RuntimeError:
++            pass
++    valid = row_ids >= 0
++    shape = (row_ids.numel(),) + tuple(t.shape[1:])
++    out = torch.zeros(shape, dtype=t.dtype, device=t.device)
++    if valid.any():
++        out.index_copy_(0, valid.nonzero().flatten(), t[row_ids[valid].clamp(min=0)])
++    return out
++
++
++def _refresh_higs_renderer_scene(
++    handle, means, quats, scales, opacities, colors,
++    N, sh_degree, sh_compression_mode, lightweight=False,
++):
++    """Rebuild the packed HiGS scene when it is stale, WITHOUT rendering.
++
++    Mirrors the rebuild path of :func:`_cull_gaussians_higs` (which the direct
++    culling API still uses) but skips the per-camera render: the training
++    forward derives visibility from a batched FP32 projection, so the renderer's
++    packed scene only needs to stay version-consistent for the handle's
++    scene_version / topology_rebuilt / pending-backward bookkeeping.
++
++    When ``lightweight`` is True (the differentiable training forward), the
++    packed buffers are only kept bookkeeping-consistent, not re-packed: the
++    native and recompute backends consume the FP32 captured tensors and never
++    the packed FP16 scene. A pure parameter drift (optimizer.step) skips the
++    expensive ``pack_gaussian_inference_scene`` call, and a real topology
++    change (``mark_dirty()`` or an N change) also defers it: only the version
++    bookkeeping advances and ``packed_stale`` is set, so the packed scene is
++    rebuilt on demand the next time the non-training
++    :func:`_cull_gaussians_higs` culling API is used with this handle.
++    """
++    from gsplat.scene.kernels.gaussian_inference_ops import (
++        pack_gaussian_inference_scene,
++    )
++    from ..kernels.gaussian_inference_ops import (
++        create_native_gaussian_inference_renderer,
++    )
++
++    sh_deg_i = -1 if sh_degree is None else sh_degree
++    comp = _normalize_sh_compression_mode(sh_compression_mode)
++    if handle.n_gaussians != N and not handle.dirty:
++        raise RuntimeError(
++            f"HiGS renderer handle has n_gaussians={handle.n_gaussians} "
++            f"but the input has N={N}. Topology changed without "
++            "mark_dirty(); call renderer_handle.mark_dirty() after "
++            "densify/prune before the next forward."
++        )
++    if handle.dirty or handle.n_gaussians != N or (
++        not handle.pending_backward
++        and handle.params_changed(means, quats, scales, opacities, colors)
++    ):
++        if lightweight:
++            if not handle.dirty and handle.n_gaussians == N:
++                # Pure parameter drift on the differentiable path: the packed
++                # scene is stale but never consumed here. Do not update
++                # _param_versions so _cull_gaussians_higs still sees the drift
++                # and re-packs when the non-training culling API is used with
++                # this handle.
++                handle._topology_rebuilt = False
++                return
++            # Real topology change on the differentiable path: the packed FP16
++            # scene is never consumed by the training forward/backward (both
++            # consume the FP32 captured tensors), so defer the pack entirely.
++            # Advance only the version bookkeeping and mark the packed scene
++            # stale; _cull_gaussians_higs re-packs on demand. _param_versions
++            # is intentionally left untouched (a densify/prune creates brand-new
++            # tensors whose _version can collide with the captured ones, so
++            # packed_stale - not params_changed - is the authoritative signal).
++            handle._version += 1
++            handle.n_gaussians = N
++            handle._dirty = False
++            handle._topology_rebuilt = True
++            handle._packed_stale = True
++            return
++        means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
++            means, quats, scales, opacities, colors, sh_deg_i, comp,
++        )
++        if handle.renderer is not None:
++            handle.renderer.release()
++        renderer = create_native_gaussian_inference_renderer(
++            means_planar, qso_packed, colors_packed, sh_deg_i, int(comp),
++        )
++        handle.rebuild(
++            means_planar, qso_packed, colors_packed, N,
++            packed_dtype=str(qso_packed.dtype), renderer=renderer,
++            means=means, quats=quats, scales=scales,
++            opacities=opacities, colors=colors,
++        )
++
++def _cull_gaussians_higs(
++    means, quats, scales, opacities, colors,
++    viewmat, K, width, height, sh_degree,
++    tile_size=16, near_plane=0.01, far_plane=1e10,
++    radius_clip=0.0, eps2d=0.3, sh_compression_mode=0, background=None,
++    renderer_handle=None,
++):
++    """Determine visible Gaussian IDs using HiGS-native culling (get_visible_mask).
++
++    Calls the HiGS renderer under no_grad to populate the visibility bitmask,
++    which reflects exactly which Gaussians the HiGS tile-intersect stage
++    considers visible.
++
++    When ``renderer_handle`` is provided (a :class:`HigsRendererHandle`), the
++    packed FP16 scene and pybind renderer are reused across calls/frames and are
++    rebuilt only when the handle was marked dirty (e.g. after densify/prune).
++    Otherwise a temporary renderer is created and released before returning.
++
++    Returns:
++        visible_ids: 1-D int64 tensor of visible Gaussian indices.
++        visible_mask: bool tensor [N] where True means visible.
++        culling_ratio: float fraction of culled (invisible) Gaussians.
++    """
++    from ..kernels.gaussian_inference_ops import (
++        create_native_gaussian_inference_renderer,
++    )
++    from gsplat.scene.kernels.gaussian_inference_ops import (
++        pack_gaussian_inference_scene,
++    )
++    from gsplat.scene.components.gaussian_inference_scene import SHCompressionMode
++
++    if not _higs_backend_available():
++        raise RuntimeError(
++            "HiGS CUDA extension is not available. Install the CUDA toolkit and "
++            "build the experimental extension, or use use_higs_culling=False."
++        )
++
++    N = means.shape[0]
++    with torch.no_grad():
++        sh_deg_i = -1 if sh_degree is None else sh_degree
++        comp = _normalize_sh_compression_mode(sh_compression_mode)
++
++        temp_handle = None
++        handle = renderer_handle
++        if handle is None:
++            means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
++                means, quats, scales, opacities, colors, sh_deg_i, comp,
++            )
++            renderer = create_native_gaussian_inference_renderer(
++                means_planar, qso_packed, colors_packed, sh_deg_i, int(comp),
++            )
++            handle = HigsRendererHandle(
++                means_planar, qso_packed, colors_packed, renderer,
++                packed_dtype=str(qso_packed.dtype),
++                n_gaussians=N, sh_degree=sh_deg_i,
++            )
++            temp_handle = handle
++        else:
++            if handle.n_gaussians != N and not handle.dirty:
++                raise RuntimeError(
++                    f"HiGS renderer handle has n_gaussians={handle.n_gaussians} "
++                    f"but the input has N={N}. Topology changed without "
++                    "mark_dirty(); call renderer_handle.mark_dirty() after "
++                    "densify/prune before the next forward."
++                )
++            if handle.dirty or handle.n_gaussians != N or handle.packed_stale or (not handle.pending_backward and handle.params_changed(means, quats, scales, opacities, colors)):
++                means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
++                    means, quats, scales, opacities, colors, sh_deg_i, comp,
++                )
++                if handle.renderer is not None:
++                    handle.renderer.release()
++                renderer = create_native_gaussian_inference_renderer(
++                    means_planar, qso_packed, colors_packed, sh_deg_i, int(comp),
++                )
++                handle.rebuild(
++                    means_planar, qso_packed, colors_packed, N,
++                    packed_dtype=str(qso_packed.dtype), renderer=renderer,
++                    means=means, quats=quats, scales=scales,
++                    opacities=opacities, colors=colors,
++                )
++
++        _ = handle.renderer.render(
++            handle.means_planar, handle.qso_packed, handle.colors_packed,
++            viewmat, K, width, height, tile_size,
++            near_plane, far_plane, radius_clip, eps2d,
++            sh_deg_i, int(comp), background, None,
++        )
++
++        # Decode the int32 bitmask [(N + 31) / 32] on-device without a Python
++        # per-word loop (avoids N/32 device->host syncs for large scenes).
++        mask_bits = handle.renderer.get_visible_mask()
++        n_words = mask_bits.shape[0]
++        word_idx = torch.arange(n_words, device=mask_bits.device)
++        bit_idx = torch.arange(32, device=mask_bits.device)
++        bits = (mask_bits.long()[:, None] >> bit_idx[None, :]) & 1  # [n_words, 32]
++        flat_bits = bits.reshape(-1)[:N]
++        visible_mask = flat_bits.bool()
++
++        if temp_handle is not None:
++            temp_handle.release()
++
++    visible_ids = torch.where(visible_mask)[0]
++    culling_ratio = 1.0 - (visible_ids.numel() / max(N, 1))
++    return visible_ids, visible_mask, culling_ratio
++
++def _higs_backend_available() -> bool:
++    """Return True when the experimental Inference CUDA extension is usable."""
++    from ..kernels import _backend
++
++    ext = _backend._C
++    return ext is not None and hasattr(ext, "higs_rasterize_backward")
++
++
++def _gather_visible_native(
++    means, quats, scales, opacities, colors, visible_ids,
++):
++    """Gather the visible rows of the master FP32 tensors.
++
++    Uses the compact-copy CUDA kernel from the experimental extension when
++    available (avoids the pathologically slow PyTorch row gather for row
++    widths divisible by four, e.g. quats [N,4] and colors [N,16,3]);
++    otherwise falls back to the plain PyTorch gather.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_gather_visible")
++        and means.is_cuda
++        and means.dtype == torch.float32
++        and colors.dtype == torch.float32
++    ):
++        try:
++            return ext.higs_gather_visible(
++                means, quats, scales, opacities, colors, visible_ids,
++            )
++        except RuntimeError:
++            pass
++    return (
++        means[visible_ids].contiguous(),
++        quats[visible_ids].contiguous(),
++        scales[visible_ids].contiguous(),
++        opacities[visible_ids].contiguous(),
++        colors[visible_ids].contiguous(),
++    )
++
++
++def _union_visible_mask_native(r):
++    """Union visibility mask over cameras from ``[C, N, 2]`` projection radii.
++
++    Uses the fused CUDA kernel when the experimental extension is available
++    (one thread per Gaussian, ``any_c(both radii > 0)``); otherwise falls back
++    to the PyTorch expression, which the culling callers historically used.
++    """
++    try:
++        from ..kernels import _backend as _b
++
++        ext = _b._C
++    except Exception:
++        ext = None
++    if (
++        ext is not None
++        and hasattr(ext, "higs_union_visible_mask")
++        and r.is_cuda
++        and r.dtype in (torch.float32, torch.int32)
++    ):
++        try:
++            return ext.higs_union_visible_mask(r.contiguous())
++        except RuntimeError:
++            pass
++    return (r > 0).all(dim=-1).any(dim=0)
++
++
++def _normalize_sh_compression_mode(mode):
++    """Normalize str/int/enum SH compression modes to SHCompressionMode."""
++    from gsplat.scene.components.gaussian_inference_scene import SHCompressionMode
++
++    if isinstance(mode, SHCompressionMode):
++        return mode
++    if isinstance(mode, str):
++        return SHCompressionMode[mode.upper()]
++    if isinstance(mode, int):
++        return SHCompressionMode(mode)
++    raise TypeError(
++        f"sh_compression_mode must be a SHCompressionMode, str, or int; "
++        f"got {type(mode).__name__}"
++    )
++
++def _ste_sh_quantize(colors: Tensor) -> Tensor:
++    """Differentiable FP16 quantization of SH coefficients (straight-through).
++
++    ``sh_compression_mode="packed_16b"/"packed_32b"`` store SH3 coefficients
++    as FP16; the lossy step is the FP16 cast (the layout flatten is
++    inference-scene-only). PyTorch dtype casts are differentiable with an
++    identity-style gradient, so this is the standard straight-through
++    estimator: the forward render sees the quantized coefficients while the
++    gradient flows through the cast back to the FP32 master tensors.
++    """
++    if colors is None or colors.dtype == torch.float16:
++        return colors
++    return colors.half().float()
++
++
++class HigsRendererHandle:
++    """Explicit handle owning a packed HiGS scene and its pybind renderer.
++
++    The handle owns the FP16 packed buffers (``qso_packed`` / ``colors_packed``)
++    plus the pybind :class:`GaussianInferenceRenderer`. It is the versioned
++    "scene object" that binds each forward to a unique ``scene_version`` and
++    guarantees that a backward cannot run against a stale hierarchy:
++
++    - ``mark_dirty()`` after densify/prune (raises while a backward is pending);
++    - the autograd Function captures ``version`` at forward time and validates
++      it again in backward (the handle is kept alive by ``ctx`` so the old
++      packed buffers are never released/reused before backward completes).
++    """
++
++    def __init__(
++        self,
++        means_planar,
++        qso_packed,
++        colors_packed,
++        renderer,
++        packed_dtype: str,
++        n_gaussians: int,
++        sh_degree: int,
++        means=None,
++        quats=None,
++        scales=None,
++        opacities=None,
++        colors=None,
++    ) -> None:
++        self.means_planar = means_planar
++        self.qso_packed = qso_packed
++        self.colors_packed = colors_packed
++        self.renderer = renderer
++        self.packed_dtype = packed_dtype
++        self.n_gaussians = n_gaussians
++        self.sh_degree = sh_degree
++        self._version: int = 0
++        self._dirty: bool = False
++        self._topology_rebuilt: bool = False
++        self._pending_backward: bool = False
++        self._packed_stale: bool = False
++        self._fwd_count: int = 0
++        self._cull_cache: dict = {}
++        if means is not None:
++            self._param_versions = self._capture_param_versions(
++                (means, quats, scales, opacities, colors)
++            )
++        else:
++            self._param_versions = None
++
++    # -- read-only state ---------------------------------------------------
++    @property
++    def version(self) -> int:
++        return self._version
++
++    @property
++    def dirty(self) -> bool:
++        return self._dirty
++
++    @property
++    def topology_rebuilt(self) -> bool:
++        return self._topology_rebuilt
++
++    @property
++    def pending_backward(self) -> bool:
++        return self._pending_backward
++
++    @property
++    def packed_stale(self) -> bool:
++        return self._packed_stale
++
++    # -- lifecycle ---------------------------------------------------------
++    def mark_dirty(self) -> None:
++        """Mark the packed scene stale (after densify/prune/clone).
++
++        Raises if a forward already captured this handle and its backward has
++        not completed yet: mutating topology mid-graph would invalidate the
++        saved hierarchy buffers.
++        """
++        if self._pending_backward:
++            raise RuntimeError(
++                "Cannot mutate HiGS topology while a backward is still pending. "
++                "Run loss.backward() (and optimizer.step()) before calling "
++                "mark_dirty() / densify / prune."
++            )
++        self._dirty = True
++        self._topology_rebuilt = False
++        self._packed_stale = True
++        self._cull_cache = {}
++
++    def on_duplicate(self, _sel: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_split(self, _sel: Tensor, _rest: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_remove(self, _mask: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_relocate(self, _dead_indices: Tensor, _sampled_indices: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_sample_add(self, _sampled_indices: Tensor) -> None:
++        self.mark_dirty()
++
++    def rebuild(self, means_planar, qso_packed, colors_packed, n_gaussians: int, packed_dtype: str, renderer=None, means=None, quats=None, scales=None, opacities=None, colors=None) -> None:
++        """Replace the packed buffers + renderer after a topology change."""
++        self.means_planar = means_planar
++        self.qso_packed = qso_packed
++        self.colors_packed = colors_packed
++        self.packed_dtype = packed_dtype
++        self.n_gaussians = n_gaussians
++        if renderer is not None:
++            self.renderer = renderer
++        self._dirty = False
++        self._topology_rebuilt = True
++        self._packed_stale = False
++        self._version += 1
++        self._cull_cache = {}
++        if means is not None:
++            self._param_versions = self._capture_param_versions(
++                (means, quats, scales, opacities, colors)
++            )
++
++    def _capture_param_versions(self, tensors) -> tuple | None:
++        """Snapshot master-tensor in-place mutation versions (optimizer.step)."""
++        try:
++            return tuple(t._version for t in tensors)
++        except AttributeError:
++            return None
++
++    def params_changed(self, means, quats, scales, opacities, colors) -> bool:
++        """True when the FP32 master tensors changed since the last rebuild.
++
++        Uses ``torch.Tensor._version`` (incremented by in-place ops such as
++        ``optimizer.step()``), so the culling hierarchy is refreshed exactly
++        when the parameters drift, without a heuristic threshold.
++        """
++        if self._param_versions is None:
++            return False
++        current = self._capture_param_versions((means, quats, scales, opacities, colors))
++        return current != self._param_versions
++
++    def _begin_forward(self) -> None:
++        self._pending_backward = True
++        self._fwd_count += 1
++
++    def _end_backward(self, expected_version: int) -> None:
++        if expected_version != self._version:
++            raise RuntimeError(
++                "HiGS scene version mismatch in backward: forward captured "
++                f"version {expected_version} but the scene is now at "
++                f"{self._version}. Topology was mutated before backward "
++                "completed; rebuild the graph or call mark_dirty() before the "
++                "next forward instead."
++            )
++        self._pending_backward = False
++
++    def release(self) -> None:
++        """Release the pybind renderer (CUDA workspace). Safe to call twice."""
++        if self.renderer is not None:
++            self.renderer.release()
++            self.renderer = None
++
++
++def create_higs_renderer(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    sh_degree=None,
++    sh_compression_mode="none",
++) -> HigsRendererHandle:
++    """Create an explicit, reusable HiGS renderer handle for training.
++
++    Packs the FP32 master tensors into the HiGS inference layout (FP16
++    ``qso_packed`` / ``colors_packed`` for RGB, FP32 for SH coefficients) and
++    constructs the pybind renderer. The handle can be passed to
++    ``rasterize_gaussian_higs_frozen`` / ``rasterize_gaussian_higs_dynamic``
++    via ``scene=...`` and must be ``release()``-d when no longer needed.
++
++    Raises:
++        RuntimeError: if the experimental CUDA extension is not available.
++    """
++    if not _higs_backend_available():
++        raise RuntimeError(
++            "Cannot create a HiGS renderer handle: the experimental CUDA "
++            "extension is not available. Build it with BUILD_EXPERIMENTAL=1 "
++            "or use backward_mode='gsplat_recompute'."
++        )
++    from gsplat.scene.kernels.gaussian_inference_ops import (
++        pack_gaussian_inference_scene,
++    )
++    from ..kernels.gaussian_inference_ops import (
++        create_native_gaussian_inference_renderer,
++    )
++
++    sh_deg_i = -1 if sh_degree is None else sh_degree
++    comp = _normalize_sh_compression_mode(sh_compression_mode)
++    means_planar, qso_packed, colors_packed = pack_gaussian_inference_scene(
++        means, quats, scales, opacities, colors, sh_deg_i, comp,
++    )
++    renderer = create_native_gaussian_inference_renderer(
++        means_planar, qso_packed, colors_packed, sh_deg_i, int(comp),
++    )
++    return HigsRendererHandle(
++        means_planar, qso_packed, colors_packed, renderer,
++        packed_dtype=str(qso_packed.dtype),
++        n_gaussians=means.shape[0],
++        sh_degree=sh_deg_i,
++        means=means, quats=quats, scales=scales,
++        opacities=opacities, colors=colors,
++    )
++
++class _FrozenSceneTracker:
++    """Tracks Gaussian count across renderer calls for freeze_topology validation."""
++    def __init__(self) -> None:
++        self._n_gaussians = None
++        self._render_count = 0
++
++    @property
++    def render_count(self) -> int:
++        return self._render_count
++
++    def validate(self, n_gaussians: int, freeze_topology: bool) -> None:
++        if not freeze_topology:
++            self._n_gaussians = None
++            self._render_count = 0
++            return
++        if self._n_gaussians is None:
++            self._n_gaussians = n_gaussians
++        elif self._n_gaussians != n_gaussians:
++            raise RuntimeError(
++                "freeze_topology=True but Gaussian count changed: "
++                f"{self._n_gaussians} -> {n_gaussians}. "
++                "Densification or pruning is not allowed in frozen-topology mode."
++            )
++        self._render_count += 1
++
++    def reset(self) -> None:
++        self._n_gaussians = None
++        self._render_count = 0
++
++
++_HIGS_FROZEN_TRACKER = _FrozenSceneTracker()
++class _HigsDynamicScene:
++    """Tracks scene version and topology state for dynamic-topology training (Stage C).
++
++    Provides:
++    - Monotonically increasing scene_version for each forward call.
++    - dirty flag to signal that master tensors were mutated (densify/prune).
++    - An owned :class:`HigsRendererHandle` (when the CUDA backend is available)
++      that binds every forward/backward to the same scene version and raises on
++      topology mutation while a backward is still pending.
++    """
++
++    def __init__(self) -> None:
++        self._scene_version: int = 0
++        self._n_gaussians: int | None = None
++        self._dirty: bool = False
++        self._forward_version: int = 0
++        self.renderer_handle: HigsRendererHandle | None = None
++
++    @property
++    def scene_version(self) -> int:
++        return self._scene_version
++
++    @property
++    def dirty(self) -> bool:
++        return self._dirty
++
++    def mark_dirty(self) -> None:
++        """Call after densify/prune/clone to signal master-tensor mutation.
++
++        Delegates to the owned renderer handle (which raises if a backward is
++        still pending) so the packed hierarchy can never be invalidated while
++        a backward still needs it.
++        """
++        if self.renderer_handle is not None:
++            self.renderer_handle.mark_dirty()
++        self._dirty = True
++
++    def on_duplicate(self, _sel: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_split(self, _sel: Tensor, _rest: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_remove(self, _mask: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_relocate(self, _dead_indices: Tensor, _sampled_indices: Tensor) -> None:
++        self.mark_dirty()
++
++    def on_sample_add(self, _sampled_indices: Tensor) -> None:
++        self.mark_dirty()
++
++    def mark_clean(self) -> None:
++        self._dirty = False
++
++    def reset(self) -> None:
++        """Reset scene version, dirty state and release the renderer handle."""
++        if self.renderer_handle is not None:
++            self.renderer_handle.release()
++            self.renderer_handle = None
++        self._scene_version = 0
++        self._n_gaussians = None
++        self._dirty = False
++        self._forward_version = 0
++
++    def ensure_renderer(
++        self, means, quats, scales, opacities, colors, sh_degree,
++    ) -> HigsRendererHandle | None:
++        """Create (once) the owned renderer handle for the current master tensors."""
++        if self.renderer_handle is None and _higs_backend_available():
++            self.renderer_handle = create_higs_renderer(
++                means, quats, scales, opacities, colors, sh_degree=sh_degree,
++            )
++        return self.renderer_handle
++
++    def next_version(self, n_gaussians: int) -> int:
++        """Advance to the next scene version for a new forward pass."""
++        self._scene_version += 1
++        self._n_gaussians = n_gaussians
++        self._dirty = False
++        self._forward_version = self._scene_version
++        return self._scene_version
++
++    def validate_count(self, n_gaussians: int) -> None:
++        """Validate that a topology change is expected (scene was marked dirty)."""
++        if self._n_gaussians is not None and self._n_gaussians != n_gaussians:
++            if not self._dirty:
++                raise RuntimeError(
++                    "Gaussian count changed without mark_dirty(). "
++                    "Call mark_dirty() after densify/prune before the next forward."
++                )
++        self._n_gaussians = n_gaussians
++
++
++_HIGS_DYNAMIC_SCENE = _HigsDynamicScene()
++
++
++def _densify_gaussians(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    grads: Tensor | None = None,
++    threshold: float = 0.0002,
++    noise_scale: float = 0.01,
++    color_clamp: tuple | None = (0.0, 1.0),
++) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
++    """Duplicate Gaussians with large position gradients (densification)."""
++    N = means.shape[0]
++    if grads is not None:
++        grad_norm = grads.norm(dim=-1)
++        mask = grad_norm > threshold
++    else:
++        mask = torch.rand(N, device=means.device) < 0.05
++
++    n_new = mask.sum().item()
++    if n_new == 0:
++        return means, quats, scales, opacities, colors
++
++    dup_ids = mask.nonzero().flatten()
++    dup_means = _gather_rows_fast(means, dup_ids)
++    noise = torch.randn_like(dup_means) * noise_scale
++    new_means = torch.cat([means, dup_means + noise])
++    new_quats = torch.cat([quats, _gather_rows_fast(quats, dup_ids)])
++    new_scales = torch.cat([scales, _gather_rows_fast(scales, dup_ids)])
++    new_opacities = torch.cat(
++        [opacities, _gather_rows_fast(opacities, dup_ids)]
++    ).clamp(0.0, 1.0)
++    new_colors = torch.cat([colors, _gather_rows_fast(colors, dup_ids)])
++    if colors.dim() == 2 and color_clamp is not None:
++        # RGB pre-activated colors are bounded to [0, 1] by default; pass
++        # color_clamp=None to keep the raw (possibly unbounded) values. SH
++        # coefficient tensors ([N, K, C]) are never clamped.
++        new_colors = new_colors.clamp(color_clamp[0], color_clamp[1])
++    return new_means, new_quats, new_scales, new_opacities, new_colors
++
++
++def _prune_gaussians(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    opacity_threshold: float = 0.01,
++) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
++    """Remove Gaussians with very low opacity (pruning)."""
++    mask = opacities > opacity_threshold
++    if mask.all():
++        return means, quats, scales, opacities, colors
++
++    keep_ids = mask.nonzero().flatten()
++    return (
++        _gather_rows_fast(means, keep_ids),
++        _gather_rows_fast(quats, keep_ids),
++        _gather_rows_fast(scales, keep_ids),
++        _gather_rows_fast(opacities, keep_ids),
++        _gather_rows_fast(colors, keep_ids),
++    )
++
++
++def sync_optimizer_state_for_topology_change(
++    optimizer, old_to_new_map, **param_pairs,
++):
++    """Update an optimizer's param groups + Adam state after densify/prune.
++
++    ``param_pairs`` maps a parameter name to ``(old_tensor, new_tensor)``.
++    ``old_to_new_map`` is an int64 tensor of length ``N_new``: row ``i`` of the
++    new tensors was produced from row ``old_to_new_map[i]`` of the old tensors,
++    or ``-1`` for brand-new Gaussians (zero-initialized state).
++
++    - duplicated Gaussians: Adam state rows are copied from the source row;
++    - brand-new Gaussians: Adam state is zero-initialized;
++    - pruned Gaussians: their state rows are simply dropped with the old tensors.
++
++    The optimizer's ``param_groups`` are rewritten in place so ``optimizer.step()``
++    keeps working on the new master tensors.
++    """
++    old_by_name = {name: pair[0] for name, pair in param_pairs.items()}
++    new_by_name = {name: pair[1] for name, pair in param_pairs.items()}
++    index_map = old_to_new_map.to(torch.long)
++    n_new = index_map.numel()
++
++    for group in optimizer.param_groups:
++        params = group["params"]
++        for i, param in enumerate(params):
++            for name, old_t in old_by_name.items():
++                if param is not old_t:
++                    continue
++                new_t = new_by_name[name]
++                state = optimizer.state.get(param)
++                if state is not None:
++                    new_state = {}
++                    for key, value in state.items():
++                        if (
++                            isinstance(value, torch.Tensor)
++                            and value.dim() >= 1
++                            and value.shape[0] == old_t.shape[0]
++                        ):
++                            # One fused kernel: row i is copied from
++                            # index_map[i] (valid rows) or zero-filled
++                            # (index_map[i] == -1, brand-new Gaussians).
++                            new_state[key] = _gather_rows_new_zeros(
++                                value, index_map
++                            )
++                        else:
++                            new_state[key] = value
++                    del optimizer.state[param]
++                    optimizer.state[new_t] = new_state
++                params[i] = new_t
++    return optimizer
++
++
++class _HigsAutogradFunction(torch.autograd.Function):
++    """autograd Function wrapping HiGS culling + diff. rasterization (Stage B).
++
++    Forward:
++      - culls invisible Gaussians under no_grad (HiGS-native bitmask or
++        standard projection culling), unioned across all cameras;
++      - rasterizes the visible subset with the standard gsplat CUDA kernels
++        (projection -> tile intersect -> blend) and captures the exact forward
++        state (means2d/conics/colors_eval/opacities/tile offsets/flatten ids/
++        render alphas/last ids/radii) for the native backward.
++
++    Backward:
++      - ``backward_mode="higs_native"``: computes gradients with the native
++        HiGS CUDA kernels from the forward-captured state (no recomputation),
++        writing FP32 master gradients. Invisible Gaussians get exactly zero
++        gradient (stop-gradient visibility semantics).
++      - ``backward_mode="gsplat_recompute"``: explicit fallback that re-runs
++        the standard gsplat forward under autograd and uses
++        ``torch.autograd.grad``.
++
++    The visibility mask itself is never differentiated; it is discrete culling
++    and the mask is a plain boolean index.
++    """
++
++    #: Metadata of the most recent forward, consumed by the public wrappers.
++    last_forward_metadata: dict[str, Any] = {}
++
++    @staticmethod
++    def forward(
++        ctx,
++        means, quats, scales, opacities, colors,
++        means2d_proxy,
++        viewmats, Ks,
++        width, height, sh_degree, tile_size,
++        near_plane, far_plane, radius_clip, eps2d, background,
++        render_mode, camera_model,
++        enable_culling, use_higs_culling,
++        backward_mode="higs_native", renderer_handle=None,
++        sh_compression_mode="none",
++        tile_sampling_ratio=1.0,
++        sampling_mode="uniform",
++        tile_mask=None,
++        sampled_tile_ratio=None,
++        cull_refresh_interval=1,
++        cull_cache_key="default",
++    ):
++        if backward_mode not in ("higs_native", "gsplat_recompute"):
++            raise ValueError(
++                f"backward_mode must be 'higs_native' or 'gsplat_recompute', "
++                f"got {backward_mode!r}"
++            )
++
++        # NOTE: torch.autograd.Function.forward always runs with grad disabled,
++        # so ``torch.is_grad_enabled()`` cannot be used here. Any input that
++        # requires grad means a backward is expected for this call.
++        training = any(
++            t is not None and t.requires_grad
++            for t in (means, quats, scales, opacities, colors)
++        )
++        comp = _normalize_sh_compression_mode(sh_compression_mode)
++        ctx.sh_compression_mode = comp.name.lower()
++        if comp != _get_sh_compression_none() and training:
++            # PACKED_16B/32B quantize SH3 coefficients to FP16. The cast is
++            # applied with a straight-through estimator (see _ste_sh_quantize),
++            # so gradients flow back to the FP32 master SH tensors.
++            if colors.dim() != 3:
++                raise ValueError(
++                    f"sh_compression_mode={comp.name} requires SH3 colors "
++                    f"([N, K, 3]); got colors.dim()={colors.dim()}. Pass "
++                    "sh_compression_mode='none' with RGB colors."
++                )
++
++        native = backward_mode == "higs_native" and _higs_backend_available()
++        ctx.native = native
++        ctx.backward_backend = "higs_native" if native else "gsplat_recompute"
++        ctx.native_available = _higs_backend_available()
++        if not (0.0 < float(tile_sampling_ratio) <= 1.0):
++            raise ValueError(
++                "tile_sampling_ratio must be in (0, 1], got %r" % (tile_sampling_ratio,)
++            )
++        ctx.tile_sampling_ratio = float(tile_sampling_ratio)
++        if sampling_mode not in ("uniform", "stratified"):
++            raise ValueError(
++                f"sampling_mode must be 'uniform' or 'stratified', got {sampling_mode!r}"
++            )
++        ctx.sampling_mode = sampling_mode
++        if tile_mask is not None:
++            if not native:
++                raise ValueError(
++                    "tile_mask requires backward_mode='higs_native' "
++                    "(masked isect filtering is implemented in the native capture path)."
++                )
++            if tile_mask.dtype != torch.bool or tile_mask.dim() != 3:
++                raise ValueError(
++                    "tile_mask must be a bool tensor of shape [C, tile_h, tile_w], "
++                    "got dtype=%s dim=%d" % (tile_mask.dtype, tile_mask.dim())
++                )
++            n_tiles_check = math.ceil(width / tile_size) * math.ceil(height / tile_size)
++            if tile_mask.shape[1] * tile_mask.shape[2] != n_tiles_check:
++                raise ValueError(
++                    "tile_mask shape %s does not match [C, th=%d, tw=%d]"
++                    % (tuple(tile_mask.shape), math.ceil(height / tile_size),
++                       math.ceil(width / tile_size))
++                )
++        ctx.tile_mask_external = tile_mask
++        ctx.cull_refresh_interval = max(1, int(cull_refresh_interval))
++        ctx.cull_cache_key = cull_cache_key
++        if ctx.tile_sampling_ratio < 1.0 and not native:
++            raise ValueError(
++                "tile_sampling_ratio < 1.0 requires backward_mode='higs_native' "
++                "(tile sampling is implemented in the native capture path)."
++            )
++
++        if native:
++            if render_mode not in ("RGB", "D", "ED", "RGB+D", "RGB+ED"):
++                raise ValueError(
++                    "higs_native backward supports render_mode in "
++                    f"('RGB', 'D', 'ED', 'RGB+D', 'RGB+ED'), got {render_mode!r}. "
++                    "Hit-distance modes (d/Ed/RGB-d/RGB-Ed) require the ray-based "
++                    "eval3d path; use backward_mode='gsplat_recompute'."
++                )
++            if camera_model not in ("pinhole", "ortho", "fisheye"):
++                raise ValueError(
++                    "higs_native backward supports camera_model in "
++                    f"('pinhole', 'ortho', 'fisheye'), got {camera_model!r}. "
++                    "Use backward_mode='gsplat_recompute' for ftheta/lidar."
++                )
++            if background is not None and background.dim() != 1:
++                raise ValueError(
++                    "higs_native backward expects a per-scene background of "
++                    f"shape [D]; got {tuple(background.shape)}. "
++                    "Use backward_mode='gsplat_recompute' for per-camera "
++                    "backgrounds."
++                )
++
++        # -- normalize camera tensors to [1, C, ...] -----------------------
++        viewmats = viewmats.contiguous()
++        Ks = Ks.contiguous()
++        if viewmats.dim() == 2:  # [4, 4]
++            viewmats = viewmats.unsqueeze(0).unsqueeze(0)
++            Ks = Ks.unsqueeze(0).unsqueeze(0)
++        elif viewmats.dim() == 3:  # [C, 4, 4]
++            viewmats = viewmats.unsqueeze(0)
++            Ks = Ks.unsqueeze(0)
++        C = viewmats.shape[-3]
++        N_total = means.shape[0]
++        if means2d_proxy.shape != (C, N_total, 2):
++            raise ValueError(
++                "means2d_proxy must have shape [C, N, 2], got "
++                f"{tuple(means2d_proxy.shape)} for C={C}, N={N_total}"
++            )
++
++        # -- culling (discrete, stop-gradient) -----------------------------
++        visible_ids = None
++        if enable_culling:
++            with torch.no_grad():
++                # Keep the packed HiGS scene version-consistent when a handle
++                # is present (dynamic mode bookkeeping) without running the
++                # expensive per-camera render that was only used for the
++                # visibility mask. The differentiable path never consumes the
++                # packed FP16 scene (both backends consume the FP32 captured
++                # tensors), so pure parameter drift updates the version
++                # bookkeeping without re-packing (lightweight=True); real
++                # topology changes (mark_dirty / N change) defer the pack and
++                # set packed_stale so the non-training culling API rebuilds on
++                # demand.
++                if renderer_handle is not None:
++                    _refresh_higs_renderer_scene(
++                        renderer_handle, means, quats, scales, opacities,
++                        colors, N_total, sh_degree, sh_compression_mode,
++                        lightweight=True,
++                    )
++                # One batched FP32 projection over all cameras, unioned: same
++                # near/far/radius_clip/eps2d/camera_model criteria as the
++                # render path, but ~C full HiGS renders cheaper (no
++                # intersect/rasterize pass). The camera model is passed through
++                # so the mask is projection-consistent for ortho/fisheye too.
++                # With a renderer handle (dynamic training) the result is
++                # cached for cull_refresh_interval forwards; the cache is
++                # invalidated by any topology change (mark_dirty/rebuild).
++                if renderer_handle is not None:
++                    vis_ids = _cull_visible_cached(
++                        renderer_handle, ctx.cull_refresh_interval,
++                        means, quats, scales, viewmats, Ks,
++                        width, height,
++                        eps2d=eps2d, near_plane=near_plane,
++                        far_plane=far_plane, radius_clip=radius_clip,
++                        camera_model=camera_model,
++                        cache_key=ctx.cull_cache_key,
++                    )
++                else:
++                    vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
++                        means, quats, scales, viewmats, Ks,
++                        width, height,
++                        eps2d=eps2d, near_plane=near_plane,
++                        far_plane=far_plane, radius_clip=radius_clip,
++                        camera_model=camera_model,
++                    )
++                visible_ids = vis_ids
++
++        if visible_ids is not None and visible_ids.numel() > 0:
++            N_visible = visible_ids.numel()
++            v_means, v_quats, v_scales, v_opacities, v_colors = _gather_visible_native(
++                means, quats, scales, opacities, colors, visible_ids,
++            )
++        else:
++            N_visible = 0 if visible_ids is not None else N_total
++            if N_visible == 0:
++                v_means = means.new_empty((0, 3))
++                v_quats = quats.new_empty((0, 4))
++                v_scales = scales.new_empty((0, 3))
++                v_opacities = opacities.new_empty((0,))
++                v_colors = (
++                    colors.new_empty((0, colors.shape[-1]))
++                    if colors.dim() == 2
++                    else colors.new_empty((0, colors.shape[1], colors.shape[2]))
++                )
++            else:
++                v_means, v_quats, v_scales = means, quats, scales
++                v_opacities, v_colors = opacities, colors
++
++        # -- bind forward/backward to the same scene version ---------------
++        if renderer_handle is not None:
++            renderer_handle._begin_forward()
++            ctx.scene_version = renderer_handle.version
++            ctx.packed_dtype = renderer_handle.packed_dtype
++            ctx.topology_rebuilt = renderer_handle.topology_rebuilt
++        else:
++            ctx.scene_version = None
++            ctx.packed_dtype = None
++            ctx.topology_rebuilt = False
++        ctx.renderer_handle = renderer_handle
++
++        backgrounds_b = _expand_background(background, C, means.device)
++
++        if N_visible == 0:
++            # Pure-background image; every Gaussian is invisible -> zero grads.
++            nch = _render_mode_channel_count(render_mode)
++            with torch.no_grad():
++                frame = torch.zeros(
++                    (C, height, width, nch), device=means.device, dtype=means.dtype
++                )
++                if backgrounds_b is not None and nch >= 3:
++                    bg = backgrounds_b.reshape(C, 3)
++                    if nch == 4:
++                        bg = torch.cat([bg, bg.new_zeros((C, 1))], dim=-1)
++                    frame = frame + bg.reshape(C, 1, 1, nch)
++                alpha_ch = torch.zeros(
++                    (C, height, width, 1), device=means.device, dtype=means.dtype
++                )
++            ctx.save_for_backward(
++                means, quats, scales, opacities, colors,
++                means2d_proxy,
++                viewmats, Ks,
++                torch.empty(0, dtype=torch.long, device=means.device),
++                None, None, None, None, None, None, None, None, None, None,
++                v_means, v_quats, v_scales, v_opacities,
++                (v_colors if sh_degree is not None else None),
++                backgrounds_b,
++            )
++            ctx.N_total = N_total
++            ctx.N_visible = 0
++            ctx.C = C
++            ctx.width = width
++            ctx.height = height
++            ctx.sh_degree = sh_degree
++            ctx.tile_size = tile_size
++            ctx.near_plane = near_plane
++            ctx.far_plane = far_plane
++            ctx.radius_clip = radius_clip
++            ctx.eps2d = eps2d
++            ctx.render_mode = render_mode
++            ctx.camera_model = camera_model
++            ctx.culling_ratio = 1.0
++            ctx.use_higs_culling = bool(use_higs_culling)
++            _HigsAutogradFunction.last_forward_metadata = {
++                "backward_backend": ctx.backward_backend,
++                "native_available": ctx.native_available,
++                "n_gaussians": N_total,
++                "n_visible": 0,
++                "culling_ratio": 1.0,
++                "topology_rebuilt": ctx.topology_rebuilt,
++                "packed_dtype": ctx.packed_dtype,
++                "sh_compression_mode": getattr(ctx, "sh_compression_mode", "none"),
++                "render_mode": render_mode,
++                "scene_version": ctx.scene_version,
++                "sampled_tile_ratio": 1.0,
++                "sampling_mode": "uniform",
++                "tile_mask": None,
++                "n_isects": 0,
++                "n_isects_full": 0,
++                "densification_radii": torch.zeros(
++                    (C, N_total, 2), dtype=torch.int32, device=means.device
++                ),
++                "visible_gaussian_ids": torch.empty(
++                    0, dtype=torch.long, device=means.device
++                ),
++            }
++            if C == 1:
++                return frame.squeeze(0)[None], alpha_ch.squeeze(0)[None]  # [1,H,W,3], [1,H,W,1]
++            return frame[None], alpha_ch[None]  # [1,C,H,W,3], [1,C,H,W,1]
++
++        # -- differentiable forward on the visible subset -------------------
++        if sh_degree is not None and getattr(ctx, "sh_compression_mode", "none") != "none":
++            v_colors = _ste_sh_quantize(v_colors)
++        v_means_b = v_means.unsqueeze(0)  # [1, N, 3]
++        v_quats_b = v_quats.unsqueeze(0)
++        v_scales_b = v_scales.unsqueeze(0)
++        v_opacities_b = v_opacities.unsqueeze(0)
++        v_colors_input = v_colors.unsqueeze(0) if v_colors.dim() == 2 else v_colors
++
++        if native:
++            render_colors, render_alphas, captured = (
++                _HigsAutogradFunction._native_forward_capture(
++                    ctx, v_means_b, v_quats_b, v_scales_b, v_opacities_b,
++                    v_colors_input, viewmats, Ks, width, height, sh_degree,
++                    tile_size, near_plane, far_plane, radius_clip, eps2d,
++                    backgrounds_b, camera_model, render_mode,
++                    ctx.tile_sampling_ratio,
++                    ctx.sampling_mode,
++                    ctx.tile_mask_external,
++                    ctx.cull_refresh_interval,
++                )
++            )
++        else:
++            from gsplat.rendering import rasterization
++
++            render_colors, render_alphas, std_info = rasterization(
++                means=v_means_b, quats=v_quats_b, scales=v_scales_b,
++                opacities=v_opacities_b, colors=v_colors_input,
++                viewmats=viewmats, Ks=Ks, width=width, height=height,
++                sh_degree=sh_degree, backgrounds=backgrounds_b,
++                packed=False, tile_size=tile_size,
++                near_plane=near_plane, far_plane=far_plane,
++                radius_clip=radius_clip, eps2d=eps2d,
++                camera_model=camera_model, render_mode=render_mode,
++            )
++            captured = None
++
++        frame = render_colors.squeeze(0).squeeze(0)
++        alpha_ch = render_alphas.squeeze(0).squeeze(0)
++
++        # -- save state for backward ---------------------------------------
++        master_visible_ids = (
++            visible_ids if visible_ids is not None
++            else torch.arange(N_total, device=means.device)
++        )
++        visible_radii = (
++            captured[8]
++            if captured is not None
++            else std_info["radii"].reshape(C, N_visible, 2)
++        )
++        densification_radii = torch.zeros(
++            (C, N_total, 2), dtype=visible_radii.dtype, device=means.device
++        )
++        densification_radii.index_copy_(1, master_visible_ids, visible_radii)
++
++        ctx.save_for_backward(
++            means, quats, scales, opacities, colors,
++            means2d_proxy,
++            viewmats, Ks,
++            master_visible_ids,
++            *(captured if captured is not None else (None,) * 10),
++            v_means, v_quats, v_scales, v_opacities,
++            v_colors if sh_degree is not None else None,
++            backgrounds_b,
++        )
++        ctx.N_total = N_total
++        ctx.N_visible = N_visible
++        ctx.C = C
++        ctx.width = width
++        ctx.height = height
++        ctx.sh_degree = sh_degree
++        ctx.tile_size = tile_size
++        ctx.near_plane = near_plane
++        ctx.far_plane = far_plane
++        ctx.radius_clip = radius_clip
++        ctx.eps2d = eps2d
++        ctx.render_mode = render_mode
++        ctx.camera_model = camera_model
++        ctx.culling_ratio = 1.0 - (N_visible / max(N_total, 1))
++        ctx.use_higs_culling = bool(use_higs_culling)
++        _HigsAutogradFunction.last_forward_metadata = {
++            "backward_backend": ctx.backward_backend,
++            "native_available": ctx.native_available,
++            "n_gaussians": N_total,
++            "n_visible": N_visible,
++            "culling_ratio": ctx.culling_ratio,
++            "topology_rebuilt": ctx.topology_rebuilt,
++            "packed_dtype": ctx.packed_dtype,
++            "sh_compression_mode": getattr(ctx, "sh_compression_mode", "none"),
++            "render_mode": render_mode,
++            "scene_version": ctx.scene_version,
++            "sampled_tile_ratio": getattr(ctx, "sampled_tile_ratio", 1.0),
++            "sampling_mode": getattr(ctx, "sampling_mode", "uniform"),
++            "tile_mask": getattr(ctx, "tile_mask", None),
++            "n_isects": getattr(ctx, "n_isects_sampled", 0),
++            "n_isects_full": getattr(ctx, "n_isects_full", 0),
++            "densification_radii": densification_radii,
++            "visible_gaussian_ids": master_visible_ids,
++        }
++        return frame[None], alpha_ch[None]
++
++    @staticmethod
++    def _native_forward_capture(
++        ctx,
++        means_b, quats_b, scales_b, opacities_b, colors_input,
++        viewmats, Ks, width, height, sh_degree,
++        tile_size, near_plane, far_plane, radius_clip, eps2d,
++        backgrounds_b, camera_model, render_mode,
++        tile_sampling_ratio=1.0,
++        sampling_mode="uniform",
++        tile_mask=None,
++        cull_refresh_interval=1,
++    ):
++        """Run the standard gsplat CUDA forward on the visible subset and
++        capture every tensor the native backward consumes, in ONE pass."""
++        from gsplat.cuda._wrapper import (
++            fully_fused_projection,
++            isect_tiles,
++            isect_offset_encode,
++            _make_lazy_cuda_func,
++        )
++        from gsplat.rendering import _maybe_evaluate_sh
++
++        C = viewmats.shape[-3]
++        N = means_b.shape[-2]
++        tile_width = math.ceil(width / tile_size)
++        tile_height = math.ceil(height / tile_size)
++
++        with torch.no_grad():
++            radii, means2d, depths, conics, compensations = fully_fused_projection(
++                    means=means_b.contiguous(),
++                    covars=None,
++                    quats=quats_b.contiguous(),
++                    scales=scales_b.contiguous(),
++                    viewmats=viewmats,
++                    Ks=Ks,
++                    width=width,
++                    height=height,
++                    eps2d=eps2d,
++                    near_plane=near_plane,
++                    far_plane=far_plane,
++                    radius_clip=radius_clip,
++                    packed=False,
++                    calc_compensations=False,
++                    camera_model=camera_model,
++                )
++            opacities_bc = torch.broadcast_to(
++                opacities_b[..., None, :], (1, C, N)
++            ).contiguous()  # [1, C, N]
++            n_tiles = tile_width * tile_height
++            if tile_mask is not None:
++                # Explicit harness-provided mask (e.g. error-guided sampling).
++                # The mask is applied verbatim; the harness is responsible for
++                # the estimator (e.g. importance weights on the loss).
++                mask = tile_mask.reshape(C, n_tiles)
++                if sampled_tile_ratio is not None:
++                    sampled_ratio = float(sampled_tile_ratio)
++                else:
++                    sampled_ratio = float(mask.float().mean())
++            elif 0.0 < tile_sampling_ratio < 1.0:
++                # Tile sampling without replacement. The mean over the sampled
++                # tiles is an unbiased estimator of the full-frame mean loss,
++                # so the harness needs no 1/r rescale -- only a mask over the
++                # sampled tiles.
++                if sampling_mode == "stratified":
++                    # One tile per stratum of size round(1/r) (consecutive
++                    # tiles in row-major order). Every region of the frame
++                    # keeps a sample, which reduces gradient-estimator
++                    # variance vs iid uniform sampling at the same r.
++                    stratum_size = max(1, int(round(1.0 / tile_sampling_ratio)))
++                    n_strata = (n_tiles + stratum_size - 1) // stratum_size
++                    rnd = torch.rand((C, n_strata), device=means_b.device)
++                    pick = (rnd * stratum_size).long().clamp(max=stratum_size - 1)
++                    base = (
++                        torch.arange(n_strata, device=means_b.device)[None, :]
++                        * stratum_size
++                    )
++                    sel = (base + pick).clamp(max=n_tiles - 1)  # [C, n_strata]
++                    mask = torch.zeros(
++                        (C, n_tiles), dtype=torch.bool, device=means_b.device
++                    )
++                    mask.scatter_(1, sel, True)
++                else:
++                    k = max(1, int(round(n_tiles * tile_sampling_ratio)))
++                    rnd = torch.rand((C, n_tiles), device=means_b.device)
++                    _, top_idx = torch.topk(rnd, k, dim=1)  # [C, k]
++                    mask = torch.zeros(
++                        (C, n_tiles), dtype=torch.bool, device=means_b.device
++                    )
++                    mask.scatter_(1, top_idx, True)
++                sampled_ratio = float(mask.float().mean())
++            else:
++                mask = torch.ones(
++                    (C, n_tiles), dtype=torch.bool, device=means_b.device
++                )
++                sampled_ratio = 1.0
++            ctx.tile_mask = mask.reshape(C, tile_height, tile_width)
++            ctx.sampled_tile_ratio = sampled_ratio
++            # Round 38: pass the mask into isect_tiles so the CUDA op restricts
++            # the per-Gaussian counts AND the emitted isects to the selected
++            # tiles and sorts only the compacted list (the full-N radix sort
++            # and the Python-level mask filtering are both removed from the
++            # sampled path). The mask is computed before the intersection so
++            # the op never builds the full isect list.
++            tiles_per_gauss, isect_ids, flatten_ids = isect_tiles(
++                means2d,
++                radii,
++                depths,
++                tile_size,
++                tile_width,
++                tile_height,
++                packed=False,
++                n_images=C,
++                image_ids=None,
++                gaussian_ids=None,
++                conics=conics,
++                opacities=opacities_bc,
++                tile_mask=ctx.tile_mask if sampled_ratio < 1.0 else None,
++            )
++            ctx.n_isects_sampled = int(isect_ids.numel())
++            # The op returns per-Gaussian counts restricted to the selected
++            # tiles, so the exact full-N count is not available from its
++            # outputs; the sampled isect fraction is recovered exactly at the
++            # tile level (isect_frac ~ sampled_tile_ratio).
++            ctx.n_isects_full = int(round(ctx.n_isects_sampled / sampled_ratio))
++            isect_offsets = isect_offset_encode(
++                isect_ids, C, tile_width, tile_height
++            ).reshape((1, C, tile_height, tile_width))
++            has_color = render_mode in ("RGB", "RGB+D", "RGB+ED")
++            has_depth = _render_mode_has_depth(render_mode)
++            is_expected = render_mode in ("ED", "RGB+ED")
++            if has_color:
++                colors_eval = _maybe_evaluate_sh(
++                    sh_degree, colors_input, means_b, radii, viewmats,
++                    (1,), C, N, True,
++                )
++                colors_eval = colors_eval.contiguous()  # [1, C, N, 3]
++            else:
++                # depth-only modes ignore the color input entirely.
++                colors_eval = torch.empty(
++                    (1, C, N, 0), device=means_b.device, dtype=means_b.dtype
++                )
++            if has_depth:
++                # projection depth (camera-space z) is composited like a color
++                # channel; the native backward chains its gradient to v_means.
++                colors_eval = torch.cat(
++                    [colors_eval, depths[..., None]], dim=-1
++                )  # [1, C, N, D]
++            colors_eval = colors_eval.contiguous()
++            if backgrounds_b is not None:
++                if has_color:
++                    bg_kernel = backgrounds_b.reshape(1, C, 3)
++                    if has_depth:
++                        # depth channel has a zero background (not an input).
++                        bg_kernel = torch.cat(
++                            [bg_kernel, bg_kernel.new_zeros((1, C, 1))], dim=-1
++                        )
++                else:
++                    # depth-only modes ignore the RGB background input and
++                    # use a zero background, matching standard gsplat.
++                    bg_kernel = backgrounds_b.new_zeros((1, C, 1))
++                bg_kernel = bg_kernel.contiguous()
++            else:
++                bg_kernel = None
++            render_colors, render_alphas, _absgrad, last_ids = (
++                _make_lazy_cuda_func("rasterize_to_pixels_3dgs")(
++                    means2d.contiguous(),
++                    conics.contiguous(),
++                    colors_eval.contiguous(),
++                    opacities_bc.contiguous(),
++                    bg_kernel,
++                    None,
++                    width,
++                    height,
++                    tile_size,
++                    isect_offsets.contiguous(),
++                    flatten_ids.contiguous(),
++                    False,
++                    False,
++                )
++            )
++        D = colors_eval.shape[-1]
++        if is_expected:
++            # expected depth: render_depth = acc_depth / alpha (same as the
++            # standard gsplat post-processing). Keep the raw accumulation for
++            # the backward chain through the normalization.
++            depth_acc = render_colors[..., -1:]  # [1, C, H, W, 1]
++            render_depth = depth_acc / render_alphas.clamp(min=1e-10)
++            if has_color:
++                render_colors = torch.cat(
++                    [render_colors[..., :3], render_depth], dim=-1
++                )
++            else:
++                render_colors = render_depth
++        else:
++            depth_acc = None
++
++        captured = (
++            means2d.reshape(-1, 2).contiguous(),              # [I*N, 2]
++            conics.reshape(-1, 3).contiguous(),               # [I*N, 3]
++            colors_eval.reshape(-1, D).contiguous(),          # [I*N, D]
++            opacities_bc.reshape(-1).contiguous(),            # [I*N]
++            isect_offsets.reshape(C, tile_height, tile_width).contiguous(),  # [I, th, tw]
++            flatten_ids.contiguous(),                          # [n_isects]
++            render_alphas.reshape(C, height, width).contiguous(),  # [I, H, W]
++            last_ids.contiguous(),                             # [I, H, W]
++            radii.reshape(C, N, 2).contiguous(),               # [I, N, 2]
++            (depth_acc.reshape(C, height, width).contiguous()
++             if depth_acc is not None else None),              # [I, H, W] or None
++        )
++        return render_colors, render_alphas, captured
++
++    @staticmethod
++    def backward(ctx, grad_frame, grad_alpha):
++        if ctx.renderer_handle is not None:
++            try:
++                ctx.renderer_handle._end_backward(ctx.scene_version)
++            except RuntimeError:
++                # The handle may have been released by an explicit
++                # ``release()`` before backward; only version mismatches
++                # indicate a real topology-mutation bug, and those raise below
++                # in the native path too. Keep the pending flag cleared.
++                if ctx.renderer_handle.version != ctx.scene_version:
++                    raise
++        if ctx.native:
++            return _HigsAutogradFunction._native_backward(ctx, grad_frame, grad_alpha)
++        return _HigsAutogradFunction._recompute_backward(ctx, grad_frame, grad_alpha)
++
++    # ------------------------------------------------------------------
++    @staticmethod
++    def _native_backward(ctx, grad_frame, grad_alpha):
++        from ..kernels import _backend as _inference_backend
++
++        backend = _inference_backend._C
++        if backend is None or not hasattr(backend, "higs_rasterize_backward"):
++            raise RuntimeError(
++                "higs_native backward requested but the experimental CUDA "
++                "extension is not available; rerun with "
++                "backward_mode='gsplat_recompute'."
++            )
++
++        saved = ctx.saved_tensors
++        (
++            means, quats, scales, opacities, colors, means2d_proxy,
++            viewmats, Ks, visible_ids,
++            means2d_f, conics_f, colors_eval_f, opacities_f,
++            tile_offsets_f, flatten_ids_f, render_alphas_f, last_ids_f,
++            radii_f, depth_acc,
++            v_means, v_quats, v_scales, v_opacities,
++            sh_coeffs, backgrounds_b,
++        ) = saved
++
++        I = ctx.C
++        H, W = ctx.height, ctx.width
++        device = means.device
++        nch = _render_mode_channel_count(ctx.render_mode)
++
++        if grad_frame is None:
++            v_render_colors = torch.zeros((I, H, W, nch), device=device)
++        else:
++            v_render_colors = grad_frame.reshape(I, H, W, nch).contiguous()
++        if grad_alpha is None:
++            v_render_alphas = torch.zeros((I, H, W), device=device)
++        else:
++            v_render_alphas = grad_alpha.reshape(I, H, W).contiguous()
++
++        if depth_acc is not None:
++            # Expected-depth modes: render_depth = depth_acc / alpha_safe
++            # is a post-rasterization normalization. Chain the depth-channel
++            # gradient back to the raw accumulation and to the render alphas.
++            g_depth = v_render_colors[..., -1].contiguous()  # [I, H, W]
++            alpha_safe = render_alphas_f.clamp(min=1e-10)
++            v_acc = g_depth / alpha_safe
++            v_alpha_from_depth = -g_depth * depth_acc / alpha_safe.square()
++            # clamp backward: d(alpha_safe)/d(alpha) = 1 where alpha >= 1e-10
++            v_alpha_from_depth = v_alpha_from_depth * (render_alphas_f >= 1e-10)
++            v_render_colors = torch.cat(
++                [v_render_colors[..., : nch - 1], v_acc[..., None]], dim=-1
++            ).contiguous()
++            v_render_alphas = v_render_alphas + v_alpha_from_depth
++
++        if ctx.N_visible == 0:
++            # All Gaussians invisible -> zero gradients, background still gets
++            # the constant-image gradient if it was provided.
++            grad_means = torch.zeros_like(means)
++            grad_quats = torch.zeros_like(quats)
++            grad_scales = torch.zeros_like(scales)
++            grad_opacities = torch.zeros_like(opacities)
++            grad_colors = torch.zeros_like(colors)
++            grad_background = None
++            if (
++                ctx.needs_input_grad[16]
++                and backgrounds_b is not None
++                and nch >= 3
++            ):
++                grad_background = v_render_colors[..., :3].sum(dim=(0, 1, 2))
++            return _HigsAutogradFunction._assemble_grads(
++                ctx, grad_means, grad_quats, grad_scales, grad_opacities,
++                grad_colors, torch.zeros_like(means2d_proxy), grad_background,
++            )
++
++        bg_kernel = None
++        if backgrounds_b is not None:
++            if _render_mode_color_channels(ctx.render_mode) > 0:
++                bg_kernel = backgrounds_b.reshape(I, 3).contiguous()
++                if nch == 4:
++                    # depth channel has a zero background (not an input).
++                    bg_kernel = torch.cat(
++                        [bg_kernel, bg_kernel.new_zeros((I, 1))], dim=-1
++                    )
++            else:
++                # depth-only modes: zero background, matching the forward.
++                bg_kernel = backgrounds_b.new_zeros((I, 1))
++            bg_kernel = bg_kernel.contiguous()
++
++        # Master FP32 gradient accumulators: pre-zeroed here, then written in
++        # place by the native kernels through `visible_ids` (strictly
++        # increasing, duplicate-free), which removes the per-tensor
++        # zeros_like + index_copy_ scatter from the hot path.
++        grad_means = torch.zeros_like(means)
++        grad_quats = torch.zeros_like(quats)
++        grad_scales = torch.zeros_like(scales)
++        grad_opacities = torch.zeros_like(opacities)
++        grad_colors = torch.zeros_like(colors)
++        # Round 39: backward tile sampling - compact the pixel-blend grid to
++        # the selected tiles only. active_tiles are the global (image, tile)
++        # ids of ctx.tile_mask, so the blend backward launches one block per
++        # selected tile instead of the full tile grid; the per-pixel
++        # background gradient moves to a separate all-pixel kernel inside the
++        # launcher. The full-coverage (all-ones) case keeps the dense path.
++        active_tiles = None
++        if getattr(ctx, "sampled_tile_ratio", 1.0) < 1.0:
++            tm_flat = ctx.tile_mask.reshape(-1)
++            active_tiles = torch.nonzero(tm_flat, as_tuple=False).squeeze(1).to(torch.int32)
++        out = backend.higs_rasterize_backward(
++            means2d=means2d_f,
++            conics=conics_f,
++            colors_eval=colors_eval_f,
++            opacities=opacities_f,
++            backgrounds=bg_kernel,
++            tile_offsets=tile_offsets_f,
++            flatten_ids=flatten_ids_f,
++            active_tiles=active_tiles,
++            render_alphas=render_alphas_f,
++            last_ids=last_ids_f,
++            means=v_means,
++            quats=v_quats,
++            scales=v_scales,
++            radii=radii_f,
++            viewmats=viewmats,
++            Ks=Ks,
++            width=ctx.width,
++            height=ctx.height,
++            tile_size=ctx.tile_size,
++            eps2d=ctx.eps2d,
++            camera_model=(
++                0 if ctx.camera_model == "pinhole"
++                else 1 if ctx.camera_model == "ortho"
++                else 2  # CameraModelType: PINHOLE=0, ORTHO=1, FISHEYE=2
++            ),
++            v_render_colors=v_render_colors,
++            v_render_alphas=v_render_alphas,
++            sh_coeffs=sh_coeffs,
++            sh_degree=-1 if ctx.sh_degree is None else ctx.sh_degree,
++            visible_ids=visible_ids,
++            grad_means=grad_means,
++            grad_quats=grad_quats,
++            grad_scales=grad_scales,
++            grad_opacities=grad_opacities,
++            grad_colors=grad_colors,
++        )
++        (
++            _v_means_g, _v_quats_g, _v_scales_g, _v_opacities_g,
++            _v_colors_master_g, v_backgrounds_g, v_means2d_g,
++        ) = out
++
++        grad_means2d = torch.zeros_like(means2d_proxy)
++        grad_means2d.index_copy_(
++            1, visible_ids, v_means2d_g.reshape(I, ctx.N_visible, 2)
++        )
++
++        grad_background = None
++        if ctx.needs_input_grad[16] and backgrounds_b is not None and nch >= 3:
++            # the kernel accumulates a depth-channel background gradient too;
++            # the RGB background input only receives the color-channel part.
++            grad_background = v_backgrounds_g if nch == 3 else v_backgrounds_g[..., :3]
++
++        return _HigsAutogradFunction._assemble_grads(
++            ctx, grad_means, grad_quats, grad_scales, grad_opacities,
++            grad_colors, grad_means2d, grad_background,
++        )
++
++    # ------------------------------------------------------------------
++    @staticmethod
++    def _recompute_backward(ctx, grad_frame, grad_alpha):
++        from gsplat.rendering import rasterization
++
++        saved = ctx.saved_tensors
++        (
++            means, quats, scales, opacities, colors, means2d_proxy,
++            viewmats, Ks, visible_ids,
++            _m2d, _con, _ce, _opa, _to, _fi, _ra, _li, _rad, _depth_acc,
++            _v_m, _v_q, _v_s, _v_o, _sh, backgrounds_b,
++        ) = saved
++
++        I = ctx.C
++        H, W = ctx.width, ctx.height
++        device = means.device
++        nch = _render_mode_channel_count(ctx.render_mode)
++        # Gradients reshaped to the exact output shapes of forward().
++        if ctx.C == 1:
++            gf_out = grad_frame if grad_frame is not None else torch.zeros((1, H, W, nch), device=device)
++            ga_out = grad_alpha if grad_alpha is not None else torch.zeros((1, H, W, 1), device=device)
++        else:
++            gf_out = grad_frame if grad_frame is not None else torch.zeros((1, I, H, W, nch), device=device)
++            ga_out = grad_alpha if grad_alpha is not None else torch.zeros((1, I, H, W, 1), device=device)
++        gf = gf_out.reshape(I, H, W, nch)
++        ga = ga_out.reshape(I, H, W)
++
++        with torch.enable_grad():
++            needs = ctx.needs_input_grad
++            tracked = {}
++            for name, t, idx in (
++                ("means", means, 0),
++                ("quats", quats, 1),
++                ("scales", scales, 2),
++                ("opacities", opacities, 3),
++                ("colors", colors, 4),
++            ):
++                if needs[idx]:
++                    tracked[name] = t.detach().requires_grad_(True)
++
++            if not tracked:
++                return (None,) * 29
++
++            alpha_final = None
++            if ctx.N_visible == 0:
++                grads = {name: torch.zeros_like(t) for name, t in tracked.items()}
++            else:
++                v_means = tracked["means"][visible_ids]
++                v_quats = tracked["quats"][visible_ids]
++                v_scales = tracked["scales"][visible_ids]
++                v_opacities = tracked["opacities"][visible_ids]
++                v_colors = (
++                    tracked["colors"][visible_ids]
++                    if tracked["colors"].dim() == 2
++                    else tracked["colors"][visible_ids]
++                )
++                v_means_b = v_means.unsqueeze(0)
++                v_quats_b = v_quats.unsqueeze(0)
++                v_scales_b = v_scales.unsqueeze(0)
++                v_opacities_b = v_opacities.unsqueeze(0)
++                v_colors_input = v_colors.unsqueeze(0) if v_colors.dim() == 2 else v_colors
++
++                render_colors, render_alphas, recompute_info = rasterization(
++                    means=v_means_b, quats=v_quats_b, scales=v_scales_b,
++                    opacities=v_opacities_b, colors=v_colors_input,
++                    viewmats=viewmats, Ks=Ks,
++                    width=ctx.width, height=ctx.height,
++                    sh_degree=ctx.sh_degree, backgrounds=backgrounds_b,
++                    packed=False, tile_size=ctx.tile_size,
++                    near_plane=ctx.near_plane, far_plane=ctx.far_plane,
++                    radius_clip=ctx.radius_clip, eps2d=ctx.eps2d,
++                    camera_model=ctx.camera_model, render_mode=ctx.render_mode,
++                )
++                frame = render_colors.squeeze(0).squeeze(0)
++                alpha_ch = render_alphas.squeeze(0).squeeze(0)
++                outputs = (frame[None], alpha_ch[None])
++                out_grads = torch.autograd.grad(
++                    outputs,
++                    tuple(tracked.values()) + (recompute_info["means2d"],),
++                    grad_outputs=(gf_out, ga_out),
++                    allow_unused=True,
++                )
++                alpha_final = render_alphas
++                grads = dict(zip(tracked.keys(), out_grads[:-1]))
++                visible_means2d_grad = out_grads[-1]
++                for k, g in list(grads.items()):
++                    if g is None:
++                        grads[k] = torch.zeros_like(tracked[k])
++
++        grad_means = grads.get("means")
++        grad_quats = grads.get("quats")
++        grad_scales = grads.get("scales")
++        grad_opacities = grads.get("opacities")
++        grad_colors = grads.get("colors")
++        grad_means2d = torch.zeros_like(means2d_proxy)
++        if ctx.N_visible > 0:
++            grad_means2d.index_copy_(
++                1,
++                visible_ids,
++                visible_means2d_grad.reshape(I, ctx.N_visible, 2),
++            )
++
++        grad_background = None
++        if (
++            ctx.needs_input_grad[16]
++            and backgrounds_b is not None
++            and grad_frame is not None
++            and nch >= 3
++        ):
++            # dL/dbg = sum_pixels v_render_colors * (1 - render_alpha)
++            with torch.no_grad():
++                if alpha_final is not None:
++                    alpha_im = alpha_final.reshape(I, H, W)
++                else:
++                    alpha_im = torch.zeros((I, H, W), device=device)
++                gb = (gf * (1.0 - alpha_im[..., None])).sum(dim=(0, 1, 2))
++                grad_background = gb if nch == 3 else gb[..., :3]
++
++        return _HigsAutogradFunction._assemble_grads(
++            ctx, grad_means, grad_quats, grad_scales, grad_opacities,
++            grad_colors, grad_means2d, grad_background,
++        )
++
++    # ------------------------------------------------------------------
++    @staticmethod
++    def _assemble_grads(
++        ctx, grad_means, grad_quats, grad_scales, grad_opacities,
++        grad_colors, grad_means2d, grad_background,
++    ):
++        needs = ctx.needs_input_grad
++        return (
++            grad_means if needs[0] else None,
++            grad_quats if needs[1] else None,
++            grad_scales if needs[2] else None,
++            grad_opacities if needs[3] else None,
++            grad_colors if needs[4] else None,
++            grad_means2d if needs[5] else None,
++            None, None,  # viewmats, Ks
++            None, None, None, None,  # width, height, sh_degree, tile_size
++            None, None, None, None,  # near_plane, far_plane, radius_clip, eps2d
++            grad_background,
++            None, None,  # render_mode, camera_model
++            None, None,  # enable_culling, use_higs_culling
++            None, None, None,  # backward_mode, renderer_handle, sh_compression_mode
++            None,  # tile_sampling_ratio (non-tensor input)
++            None,  # sampling_mode (non-tensor input)
++            None,  # tile_mask (bool tensor, non-differentiable input)
++            None,  # cull_refresh_interval (non-tensor input)
++            None,  # cull_cache_key (non-tensor input)
++        )
++
++
++def _new_means2d_proxy(means: Tensor, viewmats: Tensor, *parameters: Tensor) -> Tensor:
++    n_cameras = 1 if viewmats.dim() == 2 else viewmats.shape[-3]
++    training = torch.is_grad_enabled() and any(
++        tensor.requires_grad for tensor in (means, *parameters)
++    )
++    return torch.zeros(
++        (n_cameras, means.shape[0], 2),
++        dtype=means.dtype,
++        device=means.device,
++        requires_grad=training,
++    )
++
++def _slice_colors_for_sh_degree(colors: Tensor, sh_degree: int | None) -> Tensor:
++    """Restrict master SH colors to the coefficients active at ``sh_degree``.
++
++    Training uses progressive SH: ``colors`` stays at the full ``[N, K_max, 3]``
++    master shape while each forward runs at ``min(step // interval, K_max)``.
++    HiGS renderer packing and the differentiable forward require the active
++    coefficient count, so a superset is sliced here. The slice is
++    differentiable, so gradients flow back to the full master tensor; inactive
++    coefficients simply receive zero gradient at this step.
++    """
++    if sh_degree is None:
++        return colors
++    k_active = (int(sh_degree) + 1) ** 2
++    if colors.dim() == 3 and colors.shape[1] > k_active:
++        return colors[:, :k_active, :].contiguous()
++    return colors
++
++
++def _higs_frozen_forward(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    viewmats: Tensor,
++    Ks: Tensor,
++    width: int,
++    height: int,
++    sh_degree=None,
++    tile_size: int = 16,
++    near_plane: float = 0.01,
++    far_plane: float = 1e10,
++    radius_clip: float = 0.0,
++    eps2d: float = 0.3,
++    background=None,
++    render_mode: str = "RGB",
++    camera_model: str = "pinhole",
++    enable_culling: bool = True,
++    use_higs_culling: bool = False,
++    return_higs_preview: bool = False,
++    freeze_topology: bool = True,
++    backward_mode: str = "higs_native",
++    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
++    tile_mask=None,
++    cull_refresh_interval: int = 1,
++    scene=None,
++) -> dict:
++    """Forward pass for frozen-topology HiGS diff. path (Stage B).
++
++    Delegates to _HigsAutogradFunction which handles culling + diff.
++    rasterization. Handles HiGS preview and metadata outside the autograd
++    Function.
++
++    Args:
++        backward_mode: "higs_native" (default, native CUDA backward) or
++            "gsplat_recompute" (explicit standard-gsplat recomputation
++            fallback; metadata then reports ``backward_backend="gsplat_recompute"``).
++        sh_compression_mode: "none" (default) or a PACKED_16B/PACKED_32B mode;
++            lossy SH quantization is applied with a straight-through estimator
++            in the training path.
++        scene: optional :class:`HigsRendererHandle` reused across calls so the
++            packed FP16 buffers and renderer are not rebuilt per frame.
++    """
++
++    _HIGS_FROZEN_TRACKER.validate(means.shape[0], freeze_topology)
++
++    means2d_proxy = _new_means2d_proxy(
++        means, viewmats, quats, scales, opacities, colors
++    )
++    frame, alpha = _HigsAutogradFunction.apply(
++        means, quats, scales, opacities, colors,
++        means2d_proxy,
++        viewmats, Ks,
++        width, height, sh_degree, tile_size,
++        near_plane, far_plane, radius_clip, eps2d, background,
++        render_mode, camera_model,
++        enable_culling, use_higs_culling,
++        backward_mode, scene, sh_compression_mode, tile_sampling_ratio,
++        sampling_mode, tile_mask, cull_refresh_interval, "default",
++    )
++    fwd_meta = dict(_HigsAutogradFunction.last_forward_metadata)
++    N_total = fwd_meta["n_gaussians"]
++
++    higs_preview = None
++    if return_higs_preview:
++        try:
++            from gsplat.scene import GaussianInferenceScene
++            with torch.no_grad():
++                scene_obj = GaussianInferenceScene.from_gaussian_tensors(
++                    means, quats, scales, opacities, colors,
++                    sh_degree=sh_degree,
++                    sh_compression="none",
++                    id="frozen_preview",
++                )
++                req = dict(
++                    viewmat=viewmats[0, 0] if viewmats.dim() > 2 else viewmats,
++                    K=Ks[0, 0] if Ks.dim() > 2 else Ks,
++                    width=width, height=height,
++                    tile_size=tile_size, near_plane=near_plane,
++                    far_plane=far_plane, radius_clip=radius_clip,
++                    eps2d=eps2d, render_mode=render_mode,
++                    camera_model=camera_model,
++                )
++                if background is not None:
++                    req["background"] = background
++                higs_result = rasterize_gaussian_inference_scene(scene_obj, **req)
++                higs_preview = higs_result.frame
++        except (ImportError, RuntimeError, ValueError, TypeError):
++            # Preview is best-effort; the differentiable path is unaffected.
++            higs_preview = None
++
++    return {
++        "frame": frame,
++        "alpha": alpha,
++        "densification_info": {
++            "means2d": means2d_proxy,
++            "radii": fwd_meta["densification_radii"],
++            "gaussian_ids": torch.arange(N_total, device=means.device),
++            "visible_gaussian_ids": fwd_meta["visible_gaussian_ids"],
++            "width": width,
++            "height": height,
++            "n_cameras": means2d_proxy.shape[0],
++        },
++        "metadata": {
++            "n_gaussians": N_total,
++            "n_visible": fwd_meta["n_visible"],
++            "culling_ratio": fwd_meta["culling_ratio"],
++            "backward_backend": fwd_meta["backward_backend"],
++            "native_available": fwd_meta["native_available"],
++            "scene_version": fwd_meta["scene_version"],
++            "topology_rebuilt": fwd_meta["topology_rebuilt"],
++            "packed_dtype": fwd_meta["packed_dtype"],
++            "sh_compression_mode": fwd_meta.get("sh_compression_mode"),
++            "render_mode": render_mode,
++            "use_higs_culling": use_higs_culling,
++            "higs_preview": higs_preview,
++            "freeze_topology": freeze_topology,
++            "render_count": _HIGS_FROZEN_TRACKER.render_count,
++            "sampled_tile_ratio": fwd_meta.get("sampled_tile_ratio", 1.0),
++            "tile_mask": fwd_meta.get("tile_mask"),
++            "n_isects": fwd_meta.get("n_isects", 0),
++            "n_isects_full": fwd_meta.get("n_isects_full", 0),
++            "cull_refresh_interval": cull_refresh_interval,
++        },
++    }
++
++def rasterize_gaussian_higs_frozen(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    sh_degree = None,
++    viewmats: Tensor,
++    Ks: Tensor,
++    width: int,
++    height: int,
++    tile_size: int = 16,
++    near_plane: float = 0.01,
++    far_plane: float = 1e10,
++    radius_clip: float = 0.0,
++    eps2d: float = 0.3,
++    background = None,
++    render_mode: str = "RGB",
++    camera_model: str = "pinhole",
++    enable_culling: bool = True,
++    use_higs_culling: bool = False,
++    return_higs_preview: bool = False,
++    freeze_topology: bool = True,
++    backward_mode: str = "higs_native",
++    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
++    tile_mask=None,
++    cull_refresh_interval: int = 1,
++    scene=None,
++) -> dict:
++    """Differentiable HiGS rendering with per-frame visibility culling (Stage B).
++
++    Stage B improves on Stage A by culling invisible Gaussians before
++    the differentiable rendering pass. Only visible Gaussians participate
++    in the autograd computation.
++
++    When ``freeze_topology=True`` (default), the Gaussian count is validated
++    across renderer calls. If the count changes, RuntimeError is raised.
++
++    Args:
++        enable_culling: If True, cull invisible Gaussians via projection.
++        freeze_topology: If True, validate Gaussian count consistency.
++        use_higs_culling: If True, use HiGS-native culling.
++        return_higs_preview: If True, include HiGS inference output.
++        backward_mode: "higs_native" (default) or "gsplat_recompute".
++        sh_compression_mode: "none" (default); PACKED_16B/32B modes are
++            supported via a straight-through FP16 quantization in training.
++        scene: optional :class:`HigsRendererHandle` for renderer reuse.
++
++    Returns:
++        dict with keys: frame, alpha, metadata
++    """
++    return _higs_frozen_forward(
++        means, quats, scales, opacities, colors,
++        viewmats=viewmats, Ks=Ks, width=width, height=height,
++        sh_degree=sh_degree, tile_size=tile_size,
++        near_plane=near_plane, far_plane=far_plane,
++        radius_clip=radius_clip, eps2d=eps2d,
++        background=background, render_mode=render_mode,
++        camera_model=camera_model, enable_culling=enable_culling,
++        use_higs_culling=use_higs_culling,
++        return_higs_preview=return_higs_preview,
++        freeze_topology=freeze_topology,
++        backward_mode=backward_mode,
++        sh_compression_mode=sh_compression_mode,
++        tile_sampling_ratio=tile_sampling_ratio,
++        sampling_mode=sampling_mode,
++        tile_mask=tile_mask,
++        cull_refresh_interval=cull_refresh_interval,
++        scene=scene,
++    )
++
++def _higs_dynamic_forward(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    viewmats: Tensor,
++    Ks: Tensor,
++    width: int,
++    height: int,
++    sh_degree=None,
++    tile_size: int = 16,
++    near_plane: float = 0.01,
++    far_plane: float = 1e10,
++    radius_clip: float = 0.0,
++    eps2d: float = 0.3,
++    background=None,
++    render_mode: str = "RGB",
++    camera_model: str = "pinhole",
++    enable_culling: bool = True,
++    use_higs_culling: bool = False,
++    return_higs_preview: bool = False,
++    backward_mode: str = "higs_native",
++    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
++    tile_mask=None,
++    sampled_tile_ratio=None,
++    cull_refresh_interval: int = 1,
++    cull_cache_key: str = "default",
++    scene=None,
++) -> dict:
++    """Forward pass for dynamic-topology HiGS diff. path (Stage C).
++
++    Unlike _higs_frozen_forward, this function does NOT enforce a fixed
++    Gaussian count. It uses _HigsDynamicScene to track versions and
++    validate that topology mutations (densify/prune) happen at the right time.
++    When the CUDA extension is available it also owns a
++    :class:`HigsRendererHandle` so every forward/backward is bound to the same
++    scene version and topology mutation raises while a backward is pending.
++    """
++
++    tracker = scene if isinstance(scene, _HigsDynamicScene) else _HIGS_DYNAMIC_SCENE
++    tracker.validate_count(means.shape[0])
++
++    handle = scene if isinstance(scene, HigsRendererHandle) else None
++    colors_eff = _slice_colors_for_sh_degree(colors, sh_degree)
++    if handle is None and _higs_backend_available():
++        handle = tracker.ensure_renderer(
++            means, quats, scales, opacities, colors_eff, sh_degree,
++        )
++
++    means2d_proxy = _new_means2d_proxy(
++        means, viewmats, quats, scales, opacities, colors
++    )
++    frame, alpha = _HigsAutogradFunction.apply(
++        means, quats, scales, opacities, colors_eff,
++        means2d_proxy,
++        viewmats, Ks,
++        width, height, sh_degree, tile_size,
++        near_plane, far_plane, radius_clip, eps2d, background,
++        render_mode, camera_model,
++        enable_culling, use_higs_culling,
++        backward_mode, handle, sh_compression_mode, tile_sampling_ratio,
++        sampling_mode, tile_mask, sampled_tile_ratio, cull_refresh_interval,
++        cull_cache_key,
++    )
++
++    scene_version = tracker.next_version(means.shape[0])
++    fwd_meta = dict(_HigsAutogradFunction.last_forward_metadata)
++    N_total = means.shape[0]
++
++    higs_preview = None
++    if return_higs_preview:
++        try:
++            from gsplat.scene import GaussianInferenceScene
++            with torch.no_grad():
++                scene_obj = GaussianInferenceScene.from_gaussian_tensors(
++                    means, quats, scales, opacities, colors,
++                    sh_degree=sh_degree, sh_compression="none", id="dynamic_preview",
++                )
++                req = dict(
++                    viewmat=viewmats[0, 0] if viewmats.dim() > 2 else viewmats,
++                    K=Ks[0, 0] if Ks.dim() > 2 else Ks,
++                    width=width, height=height, tile_size=tile_size,
++                    near_plane=near_plane, far_plane=far_plane,
++                    radius_clip=radius_clip, eps2d=eps2d,
++                    render_mode=render_mode, camera_model=camera_model,
++                )
++                if background is not None:
++                    req["background"] = background
++                higs_result = rasterize_gaussian_inference_scene(scene_obj, **req)
++                higs_preview = higs_result.frame
++        except (ImportError, RuntimeError, ValueError, TypeError):
++            higs_preview = None
++
++    return {
++        "frame": frame,
++        "alpha": alpha,
++        "densification_info": {
++            "means2d": means2d_proxy,
++            "radii": fwd_meta["densification_radii"],
++            "gaussian_ids": torch.arange(N_total, device=means.device),
++            "visible_gaussian_ids": fwd_meta["visible_gaussian_ids"],
++            "width": width,
++            "height": height,
++            "n_cameras": means2d_proxy.shape[0],
++        },
++        "metadata": {
++            "n_gaussians": N_total,
++            "scene_version": scene_version,
++            "backward_backend": fwd_meta["backward_backend"],
++            "native_available": fwd_meta["native_available"],
++            "n_visible": fwd_meta["n_visible"],
++            "culling_ratio": fwd_meta["culling_ratio"],
++            "topology_rebuilt": fwd_meta["topology_rebuilt"],
++            "packed_dtype": fwd_meta["packed_dtype"],
++            "sh_compression_mode": fwd_meta.get("sh_compression_mode"),
++            "render_mode": render_mode,
++            "use_higs_culling": use_higs_culling,
++            "higs_preview": higs_preview,
++            "sampled_tile_ratio": fwd_meta.get("sampled_tile_ratio", 1.0),
++            "tile_mask": fwd_meta.get("tile_mask"),
++            "n_isects": fwd_meta.get("n_isects", 0),
++            "n_isects_full": fwd_meta.get("n_isects_full", 0),
++            "cull_refresh_interval": cull_refresh_interval,
++        },
++    }
++
++
++def rasterize_gaussian_higs_dynamic(
++    means: Tensor,
++    quats: Tensor,
++    scales: Tensor,
++    opacities: Tensor,
++    colors: Tensor,
++    *,
++    sh_degree=None,
++    viewmats: Tensor,
++    Ks: Tensor,
++    width: int,
++    height: int,
++    tile_size: int = 16,
++    near_plane: float = 0.01,
++    far_plane: float = 1e10,
++    radius_clip: float = 0.0,
++    eps2d: float = 0.3,
++    background=None,
++    render_mode: str = "RGB",
++    camera_model: str = "pinhole",
++    enable_culling: bool = True,
++    use_higs_culling: bool = False,
++    return_higs_preview: bool = False,
++    backward_mode: str = "higs_native",
++    sh_compression_mode="none",
++    tile_sampling_ratio: float = 1.0,
++    sampling_mode: str = "uniform",
++    tile_mask=None,
++    sampled_tile_ratio=None,
++    cull_refresh_interval: int = 1,
++    cull_cache_key: str = "default",
++    scene=None,
++) -> dict:
++    """Differentiable HiGS rendering with dynamic-topology support (Stage C).
++
++    This is the Stage C entry point. Removes the freeze_topology restriction
++    present in rasterize_gaussian_higs_frozen. Gaussian count may change
++    between forward calls via _densify_gaussians / _prune_gaussians.
++
++    Before the next forward after a topology mutation, call
++    _HIGS_DYNAMIC_SCENE.mark_dirty() (or ``scene.mark_dirty()`` on an explicit
++    :class:`HigsRendererHandle`) to indicate the change.
++
++    Args:
++        backward_mode: "higs_native" (default) or "gsplat_recompute".
++        sh_compression_mode: "none" (default); PACKED_16B/32B modes are
++            supported via a straight-through FP16 quantization in training.
++        scene: optional :class:`HigsRendererHandle`; when omitted, the
++            module-level :class:`_HigsDynamicScene` singleton owns one.
++    """
++    return _higs_dynamic_forward(
++        means, quats, scales, opacities, colors,
++        viewmats=viewmats, Ks=Ks, width=width, height=height,
++        sh_degree=sh_degree, tile_size=tile_size,
++        near_plane=near_plane, far_plane=far_plane,
++        radius_clip=radius_clip, eps2d=eps2d,
++        background=background, render_mode=render_mode,
++        camera_model=camera_model, enable_culling=enable_culling,
++        use_higs_culling=use_higs_culling,
++        return_higs_preview=return_higs_preview,
++        backward_mode=backward_mode,
++        sh_compression_mode=sh_compression_mode,
++        tile_sampling_ratio=tile_sampling_ratio,
++        sampling_mode=sampling_mode,
++        tile_mask=tile_mask,
++        sampled_tile_ratio=sampled_tile_ratio,
++        cull_refresh_interval=cull_refresh_interval,
++        cull_cache_key=cull_cache_key,
++        scene=scene,
++    )
+diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py
+index 50f357f2..7815b388 100644
+--- a/gsplat/experimental/render/kernels/cuda/build.py
++++ b/gsplat/experimental/render/kernels/cuda/build.py
+@@ -101,6 +101,8 @@ def get_build_parameters():
+         sources += [
+             os.path.join(gaussian_render_inference_dir, f)
+             for f in [
++                "GatherVisible.cu",
++                "HigsNativeBackward.cu",
+                 "IntersectCommon.cu",
+                 "IntersectMTFused.cu",
+                 "MacroTileIntersect.cu",
+@@ -213,7 +215,7 @@ def build_and_load_experimental_gaussian_render_inference_scene():
+ 
+     if not hasattr(jit, "_get_build_directory"):
+         raise RuntimeError(
+-            "torch.utils.cpp_extension.jit._get_build_directory is missing — "
++            "torch.utils.cpp_extension.jit._get_build_directory is missing 鈥?"
+             "PyTorch upgrade broke a private API. Update "
+             "gsplat/experimental/render/kernels/cuda/build.py."
+         )
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
+index 15a46507..590c12c7 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
+@@ -517,7 +517,20 @@ namespace gaussian_render_inference_scene
+     // ==========================================================================
+     // gaussian_render_inference_only — torch.ops compatibility wrapper
+     // ==========================================================================
+-    std::tuple<at::Tensor, at::Tensor> gaussian_render_inference_only(
++    // ---------------------------------------------------------------------------
++// GaussianInferenceRenderer::getVisibleMask
++// ---------------------------------------------------------------------------
++at::Tensor GaussianInferenceRenderer::getVisibleMask() const
++{
++    if (!state_ || state_->num_gaussians == 0) {
++        return at::empty({0});
++    }
++    // The visible tensor is a bitmask stored as int32 [(N+31)/32]
++    // We return it as-is for Python-side conversion to indices.
++    return state_->visible;
++}
++
++std::tuple<at::Tensor, at::Tensor> gaussian_render_inference_only(
+         const at::Tensor &means_planar,
+         const at::Tensor &qso_packed,
+         const at::Tensor &colors_packed,
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
+index c01a046d..892a0e3f 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.h
+@@ -178,6 +178,11 @@ namespace gaussian_render_inference_scene
+             return !state_ || state_->num_gaussians == 0;
+         }
+ 
++        /// Get bitmask of visible Gaussians from last render.
++        /// Returns int32 tensor of shape [(N+31)/32] where bit j of word i
++        /// indicates Gaussian (i*32 + j) was visible in the last render.
++        at::Tensor getVisibleMask() const;
++
+     private:
+         std::unique_ptr<InferenceRenderState> state_;
+         at::Tensor colors_normalized_; // cached [N,K,3] view (avoids per-frame reshape)
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
+index 13097f39..dc14afec 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Utils.h
+@@ -28,21 +28,21 @@ __device__ __forceinline__ void AssignAs(U &u, const V &v)
+ }
+ 
+ // Round-to-nearest (ties away from zero) __half2 pair to the M bits of mantissa
+-template<uint M, bool MASK_OUT_OUTPUT = true>
++template<unsigned int M, bool MASK_OUT_OUTPUT = true>
+ __device__ __forceinline__ __half2 RoundToNearest(const __half2 &v)
+ {
+-    constexpr uint MANTISSA_MASK = 0x03FF03FF;
+-    constexpr uint TRUNC_MASK    = ~(((1u << (10 - M)) - 1) * 0x10001u);
++    constexpr unsigned int MANTISSA_MASK = 0x03FF03FF;
++    constexpr unsigned int TRUNC_MASK    = ~(((1u << (10 - M)) - 1) * 0x10001u);
+     // get rounding offset scale s*2^e (input float with mantissa zeroed out)
+-    const uint vn                = reinterpret_cast<const uint &>(v) & ~MANTISSA_MASK;
++    const unsigned int vn                = reinterpret_cast<const unsigned int &>(v) & ~MANTISSA_MASK;
+     const __half2 vb             = reinterpret_cast<const __half2 &>(vn);
+     // get rounding offset
+     const __half2 vs             = __float2half2_rn((1 << (10 - M)) / 2048.0f);
+     // add to float a scaled rounding offset
+     const __half2 v_r            = __hfma2(vb, vs, v);
+     // return masked __half2
+-    const uint vi_r
+-        = MASK_OUT_OUTPUT ? (reinterpret_cast<const uint &>(v_r) & TRUNC_MASK) : reinterpret_cast<const uint &>(v_r);
++    const unsigned int vi_r
++        = MASK_OUT_OUTPUT ? (reinterpret_cast<const unsigned int &>(v_r) & TRUNC_MASK) : reinterpret_cast<const unsigned int &>(v_r);
+     return reinterpret_cast<const __half2 &>(vi_r);
+ }
+ 
+@@ -137,9 +137,9 @@ __forceinline__ __device__ __half2 __uint8x2_to_half2(uint32_t src)
+     return dp.f;
+ }
+ 
+-__forceinline__ __device__ uint __cvt_pack_sat_u8_f32(float a0, float a1, float a2, float a3)
++__forceinline__ __device__ unsigned int __cvt_pack_sat_u8_f32(float a0, float a1, float a2, float a3)
+ {
+-    uint rval;
++    unsigned int rval;
+     asm volatile(
+         "{.reg .u32 tmp, i0, i1;\n"
+         "cvt.rni.s32.f32 i0, %1;\n"
+@@ -154,7 +154,7 @@ __forceinline__ __device__ uint __cvt_pack_sat_u8_f32(float a0, float a1, float
+     return rval;
+ }
+ 
+-__forceinline__ __device__ uint __cvt_pack_sat_u8_f32(const float4 &a)
++__forceinline__ __device__ unsigned int __cvt_pack_sat_u8_f32(const float4 &a)
+ {
+     return __cvt_pack_sat_u8_f32(a.x, a.y, a.z, a.w);
+ }
+diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
+index 2eb26d11..426d402e 100644
+--- a/gsplat/experimental/render/kernels/cuda/ext.cpp
++++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
+@@ -18,6 +18,8 @@
+ #include <torch/extension.h>
+ 
+ #include "csrc/gaussian_inference/GaussianRenderInferenceScene.h"
++#include "csrc/gaussian_inference/HigsNativeBackward.h"
++#include "csrc/gaussian_inference/GatherVisible.h"
+ 
+ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+ {
+@@ -52,9 +54,77 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+         )
+         .def("release", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::release)
+         .def("num_gaussians", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::numGaussians)
+-        .def("is_released", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::isReleased);
++        .def("is_released", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::isReleased)
++        .def("get_visible_mask", &gsplat::gaussian_render_inference_scene::GaussianInferenceRenderer::getVisibleMask);
++
++    m.def(
++        "higs_rasterize_backward",
++        &gsplat::gaussian_render_inference_scene::higs_rasterize_backward,
++        "Native CUDA backward for the differentiable HiGS training path. "
++        "Consumes forward-captured rasterization state and returns FP32 master gradients.",
++        py::arg("means2d"),
++        py::arg("conics"),
++        py::arg("colors_eval"),
++        py::arg("opacities"),
++        py::arg("backgrounds"),
++        py::arg("tile_offsets"),
++        py::arg("flatten_ids"),
++        py::arg("active_tiles"),
++        py::arg("render_alphas"),
++        py::arg("last_ids"),
++        py::arg("means"),
++        py::arg("quats"),
++        py::arg("scales"),
++        py::arg("radii"),
++        py::arg("viewmats"),
++        py::arg("Ks"),
++        py::arg("width"),
++        py::arg("height"),
++        py::arg("tile_size"),
++        py::arg("eps2d"),
++        py::arg("camera_model"),
++        py::arg("v_render_colors"),
++        py::arg("v_render_alphas"),
++        py::arg("sh_coeffs"),
++        py::arg("sh_degree"),
++        py::arg("visible_ids"),
++        py::arg("grad_means"),
++        py::arg("grad_quats"),
++        py::arg("grad_scales"),
++        py::arg("grad_opacities"),
++        py::arg("grad_colors")
++    );
++
++    m.def(
++        "higs_gather_visible",
++        &gsplat::gaussian_render_inference_scene::higs_gather_visible,
++        "Compact-copy the visible rows of the FP32 master tensors for the differentiable HiGS forward path.",
++        py::arg("means"),
++        py::arg("quats"),
++        py::arg("scales"),
++        py::arg("opacities"),
++        py::arg("colors"),
++        py::arg("visible_ids")
++    );
++
++    m.def(
++        "higs_union_visible_mask",
++        &gsplat::gaussian_render_inference_scene::higs_union_visible_mask,
++        "Union-visibility mask over cameras from culling-projection radii.",
++        py::arg("radii")
++    );
++
++    m.def(
++        "higs_gather_rows",
++        &gsplat::gaussian_render_inference_scene::higs_gather_rows,
++        "Compact-copy an arbitrary subset of rows of one FP32 tensor (fast path for densify/prune and Adam-state sync). With zero_on_neg, negative row ids write zeros (used to fuse the zero-init of brand-new Gaussians into the state sync).",
++        py::arg("src"),
++        py::arg("row_ids"),
++        py::arg("zero_on_neg") = false
++    );
+ }
+ 
++
+ TORCH_LIBRARY(experimental, m)
+ {
+     m.def(
+@@ -71,7 +141,7 @@ TORCH_LIBRARY_IMPL(experimental, CUDA, m)
+ }
+ 
+ // Explicitly suppress AutogradCUDA for gaussian_render_inference_only: it is
+-// inference-only and has no backward kernel. Without this, PyTorch ≥ 2.x
++// inference-only and has no backward kernel. Without this, PyTorch 鈮?2.x
+ // auto-registers an AutogradCUDA entry that wraps outputs in a grad_fn even
+ // when no backward is available, which confuses callers that check grad_fn is None.
+ TORCH_LIBRARY_IMPL(experimental, Autograd, m)
+diff --git a/gsplat/geometry/kernels/cuda/build.py b/gsplat/geometry/kernels/cuda/build.py
+index 6e57dbd9..558591e7 100644
+--- a/gsplat/geometry/kernels/cuda/build.py
++++ b/gsplat/geometry/kernels/cuda/build.py
+@@ -65,9 +65,8 @@ def get_build_parameters() -> SimpleNamespace:
+     extra_cflags += ["-g", "-O0"] if DEBUG else ["-O3", "-DNDEBUG"]
+     extra_cuda_cflags += ["-use_fast_math"] if FAST_MATH else []
+     extra_cuda_cflags += ["-lineinfo"] if DEBUG else []
+-    extra_cflags += ["-Wno-attributes"]
+     if os.name != "nt":
+-        extra_cflags += ["-Wno-sign-compare"]
++        extra_cflags += ["-Wno-attributes", "-Wno-sign-compare"]
+ 
+     if torch.version.hip:
+         extra_cflags += ["-DUSE_ROCM", "-U__HIP_NO_HALF_CONVERSIONS__"]
+diff --git a/gsplat/scene/kernels/cuda/build.py b/gsplat/scene/kernels/cuda/build.py
+index d76e669b..a1fad3d7 100644
+--- a/gsplat/scene/kernels/cuda/build.py
++++ b/gsplat/scene/kernels/cuda/build.py
+@@ -49,7 +49,7 @@ def get_build_parameters() -> SimpleNamespace:
+     extra_ldflags: list[str] = []
+ 
+     if sys.platform == "win32":
+-        extra_cflags = ["/std:c++17", "-DWIN32_LEAN_AND_MEAN"]
++        extra_cflags = ["/std:c++20", "-DWIN32_LEAN_AND_MEAN"]
+     else:
+         extra_cflags = ["-std=c++17"]
+ 
+@@ -155,6 +155,7 @@ def build_and_load_scene_cuda():
+                 extra_cflags=build_params.extra_cflags,
+                 extra_include_paths=build_params.extra_include_paths,
+                 extra_ldflags=build_params.extra_ldflags,
++                with_cuda=True,
+                 build_directory=build_dir,
+                 verbose=VERBOSE,
+             )
