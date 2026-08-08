@@ -206,6 +206,23 @@ class HigsTopologyTrainerSurfaceTest(unittest.TestCase):
         self.assertIn("self._res_cache", self.text)
         self.assertIn('cache_key = (int(image_ids[0].item()), round(float(res_scale), 4))', self.text)
 
+    def _calibration_slice(self):
+        i = self.text.find("def _calibrate_resolution")
+        j = self.text.find("def _densify_anchor_pass", i)
+        self.assertGreater(j, i, "calibration region not found")
+        return self.text[i:j]
+
+    def test_calibration_times_forward_and_backward(self):
+        cal = self._calibration_slice()
+        self.assertIn("loss.backward()", cal)
+        self.assertIn("end.record()", cal)
+        self.assertLess(cal.index("loss.backward()"), cal.index("end.record()"))
+
+    def test_calibration_warms_up_before_timing(self):
+        cal = self._calibration_slice()
+        self.assertIn("run_step(next_data())", cal)
+        self.assertIn("timings.append(start.elapsed_time(end) / 1000.0)", cal)
+
 
 if __name__ == "__main__":
     unittest.main()
