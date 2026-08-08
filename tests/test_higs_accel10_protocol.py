@@ -99,6 +99,22 @@ class HigsAccel10ProtocolTest(unittest.TestCase):
         self.assertEqual(spec.get("patches"), None)
         self.assertEqual(spec["algorithm"]["max_steps"], 27000)
 
+    def test_ssim05_reference_repointed_to_accel10_tree(self):
+        spec = self.protocol["methods"]["gsplat_30k_ssim05"]
+        algo = spec["algorithm"]
+        self.assertEqual(algo["name"], "GSplat-30k-SSIM05")
+        self.assertEqual(algo["renderer"], "higs_dynamic_native_backward")
+        self.assertEqual(algo["optimizer"], "adam_full")
+        self.assertEqual(algo["max_steps"], 30000)
+        cfg = algo["trainer_cfg"]
+        self.assertEqual(cfg["higs_ssim_scale"], 0.5)
+        self.assertEqual(cfg["higs_ssim_every"], 1)
+        self.assertFalse(cfg["higs_preload_images"])
+        self.assertEqual(cfg["higs_sh_schedule"], "")
+        self.assertEqual(cfg["higs_skip_bwd_start_step"], 0)
+        self.assertEqual(spec["patches"], ["patches/higs-accel10.patch"])
+        self.assertEqual(spec["trainer_sha256"], TRAINER_SHA256)
+
     def test_skipbwd_method_contract(self):
         for method_id in ("higs_skipbwd_30k", "higs_skipbwd_30k_agg",
                           "higs_skipbwd_27k"):
