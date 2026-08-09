@@ -1,0 +1,549 @@
+{
+ "schema_version": "1.0",
+ "paper_track": "higs_ablation",
+ "training": {
+  "initialization": "from_scratch_sfm",
+  "iterations": 30000,
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "eval_split": "official",
+  "timing_boundary": "dataset_ready_to_final_checkpoint",
+  "synchronization": "cuda_synchronize_before_start_and_stop"
+ },
+ "scenes": [
+  {
+   "id": "mipnerf360/bicycle",
+   "family": "Mip-NeRF 360"
+  },
+  {
+   "id": "mipnerf360/bonsai",
+   "family": "Mip-NeRF 360"
+  },
+  {
+   "id": "mipnerf360/counter",
+   "family": "Mip-NeRF 360"
+  },
+  {
+   "id": "mipnerf360/garden",
+   "family": "Mip-NeRF 360"
+  },
+  {
+   "id": "mipnerf360/kitchen",
+   "family": "Mip-NeRF 360"
+  },
+  {
+   "id": "mipnerf360/room",
+   "family": "Mip-NeRF 360"
+  },
+  {
+   "id": "mipnerf360/stump",
+   "family": "Mip-NeRF 360"
+  },
+  {
+   "id": "tanks_and_temples/train",
+   "family": "Tanks and Temples"
+  },
+  {
+   "id": "tanks_and_temples/truck",
+   "family": "Tanks and Temples"
+  },
+  {
+   "id": "deep_blending/drjohnson",
+   "family": "Deep Blending"
+  },
+  {
+   "id": "deep_blending/playroom",
+   "family": "Deep Blending"
+  }
+ ],
+ "methods": {
+  "gsplat": {
+   "role": "modern_training_control",
+   "implementation": "official",
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "runner_status": "ready",
+   "runner_evidence": "paper/higs/runner-readiness.json",
+   "algorithm": null
+  },
+  "gsplat_30k_fused": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-accel21.patch"
+   ],
+   "patch_sha256": "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e",
+   "source_diff_sha256": "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e",
+   "source_state_sha256": "db39f39179f79ecec2f74dbde862ec4d64eef7a9a8198c911437f3ca285ff2b9",
+   "trainer_sha256": "cf3a3530ac67f52ebbcda4a5c69a2b03481b36f0b8f44db06dfc083127d73cde",
+   "runner_status": "ready",
+   "role": "exploration_acceleration_control",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "gsplat_30k_fused",
+    "renderer": "higs_dynamic_native_backward",
+    "optimizer": "adam_full",
+    "resolution_schedule": null,
+    "tile_sampling_schedule": null,
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "visible_adam": false,
+     "higs_sh_schedule": "",
+     "higs_densify_every": 0,
+     "higs_preload_images": false,
+     "higs_accum_steps": 1,
+     "higs_ssim_scale": 1.0,
+     "higs_ssim_every": 1,
+     "higs_ssim_gt_cache": true,
+     "higs_ssim_polish_step": 0,
+     "higs_skip_bwd_start_step": 0,
+     "higs_skip_bwd_min_steps": 5,
+     "higs_skip_bwd_thresh": 0.95,
+     "higs_skip_bwd_ema_alpha": 0.1,
+     "higs_train_res_scale": 1.0,
+     "higs_full_res_step": 0,
+     "higs_res_cache": true,
+     "higs_densify_anchor_fullres": false,
+     "higs_calibrate_scene": false,
+     "higs_segment_timing": true,
+     "higs_timing_start_step": 15000,
+     "higs_timing_end_step": 15300,
+     "higs_lowres_start_step": 0,
+     "higs_lowres_end_step": 0,
+     "higs_prune_mode": "opacity",
+     "higs_prune_start_step": 15000,
+     "higs_prune_every": 3000,
+     "higs_prune_opacity_thresh": 0.02,
+     "higs_radius_clip": 0.0,
+     "higs_radius_clip_start_step": 15000,
+     "sh_fp16": false,
+     "higs_skip_bwd_per_view": false,
+     "higs_skip_bwd_ema_decay": 0.95,
+     "higs_skip_bwd_warmup": 500,
+     "higs_skip_bwd_min_ratio": 0.5,
+     "higs_skip_bwd_floor_min_samples": 100
+    }
+   }
+  },
+  "gsplat_30k_fused_prune10_rclip05": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-accel21.patch"
+   ],
+   "patch_sha256": "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e",
+   "source_diff_sha256": "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e",
+   "source_state_sha256": "db39f39179f79ecec2f74dbde862ec4d64eef7a9a8198c911437f3ca285ff2b9",
+   "trainer_sha256": "cf3a3530ac67f52ebbcda4a5c69a2b03481b36f0b8f44db06dfc083127d73cde",
+   "runner_status": "ready",
+   "role": "exploration_acceleration_frozen_candidate",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "gsplat_30k_fused_prune10_rclip05",
+    "renderer": "higs_dynamic_native_backward",
+    "optimizer": "adam_full",
+    "resolution_schedule": null,
+    "tile_sampling_schedule": null,
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "visible_adam": false,
+     "higs_sh_schedule": "",
+     "higs_densify_every": 0,
+     "higs_preload_images": false,
+     "higs_accum_steps": 1,
+     "higs_ssim_scale": 1.0,
+     "higs_ssim_every": 1,
+     "higs_ssim_gt_cache": true,
+     "higs_ssim_polish_step": 0,
+     "higs_skip_bwd_start_step": 0,
+     "higs_skip_bwd_min_steps": 5,
+     "higs_skip_bwd_thresh": 0.95,
+     "higs_skip_bwd_ema_alpha": 0.1,
+     "higs_train_res_scale": 1.0,
+     "higs_full_res_step": 0,
+     "higs_res_cache": true,
+     "higs_densify_anchor_fullres": false,
+     "higs_calibrate_scene": false,
+     "higs_segment_timing": true,
+     "higs_timing_start_step": 15000,
+     "higs_timing_end_step": 15300,
+     "higs_lowres_start_step": 0,
+     "higs_lowres_end_step": 0,
+     "higs_prune_mode": "opacity",
+     "higs_prune_start_step": 15000,
+     "higs_prune_every": 3000,
+     "higs_prune_opacity_thresh": 0.1,
+     "higs_radius_clip": 0.5,
+     "higs_radius_clip_start_step": 15000,
+     "sh_fp16": false,
+     "higs_skip_bwd_per_view": false,
+     "higs_skip_bwd_ema_decay": 0.95,
+     "higs_skip_bwd_warmup": 500,
+     "higs_skip_bwd_min_ratio": 0.5,
+     "higs_skip_bwd_floor_min_samples": 100
+    }
+   }
+  },
+  "gsplat_30k_fused_prune10_rclip05_skipbwd_pv": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-accel21.patch"
+   ],
+   "patch_sha256": "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e",
+   "source_diff_sha256": "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e",
+   "source_state_sha256": "db39f39179f79ecec2f74dbde862ec4d64eef7a9a8198c911437f3ca285ff2b9",
+   "trainer_sha256": "cf3a3530ac67f52ebbcda4a5c69a2b03481b36f0b8f44db06dfc083127d73cde",
+   "runner_status": "ready",
+   "role": "exploration_acceleration_candidate",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "gsplat_30k_fused_prune10_rclip05_skipbwd_pv",
+    "renderer": "higs_dynamic_native_backward",
+    "optimizer": "adam_full",
+    "resolution_schedule": null,
+    "tile_sampling_schedule": null,
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "visible_adam": false,
+     "higs_sh_schedule": "",
+     "higs_densify_every": 0,
+     "higs_preload_images": false,
+     "higs_accum_steps": 1,
+     "higs_ssim_scale": 1.0,
+     "higs_ssim_every": 1,
+     "higs_ssim_gt_cache": true,
+     "higs_ssim_polish_step": 0,
+     "higs_skip_bwd_start_step": 15000,
+     "higs_skip_bwd_min_steps": 5,
+     "higs_skip_bwd_thresh": 0.0,
+     "higs_skip_bwd_ema_alpha": 0.1,
+     "higs_train_res_scale": 1.0,
+     "higs_full_res_step": 0,
+     "higs_res_cache": true,
+     "higs_densify_anchor_fullres": false,
+     "higs_calibrate_scene": false,
+     "higs_segment_timing": true,
+     "higs_timing_start_step": 15000,
+     "higs_timing_end_step": 15300,
+     "higs_lowres_start_step": 0,
+     "higs_lowres_end_step": 0,
+     "higs_prune_mode": "opacity",
+     "higs_prune_start_step": 15000,
+     "higs_prune_every": 3000,
+     "higs_prune_opacity_thresh": 0.1,
+     "higs_radius_clip": 0.5,
+     "higs_radius_clip_start_step": 15000,
+     "sh_fp16": false,
+     "higs_skip_bwd_per_view": true,
+     "higs_skip_bwd_ema_decay": 0.95,
+     "higs_skip_bwd_warmup": 500,
+     "higs_skip_bwd_min_ratio": 0.5,
+     "higs_skip_bwd_floor_min_samples": 100
+    }
+   }
+  },
+  "gsplat_30k_fused_prune10_rclip05_skipbwd_pv_agg": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-accel21.patch"
+   ],
+   "patch_sha256": "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e",
+   "source_diff_sha256": "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e",
+   "source_state_sha256": "db39f39179f79ecec2f74dbde862ec4d64eef7a9a8198c911437f3ca285ff2b9",
+   "trainer_sha256": "cf3a3530ac67f52ebbcda4a5c69a2b03481b36f0b8f44db06dfc083127d73cde",
+   "runner_status": "ready",
+   "role": "exploration_acceleration_candidate",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "gsplat_30k_fused_prune10_rclip05_skipbwd_pv_agg",
+    "renderer": "higs_dynamic_native_backward",
+    "optimizer": "adam_full",
+    "resolution_schedule": null,
+    "tile_sampling_schedule": null,
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "visible_adam": false,
+     "higs_sh_schedule": "",
+     "higs_densify_every": 0,
+     "higs_preload_images": false,
+     "higs_accum_steps": 1,
+     "higs_ssim_scale": 1.0,
+     "higs_ssim_every": 1,
+     "higs_ssim_gt_cache": true,
+     "higs_ssim_polish_step": 0,
+     "higs_skip_bwd_start_step": 15000,
+     "higs_skip_bwd_min_steps": 5,
+     "higs_skip_bwd_thresh": 0.1,
+     "higs_skip_bwd_ema_alpha": 0.1,
+     "higs_train_res_scale": 1.0,
+     "higs_full_res_step": 0,
+     "higs_res_cache": true,
+     "higs_densify_anchor_fullres": false,
+     "higs_calibrate_scene": false,
+     "higs_segment_timing": true,
+     "higs_timing_start_step": 15000,
+     "higs_timing_end_step": 15300,
+     "higs_lowres_start_step": 0,
+     "higs_lowres_end_step": 0,
+     "higs_prune_mode": "opacity",
+     "higs_prune_start_step": 15000,
+     "higs_prune_every": 3000,
+     "higs_prune_opacity_thresh": 0.1,
+     "higs_radius_clip": 0.5,
+     "higs_radius_clip_start_step": 15000,
+     "sh_fp16": false,
+     "higs_skip_bwd_per_view": true,
+     "higs_skip_bwd_ema_decay": 0.95,
+     "higs_skip_bwd_warmup": 500,
+     "higs_skip_bwd_min_ratio": 0.5,
+     "higs_skip_bwd_floor_min_samples": 100
+    }
+   }
+  },
+  "gsplat_30k_fused_skipbwd_pv": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-accel21.patch"
+   ],
+   "patch_sha256": "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e",
+   "source_diff_sha256": "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e",
+   "source_state_sha256": "db39f39179f79ecec2f74dbde862ec4d64eef7a9a8198c911437f3ca285ff2b9",
+   "trainer_sha256": "cf3a3530ac67f52ebbcda4a5c69a2b03481b36f0b8f44db06dfc083127d73cde",
+   "runner_status": "ready",
+   "role": "exploration_acceleration_candidate",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "gsplat_30k_fused_skipbwd_pv",
+    "renderer": "higs_dynamic_native_backward",
+    "optimizer": "adam_full",
+    "resolution_schedule": null,
+    "tile_sampling_schedule": null,
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "visible_adam": false,
+     "higs_sh_schedule": "",
+     "higs_densify_every": 0,
+     "higs_preload_images": false,
+     "higs_accum_steps": 1,
+     "higs_ssim_scale": 1.0,
+     "higs_ssim_every": 1,
+     "higs_ssim_gt_cache": true,
+     "higs_ssim_polish_step": 0,
+     "higs_skip_bwd_start_step": 15000,
+     "higs_skip_bwd_min_steps": 5,
+     "higs_skip_bwd_thresh": 0.0,
+     "higs_skip_bwd_ema_alpha": 0.1,
+     "higs_train_res_scale": 1.0,
+     "higs_full_res_step": 0,
+     "higs_res_cache": true,
+     "higs_densify_anchor_fullres": false,
+     "higs_calibrate_scene": false,
+     "higs_segment_timing": true,
+     "higs_timing_start_step": 15000,
+     "higs_timing_end_step": 15300,
+     "higs_lowres_start_step": 0,
+     "higs_lowres_end_step": 0,
+     "higs_prune_mode": "opacity",
+     "higs_prune_start_step": 15000,
+     "higs_prune_every": 3000,
+     "higs_prune_opacity_thresh": 0.02,
+     "higs_radius_clip": 0.0,
+     "higs_radius_clip_start_step": 15000,
+     "sh_fp16": false,
+     "higs_skip_bwd_per_view": true,
+     "higs_skip_bwd_ema_decay": 0.95,
+     "higs_skip_bwd_warmup": 500,
+     "higs_skip_bwd_min_ratio": 0.5,
+     "higs_skip_bwd_floor_min_samples": 100
+    }
+   }
+  },
+  "higs_full": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-tilesample.patch"
+   ],
+   "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+   "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+   "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+   "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+   "runner_status": "ready",
+   "role": "same_backend_full_compute_control",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "HiGS-Full",
+    "renderer": "higs_dynamic_native_backward",
+    "optimizer": "adam_full",
+    "resolution_schedule": null,
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "higs_method": "higs_full",
+     "higs_skip_bwd_per_view": false,
+     "higs_skip_bwd_ema_decay": 0.95,
+     "higs_skip_bwd_warmup": 500,
+     "higs_skip_bwd_min_ratio": 0.5,
+     "higs_skip_bwd_floor_min_samples": 100
+    }
+   }
+  },
+  "higs_visible_only": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-tilesample.patch"
+   ],
+   "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+   "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+   "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+   "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+   "runner_status": "ready",
+   "role": "ablation_optimizer",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "HiGS-VisibleOnly",
+    "renderer": "higs_dynamic_native_backward",
+    "optimizer": "selective_adam_visible_mask",
+    "resolution_schedule": null,
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "visible_adam": true,
+     "higs_method": "higs_visible_only",
+     "higs_skip_bwd_per_view": false,
+     "higs_skip_bwd_ema_decay": 0.95,
+     "higs_skip_bwd_warmup": 500,
+     "higs_skip_bwd_min_ratio": 0.5,
+     "higs_skip_bwd_floor_min_samples": 100
+    }
+   }
+  },
+  "higs_progressive_only": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-tilesample.patch"
+   ],
+   "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+   "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+   "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+   "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+   "runner_status": "ready",
+   "role": "ablation_resolution",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "HiGS-ProgressiveOnly",
+    "renderer": "higs_dynamic_native_backward",
+    "optimizer": "adam_full",
+    "resolution_schedule": {
+     "initial_scale": 0.5,
+     "full_res_step": 24000,
+     "total_steps": 30000
+    },
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "visible_adam": false,
+     "higs_method": "higs_proposed",
+     "higs_train_res_scale": 0.5,
+     "higs_full_res_step": 24000,
+     "higs_skip_bwd_per_view": false,
+     "higs_skip_bwd_ema_decay": 0.95,
+     "higs_skip_bwd_warmup": 500,
+     "higs_skip_bwd_min_ratio": 0.5,
+     "higs_skip_bwd_floor_min_samples": 100
+    }
+   }
+  },
+  "higs_current": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-tilesample.patch"
+   ],
+   "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+   "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+   "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+   "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+   "runner_status": "ready",
+   "role": "ablation_current_proposed",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "HiGS-Current",
+    "renderer": "higs_dynamic_native_backward",
+    "optimizer": "selective_adam_visible_mask",
+    "resolution_schedule": {
+     "initial_scale": 0.5,
+     "full_res_step": 24000,
+     "total_steps": 30000
+    },
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "visible_adam": true,
+     "higs_method": "higs_proposed",
+     "higs_train_res_scale": 0.5,
+     "higs_full_res_step": 24000,
+     "higs_skip_bwd_per_view": false,
+     "higs_skip_bwd_ema_decay": 0.95,
+     "higs_skip_bwd_warmup": 500,
+     "higs_skip_bwd_min_ratio": 0.5,
+     "higs_skip_bwd_floor_min_samples": 100
+    }
+   }
+  }
+ },
+ "hardware": {
+  "a100": {
+   "class": "datacenter",
+   "runner_status": "ready"
+  }
+ },
+ "required_outcomes": [
+  "wall_time_seconds",
+  "time_to_quality_seconds",
+  "psnr_db",
+  "ssim",
+  "lpips",
+  "peak_gpu_memory_mib",
+  "final_gaussian_count",
+  "energy_joules"
+ ],
+ "frozen_candidates": [
+  "higs_switch_12k",
+  "higs_switch_21k"
+ ],
+ "matrices": [
+  {
+   "id": "exploration_accel21_11s0",
+   "phase": "exploration",
+   "methods": [
+    "gsplat",
+    "gsplat_30k_fused",
+    "gsplat_30k_fused_prune10_rclip05",
+    "gsplat_30k_fused_prune10_rclip05_skipbwd_pv",
+    "gsplat_30k_fused_prune10_rclip05_skipbwd_pv_agg",
+    "gsplat_30k_fused_skipbwd_pv"
+   ],
+   "scenes": "all",
+   "hardware": [
+    "a100"
+   ],
+   "seeds": [
+    0
+   ]
+  }
+ ]
+}
