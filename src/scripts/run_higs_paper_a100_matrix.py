@@ -200,19 +200,21 @@ def _plan_jobs(
         and job["method"] in methods
         and (matrices is None or job["matrix"] in matrices)
     ]
-    if any(job["matrix"] == "confirmatory_formal_30k" for job in jobs):
+    confirmatory_ids = {
+        m["id"] for m in protocol["matrices"] if m.get("phase") == "confirmatory"
+    }
+    if any(job["matrix"] in confirmatory_ids for job in jobs):
         # confirmatory: matched controls and candidates for the same scene+seed
         # run close in time; rotate method order per scene to balance which
         # method starts first across GPUs
         scene_order = sorted({job["scene"] for job in jobs})
-        matrix = next(
-            m for m in protocol["matrices"]
-            if m["id"] == "confirmatory_formal_30k"
-        )
-        method_order = matrix["methods"]
+        matrix_order = {
+            m["id"]: m["methods"] for m in protocol["matrices"]
+        }
 
         def key(job: dict):
             scene_idx = scene_order.index(job["scene"])
+            method_order = matrix_order[job["matrix"]]
             method_idx = method_order.index(job["method"])
             rotated = (method_idx - scene_idx) % len(method_order)
             return (job["scene"], job["seed"], rotated)

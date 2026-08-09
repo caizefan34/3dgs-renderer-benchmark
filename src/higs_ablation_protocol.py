@@ -36,6 +36,11 @@ _CONFIRMATORY_MATRIX_SPECS = {
         "matched_controls": frozenset({"gsplat", "higs_full", "higs_current"}),
         "frozen_candidates": ("higs_switch_12k", "higs_switch_21k"),
     },
+    "confirmatory_accel15_11s3": {
+        "methods": frozenset({'higs_visible_only', 'gsplat_30k_fused_prune10_rclip05', 'gsplat_25k', 'gsplat'}),
+        "matched_controls": frozenset({'higs_visible_only', 'gsplat_25k', 'gsplat'}),
+        "frozen_candidates": ('gsplat_30k_fused_prune10_rclip05',),
+    },
     "confirmatory_higs_sched_11s3": {
         "methods": frozenset({
             "gsplat",

@@ -66,9 +66,9 @@ def _field(doc: dict, spec: tuple) -> float | None:
     return doc.get(section, {}).get(key)
 
 
-def load_results(results_dir: Path) -> dict:
+def load_results(results_dir: Path, matrix_id: str = "confirmatory_formal_30k") -> dict:
     jobs: dict[str, dict] = {}
-    for path in sorted(results_dir.glob("confirmatory_formal_30k--*.json")):
+    for path in sorted(results_dir.glob(f"{matrix_id}--*.json")):
         doc = json.loads(path.read_text(encoding="utf-8"))
         if doc.get("status") != "complete":
             continue
@@ -199,7 +199,7 @@ def analyze(jobs: dict) -> dict:
 
 
 def render_markdown(report: dict) -> str:
-    lines = ["# HiGS Confirmatory Matrix Analysis (5 methods x 11 scenes x 3 seeds)",
+    lines = [f"# HiGS Confirmatory Matrix Analysis ({len(report['methods'])} methods x {report['n_scenes']} scenes)",
              "", f"- baseline: `{report['baseline']}`; methods: {', '.join(report['methods'])}",
              f"- jobs analyzed: {report['n_jobs']}; paired (scene, seed) cells: {report['paired_cells']}",
              "", "## Paired deltas vs gsplat (scene-block bootstrap 95% CI)", ""]
@@ -236,12 +236,13 @@ def render_markdown(report: dict) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results-dir", type=Path, default=ROOT / "artifacts" / "training-ablation" / "results")
+    parser.add_argument("--matrix", default="confirmatory_formal_30k", help="Confirmatory matrix id (result filename prefix).")
     parser.add_argument("--out", type=Path, default=ROOT / "artifacts" / "training-ablation" / "confirmatory-analysis.json")
     parser.add_argument("--markdown", type=Path, default=ROOT / "artifacts" / "training-ablation" / "confirmatory-analysis.md")
     parser.add_argument("--curves", type=Path, default=ROOT / "artifacts" / "training-ablation" / "confirmatory-curves.json")
     args = parser.parse_args(argv)
 
-    jobs = load_results(args.results_dir)
+    jobs = load_results(args.results_dir, matrix_id=args.matrix)
     report = analyze(jobs)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
