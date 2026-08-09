@@ -1,4 +1,4 @@
-# HiGS Accel4 Exploration (paired vs gsplat 30k control) (paired vs gsplat 30k)
+# HiGS Accel Exploration (paired vs gsplat 30k control) (paired vs gsplat 30k)
 
 | config | metric | delta mean | 95% CI | gate | passed |
 |---|---|---|---|---|---|
