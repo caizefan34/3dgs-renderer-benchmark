@@ -2269,7 +2269,7 @@
     "max_steps": 30000
    }
   },
-  "gsplat_30k_accum2": {
+  "gsplat_30k_res075": {
    "repository": "https://github.com/nerfstudio-project/gsplat",
    "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
    "patches": [
@@ -2283,10 +2283,115 @@
    "role": "exploration_acceleration_reference",
    "implementation": "ours",
    "algorithm": {
-    "name": "GSplat-30k-Accum2",
-    "renderer": "higs_dynamic_native_backward",
+    "name": "GSplat-30k-Res075",
+    "renderer": "gsplat_native_backward",
     "optimizer": "adam_full",
-    "resolution_schedule": null,
+    "resolution_schedule": {
+     "mode": "constant_lowres",
+     "scale": 0.75,
+     "cached_pyramid": true,
+     "full_res_densification": false
+    },
+    "tile_sampling_schedule": null,
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "visible_adam": false,
+     "higs_sh_schedule": "",
+     "higs_densify_every": 0,
+     "higs_preload_images": false,
+     "higs_accum_steps": 1,
+     "higs_ssim_scale": 1.0,
+     "higs_ssim_every": 1,
+     "higs_skip_bwd_start_step": 0,
+     "higs_skip_bwd_min_steps": 5,
+     "higs_skip_bwd_thresh": 0.95,
+     "higs_skip_bwd_ema_alpha": 0.1,
+     "higs_train_res_scale": 0.75,
+     "higs_full_res_step": 30000,
+     "higs_res_cache": true,
+     "higs_densify_anchor_fullres": false,
+     "higs_calibrate_scene": false,
+     "higs_segment_timing": true,
+     "higs_timing_start_step": 15000,
+     "higs_timing_end_step": 15300
+    },
+    "max_steps": 30000
+   }
+  },
+  "gsplat_30k_res085": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-accel10.patch"
+   ],
+   "patch_sha256": "6ba7ad454d3f0c2749cb50b75640f882e21471ced9af159e09cd24d7be3fca00",
+   "source_diff_sha256": "6ba7ad454d3f0c2749cb50b75640f882e21471ced9af159e09cd24d7be3fca00",
+   "source_state_sha256": "54a8686145930448df80a5a91e9e54b0a0b8cbfd4a2bc600143480c7c36b4312",
+   "trainer_sha256": "0b884b5b6dc3add3fa18179acb10ddb64f630d079db6ea401304f7baeccc8fa0",
+   "runner_status": "ready",
+   "role": "exploration_acceleration_reference",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "GSplat-30k-Res085",
+    "renderer": "gsplat_native_backward",
+    "optimizer": "adam_full",
+    "resolution_schedule": {
+     "mode": "constant_lowres",
+     "scale": 0.85,
+     "cached_pyramid": true,
+     "full_res_densification": false
+    },
+    "tile_sampling_schedule": null,
+    "trainer_cfg": {
+     "packed": false,
+     "sparse_grad": false,
+     "visible_adam": false,
+     "higs_sh_schedule": "",
+     "higs_densify_every": 0,
+     "higs_preload_images": false,
+     "higs_accum_steps": 1,
+     "higs_ssim_scale": 1.0,
+     "higs_ssim_every": 1,
+     "higs_skip_bwd_start_step": 0,
+     "higs_skip_bwd_min_steps": 5,
+     "higs_skip_bwd_thresh": 0.95,
+     "higs_skip_bwd_ema_alpha": 0.1,
+     "higs_train_res_scale": 0.85,
+     "higs_full_res_step": 30000,
+     "higs_res_cache": true,
+     "higs_densify_anchor_fullres": false,
+     "higs_calibrate_scene": false,
+     "higs_segment_timing": true,
+     "higs_timing_start_step": 15000,
+     "higs_timing_end_step": 15300
+    },
+    "max_steps": 30000
+   }
+  },
+  "higs_accum2_res075": {
+   "repository": "https://github.com/nerfstudio-project/gsplat",
+   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "patches": [
+    "patches/higs-accel10.patch"
+   ],
+   "patch_sha256": "6ba7ad454d3f0c2749cb50b75640f882e21471ced9af159e09cd24d7be3fca00",
+   "source_diff_sha256": "6ba7ad454d3f0c2749cb50b75640f882e21471ced9af159e09cd24d7be3fca00",
+   "source_state_sha256": "54a8686145930448df80a5a91e9e54b0a0b8cbfd4a2bc600143480c7c36b4312",
+   "trainer_sha256": "0b884b5b6dc3add3fa18179acb10ddb64f630d079db6ea401304f7baeccc8fa0",
+   "runner_status": "ready",
+   "role": "exploration_acceleration_candidate",
+   "implementation": "ours",
+   "algorithm": {
+    "name": "HiGS-30k-Res075-Accum2",
+    "renderer": "gsplat_native_backward",
+    "optimizer": "adam_full",
+    "resolution_schedule": {
+     "mode": "constant_lowres",
+     "scale": 0.75,
+     "cached_pyramid": true,
+     "full_res_densification": false
+    },
     "tile_sampling_schedule": null,
     "trainer_cfg": {
      "packed": false,
@@ -2302,6 +2407,11 @@
      "higs_skip_bwd_min_steps": 5,
      "higs_skip_bwd_thresh": 0.95,
      "higs_skip_bwd_ema_alpha": 0.1,
+     "higs_train_res_scale": 0.75,
+     "higs_full_res_step": 30000,
+     "higs_res_cache": true,
+     "higs_densify_anchor_fullres": false,
+     "higs_calibrate_scene": false,
      "higs_segment_timing": true,
      "higs_timing_start_step": 15000,
      "higs_timing_end_step": 15300
@@ -2309,7 +2419,7 @@
     "max_steps": 30000
    }
   },
-  "gsplat_30k_accum4": {
+  "higs_anchor_res075": {
    "repository": "https://github.com/nerfstudio-project/gsplat",
    "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
    "patches": [
@@ -2320,13 +2430,18 @@
    "source_state_sha256": "54a8686145930448df80a5a91e9e54b0a0b8cbfd4a2bc600143480c7c36b4312",
    "trainer_sha256": "0b884b5b6dc3add3fa18179acb10ddb64f630d079db6ea401304f7baeccc8fa0",
    "runner_status": "ready",
-   "role": "exploration_acceleration_reference",
+   "role": "exploration_acceleration_candidate",
    "implementation": "ours",
    "algorithm": {
-    "name": "GSplat-30k-Accum4",
-    "renderer": "higs_dynamic_native_backward",
+    "name": "HiGS-30k-Res075-Anchor",
+    "renderer": "gsplat_native_backward",
     "optimizer": "adam_full",
-    "resolution_schedule": null,
+    "resolution_schedule": {
+     "mode": "constant_lowres",
+     "scale": 0.75,
+     "cached_pyramid": true,
+     "full_res_densification": true
+    },
     "tile_sampling_schedule": null,
     "trainer_cfg": {
      "packed": false,
@@ -2335,93 +2450,18 @@
      "higs_sh_schedule": "",
      "higs_densify_every": 0,
      "higs_preload_images": false,
-     "higs_accum_steps": 4,
+     "higs_accum_steps": 1,
      "higs_ssim_scale": 1.0,
      "higs_ssim_every": 1,
      "higs_skip_bwd_start_step": 0,
      "higs_skip_bwd_min_steps": 5,
      "higs_skip_bwd_thresh": 0.95,
      "higs_skip_bwd_ema_alpha": 0.1,
-     "higs_segment_timing": true,
-     "higs_timing_start_step": 15000,
-     "higs_timing_end_step": 15300
-    },
-    "max_steps": 30000
-   }
-  },
-  "higs_skipbwd_30k_ssim_e2_accum2": {
-   "repository": "https://github.com/nerfstudio-project/gsplat",
-   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
-   "patches": [
-    "patches/higs-accel10.patch"
-   ],
-   "patch_sha256": "6ba7ad454d3f0c2749cb50b75640f882e21471ced9af159e09cd24d7be3fca00",
-   "source_diff_sha256": "6ba7ad454d3f0c2749cb50b75640f882e21471ced9af159e09cd24d7be3fca00",
-   "source_state_sha256": "54a8686145930448df80a5a91e9e54b0a0b8cbfd4a2bc600143480c7c36b4312",
-   "trainer_sha256": "0b884b5b6dc3add3fa18179acb10ddb64f630d079db6ea401304f7baeccc8fa0",
-   "runner_status": "ready",
-   "role": "exploration_acceleration_candidate",
-   "implementation": "ours",
-   "algorithm": {
-    "name": "HiGS-SkipBwd-30k-SSIM-Every2-Accum2",
-    "renderer": "higs_dynamic_native_backward",
-    "optimizer": "adam_full",
-    "resolution_schedule": null,
-    "tile_sampling_schedule": null,
-    "trainer_cfg": {
-     "packed": false,
-     "sparse_grad": false,
-     "visible_adam": false,
-     "higs_sh_schedule": "",
-     "higs_densify_every": 0,
-     "higs_preload_images": false,
-     "higs_accum_steps": 2,
-     "higs_ssim_scale": 1.0,
-     "higs_ssim_every": 2,
-     "higs_skip_bwd_start_step": 15000,
-     "higs_skip_bwd_min_steps": 5,
-     "higs_skip_bwd_thresh": 0.95,
-     "higs_skip_bwd_ema_alpha": 0.1,
-     "higs_segment_timing": true,
-     "higs_timing_start_step": 15000,
-     "higs_timing_end_step": 15300
-    },
-    "max_steps": 30000
-   }
-  },
-  "higs_skipbwd_30k_ssim_e2_accum4": {
-   "repository": "https://github.com/nerfstudio-project/gsplat",
-   "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
-   "patches": [
-    "patches/higs-accel10.patch"
-   ],
-   "patch_sha256": "6ba7ad454d3f0c2749cb50b75640f882e21471ced9af159e09cd24d7be3fca00",
-   "source_diff_sha256": "6ba7ad454d3f0c2749cb50b75640f882e21471ced9af159e09cd24d7be3fca00",
-   "source_state_sha256": "54a8686145930448df80a5a91e9e54b0a0b8cbfd4a2bc600143480c7c36b4312",
-   "trainer_sha256": "0b884b5b6dc3add3fa18179acb10ddb64f630d079db6ea401304f7baeccc8fa0",
-   "runner_status": "ready",
-   "role": "exploration_acceleration_candidate",
-   "implementation": "ours",
-   "algorithm": {
-    "name": "HiGS-SkipBwd-30k-SSIM-Every2-Accum4",
-    "renderer": "higs_dynamic_native_backward",
-    "optimizer": "adam_full",
-    "resolution_schedule": null,
-    "tile_sampling_schedule": null,
-    "trainer_cfg": {
-     "packed": false,
-     "sparse_grad": false,
-     "visible_adam": false,
-     "higs_sh_schedule": "",
-     "higs_densify_every": 0,
-     "higs_preload_images": false,
-     "higs_accum_steps": 4,
-     "higs_ssim_scale": 1.0,
-     "higs_ssim_every": 2,
-     "higs_skip_bwd_start_step": 15000,
-     "higs_skip_bwd_min_steps": 5,
-     "higs_skip_bwd_thresh": 0.95,
-     "higs_skip_bwd_ema_alpha": 0.1,
+     "higs_train_res_scale": 0.75,
+     "higs_full_res_step": 30000,
+     "higs_res_cache": true,
+     "higs_densify_anchor_fullres": true,
+     "higs_calibrate_scene": false,
      "higs_segment_timing": true,
      "higs_timing_start_step": 15000,
      "higs_timing_end_step": 15300
@@ -2452,10 +2492,10 @@
    "phase": "exploration",
    "methods": [
     "gsplat_27k",
-    "gsplat_30k_accum2",
-    "gsplat_30k_accum4",
-    "higs_skipbwd_30k_ssim_e2_accum2",
-    "higs_skipbwd_30k_ssim_e2_accum4"
+    "gsplat_30k_res075",
+    "gsplat_30k_res085",
+    "higs_accum2_res075",
+    "higs_anchor_res075"
    ],
    "scenes": "all",
    "hardware": [
