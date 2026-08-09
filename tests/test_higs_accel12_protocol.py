@@ -140,6 +140,16 @@ class HigsAccel12ProtocolTest(unittest.TestCase):
         # anchor runs only inside the densification window
         self.assertFalse(cfg["higs_calibrate_scene"])
 
+    def test_accel12_renderer_config_contract(self):
+        # trainer_cfg_kwargs() only forwards trainer_cfg when the method
+        # declares the dynamic-native-backward renderer; without it the
+        # resolution/accum/anchor levers would be silently dropped.
+        for method_id in ACCEL12_METHODS[1:]:
+            algo = self.protocol["methods"][method_id]["algorithm"]
+            self.assertEqual(
+                algo["renderer"], "higs_dynamic_native_backward", method_id
+            )
+
     def test_accel12_patch_hash_pinned(self):
         for method_id in ACCEL12_METHODS[1:]:
             spec = self.protocol["methods"][method_id]
