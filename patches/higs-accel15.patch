@@ -1,5 +1,5 @@
 diff --git a/examples/simple_trainer.py b/examples/simple_trainer.py
-index 7b2375d4..2cb1d72b 100644
+index 7b2375d4..1e56f4c8 100644
 --- a/examples/simple_trainer.py
 +++ b/examples/simple_trainer.py
 @@ -60,6 +60,80 @@ from gsplat.distributed import cli
@@ -358,7 +358,7 @@ index 7b2375d4..2cb1d72b 100644
          self.scene_scale = self.parser.scene_scale * 1.1 * cfg.global_scale
          print("Scene scale:", self.scene_scale)
  
-@@ -723,33 +1026,67 @@ class Runner:
+@@ -723,33 +1026,69 @@ class Runner:
                      .unsqueeze(0)
                  )
  
@@ -396,6 +396,7 @@ index 7b2375d4..2cb1d72b 100644
 +        )
 +        tile_mask = kwargs.pop("higs_tile_mask", None)
 +        sampled_tile_ratio = kwargs.pop("higs_sampled_tile_ratio", None)
++        radius_clip = kwargs.pop("radius_clip", 0.0)
 +        # error_guided is a harness-level sampling policy: the explicit
 +        # tile_mask drives which tiles are rendered, so the backend sees the
 +        # mask directly and only accepts uniform/stratified as the fallback
@@ -438,6 +439,7 @@ index 7b2375d4..2cb1d72b 100644
 +            sampling_mode=tile_sampling_mode,
 +            tile_mask=tile_mask,
 +            sampled_tile_ratio=sampled_tile_ratio,
++            radius_clip=radius_clip,
 +        )
 +        if kwargs:
 +            raise RuntimeError(f"unsupported HiGS rasterization options: {sorted(kwargs)}")
@@ -450,7 +452,7 @@ index 7b2375d4..2cb1d72b 100644
          )
          if masks is not None:
              render_colors[~masks] = 0
-@@ -796,6 +1133,290 @@ class Runner:
+@@ -796,6 +1135,290 @@ class Runner:
  
          return render_colors, render_alphas, info
  
@@ -741,7 +743,7 @@ index 7b2375d4..2cb1d72b 100644
      def train(self):
          cfg = self.cfg
          device = self.device
-@@ -858,6 +1479,13 @@ class Runner:
+@@ -858,6 +1481,13 @@ class Runner:
          )
          trainloader_iter = iter(trainloader)
  
@@ -755,7 +757,7 @@ index 7b2375d4..2cb1d72b 100644
          # Training loop.
          global_tic = time.time()
          pbar = tqdm.tqdm(range(init_step, max_steps))
-@@ -877,6 +1505,9 @@ class Runner:
+@@ -877,6 +1507,9 @@ class Runner:
              ):
                  self.freeze_gaussians()
  
@@ -765,7 +767,7 @@ index 7b2375d4..2cb1d72b 100644
              try:
                  data = next(trainloader_iter)
              except StopIteration:
-@@ -884,13 +1515,7 @@ class Runner:
+@@ -884,13 +1517,7 @@ class Runner:
                  data = next(trainloader_iter)
  
              camtoworlds = camtoworlds_gt = data["camtoworld"].to(device)  # [1, 4, 4]
@@ -779,7 +781,7 @@ index 7b2375d4..2cb1d72b 100644
              exposure = (
                  data["exposure"].to(device) if "exposure" in data else None
              )  # [B,]
-@@ -898,7 +1523,95 @@ class Runner:
+@@ -898,7 +1525,95 @@ class Runner:
                  points = data["points"].to(device)  # [1, M, 2]
                  depths_gt = data["depths"].to(device)  # [1, M]
  
@@ -876,7 +878,7 @@ index 7b2375d4..2cb1d72b 100644
  
              if cfg.pose_noise:
                  camtoworlds = self.pose_perturb(camtoworlds, image_ids)
-@@ -907,9 +1620,12 @@ class Runner:
+@@ -907,9 +1622,12 @@ class Runner:
                  camtoworlds = self.pose_adjust(camtoworlds, image_ids)
  
              # sh schedule
@@ -890,7 +892,7 @@ index 7b2375d4..2cb1d72b 100644
              renders, alphas, info = self.stage.render(
                  self.scene.id,
                  camtoworlds=camtoworlds,
-@@ -925,26 +1641,83 @@ class Runner:
+@@ -925,26 +1643,83 @@ class Runner:
                  frame_idcs=image_ids,
                  camera_idcs=data["camera_idx"].to(device),
                  exposure=exposure,
@@ -982,7 +984,7 @@ index 7b2375d4..2cb1d72b 100644
                  # Exclude masked pixels (e.g. ego vehicle) from L1.
                  # For SSIM (patch-based), zero out both sides at masked locations
                  # so masked patches don't pull colors toward an arbitrary value.
-@@ -955,9 +1728,42 @@ class Runner:
+@@ -955,9 +1730,42 @@ class Runner:
                  l1loss = l1_loss(colors, pixels).mean()
                  colors_ssim = colors
                  pixels_ssim = pixels
@@ -1028,7 +1030,7 @@ index 7b2375d4..2cb1d72b 100644
              loss = torch.lerp(l1loss, ssimloss, cfg.ssim_lambda)
              if cfg.depth_loss:
                  # query depths from depth map
-@@ -995,7 +1801,37 @@ class Runner:
+@@ -995,7 +1803,37 @@ class Runner:
              if cfg.scale_reg > 0.0:
                  loss += cfg.scale_reg * scale_reg_loss(self.splats["scales"])
  
@@ -1067,7 +1069,7 @@ index 7b2375d4..2cb1d72b 100644
  
              desc = f"loss={loss.item():.3f}| sh degree={sh_degree_to_use}| "
              if cfg.depth_loss:
-@@ -1130,35 +1966,96 @@ class Runner:
+@@ -1130,35 +1968,96 @@ class Runner:
                      visibility_mask = (info["radii"] > 0).all(-1).any(0)
  
              # optimize
@@ -1187,7 +1189,7 @@ index 7b2375d4..2cb1d72b 100644
              elif isinstance(self.cfg.strategy, MCMCStrategy):
                  self.cfg.strategy.step_post_backward(
                      params=self.splats,
-@@ -1172,6 +2069,40 @@ class Runner:
+@@ -1172,6 +2071,40 @@ class Runner:
              else:
                  assert_never(self.cfg.strategy)
  
@@ -1228,7 +1230,7 @@ index 7b2375d4..2cb1d72b 100644
              # eval the full set
              if step in [i - 1 for i in cfg.eval_steps]:
                  self.eval(step)
-@@ -1194,6 +2125,28 @@ class Runner:
+@@ -1194,6 +2127,28 @@ class Runner:
                  # Update the scene.
                  self.viewer.update(step, num_train_rays_per_step)
  
@@ -1257,7 +1259,7 @@ index 7b2375d4..2cb1d72b 100644
      @torch.no_grad()
      def eval(self, step: int, stage: str = "val"):
          """Entry for evaluation."""
-@@ -1233,6 +2186,7 @@ class Runner:
+@@ -1233,6 +2188,7 @@ class Runner:
                  frame_idcs=None,  # For novel views, pass None (no per-frame parameters available)
                  camera_idcs=data["camera_idx"].to(device),
                  exposure=exposure,
@@ -1265,7 +1267,7 @@ index 7b2375d4..2cb1d72b 100644
              )  # [1, H, W, 3]
              torch.cuda.synchronize()
              ellipse_time += max(time.time() - tic, 1e-10)
-@@ -1593,6 +2547,11 @@ if __name__ == "__main__":
+@@ -1593,6 +2549,11 @@ if __name__ == "__main__":
          import torch_dgx  # noqa: F401
      cfg.adjust_steps(cfg.steps_scaler)
  
@@ -6973,6 +6975,22 @@ index d76e669b..a1fad3d7 100644
                  build_directory=build_dir,
                  verbose=VERBOSE,
              )
+diff --git a/gsplat/scene/kernels/gaussian_inference_ops.py b/gsplat/scene/kernels/gaussian_inference_ops.py
+index 5cb0dc64..6f0c6888 100644
+--- a/gsplat/scene/kernels/gaussian_inference_ops.py
++++ b/gsplat/scene/kernels/gaussian_inference_ops.py
+@@ -149,6 +149,11 @@ def pack_gaussian_inference_scene(
+     opacities = _expect_tensor("opacities", opacities)
+     colors = _expect_tensor("colors", colors)
+ 
++    # sh_fp16 lever: colors may arrive as fp16 (SH coefficients cast for
++    # the forward SH kernel); promote to fp32 for packing so the C++
++    # packer and backward paths see consistent dtype.
++    if colors.dtype == torch.float16:
++        colors = colors.float()
+     for name, t in [
+         ("means", means),
+         ("quats", quats),
 diff --git a/tests/experimental/render/test_trainable.py b/tests/experimental/render/test_trainable.py
 new file mode 100644
 index 00000000..5d8d5958

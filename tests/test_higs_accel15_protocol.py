@@ -6,9 +6,15 @@ fused-ssim package is installed (gsplat.losses.ssim_loss auto-switches to the
 fused CUDA kernel, ~10x faster and numerically near-identical: max grad diff
 ~9e-7). The in-matrix official gsplat control (gsplat) and the HiGS-tree fused
 baseline (gsplat_30k_fused) give same-window speed pairing; candidates stack
-post-refine opacity pruning (thresh 0.10), SH-fp16 (sh_fp16), and radius clip
+post-refine opacity pruning (thresh 0.10) and radius clip
 (higs_radius_clip, active only after higs_radius_clip_start_step=15000 so
-densification topology is untouched), plus optional accum2. All patched
+densification topology is untouched), plus optional accum2.
+
+NOTE: the sh_fp16 lever was dropped after smoke tests
+proved the HiGS CUDA backend requires float32 SH coefficients in both the
+forward packer and the native backward kernel (RuntimeError: sh_coeffs must
+be float32); keeping it would crash every job. accum2 standalone is added
+for attribution. All patched
 methods use a NEW audited source tree gsplat-higs-accel15 (patch
 patches/higs-accel15.patch) which adds the radius_clip plumbing at the three
 training render call sites.
@@ -31,13 +37,13 @@ ACCEL15_METHODS = [
     "gsplat",
     "gsplat_30k_fused",
     "gsplat_30k_fused_prune10",
-    "gsplat_30k_fused_prune10_shfp16",
-    "gsplat_30k_fused_prune10_shfp16_rclip05",
-    "gsplat_30k_fused_prune10_shfp16_rclip05_accum2",
+    "gsplat_30k_fused_prune10_rclip05",
+    "gsplat_30k_fused_prune10_accum2",
+    "gsplat_30k_fused_prune10_rclip05_accum2",
 ]
-PATCH_SHA256 = "4e5ae587f53a302f61e3f7c3b95f2e5cf47bea9a5b41c1c16ec7eb768b57016f"
-TRAINER_SHA256 = "61335b1d7dad3ae192ca0ca5c0dca199af4b9a68290c7aea38cadc4be3d7356d"
-SOURCE_STATE_SHA256 = "9b00469d4c8748eb965423e7d348edaaebd70997c636de39da59d926629a172a"
+PATCH_SHA256 = "04f950778f617295cf28611487a017d081dd4dcc5f056560d60c598a5eafa5e7"
+TRAINER_SHA256 = "12bb76d2a7d4f9640badfa2c58f93f262572b3cd74a7b1d769bf169248c8a7f5"
+SOURCE_STATE_SHA256 = "87880d7af2619ae7eb406384b88b7c2b1987073be7de667d2f79f198376bbb7f"
 
 
 class HigsAccel15ProtocolTest(unittest.TestCase):
@@ -68,10 +74,10 @@ class HigsAccel15ProtocolTest(unittest.TestCase):
             self.assertEqual(spec["patches"], ["patches/higs-accel15.patch"])
 
     def test_accel15_levers_wired(self):
-        cfg = self.protocol["methods"]["gsplat_30k_fused_prune10_shfp16_rclip05_accum2"]["algorithm"]["trainer_cfg"]
+        cfg = self.protocol["methods"]["gsplat_30k_fused_prune10_rclip05_accum2"]["algorithm"]["trainer_cfg"]
         self.assertEqual(cfg["higs_prune_opacity_thresh"], 0.10)
         self.assertEqual(cfg["higs_prune_start_step"], 15000)
-        self.assertEqual(cfg["sh_fp16"], True)
+        self.assertEqual(cfg["sh_fp16"], False)
         self.assertEqual(cfg["higs_radius_clip"], 0.5)
         self.assertEqual(cfg["higs_radius_clip_start_step"], 15000)
         self.assertEqual(cfg["higs_accum_steps"], 2)
