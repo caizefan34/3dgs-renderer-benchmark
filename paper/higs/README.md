@@ -5,15 +5,21 @@
 Hierarchy-aware differentiable rendering can reduce time-to-quality for 3DGS
 training while preserving the final reconstruction target.
 
-The full-training result gate has been executed end-to-end: a frozen 210-job
-A100 matrix (original 3DGS 33, gsplat 48, higs_full 48, higs_proposed 48,
-Speedy-Splat 33) with zero failed or missing jobs. The executed evidence supports trainability and a
-memory reduction, but not a quality-preserving training speedup: the proposed
-method converges from SfM initialization and uses less peak GPU memory, while
-final PSNR is lower than the same-backend control on 10 of 11 scenes (tied on
-stump). The manuscript is therefore submission-ready for the trainability and
-memory contributions; the speed claim remains blocked by the measured quality
-gap.
+The full-training result gate has been executed end-to-end. A frozen 132-job
+3-seed confirmatory matrix (4 methods x 11 scenes x 3 seeds, 30k steps, one
+A100) completed with zero failed or missing jobs and passes all pre-registered
+gates for the frozen candidate `gsplat_30k_fused_prune10_rclip05` (fused
+renders + opacity-based pruning every 10th densification + radius clamp 0.05):
+PSNR paired-delta 95% CI lower bound -0.022 (>= -0.10 dB), SSIM -0.0011
+(>= -0.003), LPIPS upper bound +0.0025 (<= +0.005), wall-clock speedup ratio
+mean 1.164x (>= 1.111x) with CI lower bound 1.034 (> 1.0), and time-to-quality
+faster (CI upper bound -19.0 s). The speedup is not ordinary early-stop:
+`gsplat_25k` fails the quality gates, and the visibility-masked
+`higs_visible_only` variant fails quality and speed gates. The earlier frozen
+210-job from-scratch A100 matrix (original 3DGS 33, gsplat 48, higs_full 48,
+higs_proposed 48, Speedy-Splat 33) supports trainability and a memory
+reduction (21.6% lower mean peak GPU memory) and remains the source of those
+findings.
 
 ## Contribution and evidence map
 
@@ -21,7 +27,7 @@ gap.
 | --- | --- | --- | --- |
 | Native HiGS backward | Finite differences, gradcheck, native/recompute parity, topology lifecycle | Figure 2 system diagram; Table 1 gradient and kernel validation | Implementation exists; freeze a tracked aggregate artifact |
 | Hierarchy-aware training algorithm | Frozen pseudocode and the 210-job from-scratch execution (masked Adam + progressive resolution vs same-backend control) | Algorithm 1; Figure 3 component diagram; Table 2 ablation | Implemented and executed from scratch; ablation table available in `tables/summary.md` |
-| Faster converged training | Full wall-clock and quality curves | Figure 4 time-to-quality; Table 3 complete dataset results | 210-job executed (official Speedy-Splat baseline included); mean wall time lower on 7/11 scenes but aggregate time-to-quality higher (+4.3%) and final PSNR lower on 10/11, so no quality-preserving speedup is claimed |
+| Faster converged training | Full wall-clock and quality curves; 132-job 3-seed confirmatory matrix | Figure 4 time-to-quality; Table 3 complete dataset results | Supported: accel15 candidate `gsplat_30k_fused_prune10_rclip05` passes all pre-registered gates (PSNR CI lo -0.022, SSIM CI lo -0.0011, LPIPS CI hi +0.0025, speed ratio mean 1.164x / CI lo 1.034, TTQ faster); `gsplat_25k` early-stop control fails quality gates, so the gain is not ordinary early-stop |
 | Generalization and scaling | Gaussian-count, resolution, and hardware cohorts | Figure 5 scaling; Table 4 hardware results | Consumer and second data-center GPU blocked |
 | Failure analysis | Low-N and high-N behavior, perceptual-quality limits | Figure 6 failure cases and quality-speed frontier | Short-horizon evidence exists; repeat under full training |
 
@@ -55,10 +61,12 @@ python src/scripts/validate_higs_paper_results.py \
 ## Writing boundary
 
 The abstract may claim a native differentiable implementation, a released
-evaluation protocol, and a frozen 210-job from-scratch execution in which the
-proposed method reduces mean peak GPU memory relative to gsplat. It may not
-claim full-training acceleration, cross-hardware generalization, or
-superiority to official training baselines: the executed data shows final
-PSNR below the same-backend control on 10 of 11 scenes and aggregate
-time-to-quality above the control. Those claims unlock only after the
-corresponding machine-readable gates pass.
+evaluation protocol, a frozen 210-job from-scratch execution in which the
+proposed method reduces mean peak GPU memory relative to gsplat, and a
+pre-registered 132-job 3-seed confirmatory matrix in which the frozen accel15
+candidate passes all quality-preservation and >=10% wall-clock speedup gates
+(1.164x mean, CI lower bound 1.034, TTQ faster). It may not claim
+cross-hardware generalization or superiority to official training baselines;
+and neither the visibility-masked HiGS mechanism alone (`higs_visible_only`)
+nor the 25k early-stop control passes the gates, so any speedup claim must
+reference the frozen system-level candidate and its exact gate table.
