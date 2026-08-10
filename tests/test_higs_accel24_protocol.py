@@ -188,9 +188,16 @@ class HigsErrorDensifyLogicTest(unittest.TestCase):
                 grow_grad2d=grow,
             ),
         )
-        # colors: white frame with a black patch in the top-left 16x16 tile
+        # colors: per-tile distinct gray, reconstruction error descending
+        # from the top-left tile (highest) to the bottom-right (lowest), so
+        # top-k tile selection is tie-free on every platform
         colors = torch.full((1, h, w, 3), 0.9)
-        colors[:, 0:16, 0:16, :] = 0.1
+        tw = w // 16
+        for t in range((h // 16) * tw):
+            tr, tc = divmod(t, tw)
+            colors[:, tr * 16:(tr + 1) * 16, tc * 16:(tc + 1) * 16, :] = (
+                0.9 - ((h // 16) * tw - 1 - t) * 0.05
+            )
         pixels = torch.full((1, h, w, 3), 0.9)
         # means2d: N gaussians spread across the frame; the first 64 in the
         # top-left tile (high error), the rest in a low-error tile (bottom-right)

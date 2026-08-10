@@ -36,7 +36,7 @@ ACCEL8_METHODS = [
     "gsplat_27k_preload_accum8",
     "higs_sched_27k",
 ]
-PATCH_SHA256 = "4d7569adff2816f89988543dcf20603fcd65dbf71e7fce5be3de4a5aba5d271a"
+PATCH_SHA256 = "cff657349eb3b961b3f522eb65103f47463bbf8556be7b8323a8d6e6a060fa94"
 TRAINER_SHA256 = "0cbf25d2be3e9d325ee4300d36a0e9dabe4159680145dd78025668aad1057ff8"
 
 
