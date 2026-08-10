@@ -45,9 +45,9 @@ ACCEL21_METHODS = [
     "gsplat_30k_fused_prune10_rclip05_skipbwd_pv_agg",
     "gsplat_30k_fused_skipbwd_pv",
 ]
-PATCH_SHA256 = "21facb77c0c1fe941609f66cfec9d0ee3137bca04fdb284b2939e804718f7d8e"
-TRAINER_SHA256 = "cf3a3530ac67f52ebbcda4a5c69a2b03481b36f0b8f44db06dfc083127d73cde"
-STATE_SHA256 = "db39f39179f79ecec2f74dbde862ec4d64eef7a9a8198c911437f3ca285ff2b9"
+PATCH_SHA256 = "2d97a52bf5010dd58a3144dc609541e1b59168ce77b1eda144fdb79cee43064c"
+TRAINER_SHA256 = "a06c2166de3d2319e9fdf3d4d4191f14341d1eef4b0985fba6d3bfa6ce2e967b"
+STATE_SHA256 = "80bbe958a6fede742978aa1210d5fd7eb9cbdc0e9bcc4acc1491535b723729f7"
 
 
 class HigsAccel21ProtocolTest(unittest.TestCase):

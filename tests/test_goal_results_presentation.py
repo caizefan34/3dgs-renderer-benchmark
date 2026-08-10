@@ -14,4 +14,4 @@ def test_readme_and_pages_surface_all_three_research_tracks():
     assert "Differentiable HiGS" in page
     assert "Reproducible 3DGS survey" in page
     assert "Lossless and near-lossless storage" in page
-    assert "Full convergence blocked" in page
+    assert "Quality-preserving speedup PASS" in page
