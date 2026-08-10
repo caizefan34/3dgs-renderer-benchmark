@@ -110,6 +110,22 @@ lower on 10 of 11 scenes). Machine-readable aggregates live in
 with machine-checkable claims in [`paper/higs-claims.json`](paper/higs-claims.json).
 The short-horizon 1.8x-2.5x numbers are not full-convergence results.
 
+Post-confirmatory exploration is recorded as honest negatives. Four additional
+seed-0 matrices (accel21 per-view backward gating, accel22 scheduling levers,
+accel23 gradient accumulation, accel24 error-guided densification; 66 jobs each,
+11 scenes, one A100) ran end-to-end; none produced a quality-preserving candidate
+beyond the frozen one. SkipGS per-view backward gating fails all three quality
+gates; scheduling levers (densify-600, SH fp16) pass quality but fail the speed
+CI (best mean 1.137x, CI lower 0.786 < 1.0); accum16 breaks quality (PSNR -0.9 to
+-1.9 dB) and still misses the speed CI; error-guided densification OOMs in the
+grow/split path at 30k full resolution (33 of 66 jobs failed). Analysis,
+attribution, and session records are machine-verifiable in
+[paper/higs-claims.json](paper/higs-claims.json) and per-matrix artifacts:
+[accel21](artifacts/training-ablation/results/accel21-analysis.md),
+[accel22](artifacts/training-ablation/results/accel22-analysis.md),
+[accel23](artifacts/training-ablation/results/accel23-analysis.md),
+[accel24](artifacts/training-ablation/results/accel24-analysis.md).
+
 - [Implementation report](reports/higs-trainability-implementation.md)
 - [Training research and negative results](reports/higs-training-speedup-research-2026-08-03.md)
 - [Submission design](docs/higs-paper-plan.md)

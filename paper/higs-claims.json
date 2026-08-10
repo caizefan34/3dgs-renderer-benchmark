@@ -593,6 +593,218 @@
           ]
         }
       ]
+    },
+    {
+      "id": "accel22-scheduling-exploration-11s0",
+      "contribution_id": "evaluation",
+      "statement": "The accel22 scheduling-lever exploration matrix exploration_accel22_11s0 (6 configs x 11 scenes x seed 0 = 66 A100 jobs) executed end-to-end with zero failed or missing jobs. All six configs pass the three quality non-inferiority gates (worst PSNR paired-delta 95% CI lower -0.086 >= -0.10 dB; worst SSIM CI lower -0.0015 >= -0.003; worst LPIPS CI upper +0.0031 <= +0.005), but every config fails the wall-speed gate: best mean speedup 1.137x (gsplat_30k_fused_prune10_rclip05) with ratio CI lower 0.786 < 1.0, and kitchen/room are consistently slower (worst 0.448x). The densify-600 and SH-fp16 levers do not restore a pass; this seed-0 exploration speedup is not reproduced at 3-seed confirmatory scale, so no new candidate is frozen and the frozen 132-job confirmatory matrix (confirmatory_accel15_11s3) remains the formal evidence for the 1.164x claim.",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "artifacts/training-ablation/results/accel22-analysis.json",
+          "sha256": "b6d2024ce393a66beff80d9ec271f947a30164be3c2ef2a91e30fa3925c3203e",
+          "assertions": [
+            {
+              "type": "value_equals",
+              "pointer": "/n_scenes",
+              "equals": 11
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/psnr_db/ni_passed",
+              "equals": true
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/ssim/ni_passed",
+              "equals": true
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/lpips/ni_passed",
+              "equals": true
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/wall_speedup_ratio/accel_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/wall_speedup_ratio/mean",
+              "equals": 1.137,
+              "tolerance": 0.001
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/wall_speedup_ratio/ci95_lower",
+              "equals": 0.786,
+              "tolerance": 0.001
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05_dens600/wall_speedup_ratio/accel_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05_shfp16/wall_speedup_ratio/accel_passed",
+              "equals": false
+            }
+          ]
+        },
+        {
+          "path": "artifacts/training-ablation/session-accel22.json",
+          "sha256": "0a309c415dbfeba39d1e7791b3c37e628e6951421f8c1a3a7512373208ef522c",
+          "assertions": [
+            {
+              "type": "value_equals",
+              "pointer": "/jobs/exploration_accel22_11s0--gsplat_30k_fused_prune10_rclip05--deep_blending-drjohnson--a100--s0/status",
+              "equals": "complete"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "accel23-gradient-accumulation-exploration-11s0",
+      "contribution_id": "evaluation",
+      "statement": "The accel23 gradient-accumulation exploration matrix exploration_accel23_11s0 (6 configs x 11 scenes x seed 0 = 66 A100 jobs) executed end-to-end with zero failed or missing jobs. Faster-GS-style accum16 (one optimizer step per 16 backward steps) fails all three quality gates on every variant: accum16 PSNR paired-delta mean -0.89 dB with 95% CI [-1.21, -0.52] (strictly worse than the -0.10 dB margin), SSIM -0.031, LPIPS +0.052; the lr4 and lr4+dens600 variants are worse (PSNR -1.67 and -1.87 dB), and the speed CI lower stays below 1.0 (best accum16 mean 1.334x with CI lower 0.854). Gradient accumulation is not quality-preserving at 30k full convergence and is not adopted.",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "artifacts/training-ablation/results/accel23-analysis.json",
+          "sha256": "41eb545d484ea71c203dcf881d6a27e9607492fbcd0f3f35575099fe370406e3",
+          "assertions": [
+            {
+              "type": "value_equals",
+              "pointer": "/n_scenes",
+              "equals": 11
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05_accum16/psnr_db/ni_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05_accum16/ssim/ni_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05_accum16/lpips/ni_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05_accum16/wall_speedup_ratio/accel_passed",
+              "equals": false
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05_accum16/psnr_db/delta_mean",
+              "equals": -0.8873,
+              "tolerance": 0.001
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05_accum16/wall_speedup_ratio/mean",
+              "equals": 1.334,
+              "tolerance": 0.001
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05_accum16/wall_speedup_ratio/ci95_lower",
+              "equals": 0.854,
+              "tolerance": 0.001
+            }
+          ]
+        },
+        {
+          "path": "artifacts/training-ablation/session-accel23.json",
+          "sha256": "6ae6eac688aa9ae1e1b0747e6b073f4444184c6ba67aad7c64e1b0e7c9ddc705",
+          "assertions": [
+            {
+              "type": "value_equals",
+              "pointer": "/jobs/exploration_accel23_11s0--gsplat_30k_fused_prune10_rclip05_accum16--deep_blending-drjohnson--a100--s0/status",
+              "equals": "complete"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "accel24-error-densification-exploration-11s0",
+      "contribution_id": "evaluation",
+      "statement": "The accel24 error-guided densification exploration matrix exploration_accel24_11s0 (6 configs x 11 scenes x seed 0 = 66 A100 jobs) executed with 33 complete and 33 failed jobs. All three Revising-Densification-style variants (errdens_hybrid, errdens_pure, errdens_hybrid_r05) failed on all 11 scenes with CUDA OOM inside the grow/split path (torch.cat of duplicated parameters, 10-14 GiB allocation with >70 GiB already in use on A100-80GB), so no error-guided densification result was produced. The three controls completed 11/11 scenes; the frozen candidate gsplat_30k_fused_prune10_rclip05 passes quality and speed at seed 0 in this matrix (mean 1.190x, CI lower 1.069). Error-guided densification is not implementable at 30k full resolution with the current grow/split strategy and is not adopted.",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "artifacts/training-ablation/results/accel24-analysis.json",
+          "sha256": "e29a79d6c31755fae9d2a5c6943853a4b7b9ddb9e133a5f8626c1b3aea3df273",
+          "assertions": [
+            {
+              "type": "value_equals",
+              "pointer": "/n_scenes",
+              "equals": 11
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/psnr_db/ni_passed",
+              "equals": true
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/ssim/ni_passed",
+              "equals": true
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/lpips/ni_passed",
+              "equals": true
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/wall_speedup_ratio/accel_passed",
+              "equals": true
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/wall_speedup_ratio/mean",
+              "equals": 1.19,
+              "tolerance": 0.001
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/per_method/gsplat_30k_fused_prune10_rclip05/wall_speedup_ratio/ci95_lower",
+              "equals": 1.069,
+              "tolerance": 0.001
+            }
+          ]
+        },
+        {
+          "path": "artifacts/training-ablation/session-accel24.json",
+          "sha256": "895f2d9dca38b25020d3fbbc9d5bb414c86cfae5ba8deaa76842e391432c861a",
+          "assertions": [
+            {
+              "type": "value_equals",
+              "pointer": "/jobs/exploration_accel24_11s0--gsplat_30k_fused_prune10_rclip05_errdens_hybrid--deep_blending-drjohnson--a100--s0/status",
+              "equals": "failed"
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/jobs/exploration_accel24_11s0--gsplat_30k_fused_prune10_rclip05_errdens_pure--deep_blending-drjohnson--a100--s0/status",
+              "equals": "failed"
+            },
+            {
+              "type": "value_equals",
+              "pointer": "/jobs/exploration_accel24_11s0--gsplat_30k_fused_prune10_rclip05_errdens_hybrid_r05--deep_blending-drjohnson--a100--s0/status",
+              "equals": "failed"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
