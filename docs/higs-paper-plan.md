@@ -94,9 +94,19 @@ of the frozen primary method.
   on 10/11 scenes (tied on stump at +0.004 dB), mean wall time is lower on
   7/11 scenes, and time-to-quality is lower on only 3/11 scenes (aggregate TTQ
   +4.3%).
-- These results prove trainability and memory reduction, not a universal
-  quality-preserving training speedup. The 1.8x-2.5x short-horizon numbers must
-  not be advertised as full-convergence results.
+- These 210-job results prove trainability and memory reduction, not a universal
+  quality-preserving training speedup for the visibility-masked HiGS method
+  itself. The 1.8x-2.5x short-horizon numbers must not be advertised as
+  full-convergence results.
+- A separate pre-registered confirmatory protocol
+  (`benchmark/higs-confirmatory-accel15-protocol.json`, matrix
+  `confirmatory_accel15_11s3`) now supports the quality-preserving speedup
+  claim: 132 jobs (4 methods x 11 scenes x 3 seeds, 30k steps, A100) ran with
+  zero failures, and the frozen candidate `gsplat_30k_fused_prune10_rclip05`
+  passes all five pre-registered gates (PSNR CI lo -0.022, SSIM CI lo
+  -0.0011, LPIPS CI hi +0.0025, wall speedup mean 1.164x with CI lo 1.034,
+  TTQ faster). `gsplat_25k` and `higs_visible_only` fail the gates, so the
+  gain is neither ordinary early-stop nor the visibility mechanism alone.
 
 The executable submission contract is frozen in
 [`benchmark/higs-paper-protocol.json`](../benchmark/higs-paper-protocol.json).

@@ -9,14 +9,14 @@ Four manuscript scopes are kept separate. [`claims.json`](claims.json) is the fr
 | Track | Manifest | Current role |
 | --- | --- | --- |
 | Reproducible survey | [`survey-claims.json`](survey-claims.json) | Registry supported; systematic-search claims blocked |
-| Differentiable HiGS | [`higs-claims.json`](higs-claims.json) | Native backward + trainability + memory reduction supported; quality-preserving speedup blocked |
+| Differentiable HiGS | [`higs-claims.json`](higs-claims.json) | Native backward + trainability + memory reduction + quality-preserving wall-clock speedup supported (132-job 3-seed confirmatory matrix, all gates pass) |
 | Storage compression | [`compression-claims.json`](compression-claims.json) | Five-scene SPZ qualification supported; deployment costs blocked |
 
 Every manifest contains at most three contributions and maps supported statements to Git-tracked, SHA-256-pinned evidence plus machine-checkable assertions. The tracks share an artifact but should not be merged into one paper as co-equal contributions.
 
 ## HiGS working thesis
 
-**Working thesis:** trainable hierarchical Gaussian splatting can reduce end-to-end 3DGS training cost (memory and wall time) while preserving full-resolution evaluation quality. The frozen 177-job from-scratch A100 matrix now supports the trainability and memory-reduction components; the full-convergence quality-preserving speedup component remains a blocked claim whose named gates are listed in [`higs/README.md`](higs/README.md).
+**Working thesis:** trainable hierarchical Gaussian splatting can reduce end-to-end 3DGS training cost (memory and wall time) while preserving full-resolution evaluation quality. The frozen 132-job 3-seed confirmatory matrix (`confirmatory_accel15_11s3`) now supports all components, including the quality-preserving wall-clock speedup: candidate `gsplat_30k_fused_prune10_rclip05` passes every pre-registered gate (PSNR CI lo -0.022, SSIM CI lo -0.0011, LPIPS CI hi +0.0025, speed ratio mean 1.164x with CI lo 1.034, TTQ faster). The earlier 210-job from-scratch matrix remains the source of the trainability and memory-reduction findings; gate details are in [`higs/README.md`](higs/README.md).
 
 ## Required files before submission
 

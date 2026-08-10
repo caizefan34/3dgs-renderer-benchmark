@@ -35,7 +35,7 @@ codec rankings.
 | Track | What is available | Current scientific boundary | Start here |
 | --- | --- | --- | --- |
 | Reproducible 3DGS survey | Source-pinned registry, evidence tiers, integration status, five-renderer A100 matrix | A systematic/latest-survey claim still needs a frozen search and screening audit | [Survey protocol](docs/survey-protocol.md) |
-| Differentiable HiGS | Native CUDA backward, dynamic topology, sparse/progressive training studies, positive and negative ablations, frozen 210-job from-scratch matrix (incl. official Speedy-Splat baseline) | Trainability and mean peak-memory reduction are measured; quality-preserving training speedup is not supported (final PSNR lower on 10 of 11 scenes) | [HiGS paper plan](docs/higs-paper-plan.md) |
+| Differentiable HiGS | Native CUDA backward, dynamic topology, sparse/progressive training studies, positive and negative ablations, frozen 210-job from-scratch matrix (incl. official Speedy-Splat baseline), and a frozen 132-job 3-seed confirmatory matrix | Trainability and mean peak-memory reduction measured; quality-preserving training speedup now supported by the pre-registered confirmatory gate (1.164x mean wall speedup with quality non-inferiority at 11 scenes x 3 seeds) | [HiGS paper plan](docs/higs-paper-plan.md) |
 | Storage compression | Bit-exact and same-checkpoint near-lossless round trips across five scenes | Learned retraining codecs and decode/deployment cost require a separate completed cohort | [Compression protocol](docs/compression-protocol.md) |
 
 The [research program](docs/research-program.md) explains why these tracks share
@@ -84,17 +84,30 @@ The implementation provides:
 The research log reports quality-prioritized 3000-step A100 configurations that
 reduce per-step time by 8.6% to 21.7% against the same-backend full-resolution
 control on four high/mid Gaussian-count scenes. Train is a documented exception.
-The frozen 210-job A100 matrix (original_3dgs 33 = 11 scenes x 3 seeds;
-gsplat/HiGS 48 each, with the five cross-hardware scenes run twice; official
-Speedy-Splat 33 = 11 scenes x 3 seeds; 30k steps)
-has now been executed from SfM initialization with zero failed jobs. The
-proposed method (visibility-masked Adam + progressive resolution) trains to a
-complete scene with 21.6% lower mean peak GPU memory per job than the gsplat
-control (2.79 vs 3.72 GiB aggregate), but final PSNR is lower on 10 of 11
-scenes (tied on stump), mean wall time is faster on 7 of 11, and aggregate
-time-to-quality is 4.3% higher, so no quality-preserving speedup is claimed.
-Machine-readable aggregates live in
-[`paper/higs/tables/matrix-summary.json`](paper/higs/tables/matrix-summary.json).
+
+**Formal confirmatory result (pre-registered gate, `confirmatory_accel15_11s3`):**
+a frozen 132-job matrix (4 methods x 11 scenes x 3 seeds, 30k steps, one A100)
+was executed end-to-end with zero failed jobs. The frozen candidate
+`gsplat_30k_fused_prune10_rclip05` (fused render + opacity-based pruning every
+10th densification + radius clamp 0.05) passes all five gates against the
+`gsplat` control:
+
+- PSNR paired-delta 95% CI lower bound `-0.022` (gate >= -0.10 dB)
+- SSIM paired-delta 95% CI lower bound `-0.0011` (gate >= -0.003)
+- LPIPS paired-delta 95% CI upper bound `+0.0025` (gate <= +0.005)
+- wall-clock speedup ratio mean `1.164x` (gate >= 1.111x) with CI lower bound
+  `1.034` (> 1.0); time-to-quality is faster (CI upper bound -19.0 s)
+- secondary deltas: mean peak GPU memory -23.3 MiB and mean energy -28.7 kJ
+
+The gain is not ordinary early-stop: the matched `gsplat_25k` control fails the
+quality gates (PSNR CI lower bound -0.12, LPIPS CI upper bound +0.0053), and the
+visibility-masked HiGS variant `higs_visible_only` fails both quality and speed
+gates. The earlier frozen 210-job from-scratch matrix (original_3dgs 33,
+gsplat/HiGS 48 each, official Speedy-Splat 33) remains the source of the
+trainability and memory findings (21.6% lower mean peak GPU memory; final PSNR
+lower on 10 of 11 scenes). Machine-readable aggregates live in
+[`paper/higs/tables/confirmatory-accel15-summary.json`](paper/higs/tables/confirmatory-accel15-summary.json)
+with machine-checkable claims in [`paper/higs-claims.json`](paper/higs-claims.json).
 The short-horizon 1.8x-2.5x numbers are not full-convergence results.
 
 - [Implementation report](reports/higs-trainability-implementation.md)
