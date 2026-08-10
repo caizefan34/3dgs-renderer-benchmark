@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 """Run one audited from-SfM job for the HiGS paper protocol."""
 from __future__ import annotations
 
@@ -16,7 +16,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from higs_training_commands import build_training_invocation  # noqa: E402
+from higs_training_commands import (  # noqa: E402
+    build_training_invocation,
+    trainer_cfg_kwargs,
+)
 
 
 def _sha256(path: Path) -> str:
@@ -29,14 +32,21 @@ def _sha256(path: Path) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--method", choices=("gsplat", "higs_full", "higs_proposed"), required=True)
+    parser.add_argument("--method", required=True, help="method id from the protocol")
+    parser.add_argument(
+        "--protocol",
+        type=Path,
+        default=ROOT / "benchmark" / "higs-paper-protocol.json",
+        help="explicit protocol JSON (must match the invocation builder)",
+    )
     parser.add_argument("--scene", required=True)
     parser.add_argument("--source-dir", type=Path, required=True)
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--result-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--init-type", choices=("sfm",), default="sfm")
-    parser.add_argument("--max-steps", type=int, choices=(30_000,), default=30_000)
+    parser.add_argument("--max-steps", type=int, default=30_000,
+                        help="training budget in steps (1..30000; audited per-method protocol override)")
     parser.add_argument(
         "--smoke-steps",
         type=int,
@@ -72,9 +82,11 @@ def main() -> int:
         raise SystemExit("--data-dir must be a COLMAP dataset directory")
     if not args.data_dir.is_dir():
         raise SystemExit(f"dataset directory does not exist: {args.data_dir}")
-    protocol = json.loads(
-        (ROOT / "benchmark" / "higs-paper-protocol.json").read_text(encoding="utf-8")
-    )
+    protocol = json.loads(args.protocol.read_text(encoding="utf-8"))
+    if args.method not in protocol.get("methods", {}):
+        raise SystemExit(
+            f"method {args.method!r} is not defined in protocol {args.protocol}"
+        )
     invocation = build_training_invocation(
         protocol=protocol,
         method=args.method,
@@ -99,17 +111,15 @@ def main() -> int:
     trainer, imported_gsplat = _load_trainer(args.source_dir)
     if args.smoke_steps is not None and args.smoke_steps < 1:
         raise SystemExit("--smoke-steps must be positive")
+    if not (1 <= args.max_steps <= 30_000):
+        raise SystemExit("--max-steps must be in [1, 30000]")
     effective_steps = args.smoke_steps or args.max_steps
 
     upstream_set_seed = trainer.set_random_seed
     trainer.set_random_seed = lambda _upstream_default: upstream_set_seed(args.seed)
     method_spec = protocol["methods"][args.method]
     algorithm = method_spec.get("algorithm", {})
-    trainer_cfg = algorithm.get("trainer_cfg", {})
-    cfg_kwargs = {}
-    if args.method in {"higs_full", "higs_proposed"}:
-        cfg_kwargs.update(packed=False, sparse_grad=False)
-        cfg_kwargs.update(trainer_cfg)
+    cfg_kwargs = trainer_cfg_kwargs(method_spec)
     cfg = trainer.Config(
         disable_viewer=True,
         data_dir=str(args.data_dir.resolve()),
@@ -191,3 +201,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

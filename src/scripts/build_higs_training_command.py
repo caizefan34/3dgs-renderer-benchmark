@@ -49,6 +49,7 @@ def main() -> int:
             result_dir=args.result_dir,
             source_dir=source_dir,
             repository_root=ROOT,
+            protocol_path=args.protocol,
         )
         payload = json.dumps(invocation, indent=2) + "\n"
         if args.output:

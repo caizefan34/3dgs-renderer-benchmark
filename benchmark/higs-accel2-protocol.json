@@ -1,0 +1,907 @@
+{
+  "schema_version": "1.0",
+  "paper_track": "higs_ablation",
+  "training": {
+    "initialization": "from_scratch_sfm",
+    "iterations": 30000,
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "eval_split": "official",
+    "timing_boundary": "dataset_ready_to_final_checkpoint",
+    "synchronization": "cuda_synchronize_before_start_and_stop"
+  },
+  "scenes": [
+    {
+      "id": "mipnerf360/bicycle",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/bonsai",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/counter",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/garden",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/kitchen",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/room",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "mipnerf360/stump",
+      "family": "Mip-NeRF 360"
+    },
+    {
+      "id": "tanks_and_temples/train",
+      "family": "Tanks and Temples"
+    },
+    {
+      "id": "tanks_and_temples/truck",
+      "family": "Tanks and Temples"
+    },
+    {
+      "id": "deep_blending/drjohnson",
+      "family": "Deep Blending"
+    },
+    {
+      "id": "deep_blending/playroom",
+      "family": "Deep Blending"
+    }
+  ],
+  "methods": {
+    "gsplat": {
+      "role": "modern_training_control",
+      "implementation": "official",
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "runner_status": "ready",
+      "runner_evidence": "paper/higs/runner-readiness.json",
+      "algorithm": null
+    },
+    "higs_full": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "same_backend_full_compute_control",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-Full",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "adam_full",
+        "resolution_schedule": null,
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "higs_method": "higs_full"
+        }
+      }
+    },
+    "higs_visible_only": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_optimizer",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-VisibleOnly",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": null,
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_visible_only"
+        }
+      }
+    },
+    "higs_progressive_only": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_resolution",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-ProgressiveOnly",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "adam_full",
+        "resolution_schedule": {
+          "initial_scale": 0.5,
+          "full_res_step": 24000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": false,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.5,
+          "higs_full_res_step": 24000
+        }
+      }
+    },
+    "higs_current": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_current_proposed",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-Current",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.5,
+          "full_res_step": 24000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.5,
+          "higs_full_res_step": 24000
+        }
+      }
+    },
+    "higs_switch_12k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_switch_sensitivity",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-Switch12k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.5,
+          "full_res_step": 12000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.5,
+          "higs_full_res_step": 12000
+        }
+      }
+    },
+    "higs_switch_15k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_switch_sensitivity",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-Switch15k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.5,
+          "full_res_step": 15000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.5,
+          "higs_full_res_step": 15000
+        }
+      }
+    },
+    "higs_switch_18k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_switch_sensitivity",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-Switch18k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.5,
+          "full_res_step": 18000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.5,
+          "higs_full_res_step": 18000
+        }
+      }
+    },
+    "higs_switch_21k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_switch_sensitivity",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-Switch21k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.5,
+          "full_res_step": 21000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.5,
+          "higs_full_res_step": 21000
+        }
+      }
+    },
+    "higs_three_stage": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-differentiable.patch"
+      ],
+      "patch_sha256": "1aa338154416b045a121484299cda77220eae07ca5528966bda45775ab1f1cf5",
+      "source_diff_sha256": "c1bad1d4ed33873f2860559433c53ce8d4164459e06f40b77038648154a1dd36",
+      "source_state_sha256": "f6b28979cdf18ccf6032d547f010d48246dce7042e7a2284870adb0f33409564",
+      "trainer_sha256": "1cdd902d66fbb6b90ddcaf743aa310dfb01944efc8435ccdfd7dcfff3fbcabbd",
+      "runner_status": "blocked",
+      "role": "ablation_three_stage_optional",
+      "implementation": "ours",
+      "blocking_gate": "Three-stage 0.5x -> 0.75x -> 1.0x schedule needs a new auditable trainer patch (multi-scale progressive config); the frozen higs-differentiable.patch only supports a single scale/switch step."
+    },
+    "higs_switch_6k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "exploration_schedule",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-higs_switch_6k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.5,
+          "full_res_step": 6000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.5,
+          "higs_full_res_step": 6000
+        }
+      }
+    },
+    "higs_switch_8k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "exploration_schedule",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-higs_switch_8k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.5,
+          "full_res_step": 8000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.5,
+          "higs_full_res_step": 8000
+        }
+      }
+    },
+    "higs_switch_10k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "exploration_schedule",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-higs_switch_10k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.5,
+          "full_res_step": 10000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.5,
+          "higs_full_res_step": 10000
+        }
+      }
+    },
+    "higs_switch_12k_s65": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "exploration_schedule",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-higs_switch_12k_s65",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.65,
+          "full_res_step": 12000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.65,
+          "higs_full_res_step": 12000
+        }
+      }
+    },
+    "higs_switch_12k_s70": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "exploration_schedule",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-higs_switch_12k_s70",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "initial_scale": 0.7,
+          "full_res_step": 12000,
+          "total_steps": 30000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.7,
+          "higs_full_res_step": 12000
+        }
+      }
+    },
+    "gsplat_25k": {
+      "role": "modern_training_control",
+      "implementation": "official",
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "runner_status": "ready",
+      "runner_evidence": "paper/higs/runner-readiness.json",
+      "algorithm": {
+        "name": "GSplat-25k",
+        "max_steps": 25000
+      }
+    },
+    "higs_visible_24k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_optimizer",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-VisibleOnly-24k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": null,
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_visible_only"
+        },
+        "max_steps": 24000
+      }
+    },
+    "higs_visible_25k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_optimizer",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-VisibleOnly-25k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": null,
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_visible_only"
+        },
+        "max_steps": 25000
+      }
+    },
+    "higs_visible_27k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_optimizer",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-VisibleOnly-27k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": null,
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_visible_only"
+        },
+        "max_steps": 27000
+      }
+    },
+    "gsplat_27k": {
+      "role": "modern_training_control",
+      "implementation": "official",
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "runner_status": "ready",
+      "runner_evidence": "paper/higs/runner-readiness.json",
+      "algorithm": {
+        "name": "GSplat-27k",
+        "max_steps": 27000
+      }
+    },
+    "higs_topology_27k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_optimizer",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-Topology-27k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "mode": "topology_window",
+          "lowres_start_step": 15000,
+          "lowres_end_step": 22000,
+          "scale": 0.7,
+          "full_res_densification_steps": [
+            0,
+            15000
+          ],
+          "refine_stop_iter": 15000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.7,
+          "higs_lowres_start_step": 15000,
+          "higs_lowres_end_step": 22000,
+          "higs_res_cache": true,
+          "higs_calibrate_scene": true,
+          "higs_calibrate_min_speedup_ratio": 0.85,
+          "higs_calibrate_steps": 10,
+          "higs_segment_timing": true,
+          "higs_timing_start_step": 100,
+          "higs_timing_end_step": 400,
+          "higs_densify_anchor_fullres": true
+        },
+        "max_steps": 27000
+      }
+    },
+    "higs_topology_30k": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "ablation_optimizer",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-Topology-30k",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "selective_adam_visible_mask",
+        "resolution_schedule": {
+          "mode": "topology_window",
+          "lowres_start_step": 15000,
+          "lowres_end_step": 22000,
+          "scale": 0.7,
+          "full_res_densification_steps": [
+            0,
+            15000
+          ],
+          "refine_stop_iter": 15000
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": true,
+          "higs_method": "higs_proposed",
+          "higs_train_res_scale": 0.7,
+          "higs_lowres_start_step": 15000,
+          "higs_lowres_end_step": 22000,
+          "higs_res_cache": true,
+          "higs_calibrate_scene": true,
+          "higs_calibrate_min_speedup_ratio": 0.85,
+          "higs_calibrate_steps": 10,
+          "higs_segment_timing": true,
+          "higs_timing_start_step": 100,
+          "higs_timing_end_step": 400,
+          "higs_densify_anchor_fullres": true
+        },
+        "max_steps": 30000
+      }
+    },
+    "higs_tilesamp_30k_r07": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "exploration_acceleration",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-TileSampled-30k-r0.7",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "adam_full",
+        "resolution_schedule": null,
+        "tile_sampling_schedule": {
+          "mode": "constant",
+          "ratio": 0.7,
+          "sampling_mode": "stratified",
+          "start_step": 0,
+          "end_step": null
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": false,
+          "higs_method": "higs_full",
+          "higs_tile_sampling_ratio": 0.7,
+          "higs_tile_sampling_mode": "stratified",
+          "higs_segment_timing": true,
+          "higs_timing_start_step": 100,
+          "higs_timing_end_step": 400
+        },
+        "max_steps": 30000
+      }
+    },
+    "higs_tilesamp_27k_r07": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "exploration_acceleration",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-TileSampled-27k-r0.7",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "adam_full",
+        "resolution_schedule": null,
+        "tile_sampling_schedule": {
+          "mode": "constant",
+          "ratio": 0.7,
+          "sampling_mode": "stratified",
+          "start_step": 0,
+          "end_step": null
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": false,
+          "higs_method": "higs_full",
+          "higs_tile_sampling_ratio": 0.7,
+          "higs_tile_sampling_mode": "stratified",
+          "higs_segment_timing": true,
+          "higs_timing_start_step": 100,
+          "higs_timing_end_step": 400
+        },
+        "max_steps": 27000
+      }
+    },
+    "higs_tilesamp_27k_r05": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "exploration_acceleration",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-TileSampled-27k-r0.5",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "adam_full",
+        "resolution_schedule": null,
+        "tile_sampling_schedule": {
+          "mode": "constant",
+          "ratio": 0.5,
+          "sampling_mode": "stratified",
+          "start_step": 0,
+          "end_step": null
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": false,
+          "higs_method": "higs_full",
+          "higs_tile_sampling_ratio": 0.5,
+          "higs_tile_sampling_mode": "stratified",
+          "higs_segment_timing": true,
+          "higs_timing_start_step": 100,
+          "higs_timing_end_step": 400
+        },
+        "max_steps": 27000
+      }
+    },
+    "higs_tilesamp_refine_27k_r05": {
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+      "patches": [
+        "patches/higs-tilesample.patch"
+      ],
+      "patch_sha256": "0454262b715bc4eb21c6c62ef00598426c382228abe9da67737716917ec7a470",
+      "source_diff_sha256": "e0c9eda1fe174d8b3178446ef5975330f292fa38179668353cb262b7cd507c19",
+      "source_state_sha256": "281476bc068ccfad34fdcdf6b7aef1a24c9ff180fa1e7871615f88740f447997",
+      "trainer_sha256": "dff6eea6b6bcb516fa42cd1faeef9d6c1b12a63e52debee2fad4e50fb12a78af",
+      "runner_status": "ready",
+      "role": "exploration_acceleration",
+      "implementation": "ours",
+      "algorithm": {
+        "name": "HiGS-TileSampled-Refine-27k-r0.5",
+        "renderer": "higs_dynamic_native_backward",
+        "optimizer": "adam_full",
+        "resolution_schedule": null,
+        "tile_sampling_schedule": {
+          "mode": "window",
+          "ratio": 0.5,
+          "sampling_mode": "stratified",
+          "start_step": 0,
+          "end_step": 25500
+        },
+        "trainer_cfg": {
+          "packed": false,
+          "sparse_grad": false,
+          "visible_adam": false,
+          "higs_method": "higs_full",
+          "higs_tile_sampling_ratio": 0.5,
+          "higs_tile_sampling_mode": "stratified",
+          "higs_segment_timing": true,
+          "higs_timing_start_step": 100,
+          "higs_timing_end_step": 400,
+          "higs_tile_sampling_start_step": 0,
+          "higs_tile_sampling_end_step": 25500
+        },
+        "max_steps": 27000
+      }
+    }
+  },
+  "hardware": {
+    "a100": {
+      "class": "datacenter",
+      "runner_status": "ready"
+    }
+  },
+  "required_outcomes": [
+    "wall_time_seconds",
+    "time_to_quality_seconds",
+    "psnr_db",
+    "ssim",
+    "lpips",
+    "peak_gpu_memory_mib",
+    "final_gaussian_count",
+    "energy_joules"
+  ],
+  "matrices": [
+    {
+      "id": "exploration_topology_11s0",
+      "phase": "exploration",
+      "methods": [
+        "gsplat_27k",
+        "higs_visible_27k",
+        "higs_topology_27k",
+        "higs_topology_30k"
+      ],
+      "scenes": "all",
+      "hardware": [
+        "a100"
+      ],
+      "seeds": [
+        0
+      ]
+    },
+    {
+      "id": "exploration_accel2_11s0",
+      "phase": "exploration",
+      "methods": [
+        "gsplat_27k",
+        "higs_tilesamp_30k_r07",
+        "higs_tilesamp_27k_r07",
+        "higs_tilesamp_27k_r05",
+        "higs_tilesamp_refine_27k_r05"
+      ],
+      "scenes": "all",
+      "hardware": [
+        "a100"
+      ],
+      "seeds": [
+        0
+      ]
+    }
+  ],
+  "frozen_candidates": [
+    "higs_switch_12k",
+    "higs_switch_21k"
+  ]
+}

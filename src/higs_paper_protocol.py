@@ -85,7 +85,7 @@ def build_experiment_plan(protocol: dict) -> list[dict]:
                 "hardware": hardware,
                 "seed": seed,
                 "initialization": training["initialization"],
-                "iterations": training["iterations"],
+                "iterations": (method_spec.get("algorithm") or {}).get("max_steps") or training["iterations"],
                 "executable": (
                     method_spec["runner_status"] == "ready"
                     and hardware_spec["runner_status"] == "ready"
