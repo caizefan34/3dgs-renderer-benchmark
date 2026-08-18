@@ -109,6 +109,65 @@ than a held-out reconstruction leaderboard.
 The HiGS and Speedy-Splat audit artifacts are committed under `data/results`
 with the date `2026-07-15` and contain all 38 per-view measurements.
 
+## Official Dataset Validation (EPIC-05 Phase 3)
+
+The controlled synthetic workload scaling results have been extended to
+**official real-scene validation** using Mip-NeRF 360 pretrained checkpoints
+with rigorous quality-preservation gates. The validation follows a strict
+fair-comparison protocol: same checkpoint, same cameras, same resolution,
+same renderer version — the only variable is `tile_size`.
+
+### Validation Cohort
+
+| Scene | Dataset | Gaussians | Type |
+|-------|---------|----------:|:----:|
+| bicycle | Mip-NeRF 360 | 6,131,954 | outdoor |
+| garden | Mip-NeRF 360 | 5,834,784 | outdoor |
+| room | Mip-NeRF 360 | 1,593,376 | indoor |
+
+Checkpoints are hash-verified official pretrained 30K-iteration models.
+Camera manifests use the original evaluation splits. See
+[validation matrix](configs/epic05/official_validation_matrix.json) and
+[report](reports/epic05/official-dataset-validation-2026-07-19.md) for details.
+
+### Key Questions
+
+1. Does tile32 generalize to real scenes?
+2. Is any speedup quality-preserving (PSNR, SSIM, LPIPS gates)?
+3. Does synthetic scaling trend replicate on real workloads?
+
+### Pipeline
+
+```bash
+# Speed benchmark
+python scripts/epic05/run_official_validation.py --all --resolution 1080p --tile-sizes 8 16 32
+
+# Aggregate results
+python scripts/epic05/aggregate_official_results.py
+
+# Quality evaluation (requires GT images)
+python scripts/epic05/evaluate_official_quality.py --all --resolution 1080p --tile-sizes 16 32
+
+# Cross-cohort analysis
+python scripts/epic05/analyze_synthetic_vs_official.py
+
+# Charts
+python scripts/epic05/generate_official_charts.py
+```
+
+### Cohort Taxonomy
+
+All new results are explicitly tagged as `official_real_scene` evidence and
+are **never** mixed with synthetic stress benchmarks in rankings. The
+repository maintains four separate evidence classes:
+
+| Class | Color | Purpose |
+|-------|-------|---------|
+| Synthetic stress | Blue | Workload scaling, mechanism study |
+| Official speed | Orange | Real-world validation |
+| Official quality | Green | Quality preservation |
+| Training | Purple | End-to-end relevance |
+
 Mip-NeRF 360 speed scaling on the same RTX 5070 Laptop:
 
 | Scene | Renderer | 720p FPS | 1080p FPS | 4K FPS |

@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "experiment_id": "epic05-official-validation-v1",
+  "description": "Official real-scene validation of tile-size optimization for 3DGS rendering",
+  "date": "",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU",
+    "vram_gb": 8.15,
+    "compute_capability": "12.0"
+  },
+  "baseline": {
+    "id": "M0",
+    "renderer": "gsplat",
+    "tile_size": 16,
+    "packed": true,
+    "sh_degree": 3,
+    "eps2d": 0.1,
+    "radius_clip": 0.0,
+    "seed": 0
+  },
+  "official_cohort": [
+    {
+      "experiment_id": "mipnerf360-bicycle-1080p",
+      "dataset": "Mip-NeRF 360",
+      "scene_id": "bicycle",
+      "dataset_family": "Mip-NeRF 360",
+      "scene_path": "data/official/mipnerf360/bicycle/point_cloud.ply",
+      "camera_path": "data/official/mipnerf360/bicycle/cameras.json",
+      "gt_images_dir": "",
+      "model_sha256": "64d357cb25bd85f710f8551a18d830f8497277fbd8c5805adfd72ffe9ca78227",
+      "camera_sha256": "5f0ebcb6b33e415061a485ed9961fb277cf7e875586f0d82d88b746d9d9fd502",
+      "num_gaussians": 6131954,
+      "camera_count": 281,
+      "native_resolution": [4946, 3286],
+      "resolution": [1920, 1080],
+      "resolution_label": "1080p",
+      "scene_type": "outdoor",
+      "pretrained_iteration": 30000,
+      "ground_truth_provenance": "official Mip-NeRF 360 training set photographs",
+      "quality_status": "GT_available",
+      "license": "CC BY-NC 4.0 (Mip-NeRF 360)"
+    },
+    {
+      "experiment_id": "mipnerf360-garden-1080p",
+      "dataset": "Mip-NeRF 360",
+      "scene_id": "garden",
+      "dataset_family": "Mip-NeRF 360",
+      "scene_path": "data/official/mipnerf360/garden/point_cloud.ply",
+      "camera_path": "data/official/mipnerf360/garden/cameras.json",
+      "gt_images_dir": "",
+      "model_sha256": "16701d5e0630dfaca74f8794ed7ce2aa23fa922f87dc09a7e37484e8d3f82d5a",
+      "camera_sha256": "60986440d8fdc73b9e8e2493a9b745016e20bf5275963f1c49ee64f8e616a391",
+      "num_gaussians": 5834784,
+      "camera_count": 250,
+      "native_resolution": [4946, 3286],
+      "resolution": [1920, 1080],
+      "resolution_label": "1080p",
+      "scene_type": "outdoor",
+      "pretrained_iteration": 30000,
+      "ground_truth_provenance": "official Mip-NeRF 360 training set photographs",
+      "quality_status": "GT_available",
+      "license": "CC BY-NC 4.0 (Mip-NeRF 360)"
+    },
+    {
+      "experiment_id": "mipnerf360-room-1080p",
+      "dataset": "Mip-NeRF 360",
+      "scene_id": "room",
+      "dataset_family": "Mip-NeRF 360",
+      "scene_path": "data/official/mipnerf360/room/point_cloud.ply",
+      "camera_path": "data/official/mipnerf360/room/cameras.json",
+      "gt_images_dir": "",
+      "model_sha256": "7db92776b7ee8818866c00de62e1102dde344b5e83abf107e20accd88e2d9201",
+      "camera_sha256": "84fcccbd3ae4ea6754bcb7838149a418b3a62275549a67a3e7a7afc5d2f83f45",
+      "num_gaussians": 1593376,
+      "camera_count": 217,
+      "native_resolution": [1944, 1296],
+      "resolution": [1920, 1080],
+      "resolution_label": "1080p",
+      "scene_type": "indoor",
+      "pretrained_iteration": 30000,
+      "ground_truth_provenance": "official Mip-NeRF 360 training set photographs",
+      "quality_status": "GT_available",
+      "license": "CC BY-NC 4.0 (Mip-NeRF 360)"
+    }
+  ],
+  "tile_sizes": [8, 16, 32],
+  "renderer": "gsplat",
+  "packed": true,
+  "sh_degree": 3,
+  "eps2d": 0.1,
+  "radius_clip": 0.0,
+  "seed": 42,
+  "protocol": {
+    "warmup_frames": 30,
+    "measured_frames_per_repeat": 100,
+    "repeats": 5,
+    "timing_method": "torch.cuda.Event"
+  },
+  "performance_metrics": [
+    "mean_ms", "median_ms", "std_ms", "min_ms", "max_ms",
+    "p1_ms", "p5_ms", "p95_ms", "p99_ms",
+    "mean_fps", "peak_vram_mb", "avg_vram_mb"
+  ],
+  "quality_metrics": ["PSNR", "SSIM", "LPIPS"],
+  "pixel_equivalence_metrics": [
+    "max_abs_pixel_error",
+    "mean_abs_pixel_error",
+    "rmse",
+    "fraction_pixels_above_1e-3",
+    "fraction_pixels_above_1e-2"
+  ],
+  "quality_gate": {
+    "max_psnr_drop_db": -0.10,
+    "max_ssim_drop": -0.003,
+    "max_lpips_increase": 0.005
+  },
+  "description": "Official real-scene validation cohort for tile-size optimization study. Scenes selected from Mip-NeRF 360 dataset with verified checkpoints and camera manifests. This cohort is the authoritative real-world validation for the tile-size speedup observations made on synthetic workloads."
+}

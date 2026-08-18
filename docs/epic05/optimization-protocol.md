@@ -78,6 +78,32 @@ For each configuration:
 ## Statistical Protocol
 
 - Warmup: 30 frames
-- Measurement: 100 frames 脳 3 repeats
+- Measurement: 100 frames per repeat, 3 repeats
 - Reporting: mean, std, median, CI
 - Quality: fixed PLY, fixed camera path
+
+## Phase 3: Official Dataset Validation
+
+The synthetic workload results are extended to official real-scene validation
+using Mip-NeRF 360 pretrained checkpoints. See:
+
+- [Validation matrix](../configs/epic05/official_validation_matrix.json)
+- [Run script](../scripts/epic05/run_official_validation.py)
+- [Aggregation](../scripts/epic05/aggregate_official_results.py)
+- [Quality evaluation](../scripts/epic05/evaluate_official_quality.py)
+- [Synthetic vs official analysis](../scripts/epic05/analyze_synthetic_vs_official.py)
+- [Charts](../scripts/epic05/generate_official_charts.py)
+- [Report](../reports/epic05/official-dataset-validation-2026-07-19.md)
+
+### Validation Protocol Additions
+
+| Parameter | Synthetic | Official |
+|-----------|-----------|----------|
+| Scene source | Generated PLY | Official checkpoint |
+| Gaussians | Controlled (50K/200K/400K) | Natural population |
+| Camera | Generated orbit | Evaluation split |
+| Resolution | All profiles | 1080p canonical |
+| Quality metrics | N/A | PSNR, SSIM, LPIPS |
+| Pixel equivalence | N/A | tile16 vs tile32 |
+| Repeats | 3 | 5 |
+| Steady-state check | N/A | CV < 0.15
