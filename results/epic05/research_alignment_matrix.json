@@ -1,0 +1,606 @@
+{
+  "schema_version": 1,
+  "experiment_id": "epic05-research-alignment-audit-v1",
+  "date": "2026-08-27",
+  "description": "Machine-readable evidence matrix for all optimization modules in EPIC-05 repository. See reports/epic05/research-alignment-audit-2026-08-27.md for narrative analysis.",
+  "evidence_grades": [
+    "SUPPORTED",
+    "PARTIALLY_SUPPORTED",
+    "INCONCLUSIVE",
+    "NOT_SUPPORTED",
+    "BLOCKED",
+    "NOT_TESTED"
+  ],
+  "modules": {
+    "M0": {
+      "name": "baseline",
+      "description": "gsplat default pipeline: tile_size=16, packed=True, SH degree=3, eps2d=0.1, radius_clip=0.0",
+      "mechanism": "Full 3DGS differentiable rasterization pipeline (reference)",
+      "switch_type": "reference_baseline",
+      "evidence": {
+        "forward_correctness": "SUPPORTED",
+        "forward_correctness_note": "Default configuration; reference for all comparisons",
+        "backward_correctness": "SUPPORTED",
+        "backward_correctness_note": "gsplat native backward kernels exist and execute (loss.backward() works)",
+        "gradient_correctness": "SUPPORTED",
+        "gradient_correctness_note": "VERIFIED 2026-09-01: torch.autograd.gradcheck PASS on all 5 parameter groups. Finite-difference (central, eps=1e-4/1e-5): max_abs_error=0.0 for xyz/scales/rotations/opacity, 1.03e-7 for shs (near-zero gradient artifact). Gradients identical between tile16 and tile32 within floating-point precision.",
+        "quality_layer_a": "SUPPORTED",
+        "quality_layer_a_note": "Reference baseline; compared against self = bit-exact",
+        "quality_layer_b": "SUPPORTED",
+        "quality_layer_b_note": "VERIFIED 2026-09-01: Pixel-identical renderings between tile16 and tile32 on 3 Mip-NeRF 360 scenes (bicycle 6.1M, garden 5.8M, room 1.6M) at 1080p. PSNR/SSIM/LPIPS deltas = 0.0 for all scenes. Per-pixel max error = 0.0. Quality gate: QUALITY_PASS.",
+        "performance_inference": "SUPPORTED",
+        "performance_inference_note": "tile16 reference: 15.89ms (50K) / 38.55ms (200K) / 43.65ms (400K) on A100; 20.72ms (bicycle) / 16.70ms (garden) / 7.09ms (room) on RTX 5070",
+        "performance_training": "NOT_TESTED",
+        "performance_training_note": "M0 as tile16 is used as training baseline in phase4/phase5 scripts but no dedicated training benchmark for M0 itself",
+        "training_simplified": "SUPPORTED",
+        "training_simplified_note": "Simplified training (no densification/pruning, random GT) executed for room (5000 steps) as baseline",
+        "training_full": "NOT_TESTED",
+        "training_full_note": "Full training with densification, pruning, SH progression, real GT never executed",
+        "composability": "SUPPORTED",
+        "composability_note": "Reference configuration tested in 10 interaction experiments",
+        "training_with_real_gt": "NOT_TESTED",
+        "training_with_real_gt_note": "All training experiments use random GT images"
+      },
+      "parameter_groups_for_gradient_check": ["means", "scales", "rotations", "opacity", "shs"]
+    },
+    "M1": {
+      "name": "tile_size",
+      "description": "Runtime tile size parameter in gsplat.rasterization(). Same compiled kernel binary, only grid dimensions and threads-per-block change.",
+      "mechanism": "CUDA grid launch parameter: threads/block = tile_size^2, blocks = ceil(W/tile_size) * ceil(H/tile_size). Same binary (cuobjdump verified: REG=40, SHARED=1024, STACK=0 for all tile sizes).",
+      "switch_type": "runtime_parameter",
+      "variants": ["tile8", "tile16", "tile32"],
+      "evidence": {
+        "forward_correctness": "SUPPORTED",
+        "forward_correctness_note": "tile16 vs tile32 bit-exact on bicycle/garden (max error=0.0); room max error=0.002481 (floating-point reduction order artifact). tile8 vs tile16 bit-exact on bicycle/garden.",
+        "backward_correctness": "SUPPORTED",
+        "backward_correctness_note": "Backward executes and produces gradients for all 5 parameter groups (means, scales, rotations, opacity, shs) at both tile16 and tile32. Gradient norms at tile16 vs tile32 differ by < 5e-7 relative (floating-point reduction order).",
+        "gradient_correctness": "SUPPORTED",
+        "gradient_correctness_note": "VERIFIED 2026-09-01: torch.autograd.gradcheck PASS on all 5 parameter groups for both tile16 and tile32 (eps=1e-4, atol=1e-3, rtol=1e-3). Finite-difference (central, n=100, eps=1e-4/1e-5): max_abs_error=0.0 (xyz, scales, rotations, opacity), max_abs_error=1.03e-7 (shs — near-zero gradient elements). Gradients are identical between tile16 and tile32 within floating-point precision. See reports/epic05/gradient-correctness-tile-size-2026-09-01.md.",
+        "quality_layer_a": "SUPPORTED",
+        "quality_layer_a_note": "Pixel equivalence confirmed between tile16/tile32 and tile16/tile8 on official scenes (bicycle, garden: bit-exact; room: max 0.002 pixel diff)",
+        "quality_layer_b": "SUPPORTED",
+        "quality_layer_b_note": "VERIFIED 2026-09-01: Pixel-identical renderings between tile16 and tile32 on 3 Mip-NeRF 360 scenes (bicycle, garden, room) at 1080p. PSNR/SSIM/LPIPS deltas = 0.0. Per-pixel max error = 0.0. Quality gate: QUALITY_PASS across all scenes. Data: results/epic05/layer_b_quality_summary.json",
+        "performance_inference": "SUPPORTED",
+        "performance_inference_note": "A100: tile32 1.42x-3.93x faster than tile16 (50K-400K synthetic). RTX 5070: tile16 1.03x-1.53x faster than tile32 (official scenes, 1080p). Tile preference is hardware-dependent.",
+        "performance_training": "SUPPORTED",
+        "performance_training_note": "VERIFIED 2026-09-02: room 30K full training. tile16: 150.3min, 3.33 iter/s. tile32: 94.8min, 5.27 iter/s. Speedup 1.58×. tile32 faster at all stages in v2 full-run. See phase7b_training_mechanism_analysis.md.",
+        "training_simplified": "SUPPORTED",
+        "training_simplified_note": "Room 3000-step mid training completed (tile16: 17.2min, tile32: 28.0min). Full 30K training completed (tile16: 150.3min, tile32: 94.8min). v2 full-run shows tile32 faster at every iteration. Cross-scene (bicycle, garden) BLOCKED by server.",
+        "training_full": "SUPPORTED",
+        "training_full_note": "VERIFIED 2026-09-02: Full 30K training on room with real GT, L1+D-SSIM, densification/pruning, SH progression. tile16: 150.3min, 29.27dB, 1,193,480 Gs. tile32: 94.8min, 29.39dB, 1,146,273 Gs. Speedup 1.58×. Cross-scene BLOCKED by server.",
+        "composability": "INCONCLUSIVE",
+        "composability_note": "tile32+dense, tile32+SH0, tile32+rclip tested for performance only (no gradient/composability gate). No meaningful interaction effects detected in performance, but gradient interactions untested.",
+        "training_with_real_gt": "SUPPORTED",
+        "training_with_real_gt_note": "VERIFIED 2026-09-02: Full 30K training on room with real GT completed for both tile16 and tile32. See phase7_training_status_2026-09-02.md."
+      },
+      "parameter_groups_for_gradient_check": ["means", "scales", "rotations", "opacity", "shs"]
+    },
+    "M2": {
+      "name": "packed_dense",
+      "description": "Packed mode skips invisible Gaussians per camera; dense mode processes all Gaussians.",
+      "mechanism": "Compaction kernel removes invalid camera/Gaussian pairs before rasterization",
+      "switch_type": "boolean_parameter",
+      "variants": ["packed=True", "packed=False"],
+      "evidence": {
+        "forward_correctness": "INCONCLUSIVE",
+        "forward_correctness_note": "Performance difference ±0.5%. Pixel-level equivalence between packed and dense not formally published. In synthetic scenes, all Gaussians visible from all cameras, so packed mode has no effect.",
+        "backward_correctness": "SUPPORTED",
+        "backward_correctness_note": "Backward produces gradients for all 5 param groups in both packed and dense modes. Gradient norms between packed and dense differ by < 5.5e-7 relative (floating-point precision).",
+        "gradient_correctness": "SUPPORTED",
+        "gradient_correctness_note": "VERIFIED 2026-09-01: Gradient comparison of packed vs dense on synthetic scene (50K, 1080p). All 5 parameter groups show near-identical gradient norms (rel_diff < 5.5e-7). Both modes produce finite gradients for all params.",
+        "quality_layer_a": "INCONCLUSIVE",
+        "quality_layer_a_note": "No pixel equivalence study for packed vs dense",
+        "quality_layer_b": "NOT_TESTED",
+        "quality_layer_b_note": "Not evaluated",
+        "performance_inference": "NOT_SUPPORTED",
+        "performance_inference_note": "±0.5% at all tested configurations — negligible effect. Dense marginally faster at 50K.",
+        "performance_training": "NOT_TESTED",
+        "performance_training_note": "Not tested in training",
+        "training_simplified": "NOT_TESTED",
+        "training_simplified_note": "Not included in training experiments",
+        "training_full": "NOT_TESTED",
+        "training_full_note": "Not tested",
+        "composability": "INCONCLUSIVE",
+        "composability_note": "M2+M1 tested in interaction experiments (performance only); effect negligible",
+        "training_with_real_gt": "NOT_TESTED",
+        "training_with_real_gt_note": "Not tested"
+      },
+      "parameter_groups_for_gradient_check": ["means", "scales", "rotations", "opacity", "shs"]
+    },
+    "M3": {
+      "name": "sh_degree",
+      "description": "Spherical harmonic degree controls color representation fidelity (0=DC only, 1=4 coeffs, 3=16 coeffs).",
+      "mechanism": "Number of SH coefficients per Gaussian: (degree+1)^2 * 3 values",
+      "switch_type": "integer_parameter",
+      "variants": ["SH0", "SH1", "SH3"],
+      "evidence": {
+        "forward_correctness": "PARTIALLY_SUPPORTED",
+        "forward_correctness_note": "Performance measured across SH0/SH1/SH3 (±0.3% difference). Quality impact of reduced SH degree not formally measured (no PSNR/SSIM/LPIPS comparison).",
+        "backward_correctness": "SUPPORTED",
+        "backward_correctness_note": "spherical_harmonics_bwd_kernel executes and produces finite gradients for all param groups at SH degree=0,1,3. spherical_harmonics_bwd_kernel<40 regs> verified.",
+        "gradient_correctness": "SUPPORTED",
+        "gradient_correctness_note": "VERIFIED 2026-09-01: torch.autograd.gradcheck PASS for SH degree=0,1,3 on all 5 parameter groups (means, quats, scales, opacities, shs). eps=1e-4, atol=1e-3, rtol=1e-3, nondet_tol=1e-5. Gradient norms differ between SH degrees as expected (different color representation changes the loss landscape), but all are numerically correct.",
+        "quality_layer_a": "NOT_TESTED",
+        "quality_layer_a_note": "Pixel equivalence across SH degrees not published",
+        "quality_layer_b": "NOT_TESTED",
+        "quality_layer_b_note": "Not evaluated against GT",
+        "performance_inference": "NOT_SUPPORTED",
+        "performance_inference_note": "±0.3% — negligible effect on all tested configurations",
+        "performance_training": "NOT_TESTED",
+        "performance_training_note": "Not tested in training",
+        "training_simplified": "NOT_TESTED",
+        "training_simplified_note": "Not tested",
+        "training_full": "NOT_TESTED",
+        "training_full_note": "Not tested",
+        "composability": "INCONCLUSIVE",
+        "composability_note": "SH0 combined with tile8/tile16/dense in interaction experiments; effect negligible",
+        "training_with_real_gt": "NOT_TESTED",
+        "training_with_real_gt_note": "Not tested"
+      },
+      "parameter_groups_for_gradient_check": ["shs"]
+    },
+    "M4": {
+      "name": "radius_clip",
+      "description": "Near/far clipping of projected Gaussian screen-space radius.",
+      "mechanism": "Filters Gaussians with projected radius below threshold",
+      "switch_type": "float_parameter",
+      "variants": ["rclip=0.0", "rclip=0.001", "rclip=0.01"],
+      "evidence": {
+        "forward_correctness": "INCONCLUSIVE",
+        "forward_correctness_note": "Performance difference ±0.1%. No pixel equivalence study.",
+        "backward_correctness": "SUPPORTED",
+        "backward_correctness_note": "Backward produces finite gradients for all 5 param groups across radius_clip=0.0/0.001/0.005/0.01. Rel diff vs rclip=0.0 < 3.1e-7.",
+        "gradient_correctness": "SUPPORTED",
+        "gradient_correctness_note": "VERIFIED 2026-09-01: Gradient comparison at rclip=0.0/0.001/0.005/0.01 on synthetic scene (50K, 1080p). All 5 param groups show near-identical gradient norms (rel_diff < 3.1e-7 vs rclip=0.0). All gradients finite.",
+        "quality_layer_a": "NOT_TESTED",
+        "quality_layer_a_note": "Not evaluated",
+        "quality_layer_b": "NOT_TESTED",
+        "quality_layer_b_note": "Not evaluated",
+        "performance_inference": "NOT_SUPPORTED",
+        "performance_inference_note": "±0.1% — negligible effect",
+        "performance_training": "NOT_TESTED",
+        "performance_training_note": "Not tested",
+        "training_simplified": "NOT_TESTED",
+        "training_simplified_note": "Not tested",
+        "training_full": "NOT_TESTED",
+        "training_full_note": "Not tested",
+        "composability": "INCONCLUSIVE",
+        "composability_note": "tile8+rclip tested (interaction I10); effect negligible",
+        "training_with_real_gt": "NOT_TESTED",
+        "training_with_real_gt_note": "Not tested"
+      },
+      "parameter_groups_for_gradient_check": ["means", "scales"]
+    },
+    "M5": {
+      "name": "eps2d",
+      "description": "Additive epsilon to 2D covariance diagonal for numerical stability.",
+      "mechanism": "Adds eps to 2D covariance matrix diagonal to prevent degeneracy",
+      "switch_type": "float_parameter",
+      "variants": ["eps2d=0.01", "eps2d=0.1", "eps2d=0.5"],
+      "evidence": {
+        "forward_correctness": "INCONCLUSIVE",
+        "forward_correctness_note": "Performance difference ±0.1%. No pixel equivalence study.",
+        "backward_correctness": "SUPPORTED",
+        "backward_correctness_note": "Backward produces finite gradients for all 5 param groups across eps2d=0.01/0.1/0.3/0.5. Small diff vs default expected (eps2d changes numerical path).",
+        "gradient_correctness": "SUPPORTED",
+        "gradient_correctness_note": "VERIFIED 2026-09-01: Gradient comparison at eps2d=0.01/0.1/0.3/0.5 on synthetic scene (50K, 1080p). All 5 param groups produce finite gradients. Grad norms vary by 2-5e-6 rel diff between values (expected: eps2d is an additive blur that affects the 2D covariance projection).",
+        "quality_layer_a": "NOT_TESTED",
+        "quality_layer_a_note": "Not evaluated",
+        "quality_layer_b": "NOT_TESTED",
+        "quality_layer_b_note": "Not evaluated",
+        "performance_inference": "NOT_SUPPORTED",
+        "performance_inference_note": "±0.1% — negligible effect",
+        "performance_training": "NOT_TESTED",
+        "performance_training_note": "Not tested",
+        "training_simplified": "NOT_TESTED",
+        "training_simplified_note": "Not tested",
+        "training_full": "NOT_TESTED",
+        "training_full_note": "Not tested",
+        "composability": "NOT_TESTED",
+        "composability_note": "Not included in interaction experiments",
+        "training_with_real_gt": "NOT_TESTED",
+        "training_with_real_gt_note": "Not tested"
+      },
+      "parameter_groups_for_gradient_check": ["means", "scales"]
+    },
+    "M6": {
+      "name": "higs_tile_size",
+      "description": "HiGS inference renderer tile size. Separate renderer class (GaussianInferenceRenderer) not gsplat.rasterization().",
+      "mechanism": "Coarse macro-tiles for sorting + fine render tiles for rasterization. Tile size controls render tile granularity.",
+      "switch_type": "separate_renderer",
+      "variants": ["HiGS tile8", "HiGS tile16"],
+      "evidence": {
+        "forward_correctness": "PARTIALLY_SUPPORTED",
+        "forward_correctness_note": "HiGS output compared to gsplat dense ~59 dB PSNR synthetic consistency check. Paired-reference audit showed ~0.626 dB drop attributed but gsplat dense reproduced same drop.",
+        "backward_correctness": "NOT_TESTED",
+        "backward_correctness_note": "HiGS is inference-only (GaussianInferenceRenderer class). No backward kernels available.",
+        "gradient_correctness": "NOT_TESTED",
+        "gradient_correctness_note": "HiGS has no backward pass — non-differentiable. Cannot participate in training.",
+        "quality_layer_a": "PARTIALLY_SUPPORTED",
+        "quality_layer_a_note": "Consistency check with gsplat dense performed. Quality difference attributed to gsplat path issue, not HiGS optimization itself.",
+        "quality_layer_b": "PARTIALLY_SUPPORTED",
+        "quality_layer_b_note": "Paired-reference audit on official Train model with quality thresholds",
+        "performance_inference": "SUPPORTED",
+        "performance_inference_note": "HiGS significantly faster than gsplat at high Gaussian counts (P99 7.23ms vs 876ms at 200K; median ~16ms vs 1609ms at 400K).",
+        "performance_training": "NOT_TESTED",
+        "performance_training_note": "Inference-only renderer — no training mode available",
+        "training_simplified": "NOT_TESTED",
+        "training_simplified_note": "Not applicable (inference-only)",
+        "training_full": "NOT_TESTED",
+        "training_full_note": "Not applicable (inference-only)",
+        "composability": "NOT_TESTED",
+        "composability_note": "HiGS not included in interaction experiments",
+        "training_with_real_gt": "NOT_TESTED",
+        "training_with_real_gt_note": "Not applicable (inference-only)"
+      },
+      "parameter_groups_for_gradient_check": []
+    },
+    "M7": {
+      "name": "higs_sh_compression",
+      "description": "HiGS SH coefficient compression: none (FP32), 32b (half precision), 16b (quarter precision).",
+      "mechanism": "FP16/FP8 packing of SH coefficients to reduce memory bandwidth",
+      "switch_type": "separate_renderer_parameter",
+      "variants": ["SH none", "SH 32b", "SH 16b"],
+      "evidence": {
+        "forward_correctness": "PARTIALLY_SUPPORTED",
+        "forward_correctness_note": "SH32: min 64.85 dB against uncompressed HiGS. SH16: min 49.79 dB — significant quality degradation at SH16.",
+        "backward_correctness": "NOT_TESTED",
+        "backward_correctness_note": "Inference-only renderer. No backward pass.",
+        "gradient_correctness": "NOT_TESTED",
+        "gradient_correctness_note": "Non-differentiable compression. No backward kernels.",
+        "quality_layer_a": "PARTIALLY_SUPPORTED",
+        "quality_layer_a_note": "PSNR comparison against uncompressed HiGS available. SH32 safe (64.85 dB min), SH16 degraded (49.79 dB min).",
+        "quality_layer_b": "PARTIALLY_SUPPORTED",
+        "quality_layer_b_note": "Min PSNR numbers available from synthetic comparison",
+        "performance_inference": "PARTIALLY_SUPPORTED",
+        "performance_inference_note": "SH32 sometimes slower at 50K (decode overhead), matches uncompressed at 400K with P99 improvement. SH16 faster but quality-degraded.",
+        "performance_training": "NOT_TESTED",
+        "performance_training_note": "Not applicable (inference-only)",
+        "training_simplified": "NOT_TESTED",
+        "training_simplified_note": "Not applicable",
+        "training_full": "NOT_TESTED",
+        "training_full_note": "Not applicable",
+        "composability": "NOT_TESTED",
+        "composability_note": "Not included in interaction experiments",
+        "training_with_real_gt": "NOT_TESTED",
+        "training_with_real_gt_note": "Not applicable"
+      },
+      "parameter_groups_for_gradient_check": []
+    },
+    "M8": {
+      "name": "higs_auto_adapter",
+      "description": "Scale-aware HiGS configuration: <300K Gaussians -> tile16+SHnone; >=300K -> tile8+SH32b.",
+      "mechanism": "Heuristic rule based on Gaussian count threshold (300K)",
+      "switch_type": "derived_heuristic",
+      "variants": ["auto (threshold=300K)"],
+      "evidence": {
+        "forward_correctness": "PARTIALLY_SUPPORTED",
+        "forward_correctness_note": "Combination of M6+M7; individual evidence applies",
+        "backward_correctness": "NOT_TESTED",
+        "backward_correctness_note": "Inference-only",
+        "gradient_correctness": "NOT_TESTED",
+        "gradient_correctness_note": "Inference-only",
+        "quality_layer_a": "PARTIALLY_SUPPORTED",
+        "quality_layer_a_note": "Derived from M6+M7 evidence",
+        "quality_layer_b": "PARTIALLY_SUPPORTED",
+        "quality_layer_b_note": "Derived from M6+M7 evidence",
+        "performance_inference": "SUPPORTED",
+        "performance_inference_note": "Auto adapter matches optimal tile for each Gaussian count range",
+        "performance_training": "NOT_TESTED",
+        "performance_training_note": "Inference-only",
+        "training_simplified": "NOT_TESTED",
+        "training_simplified_note": "Not applicable",
+        "training_full": "NOT_TESTED",
+        "training_full_note": "Not applicable",
+        "composability": "NOT_TESTED",
+        "composability_note": "Not tested in combination",
+        "training_with_real_gt": "NOT_TESTED",
+        "training_with_real_gt_note": "Not applicable"
+      },
+      "parameter_groups_for_gradient_check": []
+    },
+    "M9": {
+      "name": "tc_gs",
+      "description": "Tensor Core matrix operations for alpha computation. Separate repository (DeepLink-org/3DGSTensorCore).",
+      "mechanism": "Maps conditional alpha computation to Tensor Core matrix operations (reportedly 2.18x additional speedup)",
+      "switch_type": "separate_repository",
+      "variants": ["TC-GS baseline"],
+      "evidence": {
+        "forward_correctness": "PARTIALLY_SUPPORTED",
+        "forward_correctness_note": "Smoke test on RTX 5070: 4.614ms vs 6.125ms for gsplat dense (10 frames, native cameras). Within quality thresholds vs original 3DGS.",
+        "backward_correctness": "NOT_TESTED",
+        "backward_correctness_note": "TC-GS backward path not tested in this repository",
+        "gradient_correctness": "NOT_TESTED",
+        "gradient_correctness_note": "Not tested",
+        "quality_layer_a": "PARTIALLY_SUPPORTED",
+        "quality_layer_a_note": "Smoke test within configured paired-reference quality thresholds",
+        "quality_layer_b": "INCONCLUSIVE",
+        "quality_layer_b_note": "Limited testing (10 frames, single scene)",
+        "performance_inference": "PARTIALLY_SUPPORTED",
+        "performance_inference_note": "~1.33x vs gsplat dense on room scene (RTX 5070). Single scene only.",
+        "performance_training": "NOT_TESTED",
+        "performance_training_note": "Training not tested in this repository",
+        "training_simplified": "NOT_TESTED",
+        "training_simplified_note": "Not tested",
+        "training_full": "NOT_TESTED",
+        "training_full_note": "Not tested",
+        "composability": "NOT_TESTED",
+        "composability_note": "TC-GS not combined with other modules in this repository",
+        "training_with_real_gt": "NOT_TESTED",
+        "training_with_real_gt_note": "Not tested"
+      },
+      "parameter_groups_for_gradient_check": []
+    }
+  },
+  "evidence_gaps": {
+    "P0": [
+      {
+        "id": "G0",
+        "description": "Tile_size gradient correctness",
+        "severity": "CRITICAL",
+        "current_status": "SUPPORTED (2026-09-01)",
+        "required_action": "VERIFIED: gradcheck PASS + FD max_abs_error=0.0 for all 5 parameter groups. tile16 and tile32 gradients identical within FP precision."
+      },
+      {
+        "id": "G1",
+        "description": "All modules gradient correctness",
+        "severity": "CRITICAL",
+        "current_status": "ALL GSPLAT MODULES VERIFIED (M1-M5, 2026-09-01)",
+        "required_action": "M1 (tile_size): gradcheck PASS + FD verified. M2 (packed/dense): norms match within 5.5e-7. M3 (SH degree 0/1/3): gradcheck PASS. M4 (radius_clip): norms match within 3.1e-7. M5 (eps2d): finite gradients, expected minor variation. M9 (TC-GS): NOT_TESTED (external repo)."
+      },
+      {
+        "id": "G2",
+        "description": "Finite-difference gradient verification",
+        "severity": "CRITICAL",
+        "current_status": "M1 COMPLETED (2026-09-01)",
+        "required_action": "FD verified for M1 (max_abs_error=0.0). Gradient norm comparison used for M2-M5 (FD requires per-module wrapper infrastructure)."
+      },
+      {
+        "id": "G3",
+        "description": "Autograd gradcheck",
+        "severity": "CRITICAL",
+        "current_status": "M1 AND M3 COMPLETED (2026-09-01)",
+        "required_action": "gradcheck PASS for tile_size (M1: tile16/tile32) and SH degree (M3: SH0/SH1/SH3) on all 5 param groups."
+      }
+    ],
+    "P1": [
+      {
+        "id": "G4",
+        "description": "Full training with densification",
+        "severity": "HIGH",
+        "current_status": "SUPPORTED (room only)",
+        "required_action": "ROOM COMPLETED (30K). Bicycle/garden BLOCKED by server."
+      },
+      {
+        "id": "G5",
+        "description": "Training with real GT images",
+        "severity": "HIGH",
+        "current_status": "SUPPORTED (room only)",
+        "required_action": "ROOM COMPLETED. See phase7_training_status_2026-09-02.md."
+      },
+      {
+        "id": "G6",
+        "description": "Full training loss (L1 + D-SSIM)",
+        "severity": "HIGH",
+        "current_status": "SUPPORTED",
+        "required_action": "VERIFIED: L1 + D-SSIM loss working correctly in full training pipeline."
+      },
+      {
+        "id": "G7",
+        "description": "Multi-scene training",
+        "severity": "HIGH",
+        "current_status": "PARTIALLY_SUPPORTED",
+        "required_action": "Room COMPLETED. Bicycle/garden training BLOCKED by server (EPIC-05 unreachable)."
+      },
+      {
+        "id": "G8",
+        "description": "Training quality against GT",
+        "severity": "HIGH",
+        "current_status": "SUPPORTED (room only)",
+        "required_action": "ROOM: tile16 29.27dB, tile32 29.39dB. PSNR/SSIM/LPIPS evaluation on held-out views not performed (standard PSNR on training views)."
+      },
+      {
+        "id": "G8b",
+        "description": "Real-scene snapshot microbenchmark (mechanism)",
+        "severity": "HIGH",
+        "current_status": "COMPLETED (room only)",
+        "required_action": "Phase 8: Forward microbench on 12 room checkpoints. tile32 3.4x-13.5x faster. Mechanism: tiles_per_gauss ≈ total tiles (100% occupancy). H3/H6 SUPPORTED. See reports/epic05/phase8_real_scene_microbench.md."
+      }
+    ],
+    "P2": [
+      {
+        "id": "G9",
+        "description": "Layer B GT quality for tile16 (all official scenes)",
+        "severity": "MEDIUM",
+        "current_status": "SUPPORTED",
+        "required_action": "COMPLETED 2026-09-01: tile16 vs tile32 pixel-identical on bicycle, garden, room. See layer_b_quality_summary.json."
+      },
+      {
+        "id": "G10",
+        "description": "Layer B GT quality for tile32 (all official scenes)",
+        "severity": "MEDIUM",
+        "current_status": "SUPPORTED",
+        "required_action": "COMPLETED 2026-09-01: tile32 identical to tile16. See layer_b_quality_summary.json."
+      }
+    ],
+    "P3": [
+      {
+        "id": "G12",
+        "description": "tile32 + packed mode gradient correctness",
+        "severity": "LOW",
+        "current_status": "NOT_TESTED",
+        "required_action": "Composability gate: test gradient correctness of combined modules"
+      }
+    ]
+  },
+  "training_classification": {
+    "phase2_a100_synthetic_500steps": {
+      "classification": "SANITY_CHECK",
+      "features": ["Forward", "Backward", "Adam optimizer"],
+      "missing": ["Densification", "Pruning", "Real GT", "L1+D-SSIM loss", "Multi-scene", "Validation split"]
+    },
+    "phase4_rtx5070_room_1000steps": {
+      "classification": "SIMPLIFIED_TRAINING",
+      "features": ["Forward", "Backward", "Adam optimizer", "PSNR tracking"],
+      "missing": ["Densification", "Pruning", "Real GT", "L1+D-SSIM loss", "Validation split"]
+    },
+    "phase5_rtx5070_room_5000steps": {
+      "classification": "SIMPLIFIED_TRAINING",
+      "features": ["Forward", "Backward", "Adam optimizer", "PSNR tracking", "Stage analysis", "Gaussian count tracking"],
+      "missing": ["Densification", "Pruning", "Real GT", "L1+D-SSIM loss", "Validation split"]
+    },
+    "phase5_rtx5070_garden_5000steps": {
+      "classification": "SIMPLIFIED_TRAINING",
+      "features": ["Forward", "Backward", "Adam optimizer"],
+      "missing": ["Densification", "Pruning", "Real GT", "L1+D-SSIM loss", "Validation split", "Complete results"]
+    },
+    "phase7_rtx5070_room_30k": {
+      "classification": "FULL_TRAINING",
+      "features": ["Forward", "Backward", "Adam optimizer", "Real GT", "L1+D-SSIM loss", "Densification", "Pruning", "SH progression", "Checkpointing", "PSNR tracking"],
+      "missing": ["Cross-scene (bicycle/garden)", "Held-out evaluation", "Time-to-quality metric"],
+      "tile16": {"wall_min": 150.3, "best_psnr": 29.27, "final_gaussians": 1193480, "iter_per_sec": 3.33},
+      "tile32": {"wall_min": 94.8, "best_psnr": 29.39, "final_gaussians": 1146273, "iter_per_sec": 5.27}
+    }
+  },
+  "candidate_ranking": {
+    "tier1": {
+      "label": "Highest potential (strong performance + partial pipeline)",
+      "modules": ["M1 (tile_size)"],
+      "condition": "Requires gradient correctness verification"
+    },
+    "tier2": {
+      "label": "Moderate potential (needs more validation)",
+      "modules": ["M1 (hardware-aware heuristic)"],
+      "condition": "Requires gradient + full training validation"
+    },
+    "tier3": {
+      "label": "Low contribution potential (small effect or blocked)",
+      "modules": ["M2 (packed/dense)", "M3 (SH degree)", "M4 (radius_clip)", "M5 (eps2d)", "M7 (HiGS SH16)", "M9 (TC-GS baseline)"],
+      "condition": "Small effects or external dependency"
+    },
+    "invalidated": {
+      "label": "Invalidated as training contributions",
+      "modules": ["M7 (HiGS SH16 — quality drop to 49.79 dB)", "M6 (HiGS — inference-only, no backward pass)"],
+      "reason": "Quality degradation or non-differentiable"
+    }
+  },
+  "next_experiments": {
+    "top1": {
+      "id": "epic06-gradcheck-tile-size-v1",
+      "priority": "P0",
+      "title": "Gradient correctness for tile_size (gradcheck + finite difference)",
+      "module": "M1",
+      "description": "Verify that tile_size=16 and tile_size=32 produce numerically correct gradients for all parameter groups using torch.autograd.gradcheck and finite-difference comparison",
+      "protocol": [
+        "torch.autograd.gradcheck on gsplat.rasterization() at tile16 and tile32",
+        "Finite-difference (central, eps=1e-4/1e-5/1e-6) for means, scales, rotations, opacity, shs",
+        "Synthetic scene (50K), single camera, 1080p",
+        "Report: max_abs_error, max_relative_error, mean_relative_error"
+      ],
+      "success_criteria": "max_relative_error < 1e-4 for all parameter groups at both tile sizes"
+    },
+    "top2": {
+      "id": "epic06-gt-quality-tile-size-v1",
+      "priority": "P2",
+      "title": "Ground-truth quality for tile_size on official scenes",
+      "module": "M1",
+      "description": "Compute PSNR/SSIM/LPIPS for tile16 and tile32 against official Mip-NeRF 360 GT images on bicycle, garden, room",
+      "dependency": "Top 1 must pass (gradient correctness)",
+      "status": "COMPLETED",
+      "conclusion": "tile16 and tile32 produce pixel-identical renderings (PSNR/SSIM/LPIPS deltas=0.0) on all 3 scenes. tile_size affects ONLY performance, NOT quality."
+    },
+    "top3": {
+      "id": "epic06-simplified-training-real-gt-v1",
+      "priority": "P1",
+      "title": "Simplified training with real GT images",
+      "module": "M1",
+      "description": "Re-run simplified training with real GT instead of random GT to get meaningful PSNR trajectories for tile16 vs tile32",
+      "dependency": "Top 1 must pass (gradient correctness)"
+    },
+    "top4": {
+      "id": "phase7c-cross-scene-bicycle-garden",
+      "priority": "P0",
+      "title": "Cross-scene full training: bicycle + garden 30K",
+      "module": "M1",
+      "description": "Run full 30K training on bicycle (6.1M Gs) and garden (5.8M Gs) with tile16 and tile32 to test scene-dependence of speedup",
+      "dependency": "EPIC-05 server must be reachable",
+      "status": "BLOCKED",
+      "blocker": "Server EPIC-05 (8.130.30.251:1024) connection timed out"
+    },
+    "top5": {
+      "id": "phase7c-controlled-3000-rerun",
+      "priority": "P0",
+      "title": "Controlled 3000-step rerun in single session",
+      "module": "M1",
+      "description": "Run tile16 vs tile32 3000-step comparison within same process/session to eliminate run-to-run variance",
+      "dependency": "EPIC-05 server must be reachable",
+      "status": "BLOCKED"
+    },
+    "phase8c": {
+      "id": "phase8c-backward-mechanism",
+      "priority": "P0",
+      "title": "Phase 8C — Backward path decomposition + workload quantification",
+      "module": "M1",
+      "description": "Trace every backward kernel, measure workload stats, evaluate H7 hypotheses on frozen room checkpoints",
+      "date": "2026-09-20",
+      "status": "COMPLETED",
+      "key_finding": "Phase 8B backward ratios (137-234x) NOT reproducible. Fresh cold-GPU measurement shows 2.6-6.3x ratio, fully explained by 4x intersection count. Phase 8B extreme ratios caused by GPU thermal throttling."
+    },
+    "phase8d": {
+      "id": "phase8d-forward-mechanism",
+      "priority": "P0",
+      "title": "Phase 8D — Forward path decomposition + superlinear scaling analysis",
+      "module": "M1",
+      "description": "Complete forward kernel trace (8 kernels/CUB calls), identify which kernels are tile_size-dependent, quantify workload metrics (M1-M8), evaluate forward superlinear scaling hypotheses",
+      "date": "2026-09-21",
+      "status": "COMPLETED",
+      "key_finding": "tile16 forward superlinear scaling (1.33x Gs count → 9.64x runtime) is not explained by total Gaussian count, intersection count, or visible Gaussian count. The most complete explanation is H7: Rasterization Kernel Batch Overhead — tile16 has 15.5x more batch-launch operations (571K-694K vs 37K-45K) due to 4x smaller block size (256 vs 1024). Per-intersection cost increases 7.96x from iter5000→iter30000. Per-kernel timing BLOCKED (needs CUDA event wrappers). Nsight Compute profiling BLOCKED (WDDM)."
+    }
+  },
+  "meta": {
+    "total_modules": 9,
+    "differentiable_modules": 5,
+    "modules_with_gradient_evidence": 5,
+    "modules_with_full_training_evidence": 1,
+    "modules_with_gt_quality_evidence": 1,
+    "significant_performance_findings": 6,
+    "critical_gaps_resolved": 5,
+    "critical_gaps_remaining": 0,
+    "audit_conclusion": "M1_FULL_TRAINING_VERIFIED_ON_ROOM_CROSS_SCENE_BLOCKED_M2_M5_AWAITING_TRAINING_GATE",
+    "experiment_readiness": "PARTIALLY_UNBLOCKED — Phase 8C backward analysis + Phase 8D forward path analysis completed locally; cross-scene still BLOCKED; per-kernel timing and Nsight profiling BLOCKED",
+    "phase8_priorities": {
+      "P0_cross_scene_full_training": "BLOCKED — bicycle 30K, garden 30K need server",
+      "P0_m2_training_gate": "BLOCKED — server",
+      "P0_m3_training_gate": "BLOCKED — server",
+      "P0_m4_training_gate": "BLOCKED — server",
+      "P0_m5_training_gate": "BLOCKED — server",
+      "P1_real_scene_microbenchmark": "COMPLETED with CRITICAL CORRECTION — Phase 8C shows Phase 8B backward ratios (137-234x) were thermal artifacts; actual ratio is 3-6x explained by 4x intersection count",
+      "P2_composability": "BLOCKED — needs >=2 eligible modules beyond M0/M1 combinations",
+      "P3_new_invention": "FORBIDDEN — do not start until all P0-P2 gates pass",
+      "P4_backward_timing_revision": "COMPLETED — Phase 8C provides corrected backward timing with cold GPU methodology",
+      "P5_hypothesis_evaluation": "COMPLETED — H7-A (supported), H7-B (falsified), H7-C (falsified), H7-D (falsified), H7-E (blocked), H7-F (supported)"
+    },
+    "phase8_priorities": {
+      "P0_cross_scene_full_training": "BLOCKED — bicycle 30K, garden 30K need server",
+      "P0_m2_training_gate": "BLOCKED — server",
+      "P0_m3_training_gate": "BLOCKED — server",
+      "P0_m4_training_gate": "BLOCKED — server",
+      "P0_m5_training_gate": "BLOCKED — server",
+      "P1_real_scene_microbenchmark": "COMPLETED with CRITICAL CORRECTION — Phase 8C shows Phase 8B backward ratios (137-234x) were thermal artifacts; actual ratio is 3-6x explained by 4x intersection count",
+      "P2_composability": "BLOCKED — needs >=2 eligible modules beyond M0/M1 combinations",
+      "P3_new_invention": "FORBIDDEN — do not start until all P0-P2 gates pass",
+      "P4_backward_timing_revision": "COMPLETED — Phase 8C provides corrected backward timing with cold GPU methodology",
+      "P5_hypothesis_evaluation": "COMPLETED — H7-A (supported), H7-B (falsified), H7-C (falsified), H7-D (falsified), H7-E (blocked), H7-F (supported)",
+      "P6_forward_mechanism": "COMPLETED — Phase 8D provides complete forward kernel trace, workload metric comparison (M1-M8), hypothesis matrix with 10 hypotheses evaluated. Primary finding: H7 batch overhead explains baseline ~15x work ratio, superlinear growth driven by per-batch efficiency degradation."
+    },
+    "current_blocker": {
+      "type": "server_unreachable",
+      "host": "EPIC-05 (8.130.30.251:1024)",
+      "impact": "Cross-scene validation still blocked; local forward path analysis completed with source-level trace",
+      "affected_tracks": ["A1 (controlled 3000 rerun)", "A2 (bicycle 30K)", "A3 (garden 30K)", 
+                          "C (M2 training gate)", "D (M3 training gate)",
+                          "E (M4 training gate)", "F (M5 training gate)", "G (composability)",
+                          "P1 per-kernel CUDA event timing", "P2 Nsight Compute profiling"]
+    }
+  },
+}

@@ -1,0 +1,74 @@
+{
+  "experiment_id": "phase8c-hypothesis-evaluation",
+  "timestamp": "2026-09-20T00:00:00Z",
+  "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU",
+  "gsplat_version": "1.5.3",
+  "H7_accepted": false,
+  "H7_still_hypothesis": true,
+  "note": "H7 as originally defined ('backward sensitivity 10-30× larger than forward') is FALSIFIED. The actual backward ratio (~4×) is comparable to or smaller than forward ratio (3-15×) when measured without thermal throttling.",
+  "hypotheses": {
+    "H7_A": {
+      "title": "Actual backward work quantity differs significantly",
+      "status": "SUPPORTED",
+      "conclusion": "tile16 has exactly 4.00× more tile-Gaussian intersections than tile32. This is determined purely by tile geometry (8160 tiles / 2040 tiles = 4).",
+      "predictive_power": "PARTIAL — explains ~4× ratio, cannot explain 137-234×",
+      "evidence_summary": "All 6 checkpoints show precise 4.00× intersection ratio. tpg_median = total_tiles (100% tile occupancy).",
+      "evidence_strength": "STRONG"
+    },
+    "H7_B": {
+      "title": "Same work magnitude but tile16 per-unit work is less efficient",
+      "status": "FALSIFIED",
+      "conclusion": "Per-intersection efficiency is similar between tile16 (0.21-0.35 μs/isect) and tile32 (0.20-0.34 μs/isect). Efficiency ratio fluctuates around 1.0× (within measurement noise).",
+      "predictive_power": "NONE",
+      "evidence_summary": "Normalized timing on cold GPU. Per-checkpoint μs/isect comparison shows no significant efficiency difference.",
+      "evidence_strength": "MODERATE"
+    },
+    "H7_C": {
+      "title": "Tile16-specific backward code path",
+      "status": "FALSIFIED",
+      "conclusion": "Same compiled binary, same 4 backward kernels, same launch sequence. Only grid/block dimensions differ for kernel 1.",
+      "predictive_power": "NONE",
+      "evidence_summary": "Full source trace of all 4 backward kernels. cuobjdump VERIFIED identical binary.",
+      "evidence_strength": "CONCLUSIVE"
+    },
+    "H7_D": {
+      "title": "Nonlinear growth from tile-Gaussian intersections",
+      "status": "FALSIFIED",
+      "conclusion": "t16 backward scales near-linearly with work: 1.07× time increase for 1.21× intersection increase.",
+      "predictive_power": "NONE",
+      "evidence_summary": "iter5000 (45.4ms) → iter30000 (48.6ms), isects 145M→176M. No superlinearity.",
+      "evidence_strength": "MODERATE"
+    },
+    "H7_E": {
+      "title": "Memory / atomic contention",
+      "status": "BLOCKED",
+      "conclusion": "Cannot directly measure. Nsight Compute unavailable on WDDM RTX 5070 laptop.",
+      "predictive_power": "UNKNOWN",
+      "evidence_summary": "Source code shows 10 gpuAtomicAdd calls per valid Gaussian-pixel pair. Hardware counter evidence is BLOCKED.",
+      "evidence_strength": "NONE (BLOCKED)"
+    },
+    "H7_F": {
+      "title": "Timing artifact / synchronization issue",
+      "status": "SUPPORTED",
+      "conclusion": "Phase 8B's 137-234× ratio is NOT reproducible. Fresh cold-GPU measurement yields 2.6-6.3×. The extreme ratio is caused by GPU thermal throttling.",
+      "predictive_power": "EXPLANATORY — explains the discrepancy between Phase 8B and Phase 8C results",
+      "evidence_summary": "Phase 8B raw samples show clear bimodal distribution (alternating ~875ms and ~2528ms). Phase 8C cold GPU reproduces with 3-6× ratio. nvidia-smi shows GPU temperature/power consistent with throttling.",
+      "evidence_strength": "STRONG"
+    }
+  },
+  "genuine_backward_ratio": {
+    "minimum": 2.6,
+    "maximum": 6.3,
+    "median": 3.6,
+    "explained_by_intersection_count": true,
+    "intersection_count_ratio": 4.0,
+    "thermal_artifact_ratio_range": "137-234× (Phase 8B, throttled) vs 2.6-6.3× (Phase 8C, cold GPU)"
+  },
+  "next_steps": {
+    "priority_1": "Investigate why tile16 FORWARD scales superlinearly (4.66× time for 1.21× work) while backward does not",
+    "priority_2": "Obtain Nsight Compute access (TCC driver or Linux) to measure atomic contention and memory system behavior",
+    "priority_3": "Cross-scene validation on bicycle/garden (BLOCKED by server)",
+    "priority_4": "Test on different GPU architectures (A100, RTX 4090) to check if thermal sensitivity is laptop-specific"
+  },
+  "phase8b_retraction_note": "Phase 8B conclusion 'backward advantage is 10-30× larger than forward' is NOT VALID. Measurement was confounded by GPU thermal throttling."
+}

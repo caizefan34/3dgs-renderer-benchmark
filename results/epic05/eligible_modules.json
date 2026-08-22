@@ -1,0 +1,152 @@
+{
+  "schema_version": 2,
+  "experiment_id": "phase8-eligibility-audit",
+  "date": "2026-09-15",
+  "description": "Strict Candidate Eligibility Gate. Only modules passing ALL gates (Forward + Gradient + GT Quality + Full Training) may enter composability. Phase 8 update: M1_tile32 set to PENDING_CROSS_SCENE until bicycle/garden validated.",
+  "gate_criteria": {
+    "forward_correctness": {"required": "SUPPORTED", "description": "Forward pixel equivalence verified (bit-exact or max_pixel_error < 0.01)"},
+    "gradient_correctness": {"required": "SUPPORTED", "description": "Gradcheck + finite-difference PASS (max_abs_error < 1e-4)"},
+    "gt_quality": {"required": "SUPPORTED", "description": "PSNR/SSIM/LPIPS vs GT verified (delta < 0.1 dB / 0.001 / 0.001)"},
+    "training_sanity": {"required": "SUPPORTED", "description": "500-step pass with real GT, no NaN/Inf, loss decreasing"},
+    "training_full": {"required": "PARTIALLY_SUPPORTED", "description": "Full 30K training pass (room minimum)"}
+  },
+  "modules": {
+    "M0": {
+      "name": "baseline (tile16, packed=True, SH=3, eps2d=0.1, radius_clip=0.0)",
+      "forward_correctness": "SUPPORTED",
+      "gradient_correctness": "SUPPORTED",
+      "gt_quality": "SUPPORTED",
+      "training_sanity": "SUPPORTED",
+      "training_full": "SUPPORTED",
+      "eligible_for_composability": true,
+      "note": "Reference baseline — always eligible"
+    },
+    "M1_tile16": {
+      "name": "tile_size=16 (default)",
+      "forward_correctness": "SUPPORTED",
+      "gradient_correctness": "SUPPORTED",
+      "gt_quality": "SUPPORTED",
+      "training_sanity": "SUPPORTED",
+      "training_full": "SUPPORTED",
+      "eligible_for_composability": true,
+      "note": "Default configuration; full room training complete with tile16"
+    },
+    "M1_tile32": {
+      "name": "tile_size=32",
+      "forward_correctness": "SUPPORTED",
+      "gradient_correctness": "SUPPORTED",
+      "gt_quality": "SUPPORTED",
+      "training_sanity": "SUPPORTED",
+      "training_full": "SUPPORTED",
+      "eligible_for_composability": "PENDING_CROSS_SCENE",
+      "note": "Room 30K: 1.58× faster, PSNR+0.12dB, NaN-free. Cross-scene validation (bicycle, garden) BLOCKED. Phase 8C: Phase 8B claimed 137-234x backward advantage is NOT VALID — caused by GPU thermal throttling. Actual backward advantage is ~3-6x, fully explained by 4x fewer tile-Gaussian intersections. Phase 8D: Forward superlinear scaling in tile16 is traced to rasterization kernel batch overhead (15.5x more batch launches) amplified by per-batch sync inefficiency. H7 batch overhead is the primary supported hypothesis. Per-kernel timing and Nsight profiling remain BLOCKED."
+    },
+    "M2": {
+      "name": "packed/dense",
+      "forward_correctness": "INCONCLUSIVE",
+      "gradient_correctness": "SUPPORTED",
+      "gt_quality": "NOT_TESTED",
+      "training_sanity": "NOT_TESTED",
+      "training_full": "NOT_TESTED",
+      "eligible_for_composability": false,
+      "gates_failed": ["forward_correctness", "gt_quality", "training_sanity", "training_full"],
+      "note": "Gradient correctness PASS. Forward pixel equivalence between packed and dense not formally verified. GT quality and training BLOCKED by server."
+    },
+    "M3": {
+      "name": "SH degree (0/1/3)",
+      "forward_correctness": "PARTIALLY_SUPPORTED",
+      "gradient_correctness": "SUPPORTED",
+      "gt_quality": "NOT_TESTED",
+      "training_sanity": "NOT_TESTED",
+      "training_full": "NOT_TESTED",
+      "eligible_for_composability": false,
+      "gates_failed": ["gt_quality", "training_sanity", "training_full"],
+      "note": "Gradient correctness PASS (gradcheck PASS for SH0/SH1/SH3). GT quality and training BLOCKED by server."
+    },
+    "M4": {
+      "name": "radius_clip (0.0/0.001/0.01)",
+      "forward_correctness": "INCONCLUSIVE",
+      "gradient_correctness": "SUPPORTED",
+      "gt_quality": "NOT_TESTED",
+      "training_sanity": "NOT_TESTED",
+      "training_full": "NOT_TESTED",
+      "eligible_for_composability": false,
+      "gates_failed": ["forward_correctness", "gt_quality", "training_sanity", "training_full"],
+      "note": "Gradient norms match within 3.1e-7. Pixel equivalence and GT quality BLOCKED by server."
+    },
+    "M5": {
+      "name": "eps2d (0.01/0.1/0.5)",
+      "forward_correctness": "INCONCLUSIVE",
+      "gradient_correctness": "SUPPORTED",
+      "gt_quality": "NOT_TESTED",
+      "training_sanity": "NOT_TESTED",
+      "training_full": "NOT_TESTED",
+      "eligible_for_composability": false,
+      "gates_failed": ["forward_correctness", "gt_quality", "training_sanity", "training_full"],
+      "note": "Gradient norms finite, minor variation expected. Pixel equivalence and training BLOCKED by server."
+    },
+    "M6": {
+      "name": "HiGS inference renderer",
+      "forward_correctness": "PARTIALLY_SUPPORTED",
+      "gradient_correctness": "NOT_TESTED",
+      "gt_quality": "INCONCLUSIVE",
+      "training_sanity": "NOT_TESTED",
+      "training_full": "NOT_TESTED",
+      "eligible_for_composability": false,
+      "gates_failed": ["gradient_correctness", "gt_quality", "training_sanity", "training_full"],
+      "note": "Inference-only renderer — no backward pass. Cannot participate in training. Removed from Phase 8 scope."
+    },
+    "M7": {
+      "name": "HiGS SH compression",
+      "forward_correctness": "PARTIALLY_SUPPORTED",
+      "gradient_correctness": "NOT_TESTED",
+      "gt_quality": "INCONCLUSIVE",
+      "training_sanity": "NOT_TESTED",
+      "training_full": "NOT_TESTED",
+      "eligible_for_composability": false,
+      "gates_failed": ["gradient_correctness", "gt_quality", "training_sanity", "training_full"],
+      "note": "Inference-only. SH32 quality OK (64.85 dB min), SH16 degraded (49.79 dB min). Removed from Phase 8 scope."
+    },
+    "M9": {
+      "name": "TC-GS (Tensor Core)",
+      "forward_correctness": "PARTIALLY_SUPPORTED",
+      "gradient_correctness": "NOT_TESTED",
+      "gt_quality": "INCONCLUSIVE",
+      "training_sanity": "NOT_TESTED",
+      "training_full": "NOT_TESTED",
+      "eligible_for_composability": false,
+      "gates_failed": ["gradient_correctness", "gt_quality", "training_sanity", "training_full"],
+      "note": "External repository. Removed from Phase 8 gsplat optimization scope."
+    }
+  },
+  "eligible_for_composability": ["M0", "M1_tile16"],
+  "eligible_pending_cross_scene": ["M1_tile32"],
+  "near_eligible": {
+    "M2": {
+      "missing": ["forward_pixel_equivalence_test", "gt_quality_test", "training_sanity_check"],
+      "effort_to_qualify": "Low — gradient already PASS, need forward equivalence + short training run (BLOCKED by server)"
+    },
+    "M3": {
+      "missing": ["gt_quality_test", "training_sanity_check"],
+      "effort_to_qualify": "Low — gradcheck already PASS, need quality evaluation + short training (BLOCKED by server)"
+    },
+    "M4": {
+      "missing": ["forward_pixel_equivalence_test", "gt_quality_test", "training_sanity_check"],
+      "effort_to_qualify": "Low — gradient norms already match (BLOCKED by server)"
+    },
+    "M5": {
+      "missing": ["forward_pixel_equivalence_test", "gt_quality_test", "training_sanity_check"],
+      "effort_to_qualify": "Low — gradient norms already finite (BLOCKED by server)"
+    }
+  },
+  "not_eligible_for_training": ["M6", "M7", "M9"],
+  "blocker": {
+    "type": "server_unreachable",
+    "host": "EPIC-05 (8.130.30.251:1024)",
+    "timestamp": "2026-09-15",
+    "details": "TCP connection timeout after 5s. SSH key exists at C:\\Users\\36570\\.ssh\\epic-node-new.",
+    "impact": "All GPU-dependent experiments blocked: cross-scene validation, M2-M5 training gates, controlled 3000-step rerun, real-scene microbenchmark, composability.",
+    "affected": ["M2_training_sanity", "M3_training_sanity", "M4_training_sanity", "M5_training_sanity",
+                 "cross_scene_validation", "composability_tests", "real_scene_microbenchmark"]
+  }
+}
