@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "track_id": "compression",
+  "paper_scope": "A same-checkpoint study of bit-exact and near-lossless storage formats for trained 3D Gaussian Splatting assets.",
+  "contributions": [
+    {
+      "id": "codec_taxonomy",
+      "statement": "A taxonomy that separates bit-exact, same-checkpoint near-lossless, and retraining-required codecs."
+    },
+    {
+      "id": "quality_protocol",
+      "statement": "A round-trip protocol combining numerical thresholds, visual audit, provenance, and artifact size."
+    },
+    {
+      "id": "qualification",
+      "statement": "A five-scene qualification of practical same-checkpoint storage formats."
+    }
+  ],
+  "claims": [
+    {
+      "id": "spz-near-lossless-frontier",
+      "contribution_id": "qualification",
+      "statement": "SPZ 8/8 passed the declared near-lossless gate on all five scenes at 5.572191x to 6.072361x compression and under 0.02 dB absolute PSNR change.",
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "reports/generated/compression-expanded-final/compression-results.json",
+          "sha256": "2ef7ea9876cf9d89e9eb62fc1b54a635bbb3f84b768cf164a7c40364a350744c",
+          "assertions": [
+            {"type": "select_count", "pointer": "/results", "where": {"/codec/id": "spz"}, "equals": 5},
+            {"type": "select_all", "pointer": "/results", "where": {"/codec/id": "spz"}, "field": "/metrics/near_lossless_gate/overall_pass", "equals": true},
+            {"type": "select_min", "pointer": "/results", "where": {"/codec/id": "spz"}, "field": "/codec/artifact/compression_ratio", "equals": 5.572190756917695},
+            {"type": "select_max", "pointer": "/results", "where": {"/codec/id": "spz"}, "field": "/codec/artifact/compression_ratio", "equals": 6.0723614150187855},
+            {"type": "select_max_abs", "pointer": "/results", "where": {"/codec/id": "spz"}, "field": "/metrics/quality_delta/psnr_db", "less_than": 0.02}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "universal-best-codec",
+      "contribution_id": "qualification",
+      "statement": "SPZ is universally the best or most lossless 3DGS storage format.",
+      "status": "out_of_scope",
+      "rationale": "Lossless and near-lossless formats optimize different objectives; conclusions are restricted to the declared same-checkpoint cohort and gate."
+    },
+    {
+      "id": "deployment-cost-frontier",
+      "contribution_id": "quality_protocol",
+      "statement": "The reported Pareto frontier includes encode time, decode time, peak decode memory, and post-decode rendering cost.",
+      "status": "blocked",
+      "blocking_gate": "Measure cold and warm encode/decode latency, peak host/GPU memory, and render-ready upload cost under a frozen storage protocol."
+    },
+    {
+      "id": "native-codec-coverage",
+      "contribution_id": "codec_taxonomy",
+      "statement": "The study covers the strongest retraining-required learned compression methods under official implementations.",
+      "status": "blocked",
+      "blocking_gate": "Run official FCGS, HAC/HAC++, GSICO, and other current learned-codec implementations as a separately ranked retraining-required cohort."
+    }
+  ]
+}

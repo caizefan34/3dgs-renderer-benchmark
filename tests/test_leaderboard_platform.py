@@ -140,12 +140,11 @@ class SchemaValidationTest(unittest.TestCase):
         with self.assertRaises(SchemaValidationError):
             validate_schema({}, schema)
 
-    def test_committed_leaderboard_schema_is_valid(self):
+    def test_committed_matrix_report_is_tier_separated(self):
         root = Path(__file__).resolve().parents[1]
-        instance = json.loads((root / "docs" / "leaderboard" / "leaderboard.json").read_text(encoding="utf-8"))
-        schema = json.loads((root / "schemas" / "leaderboard.schema.json").read_text(encoding="utf-8"))
-
-        validate_schema(instance, schema)
+        instance = json.loads((root / "docs" / "leaderboard" / "ranking.json").read_text(encoding="utf-8"))
+        self.assertEqual(instance["tier_policy"], "never_mix")
+        self.assertEqual(set(instance["tiers"]), {"measured", "reproduced", "paper_reported"})
 
     def test_schema_validator_checks_additional_property_values(self):
         schema = {"type": "object", "additionalProperties": {"type": "number"}}

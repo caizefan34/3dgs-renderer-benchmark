@@ -12,7 +12,7 @@ import math
 import numpy as np
 import torch
 from dataclasses import dataclass, replace
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 @dataclass(eq=False)
@@ -49,6 +49,7 @@ class Camera:
     tanfovy: float
     K: torch.Tensor
     image_name: Optional[str] = None
+    reference_crop: Optional[Tuple[int, int, int, int]] = None
 
 
 def resize_cameras(
@@ -114,6 +115,7 @@ def _camera_from_3dgs_json(cd: dict, device: str) -> Camera:
             device=device,
         ),
         image_name=cd.get("img_name"),
+        reference_crop=tuple(cd["reference_crop"]) if cd.get("reference_crop") else None,
     )
 
 
@@ -192,6 +194,7 @@ def load_cameras_from_json(path: str, device: str = "cuda") -> List[Camera]:
             tanfovx=tan_fov_x, tanfovy=tan_fov_y,
             K=K,
             image_name=cd.get("image_name") or cd.get("img_name"),
+            reference_crop=tuple(cd["reference_crop"]) if cd.get("reference_crop") else None,
         ))
 
     return cameras

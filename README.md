@@ -1,113 +1,126 @@
-# 3DGS Renderer Evaluation Framework
+# 🚀 3DGS Renderer Benchmark and Research Suite
 
-[![Tests](https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/ci.yml/badge.svg)](https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/ci.yml)
-[![Pages](https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/deploy-pages.yml/badge.svg)](https://caizefan34.github.io/3dgs-renderer-benchmark/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/ci.yml"><img src="https://github.com/caizefan34/3dgs-renderer-benchmark/actions/workflows/ci.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-2563eb" alt="MIT license"></a>
+  <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/stargazers"><img src="https://img.shields.io/github/stars/caizefan34/3dgs-renderer-benchmark?style=flat&label=Stars&color=f59e0b" alt="GitHub stars"></a>
+  <img src="https://img.shields.io/badge/GPU-EPIC--05_A100_80GB-46e970" alt="GPU">
+  <img src="https://img.shields.io/badge/Renderers-5_families_%2B_7_HiGS_variants-38bdf8" alt="Renderers">
+  <img src="https://img.shields.io/badge/Codecs-10_tested-34d399" alt="Codecs">
+  <img src="https://img.shields.io/badge/Tests-277_pass-22c55e" alt="Tests">
+</p>
 
-Research-grade, quality-gated benchmarking for CUDA 3D Gaussian Splatting
-renderers. The platform asks which renderer is most efficient under explicit
-quality constraints, not merely which renderer is fastest on one workload.
+<p align="center">
+  <a href="https://caizefan34.github.io/3dgs-renderer-benchmark/"><strong>Results explorer</strong></a> |
+  <a href="paper/README.md"><strong>Paper evidence</strong></a> |
+  <a href="https://github.com/caizefan34/3dgs-renderer-benchmark/issues/new?template=result_submission.yml"><strong>Submit results</strong></a>
+</p>
 
-Synthetic stress results, real-scene quality results, real-scene speed results,
-and Pareto analysis are kept separate. Synthetic speed is never treated as
-ground-truth quality evidence.
+A reproducible research suite for 3D Gaussian Splatting (3DGS), organized
+around three independently publishable questions:
 
-## Why This Benchmark?
+1. Which recent rendering, training, and storage methods are reproducible and
+   comparable?
+2. Can HiGS support a correct native backward and faster end-to-end training?
+3. Which storage format is smallest under a declared lossless or near-lossless
+   contract?
 
-3DGS renderer evaluations often report the fastest favorable scene while
-changing Gaussian count, camera path, resolution, or image quality. A renderer
-can increase FPS by pruning visible Gaussians, approximating spherical
-harmonics, or changing compositing order; the resulting speedup is not useful
-if it silently degrades the image. Mean latency alone also hides long-tail
-stalls, and peak memory is frequently omitted even though it determines which
-scenes can run on a target GPU.
+The repository shares datasets, provenance, quality metrics, and artifact
+validation across these tracks. Results are valid only inside their declared
+hardware and protocol cohort; they are not universal renderer, training, or
+codec rankings.
 
-This benchmark treats speed as valid only within a declared quality envelope.
-Every comparable run fixes the scene, camera sequence, resolution, warmup,
-measurement boundary, and software environment. PSNR, SSIM, and LPIPS gates
-reject outputs that do not meet the configured reference quality. Raw JSON
-artifacts remain the source of truth, so leaderboard and Pareto results can be
-audited or regenerated.
+## Research tracks
 
-## Architecture
+| Track | What is available | Current scientific boundary | Start here |
+| --- | --- | --- | --- |
+| Reproducible 3DGS survey | Source-pinned registry, evidence tiers, integration status, five-renderer A100 matrix | A systematic/latest-survey claim still needs a frozen search and screening audit | [Survey protocol](docs/survey-protocol.md) |
+| Differentiable HiGS | Native CUDA backward, dynamic topology, sparse/progressive training studies, positive and negative ablations, frozen 210-job from-scratch matrix (incl. official Speedy-Splat baseline), and a frozen 132-job 3-seed confirmatory matrix | Trainability and mean peak-memory reduction measured; quality-preserving training speedup now supported by the pre-registered confirmatory gate (1.164x mean wall speedup with quality non-inferiority at 11 scenes x 3 seeds) | [HiGS paper plan](docs/higs-paper-plan.md) |
+| Storage compression | Bit-exact and same-checkpoint near-lossless round trips across five scenes | Learned retraining codecs and decode/deployment cost require a separate completed cohort | [Compression protocol](docs/compression-protocol.md) |
 
-```mermaid
-flowchart LR
-    A[Dataset Loading] --> B[Camera Trajectory Sampling]
-    B --> C[Renderer Adapter]
-    C --> D[Warmup/Repeat Timing]
-    D --> E[Quality Gate<br/>PSNR / SSIM / LPIPS]
-    E --> F[JSON Result Export]
-    F --> G[Pareto Analysis]
-```
+The [research program](docs/research-program.md) explains why these tracks share
+one artifact but should not be presented as three co-equal contributions in one
+paper.
 
-The strict adapter contract is defined in `src/adapters/base.py`. Benchmark
-Protocol v1.0 is specified in [docs/protocol.md](docs/protocol.md).
+## Supported evidence
 
-## Project Overview
+### Renderer comparison
 
-The benchmark platform provides:
+The repository has complete Tier A coverage for its declared measured cohort:
+five renderer configurations across five fixed 1920x1080 cases on one NVIDIA
+A100-SXM4-80GB. Within that cohort,
+`gsplat_higs` has a 5.671x speed index and 696.91 aggregate FPS. It also has a
+small measured quality delta, so the result is a throughput finding rather than
+a universal quality-preserving claim.
 
-- isolated renderer adapters for gsplat, HiGS, Speedy-Splat, original 3DGS,
-  TC-GS, and registered experimental renderers;
-- fixed scenes, camera trajectories, timing protocol, and reproducibility
-  metadata;
-- official-dataset training policy for quality-bearing benchmark submissions;
-- PSNR, SSIM, and LPIPS quality gates for real-scene validation;
-- Scene Difficulty Score, stability metrics, effective FPS, Pareto analysis,
-  and deterministic recommendations as additive metrics;
-- generated leaderboard artifacts, schema validation, regression checks,
-  Docker scaffolding, and GitHub Pages outputs.
+- [Comparison analysis](docs/comparison-analysis.md)
+- [Generated leaderboard](docs/leaderboard/ranking.md)
+- [Protocol](docs/protocol.md)
+- [Hardware cohort rules](docs/hardware.md)
 
-## Key Results
+## Tier A comparison charts
 
-The table combines only committed artifacts. Performance values marked 1080p
-come from the 50K-Gaussian synthetic stress cohort at 1920x1080. Quality values
-come from the paired official Train reference audit and therefore describe
-renderer fidelity, not held-out reconstruction quality. A dash means that no
-compatible committed measurement exists.
+The charts below are generated from the same 25 accepted runs and remain inside
+the frozen A100 cohort.
 
-<!-- markdownlint-disable MD013 -->
+| Throughput | Quality |
+| --- | --- |
+| [![FPS ranking](docs/leaderboard/measured-fps-ranking.svg)](docs/leaderboard/measured-fps-ranking.svg) | [![PSNR ranking](docs/leaderboard/measured-psnr-ranking.svg)](docs/leaderboard/measured-psnr-ranking.svg) |
+| [![VRAM ranking](docs/leaderboard/measured-vram-ranking.svg)](docs/leaderboard/measured-vram-ranking.svg) | [![SSIM ranking](docs/leaderboard/measured-ssim-ranking.svg)](docs/leaderboard/measured-ssim-ranking.svg) |
+| [![Speed versus LPIPS](docs/leaderboard/measured-speed-vs-lpips.svg)](docs/leaderboard/measured-speed-vs-lpips.svg) | [![LPIPS ranking](docs/leaderboard/measured-lpips-ranking.svg)](docs/leaderboard/measured-lpips-ranking.svg) |
 
-| Renderer Name | Average FPS (1080p) | Peak GPU Memory (MB) | PSNR (dB) | SSIM | LPIPS |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| HiGS tile16 | 502.7 | 147 | 24.3047 | 0.858592 | 0.225616 |
-| Speedy-Splat | 79.6 | 584 | 24.9311 | 0.865762 | 0.223610 |
-| gsplat dense | 81.6 | 368 | 24.3061 | 0.858717 | 0.226278 |
-| original 3DGS | — | — | 24.9319 | 0.865773 | 0.223592 |
-| TC-GS | — | — | 24.9138 | 0.865044 | 0.222874 |
+### Differentiable HiGS
 
-<!-- markdownlint-enable MD013 -->
+The implementation provides:
 
-> **Note:** Original 3DGS and TC-GS 1080p performance cells remain
-> placeholders because their committed speed smoke test used 1959x1090.
-> Generate comparable rows with `src/run_benchmark.py` at 1920x1080 and use
-> the same 50K scene and camera manifest as the synthetic cohort.
+- a correctness baseline using standard gsplat recomputation;
+- a native HiGS CUDA backward for blend, projection, and SH gradients;
+- frozen and dynamic topology paths with versioned scene state;
+- finite-difference, `gradcheck`, mixed-precision, multi-camera, background,
+  depth-mode, and topology-lifecycle coverage;
+- hierarchy-aware tile sampling, progressive resolution, and visibility-aware
+  optimizer experiments.
 
-Synthetic stress timing on an RTX 5070 Laptop at 1920x1080:
+The research log reports quality-prioritized 3000-step A100 configurations that
+reduce per-step time by 8.6% to 21.7% against the same-backend full-resolution
+control on four high/mid Gaussian-count scenes. Train is a documented exception.
 
-| Scene | Renderer | GPU mean | P99 | FPS | Peak VRAM | GT quality |
-| --- | --- | ---: | ---: | ---: | ---: | --- |
-| 50K | HiGS tile16 | 1.99 ms | 2.45 ms | 502.7 | 147 MB | N/A |
-| 200K | HiGS tile16 | 6.34 ms | 7.23 ms | 157.8 | 391 MB | N/A |
-| 400K | HiGS tile8 | 15.96 ms | 23.22 ms | 62.7 | 1057 MB | N/A |
+**Formal confirmatory result (pre-registered gate, `confirmatory_accel15_11s3`):**
+a frozen 132-job matrix (4 methods x 11 scenes x 3 seeds, 30k steps, one A100)
+was executed end-to-end with zero failed jobs. The frozen candidate
+`gsplat_30k_fused_prune10_rclip05` (fused render + opacity-based pruning every
+10th densification + radius clamp 0.05) passes all five gates against the
+`gsplat` control:
 
-Paired-reference quality audit on the official Train model:
+- PSNR paired-delta 95% CI lower bound `-0.022` (gate >= -0.10 dB)
+- SSIM paired-delta 95% CI lower bound `-0.0011` (gate >= -0.003)
+- LPIPS paired-delta 95% CI upper bound `+0.0025` (gate <= +0.005)
+- wall-clock speedup ratio mean `1.164x` (gate >= 1.111x) with CI lower bound
+  `1.034` (> 1.0); time-to-quality is faster (CI upper bound -19.0 s)
+- secondary deltas: mean peak GPU memory -23.3 MiB and mean energy -28.7 kJ
 
-| Renderer | PSNR | SSIM | LPIPS | Status |
-| --- | ---: | ---: | ---: | --- |
-| original 3DGS | 24.9319 | 0.865773 | 0.223592 | reference |
-| Speedy-Splat | 24.9311 | 0.865762 | 0.223610 | audited |
-| gsplat dense | 24.3061 | 0.858717 | 0.226278 | -0.6257 dB; not equivalent |
-| HiGS tile16 | 24.3047 | 0.858592 | 0.225616 | -0.6272 dB; not equivalent |
-| TC-GS | 24.9138 | 0.865044 | 0.222874 | equivalent at configured thresholds |
+The gain is not ordinary early-stop: the matched `gsplat_25k` control fails the
+quality gates (PSNR CI lower bound -0.12, LPIPS CI upper bound +0.0053), and the
+visibility-masked HiGS variant `higs_visible_only` fails both quality and speed
+gates. The earlier frozen 210-job from-scratch matrix (original_3dgs 33,
+gsplat/HiGS 48 each, official Speedy-Splat 33) remains the source of the
+trainability and memory findings (21.6% lower mean peak GPU memory; final PSNR
+lower on 10 of 11 scenes). Machine-readable aggregates live in
+[`paper/higs/tables/confirmatory-accel15-summary.json`](paper/higs/tables/confirmatory-accel15-summary.json)
+with machine-checkable claims in [`paper/higs-claims.json`](paper/higs-claims.json).
+The short-horizon 1.8x-2.5x numbers are not full-convergence results.
 
-The pretrained model archive does not prove that those 38 reference images
-were excluded from training, so these are renderer-fidelity results rather
-than a held-out reconstruction leaderboard.
+- [Implementation report](reports/higs-trainability-implementation.md)
+- [Training research and negative results](reports/higs-training-speedup-research-2026-08-03.md)
+- [Submission design](docs/higs-paper-plan.md)
 
-The HiGS and Speedy-Splat audit artifacts are committed under `data/results`
-with the date `2026-07-15` and contain all 38 per-view measurements.
+### Storage compression
+
+The storage study keeps bit-exact, same-checkpoint near-lossless, and
+retraining-required codecs in separate cohorts. On the frozen five-scene
+same-checkpoint cohort, SPZ 8/8 passes every near-lossless gate at 5.572x to
+6.072x compression and under 0.02 dB absolute PSNR change. XZ is the bit-exact
+option with substantially smaller storage savings.
 
 ## Official Dataset Validation (EPIC-05 Phase 3)
 
@@ -170,192 +183,116 @@ repository maintains four separate evidence classes:
 
 Mip-NeRF 360 speed scaling on the same RTX 5070 Laptop:
 
-| Scene | Renderer | 720p FPS | 1080p FPS | 4K FPS |
-| --- | --- | ---: | ---: | ---: |
-| garden | HiGS Auto | 258.7 | 236.5 | 139.9 |
-| garden | Speedy-Splat | 71.2 | 61.9 | 38.7 |
-| bicycle | HiGS Auto | 255.6 | 245.9 | 124.8 |
-| bicycle | Speedy-Splat | 76.2 | 56.3 | 39.7 |
-| room | HiGS Auto | 870.6 | 489.8 | 318.9 |
-| room | Speedy-Splat | 277.5 | 176.4 | 89.7 |
+- [Expanded qualification](reports/epic05-expanded-compression-qualification-2026-07-24.md)
+- [Machine-readable evidence](reports/generated/compression-expanded-final/compression-results.json)
+- [Terminology and deployment protocol](docs/compression-protocol.md)
 
-Each point uses 10 warmup frames and 30 measured frames across three repeats.
-The runs used Python 3.10 and PyTorch 2.12.1+cu130; PyTorch 2.1 cannot target
-the RTX 5070's `sm_120` architecture. See the
-[validated scaling data](data/results/mipnerf360_resolution_scaling_2026-07-15.json)
-and [resolution scaling plot](data/results/mipnerf360_resolution_scaling_2026-07-15.png).
+## Quick start
 
-## Quick Start
+Requirements depend on the selected CUDA backend. CPU-only validation and
+artifact inspection work without renderer extensions.
 
-```text
+```bash
 git clone https://github.com/caizefan34/3dgs-renderer-benchmark.git
 cd 3dgs-renderer-benchmark
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux/macOS: source .venv/bin/activate
 python -m pip install -r requirements-test.txt
 python -m unittest discover -s tests -v
 ```
 
-GPU smoke test after installing a CUDA-enabled PyTorch build and at least one
-renderer backend:
+Prepare a canonical benchmark case and run an installed renderer:
 
 ```bash
-python src/scripts/generate_scene.py --gaussians 50000 --output data/scene.ply
-python src/run_benchmark.py --list-renderers
-python src/run_benchmark.py \
-  --scene data/scene.ply --camera-path circle --renderers gsplat \
-  --resolution 1080p --frames 100 --warmup 30 --repeats 3 \
-  --output results/quickstart
+python -m pip install -r requirements-benchmark.txt
+python benchmark.py prepare mipnerf360 --scene garden
+python benchmark.py prepare-case small-garden-1080p
+python benchmark.py run gsplat_higs --dataset garden
 ```
 
-Generate a paired-reference quality row for a missing renderer:
+The preparation commands download and verify official assets. Renderer-specific
+CUDA extensions are installed separately; unavailable backends fail or skip
+explicitly rather than producing placeholder measurements.
+
+## Academic evidence gates
+
+Validate the frozen benchmark-paper manifest:
 
 ```bash
-python src/scripts/validate_quality.py \
-  --renderers speedy_splat --scene SCENE.ply --cameras CAMERAS.json \
-  --ground-truth-dir IMAGES --output results/speedy_splat_quality.json
+python src/scripts/validate_paper_evidence.py
 ```
 
-Generate leaderboards from committed benchmark JSON:
+Validate the independent survey, HiGS, and compression paper tracks:
 
 ```bash
-python src/scripts/generate_leaderboard.py \
-  --inputs data/results/rtx5070_laptop_2026-07-13.json \
-  data/results/rtx5070_train_reference_summary_2026-07-14.json \
-  --output-dir results/leaderboard
+python src/scripts/validate_research_program.py
 ```
 
-Official rankings now accept only hash-validated cases declared in
-`benchmark_suite/suite.json`. Run an official speed case with fixed cameras,
-resolution, warmup, frame count, and repeats:
+Validate and expand the HiGS full-training submission matrix:
 
 ```bash
-python src/scripts/validate_benchmark_suite.py --scene garden
-python src/run_benchmark.py \
-  --suite-scene garden --resolution 1080p \
-  --renderers gsplat gsplat_higs_auto \
-  --output results/garden_1080p
+python src/scripts/validate_higs_paper_protocol.py \
+  --output-plan artifacts/higs-paper/experiment-plan.json
 ```
 
-Generate quality measurements at the same suite resolution, then pass both
-JSON files to the leaderboard generator. It joins them only when suite,
-dataset, scene, camera, resolution, and GPU identities match:
+Audit the pinned gsplat source and emit one from-SfM training command:
 
 ```bash
-python src/scripts/validate_quality.py \
-  --suite-scene garden --resolution 1080p \
-  --ground-truth-dir DATASET_IMAGES \
-  --renderers gsplat gsplat_higs_auto \
-  --output results/garden_1080p/quality.json
+python src/scripts/prepare_higs_paper_source.py --variant official
+python src/scripts/prepare_higs_paper_source.py --variant higs
 
-python src/scripts/generate_leaderboard.py \
-  --inputs results/garden_1080p/benchmark_results.json \
-           results/garden_1080p/quality.json \
-  --output-dir results/leaderboard
+python src/scripts/build_higs_training_command.py \
+  --method gsplat --scene mipnerf360/garden --seed 0 \
+  --data-dir /datasets/360_v2/garden \
+  --result-dir results/paper/higs/gsplat-garden-s0
 ```
 
-The generated artifacts include Fastest @ PSNR >= 30/31/32, Pareto-optimal
-renderers, a quality-adjusted FPS efficiency score, and `quality_speed.html`.
+Each `supported` claim is pinned to Git-tracked JSON evidence by SHA-256 and
+executable assertions. `blocked` claims name the missing experiment. A blocked
+claim must not enter an abstract, result table, or conclusion.
 
-List official training dataset sources:
+Build a deterministic release artifact with:
+
+```bash
+python src/scripts/build_release_bundle.py --output 3dgs-renderer-benchmark-<version>.zip
+```
+
+See [paper/README.md](paper/README.md) for the release and DOI workflow.
+
+## Repository map
 
 ```text
-python src/scripts/download_datasets.py --list-official
-python src/scripts/validate_official_training.py
+benchmark/       Frozen suites, protocols, registries, schemas, and training configs
+src/             Adapters, evaluation, validation, statistics, and release tooling
+tests/           CPU-safe unit tests plus opt-in CUDA regression tests
+docs/            Current methodology, research protocols, and generated leaderboard
+paper/           Machine-readable claims and independent paper-track gates
+reports/         Auditable run reports and chronological research appendices
+results/         Raw, measured, generated, and historical result artifacts
+scripts/higs/    Reproduction scripts for HiGS training experiments
+patches/         Differentiable HiGS source patch and integration notes
 ```
 
-Run local renderer availability plus speed/quality suite on an official scene:
+Current documentation starts at [docs/README.md](docs/README.md). Historical
+Windows/WDDM results remain under `reports/archive/` and are not mixed with the
+current A100 cohort.
 
-```text
-python src/scripts/run_local_renderer_suite.py \
-  --scene data/official/mipnerf360/garden/point_cloud.ply \
-  --cameras data/official/mipnerf360/garden/cameras.json \
-  --ground-truth-dir data/official/mipnerf360/garden/images \
-  --renderers all \
-  --output-dir results/local_renderer_suite
-```
+## Contributing results
 
-Unavailable renderer backends are reported as skipped; metrics are generated
-only for adapters that actually run locally.
+Use the structured [benchmark result submission](https://github.com/caizefan34/3dgs-renderer-benchmark/issues/new?template=result_submission.yml)
+before changing a published cohort. Literature additions should include a
+stable paper URL, source URL and commit, task taxonomy, license, and evidence
+tier. HiGS or compression results must include the exact recipe, seeds, raw
+JSON, environment, and all failures.
 
-## Leaderboard
+See [CONTRIBUTING.md](CONTRIBUTING.md) for review requirements.
 
-Committed GitHub Pages artifacts live in [`docs/leaderboard`](docs/leaderboard).
-Local generated artifacts should be written to `results/leaderboard`.
+## Citation
 
-The generator produces:
+Citation metadata is maintained in [CITATION.cff](CITATION.cff). Until an
+archival DOI is issued, cite the repository URL and exact release or commit.
+Do not invent a DOI in advance.
 
-- `leaderboard.json`
-- `leaderboard.md`
-- `leaderboard.html`
+## License
 
-See [leaderboard documentation](docs/leaderboard.md).
-
-## Supported Renderers
-
-- `speedy_splat`
-- `original_3dgs` / `diff_gaussian`
-- `gsplat`
-- `gsplat_dense`
-- `gsplat_higs`
-- `gsplat_higs_tile16`
-- `gsplat_higs_sh32`
-- `gsplat_higs_sh16`
-- `gsplat_higs_auto`
-- `tcgs`
-- `fast_gauss` (registered, unavailable in the current local Windows policy)
-
-Renderer source, commit, and reproducibility notes are tracked in
-[the renderer survey](docs/renderer_survey.md).
-
-## Documentation Links
-
-- [Benchmark taxonomy](docs/benchmark_taxonomy.md)
-- [Methodology](docs/methodology.md)
-- [Evaluation formulas](docs/evaluation_methodology.md)
-- [Benchmark suite](docs/benchmark_suite.md)
-- [Official dataset training](docs/official_dataset_training.md)
-- [Renderer discovery](docs/renderer_discovery.md)
-- [Synthetic Stress Suite](docs/synthetic_stress_suite.md)
-- [Leaderboard pipeline](docs/leaderboard.md)
-- [Reproducibility](docs/reproducibility.md)
-- [Architecture](docs/architecture.md)
-- [Benchmark Protocol v1.0](docs/protocol.md)
-- [How to add a new renderer](docs/adding-a-renderer.md)
-- [Research extensions](docs/research_extensions.md)
-- [Summary report](docs/summary_report.md)
-- [Contributing](CONTRIBUTING.md)
-
-## FAQ
-
-### Why Is a Renderer Missing From the Quality-Gated Leaderboard?
-
-The backend may be unavailable on the measurement host, or it may lack a
-paired-reference quality artifact. An unavailable value remains a placeholder
-until a reproducible JSON result is submitted; it is never inferred from a
-paper or a different workload.
-
-### Can Results From Different GPUs or Scenes Be Compared?
-
-They may be displayed as separate evidence, but they must not share a ranking.
-Comparable rows require the same GPU cohort, checkpoint, camera manifest,
-resolution, timing protocol, and quality reference.
-
-### Why Are Warmup Frames Excluded?
-
-Initial calls may compile kernels, allocate caches, and raise GPU clocks. The
-fixed warmup phase stabilizes those effects before measurement while retaining
-all required steady-state per-frame work inside the timing boundary.
-
-### What Happens When a Renderer Fails a Quality Gate?
-
-Its raw diagnostic timing remains available, but it is excluded from the
-quality-gated leaderboard and Pareto frontier. The report records every failed
-threshold so the rejection is auditable.
-
-### How Are Out-of-Memory Failures Handled?
-
-Each renderer is isolated, references are released, and the CUDA cache is
-cleared between cases. An OOM is reported as a failed or skipped run with no
-fabricated metrics.
+Repository code is available under the [MIT License](LICENSE). Upstream
+renderers, datasets, checkpoints, and codecs retain their own licenses and
+must be reviewed independently.

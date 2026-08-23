@@ -97,9 +97,15 @@ class RendererMetrics:
 
     peak_vram_mb: float = 0.0
     avg_vram_mb: float = 0.0
+    nvml_peak_vram_mb: Optional[float] = None
+    nvml_pre_renderer_baseline_mb: Optional[float] = None
 
     scene_load_time_ms: float = 0.0
     scene_parse_time_ms: float = 0.0
+    startup_time_ms: float = 0.0
+    renderer_init_time_ms: float = 0.0
+    renderer_prepare_time_ms: float = 0.0
+    time_to_first_frame_ms: float = 0.0
     file_size_mb: float = 0.0
 
     quality_status: str = "not_measured"
@@ -118,6 +124,8 @@ class RendererMetrics:
 
     frame_times_ms: List[float] = field(default_factory=list)
     wall_frame_times_ms: List[float] = field(default_factory=list)
+    repeat_frame_times_ms: List[List[float]] = field(default_factory=list)
+    repeat_wall_frame_times_ms: List[List[float]] = field(default_factory=list)
 
     def compute(self):
         """Compute derived statistics from raw frame time measurements.
@@ -214,8 +222,14 @@ class RendererMetrics:
             "image_width": self.image_width, "image_height": self.image_height,
             "num_gaussians": self.num_gaussians, "gpu": self.gpu_name,
             "peak_vram_mb": round(self.peak_vram_mb, 1), "avg_vram_mb": round(self.avg_vram_mb, 1),
+            "nvml_peak_vram_mb": round(self.nvml_peak_vram_mb, 1) if self.nvml_peak_vram_mb is not None else None,
+            "nvml_pre_renderer_baseline_mb": round(self.nvml_pre_renderer_baseline_mb, 1) if self.nvml_pre_renderer_baseline_mb is not None else None,
             "scene_load_time_ms": round(self.scene_load_time_ms, 2),
             "scene_parse_time_ms": round(self.scene_parse_time_ms, 2),
+            "startup_time_ms": round(self.startup_time_ms, 2),
+            "renderer_init_time_ms": round(self.renderer_init_time_ms, 2),
+            "renderer_prepare_time_ms": round(self.renderer_prepare_time_ms, 2),
+            "time_to_first_frame_ms": round(self.time_to_first_frame_ms, 2),
             "file_size_mb": round(self.file_size_mb, 2),
             "quality_status": self.quality_status,
             "quality_reference": self.quality_reference,
@@ -232,6 +246,8 @@ class RendererMetrics:
             "difficulty_normalization": self.difficulty_normalization,
             "frame_times_ms": [round(x, 2) for x in self.frame_times_ms],
             "wall_frame_times_ms": [round(x, 2) for x in self.wall_frame_times_ms],
+            "repeat_frame_times_ms": [[round(x, 2) for x in repeat] for repeat in self.repeat_frame_times_ms],
+            "repeat_wall_frame_times_ms": [[round(x, 2) for x in repeat] for repeat in self.repeat_wall_frame_times_ms],
         })
         return d
 

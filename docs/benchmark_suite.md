@@ -1,26 +1,10 @@
 # Benchmark Suite
 
-Current suite version:
+The current primary suite is `3dgs-renderer-matrix` version `3.1.0`, defined in [`benchmark/suite.json`](../benchmark/suite.json).
 
-```json
-{
-  "benchmark_suite_version": "v1.0"
-}
-```
+It fixes five mandatory 1080p cases: Garden, Truck, Train, Bicycle, and Bonsai.
+Overall rankings require all five.
+The authoritative protocol hash is stored beside the suite and must match the bytes of `benchmark/protocol.json`.
 
-Version `v1.0` tracks:
-
-- benchmark taxonomy;
-- synthetic stress suite definitions;
-- camera trajectory presets;
-- official dataset training policy;
-- renderer candidate registry and inclusion rules;
-- timing protocol;
-- GT quality metrics;
-- Scene Difficulty Score formula;
-- quality-adjusted efficiency formula;
-- Pareto and recommendation rules.
-
-Future suite changes that alter comparability should increment the suite
-version and document migration rules. Historical results should retain the
-version under which they were produced.
+`benchmark_suite/` is a compatibility definition for legacy v1/v2 commands and committed historical artifacts.
+It must not be used to label new Matrix v3 results.

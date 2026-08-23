@@ -1,0 +1,54 @@
+/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=AlexNet_Weights.IMAGENET1K_V1`. You can also use `weights=AlexNet_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/utils/cpp_extension.py:2356: UserWarning: TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation. 
+If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'].
+  warnings.warn(
+device=NVIDIA A100-SXM4-80GB torch=2.7.0+cu128
+scene=mipnerf360/garden n_gaussians=5834784
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+Loading model from: /root/miniforge3/envs/gsplat/lib/python3.10/site-packages/lpips/weights/v0.1/alex.pth
+{
+ "fwd_ms": 14.081463170051574,
+ "bwd_ms": 16.421550345420837,
+ "total_ms": 37.25138416048139,
+ "train_ms": 50.55864453315735,
+ "culling_ratio": 0.5404011269842892,
+ "n_visible_avg": 2151477.7,
+ "final_n": 4420260,
+ "psnr": 23.04698369344139,
+ "n_mask_pruned": 0
+}
+=== TOP 30 KERNELS (self CUDA time) ===
+   317.44 ms   22.9%  count=    40  void gsplat::gaussian_render_inference_scene::(anonymous namespace)::higs_blend_bwd_px_kernel<3u, 2u>(unsigned
+   172.46 ms   12.5%  count=    40  gsplat::gaussian_render_inference_scene::(anonymous namespace)::higs_sh_vjp_grid_kernel(unsigned int, unsigned
+   151.72 ms   11.0%  count=    17  void cutlass__5x_cudnn::Kernel<cutlass_tensorop_s1688fprop_optimized_tf32_128x128_16x4_nhwc_align4>(cutlass_te
+   149.99 ms   10.8%  count=    42  void gsplat::rasterize_to_pixels_3dgs_fwd_kernel<3u, 16u, 256u>(unsigned int, unsigned int, bool, glm::vec<2, 
+   137.12 ms    9.9%  count=   200  masked_adam_kernel(float*, float*, float*, float const*, bool const*, long, long, double, double, double, floa
+    69.64 ms    5.0%  count=    40  gsplat::gaussian_render_inference_scene::(anonymous namespace)::higs_projection_bwd_kernel(unsigned int, unsig
+    63.31 ms    4.6%  count=    84  void gsplat::projection_ewa_3dgs_fused_fwd_kernel<float>(long, long, unsigned int, unsigned int, unsigned int,
+    37.86 ms    2.7%  count=    42  void gsplat::spherical_harmonics_fwd_kernel_k16_3channel<float, float, 3>(unsigned int, unsigned int, glm::vec
+    36.10 ms    2.6%  count=    84  void gsplat::intersect_tile_kernel<float>(long, long, bool, unsigned int, unsigned int, unsigned int, long con
+    33.94 ms    2.5%  count=    50  void gsplat::gaussian_render_inference_scene::(anonymous namespace)::gather_rows_kernel_t<48, false>(float con
+    32.39 ms    2.3%  count=   604  void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int
+    29.08 ms    2.1%  count=   252  void cub::CUB_200802_SM_800::DeviceRadixSortOnesweepKernel<cub::CUB_200802_SM_800::detail::radix::policy_hub<l
+    17.96 ms    1.3%  count=    16  void gsplat::gaussian_render_inference_scene::(anonymous namespace)::gather_rows_kernel_t<48, true>(float cons
+     8.19 ms    0.6%  count=   100  void gsplat::gaussian_render_inference_scene::(anonymous namespace)::gather_rows_kernel_t<3, false>(float cons
+     7.94 ms    0.6%  count=    50  void at::native::reduce_kernel<512, 1, at::native::ReduceOp<bool, at::native::func_wrapper_t<bool, at::native:
+     7.13 ms    0.5%  count=   100  void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launch_clamp_scalar(at::T
+     7.07 ms    0.5%  count=   102  void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<flo
+     5.91 ms    0.4%  count=   234  Memcpy DtoD (Device -> Device)
+     5.29 ms    0.4%  count=   108  void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctorOnSelf_add<float>, std::array<char*, 
+     5.06 ms    0.4%  count=    15  void tensorTransformGeneric<float, float, float, true, false, false, (cudnnKernelDataType_t)0>(cudnnTensorTran
+     5.02 ms    0.4%  count=    50  void gsplat::gaussian_render_inference_scene::(anonymous namespace)::gather_rows_kernel_t<4, false>(float cons
+     4.38 ms    0.3%  count=    42  void gsplat::gaussian_render_inference_scene::union_visible_mask_kernel_t<int>(int const*, bool*, long, long)
+     4.34 ms    0.3%  count=   127  void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<float, float, float, at::native::b
+     4.32 ms    0.3%  count=    32  void gsplat::gaussian_render_inference_scene::(anonymous namespace)::gather_rows_kernel_t<3, true>(float const
+     4.24 ms    0.3%  count=    42  void at_cuda_detail::cub::DeviceScanKernel<at_cuda_detail::cub::DeviceScanPolicy<long, std::plus<long> >::Poli
+     4.21 ms    0.3%  count=    77  void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul> >
+     4.18 ms    0.3%  count=    14  sm80_xmma_fprop_implicit_gemm_tf32f32_tf32f32_f32_nhwckrsc_nchw_tilesize128x128x16_stage4_warpsize2x2x1_g1_ten
+     3.85 ms    0.3%  count=    88  void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_
+     3.33 ms    0.2%  count=    50  void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{la
+     2.92 ms    0.2%  count=    30  void tensorTransformGeneric<float, float, float, true, false, false, (cudnnKernelDataType_t)2>(cudnnTensorTran
+TOTAL self CUDA 1384.9 ms over 40 steps

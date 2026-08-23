@@ -28,18 +28,30 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -r requirements-test.txt
       - name: Compile Python sources
-        run: python -m compileall -q src tests
+        run: python -m compileall -q src tests benchmark/run_higs_full_training.py
       - name: Generate leaderboard artifact smoke test
         run: >
           python src/scripts/generate_leaderboard.py
           --inputs data/results/rtx5070_laptop_2026-07-13.json data/results/rtx5070_train_reference_summary_2026-07-14.json
           --output-dir results/leaderboard
+      - name: Validate Matrix v2 command and reports
+        run: |
+          python benchmark.py run gsplat --dataset garden --dry-run
+          python benchmark.py report --output-dir results/matrix
       - name: Validate JSON artifacts
         run: |
           python src/scripts/validate_artifacts.py --schema schemas/benchmark_result.schema.json --json data/results/rtx5070_laptop_2026-07-13.json data/results/rtx5070_train_reference_summary_2026-07-14.json
           python src/scripts/validate_artifacts.py --schema schemas/leaderboard.schema.json --json results/leaderboard/leaderboard.json
       - name: Validate official training policy
         run: python src/scripts/validate_official_training.py
+      - name: Validate paper evidence claims
+        run: python src/scripts/validate_paper_evidence.py
+      - name: Validate research paper tracks
+        run: python src/scripts/validate_research_program.py
+      - name: Validate HiGS full-training paper protocol
+        run: python src/scripts/validate_higs_paper_protocol.py
+      - name: Validate public repository links
+        run: python src/scripts/validate_public_links.py --require-tracked
       - name: Regression check smoke test
         run: >
           python src/scripts/check_regressions.py
@@ -49,3 +61,5 @@ jobs:
           --fail-on-regression
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
+      - name: Run pytest suite (pytest-style tests)
+        run: python -m pytest tests -q

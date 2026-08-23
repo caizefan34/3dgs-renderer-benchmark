@@ -1,5 +1,9 @@
 # Local Validation: RTX 5070 Laptop
 
+> Historical exploratory validation. The current publishable comparison is the
+> complete EPIC-05 A100 Tier A matrix in
+> [`comparison-analysis.md`](comparison-analysis.md).
+
 Date: 2026-07-13
 
 ## Environment

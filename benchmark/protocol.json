@@ -1,0 +1,51 @@
+{
+  "protocol_id": "matrix-primary-1080p-v2",
+  "resolution": [1920, 1080],
+  "color_space": "sRGB",
+  "background": "black",
+  "track": "common_representation",
+  "camera_trajectory": {
+    "source": "official Graphdeco pretrained-model cameras.json",
+    "ordering": "case-insensitive image-name order",
+    "selection": "100 evenly spaced indices including first and last",
+    "projection": "center crop source field of view to 16:9, then render at 1920x1080",
+    "ground_truth": "matching official source photograph, cropped identically and area-resized at metric time"
+  },
+  "timing": {
+    "fresh_process_for_cold_start": true,
+    "warmup_frames": 30,
+    "measured_frames_per_repeat": 100,
+    "repeats": 5,
+    "renderer_order": "deterministic case-index rotation; full five-case all-renderer runs form a balanced Latin rotation",
+    "gpu_timer": "CUDA events",
+    "throughput_timer": "synchronized wall clock",
+    "fps_formula": "total frames / total synchronized wall seconds",
+    "raw_samples_required": true
+  },
+  "memory": {
+    "primary": "absolute NVML process peak MiB",
+    "secondary": "framework allocated and reserved peak MiB",
+    "sampling_interval_ms": 5,
+    "subtract_context_baseline": false
+  },
+  "quality": {
+    "views": "the same 100 ordered canonical cameras used for timing",
+    "psnr": "mean of per-view RGB PSNR, data_range=1",
+    "ssim": "mean of per-view RGB SSIM, 11x11 Gaussian window",
+    "lpips": "mean of per-view LPIPS-vgg, inputs in [-1,1]",
+    "reference_renderer": "original_3dgs",
+    "practical_tolerances": {
+      "fps_relative": 0.02,
+      "psnr_db": 0.05,
+      "ssim": 0.001,
+      "lpips": 0.001
+    }
+  },
+  "cold_path_metrics": [
+    "process_startup_ms",
+    "renderer_init_ms",
+    "scene_read_parse_ms",
+    "renderer_prepare_upload_ms",
+    "time_to_first_frame_ms"
+  ]
+}

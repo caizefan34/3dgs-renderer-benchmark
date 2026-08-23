@@ -27,8 +27,8 @@ class BenchmarkConfig:
         output_dir: Directory for benchmark result exports.
     """
     renderers: List[str] = field(default_factory=lambda: ["speedy_splat", "diff_gaussian", "gsplat"])
-    benchmark_frames: int = 200
-    warmup_frames: int = 50
+    benchmark_frames: int = 100
+    warmup_frames: int = 30
     repeats: int = 5
     clock_lock: bool = False
     image_width: int = 1920

@@ -8,6 +8,7 @@ in the benchmark comparison.
 Reference:
     https://github.com/graphdeco-inria/diff-gaussian-rasterization
 """
+import inspect
 import torch
 from weakref import WeakKeyDictionary
 from .base import RendererAdapter
@@ -61,7 +62,7 @@ class DiffGaussianRenderer(RendererAdapter):
         if self._bg is None:
             self._bg = torch.zeros(3, dtype=torch.float32, device=self.device)
 
-        raster_settings = GaussianRasterizationSettings(
+        settings_kwargs = dict(
             image_height=camera.image_height,
             image_width=camera.image_width,
             tanfovx=camera.tanfovx,
@@ -75,6 +76,9 @@ class DiffGaussianRenderer(RendererAdapter):
             prefiltered=False,
             debug=False,
         )
+        if "antialiasing" in inspect.signature(GaussianRasterizationSettings).parameters:
+            settings_kwargs["antialiasing"] = False
+        raster_settings = GaussianRasterizationSettings(**settings_kwargs)
         rasterizer = self._rasterizers.get(camera)
         if rasterizer is None:
             rasterizer = GaussianRasterizer(raster_settings=raster_settings)
@@ -87,9 +91,14 @@ class DiffGaussianRenderer(RendererAdapter):
         rotations = scene_data["rotations_normalized"]
         means2d = scene_data["means2d"]
 
-        rendered_image, radii, depth, alpha = rasterizer(
+        render_result = rasterizer(
             means3D=means3d, means2D=means2d, opacities=opacities, shs=shs,
             colors_precomp=None, scales=scales, rotations=rotations, cov3D_precomp=None,
         )
+        if len(render_result) not in (3, 4):
+            raise ValueError(
+                f"diff-gaussian rasterizer returned {len(render_result)} values; expected 3 or 4"
+            )
+        rendered_image = render_result[0]
 
         return rendered_image.permute(1, 2, 0).clamp(0, 1)

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caizefan34.github.io/3dgs-renderer-benchmark/benchmark/schemas/compression-result.schema.json",
+  "title": "3DGS measured compression result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "result_id", "evidence_tier", "status", "case", "codec", "renderer", "environment", "metrics", "raw_samples", "provenance"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "result_id": {"type": "string"},
+    "evidence_tier": {"const": "measured"},
+    "status": {"const": "complete"},
+    "case": {"type": "object"},
+    "codec": {"type": "object"},
+    "renderer": {"type": "object"},
+    "environment": {"type": "object"},
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["performance", "quality", "quality_delta", "near_lossless_gate"],
+      "properties": {
+        "performance": {"type": "object"},
+        "quality": {"type": "object"},
+        "quality_delta": {"type": "object"},
+        "near_lossless_gate": {
+          "type": "object", "additionalProperties": false,
+          "required": ["max_psnr_drop_db", "max_ssim_drop", "max_lpips_increase", "numeric_pass", "visual_audit", "overall_pass"],
+          "properties": {
+            "max_psnr_drop_db": {"type": "number"}, "max_ssim_drop": {"type": "number"},
+            "max_lpips_increase": {"type": "number"}, "numeric_pass": {"type": "boolean"},
+            "visual_audit": {"enum": ["not_applicable", "pending", "pass", "fail"]},
+            "overall_pass": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "raw_samples": {"type": "object"},
+    "provenance": {"type": "object"}
+  }
+}

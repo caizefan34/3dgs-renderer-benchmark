@@ -1,0 +1,1881 @@
+"""Repeatable HiGS training-path benchmark (CUDA).
+
+Compares, on the same scene + cameras + optimizer schedule:
+
+- ``std``            : standard gsplat fused rasterization (forward + backward),
+                       no culling. Reference "standard gsplat training path".
+- ``higs_recompute`` : HiGS forward with the explicit standard-gsplat
+                       recomputation fallback (metadata
+                       ``backward_backend="gsplat_recompute"``).
+- ``higs_native``    : HiGS forward + HiGS native CUDA backward
+                       (``backward_backend="higs_native"``), frozen topology.
+- ``higs_dynamic``   : HiGS native path with densify/prune + Adam-state sync.
+
+Per backend reports: forward latency, backward latency, total iteration
+latency, full training-step latency (including the optimizer step), peak VRAM,
+culling ratio, and final PSNR / SSIM / LPIPS on held-out cameras. A speedup is
+only claimed when the measured total iteration time actually wins.
+"""
+
+import argparse
+import json
+import math
+import os
+import sys
+import time
+from dataclasses import asdict
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from PIL import Image
+from plyfile import PlyData
+
+from higs_masked_adam import masked_adam_step
+
+_SH_DEGREE = 3
+_K = (_SH_DEGREE + 1) ** 2  # 16
+_TILE_SIZE = 16  # HiGS macro-tile edge (px); must match the render tile_size.
+
+
+# --------------------------------------------------------------------------
+# Scene loading
+# --------------------------------------------------------------------------
+
+def load_ply_scene(ply_path, device):
+    """Load a 3DGS PLY -> (means, quats, scales, opacities, sh) FP32 masters."""
+    ply = PlyData.read(ply_path)
+    v = ply["vertex"]
+    N = len(v)
+    means = torch.tensor(
+        np.column_stack([v["x"], v["y"], v["z"]]),
+        dtype=torch.float32, device=device,
+    )
+    quats = torch.tensor(
+        np.column_stack([v["rot_0"], v["rot_1"], v["rot_2"], v["rot_3"]]),
+        dtype=torch.float32, device=device,
+    )
+    quats = quats / quats.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    scales = torch.exp(torch.tensor(
+        np.column_stack([v["scale_0"], v["scale_1"], v["scale_2"]]),
+        dtype=torch.float32, device=device,
+    ))
+    opacities = torch.sigmoid(
+        torch.tensor(v["opacity"], dtype=torch.float32, device=device)
+    )
+    f_dc = torch.tensor(
+        np.column_stack([v["f_dc_0"], v["f_dc_1"], v["f_dc_2"]]),
+        dtype=torch.float32, device=device,
+    )
+    # PLY stores 3*(K-1) rest scalars in channel-major order (RGB blocks
+    # of K-1 coefficients each); reshape to the [N, K-1, 3] gsplat layout.
+    f_rest = torch.stack(
+        [torch.tensor(v[f"f_rest_{i}"], dtype=torch.float32, device=device)
+         for i in range(3 * (_K - 1))],
+        dim=1,
+    )  # [N, 3*(K-1)]
+    f_rest = f_rest.reshape(N, 3, _K - 1).permute(0, 2, 1)  # [N, K-1, 3]
+    sh = torch.zeros(N, _K, 3, dtype=torch.float32, device=device)
+    sh[:, 0] = f_dc
+    sh[:, 1:] = f_rest
+    return means, quats, scales, opacities, sh
+
+
+def load_cameras(scene_dir, width, height, n_train, n_eval, device):
+    import json
+
+    with open(os.path.join(scene_dir, "eval_cameras.json")) as f:
+        cams = json.load(f)
+    viewmats, Ks = [], []
+    for c in cams:
+        R = np.asarray(c["rotation"], dtype=np.float64)  # c2w rotation
+        p = np.asarray(c["position"], dtype=np.float64)
+        Rw2c = R.T
+        vm = np.eye(4)
+        vm[:3, :3] = Rw2c
+        vm[:3, 3] = -Rw2c @ p
+        scale = width / float(c["width"])
+        K = np.array(
+            [[float(c["fx"]) * scale, 0.0, (width - 1) / 2.0],
+             [0.0, float(c["fy"]) * scale, (height - 1) / 2.0],
+             [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        )
+        viewmats.append(torch.tensor(vm, dtype=torch.float32, device=device))
+        Ks.append(torch.tensor(K, dtype=torch.float32, device=device))
+    n_cams = len(cams)
+    train_idx = list(range(min(n_train, n_cams)))
+    eval_idx = list(range(min(n_train, n_cams), min(n_train + n_eval, n_cams)))
+    return torch.stack(viewmats).unsqueeze(0), torch.stack(Ks).unsqueeze(0), train_idx, eval_idx
+
+
+def load_reference(gt_dir, cams, width, height, device):
+    """Load GT photos for the given cameras.
+
+    Applies the canonical ``reference_crop`` (if present) and resizes to the
+    benchmark resolution, mirroring the repo's official metric conversion.
+    """
+    imgs = []
+    for c in cams:
+        img_name = c["img_name"]
+        p = next(
+            (
+                os.path.join(gt_dir, img_name + ext)
+                for ext in (".JPG", ".jpg", ".png", ".jpeg", ".PNG")
+                if os.path.exists(os.path.join(gt_dir, img_name + ext))
+            ),
+            None,
+        )
+        if p is None:
+            raise FileNotFoundError(f"{img_name} not found in {gt_dir}")
+        im = Image.open(p).convert("RGB")
+        crop = c.get("reference_crop")
+        if crop is not None:
+            im = im.crop((crop[0], crop[1], crop[2], crop[3]))
+        im = im.resize((width, height), Image.LANCZOS)
+        arr = np.asarray(im, dtype=np.float32) / 255.0
+        imgs.append(torch.tensor(arr, dtype=torch.float32, device=device))
+    return torch.stack(imgs)  # [C, H, W, 3]
+
+
+# --------------------------------------------------------------------------
+# Metrics
+# --------------------------------------------------------------------------
+
+def _gauss_win(size=11, sigma=1.5, device="cpu"):
+    coords = torch.arange(size, dtype=torch.float32, device=device) - size // 2
+    g = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
+    g = g / g.sum()
+    return (g[:, None] * g[None, :])[None, None]
+
+
+def ssim(x, y):
+    """x, y: [B, C, H, W] in [0, 1]. Mean SSIM (gaussian window, per channel)."""
+    win = _gauss_win(11, 1.5, x.device).to(x.dtype)
+    win = win.expand(x.shape[1], 1, -1, -1)
+    pad = 11 // 2
+    groups = x.shape[1]
+    mu_x = F.conv2d(x, win, padding=pad, groups=groups)
+    mu_y = F.conv2d(y, win, padding=pad, groups=groups)
+    sx2 = F.conv2d(x * x, win, padding=pad, groups=groups) - mu_x ** 2
+    sy2 = F.conv2d(y * y, win, padding=pad, groups=groups) - mu_y ** 2
+    sxy = F.conv2d(x * y, win, padding=pad, groups=groups) - mu_x * mu_y
+    c1, c2 = 0.01 ** 2, 0.03 ** 2
+    num = (2 * mu_x * mu_y + c1) * (2 * sxy + c2)
+    den = (mu_x ** 2 + mu_y ** 2 + c1) * (sx2 + sy2 + c2)
+    return num.div(den).clamp(0, 1).mean().item()
+
+
+def psnr(x, y):
+    mse = (x - y).pow(2).mean().item()
+    if mse < 1e-12:
+        return 60.0
+    return -10.0 * np.log10(mse)
+
+
+def lpips_score(lpips_model, x, y):
+    """x, y: [C, H, W, 3] in [0, 1] -> [C, 3, H, W] in [-1, 1]."""
+    xa = (x.permute(0, 3, 1, 2) * 2 - 1).contiguous()
+    ya = (y.permute(0, 3, 1, 2) * 2 - 1).contiguous()
+    with torch.no_grad():
+        return lpips_model(xa, ya).mean().item()
+
+
+def _lpips_normalize(frame, ref):
+    """Training-loss input prep: ``frame`` [1, C, H, W, 3] + ``ref`` [C, H, W, 3]
+    (both [0, 1]) -> ([C, 3, H, W], [C, 3, H, W]) in [-1, 1]."""
+    xa = (frame.squeeze(0).permute(0, 3, 1, 2) * 2 - 1).contiguous()
+    ya = (ref.permute(0, 3, 1, 2) * 2 - 1).contiguous()
+    return xa, ya
+
+
+def _lpips_train_loss(lpips_model, frame, ref, work_size=0):
+    """Differentiable LPIPS loss term (model weights frozen; the
+    gradient flows to the render output only).
+
+    ``work_size`` downscales both inputs (aspect-preserving, max side =
+    ``work_size``) before the LPIPS forward. LPIPS trunks (AlexNet etc.)
+    are trained on ~224px patches, so full-res 720p inputs run the conv
+    stack far outside its native scale and cost 10-20% of the step;
+    a canonical work size keeps the perceptual signal in-distribution
+    and cuts that cost ~25x. 0 = current full-res behaviour."""
+    xa, ya = _lpips_normalize(frame, ref)
+    if work_size and work_size > 0:
+        h, w = xa.shape[-2:]
+        if max(h, w) > work_size:
+            scale = work_size / float(max(h, w))
+            nh = max(1, int(round(h * scale)))
+            nw = max(1, int(round(w * scale)))
+            xa = F.interpolate(
+                xa, size=(nh, nw), mode="bilinear", align_corners=False,
+            )
+            ya = F.interpolate(
+                ya, size=(nh, nw), mode="bilinear", align_corners=False,
+            )
+    return lpips_model(xa, ya).mean()
+
+
+# --------------------------------------------------------------------------
+# Forward helpers
+# --------------------------------------------------------------------------
+
+def make_optimizer(params, lr_scale=1.0, fused=True):
+    """Build the 5-group Adam optimizer used by every backend.
+
+    ``fused=True`` (default when every param is a CUDA tensor) runs each param
+    group's whole update in a single kernel, about 2x faster than the foreach
+    path on large scenes (6.8 vs 14.9 ms/step on the 6.13M-Gaussian bicycle
+    scene); a non-fused fallback keeps CPU / unsupported platforms working.
+    """
+    means, quats, scales, opacities, sh = params
+    groups = [
+        {"params": [means], "lr": 1.6e-4 * lr_scale},
+        {"params": [quats], "lr": 1e-3 * lr_scale},
+        {"params": [scales], "lr": 5e-3 * lr_scale},
+        {"params": [opacities], "lr": 5e-2 * lr_scale},
+        {"params": [sh], "lr": 2.5e-3 * lr_scale},
+    ]
+    if fused and all(p.is_cuda for g in groups for p in g["params"]):
+        try:
+            return torch.optim.Adam(groups, fused=True)
+        except (TypeError, ValueError, RuntimeError):
+            pass
+    return torch.optim.Adam(groups)
+
+
+def _l1_loss(frame, ref):
+    return (frame - ref).abs().mean()
+
+
+def _masked_l1_loss(frame, ref, tile_mask, tile_size, width, height):
+    """Unbiased sampled-tile L1: mean |diff| over the sampled tiles only.
+
+    Uniform fixed-count tile sampling makes the sampled-tile mean an unbiased
+    estimator of the full-frame mean, so no 1/r rescale is needed here.
+    ``frame`` is [1, C, H, W, 3], ``ref`` is [C, H, W, 3], ``tile_mask`` is
+    [C, th, tw] bool.
+    """
+    diff = (frame.squeeze(0) - ref).abs()  # [C, H, W, 3]
+    pm = (
+        tile_mask.repeat_interleave(tile_size, dim=1)
+        .repeat_interleave(tile_size, dim=2)[:, :height, :width]
+        .unsqueeze(-1)
+    )  # [C, H, W, 1]
+    return diff.masked_select(pm.expand_as(diff)).mean()
+
+
+def _masked_pixel_l1_loss(frame, ref, ratio, device):
+    """Unbiased sparse-pixel L1: mean |diff| over random pixels / ratio.
+
+    Speedy-Splat-style training signal at pixel granularity: each pixel is kept
+    iid with probability ``ratio``; the mean over the sampled pixels is itself
+    an unbiased estimate of the full-frame mean (same argument as the
+    tile-masked loss), so no reweighting is needed. ``frame`` is [1, C, H, W, 3],
+    ``ref`` is [C, H, W, 3], ``ratio`` in (0, 1]. Degenerate empty draws
+    (measure zero at realistic resolutions) fall back to the full mean.
+    """
+    diff = (frame.squeeze(0) - ref).abs()  # [C, H, W, 3] or [B, H, W, 3]
+    if diff.dim() == 3:
+        diff = diff.unsqueeze(0)  # single-camera case -> [1, H, W, 3]
+    C, H, W, _ = diff.shape
+    mask = (torch.rand(C, H, W, device=device) < ratio).unsqueeze(-1)
+    n = int(mask.sum())
+    if n == 0:
+        return diff.mean()
+    return diff.masked_select(mask.expand_as(diff)).mean()
+
+
+def _packed_pixel_l1_loss(frame, ref, pixel_image_ids, pixel_flat):
+    """Unbiased packed-pixel L1: mean |diff| over renderer-sampled pixels.
+
+    ``frame`` is the packed render output [P, 3] (pixels in the same
+    (image_id, row, col) order as ``pixel_flat``), ``ref`` is [C, H, W, 3]
+    channel-last, and ``pixel_flat`` holds the flat ``image_id*H*W + row*W +
+    col`` indices into ``ref.reshape(-1, 3)``. The mean over the sampled
+    pixels is an unbiased estimate of the full-frame mean (same argument as
+    the tile-masked loss), so no reweighting is needed.
+    """
+    return (frame - ref.reshape(-1, 3)[pixel_flat]).abs().mean()
+
+
+def _tile_mean_errors(frame, ref, tile_size):
+    """Exact per-tile mean |diff| (border tiles counted by real pixels only).
+
+    ``frame`` is [1, C, H, W, 3], ``ref`` is [C, H, W, 3]. Returns [C, th, tw].
+    Zero padding only pads the sum (zeros add nothing), so per-tile sums are
+    exact; counts are computed from the true tile extents.
+    """
+    diff = (frame.squeeze(0) - ref).abs()  # [C, H, W, 3]
+    C, H, W, _ = diff.shape
+    th = (H + tile_size - 1) // tile_size
+    tw = (W + tile_size - 1) // tile_size
+    Hp, Wp = th * tile_size, tw * tile_size
+    pad = (0, 0, 0, Wp - W, 0, Hp - H)
+    diff_pad = torch.nn.functional.pad(diff, pad)
+    tile_sum = diff_pad.reshape(C, th, tile_size, tw, tile_size, 3).sum(dim=(2, 4, 5))
+    rows = torch.full((th,), tile_size, dtype=torch.long, device=diff.device)
+    cols = torch.full((tw,), tile_size, dtype=torch.long, device=diff.device)
+    rows[-1] = H - (th - 1) * tile_size
+    cols[-1] = W - (tw - 1) * tile_size
+    count = (rows[:, None] * cols[None, :] * 3).to(diff.dtype)  # [th, tw]
+    return tile_sum / count  # [C, th, tw]
+
+
+def _importance_l1_loss(frame, ref, mask, weights, tile_size, width, height):
+    """Exact unbiased tile-level importance estimate of the full-frame L1.
+
+    Sampled tiles are drawn iid (with replacement) with probabilities ``p``;
+    ``mask`` is the set of tiles hit and ``weights = m / (k * p)`` where ``m``
+    is the per-tile draw count. The estimator
+    ``(1/P) sum_t mask_t * w_t * S_t`` (S_t = per-tile |diff| pixel sum,
+    P = total pixels) is unbiased for the full-frame mean regardless of ``p``.
+    """
+    diff = (frame.squeeze(0) - ref).abs()  # [C, H, W, 3]
+    C, H, W, _ = diff.shape
+    th = (H + tile_size - 1) // tile_size
+    tw = (W + tile_size - 1) // tile_size
+    Hp, Wp = th * tile_size, tw * tile_size
+    diff_pad = torch.nn.functional.pad(diff, (0, 0, 0, Wp - W, 0, Hp - H))
+    tile_sum = diff_pad.reshape(C, th, tile_size, tw, tile_size, 3).sum(dim=(2, 4, 5))
+    p_total = C * width * height * 3
+    m = mask.reshape(C, th, tw).to(diff.dtype)
+    w = weights.reshape(C, th, tw)
+    return (m * w * tile_sum).sum() / p_total
+
+
+def _error_guided_mask(tile_err, ratio, alpha, device, lambda_mix=1.0):
+    """Importance-sample ``k`` tiles per image with p proportional to error.
+
+    ``tile_err`` is [C, th, tw] (per-tile mean |diff| from the last refresh).
+    ``lambda_mix`` in [0, 1] blends the error distribution with the uniform
+    distribution (``p = (1 - lambda_mix) / n + lambda_mix * p_err``); 0.0 is
+    exactly uniform, 1.0 is pure error-guided (default).
+    Returns ``(mask [C, n_tiles] bool, weights [C, n_tiles] float)`` with
+    ``weights = m / (k * p)`` (with-replacement multinomial draws), which makes
+    the sampled estimator unbiased for any p > 0.
+    """
+    C, th, tw = tile_err.shape
+    n = th * tw
+    k = max(1, int(round(n * ratio)))
+    e = tile_err.reshape(C, n)
+    floor = (1e-3 * e.mean(dim=1, keepdim=True)).clamp_min(1e-6)
+    p = (e + floor) ** alpha
+    p = p / p.sum(dim=1, keepdim=True)
+    if 0.0 <= lambda_mix < 1.0:
+        p = (1.0 - lambda_mix) / n + lambda_mix * p
+    idx = torch.multinomial(p, k, replacement=True)  # [C, k]
+    m = torch.zeros(C, n, dtype=torch.float32, device=e.device)
+    m.scatter_add_(1, idx, torch.ones_like(idx, dtype=torch.float32))
+    mask = m > 0
+    weights = m / (k * p)
+    return mask, weights
+
+
+def _std_ll_forward(means, quats, scales, opacities, colors, viewmats, Ks,
+                   width, height, sh_degree, radius_clip=0.0):
+    """Low-level standard gsplat forward (raw CUDA kernels, no culling).
+
+    Mirrors the kernels that ``rasterize_gaussian_higs_*`` use for the capture
+    path, so the ``std_ll`` backend is the apples-to-apples baseline: the
+    high-level ``rasterization()`` wrapper used by ``std`` carries ~9 ms/step of
+    Python/alloc overhead at 1920x1080 x 4 cameras, which would otherwise
+    inflate the reported HiGS margin.
+    """
+    from gsplat.cuda._wrapper import (
+        fully_fused_projection,
+        isect_tiles,
+        isect_offset_encode,
+        _make_lazy_cuda_func,
+    )
+    from gsplat.rendering import _maybe_evaluate_sh
+
+    C = viewmats.shape[-3]
+    N = means.shape[-2]
+    tile_size = 16
+    tile_width = math.ceil(width / tile_size)
+    tile_height = math.ceil(height / tile_size)
+    radii, means2d, depths, conics, _ = fully_fused_projection(
+        means=means.contiguous(),
+        covars=None,
+        quats=quats.contiguous(),
+        scales=scales.contiguous(),
+        viewmats=viewmats,
+        Ks=Ks,
+        width=width,
+        height=height,
+        eps2d=0.3,
+        near_plane=0.01,
+        far_plane=1e10,
+        radius_clip=radius_clip,
+        packed=False,
+        calc_compensations=False,
+        camera_model="pinhole",
+    )
+    opacities_bc = torch.broadcast_to(
+        opacities[..., None, :], (1, C, N)
+    ).contiguous()
+    _, isect_ids, flatten_ids = isect_tiles(
+        means2d, radii, depths, tile_size, tile_width, tile_height,
+        packed=False, n_images=C, image_ids=None, gaussian_ids=None,
+        conics=conics, opacities=opacities_bc,
+    )
+    isect_offsets = isect_offset_encode(
+        isect_ids, C, tile_width, tile_height
+    ).reshape((1, C, tile_height, tile_width))
+    colors_eval = _maybe_evaluate_sh(
+        sh_degree, colors, means, radii, viewmats, (1,), C, N, True,
+    ).contiguous()
+    bg_kernel = torch.zeros((1, C, 3), device=means.device)
+    render_colors, render_alphas, _absgrad, last_ids = (
+        _make_lazy_cuda_func("rasterize_to_pixels_3dgs")(
+            means2d.contiguous(),
+            conics.contiguous(),
+            colors_eval.contiguous(),
+            opacities_bc.contiguous(),
+            bg_kernel,
+            None,
+            width,
+            height,
+            tile_size,
+            isect_offsets.contiguous(),
+            flatten_ids.contiguous(),
+            False,
+            False,
+        )
+    )
+    return render_colors, render_alphas
+
+
+def _sparse_px_forward(means, quats, scales, opacities, colors, viewmats, Ks,
+                       width, height, pixel_ratio, radius_clip=0.0,
+                       tile_size=_TILE_SIZE, eps2d=0.3):
+    """Renderer-level sparse-pixel forward via upstream gsplat sparse kernels.
+
+    Speedy-Splat-style pixel-sparse rasterization at the renderer level: the
+    full Gaussian projection + SH evaluation run for every camera, but
+    ``isect_tiles_sparse`` + ``rasterize_to_pixels_sparse`` touch only the
+    tiles/pixels drawn in the per-step iid Bernoulli mask (matching the R53
+    ``sparse_pixel`` loss-signal arm at the same pixel fraction). Outputs are
+    packed ``[P, 3]`` in the same (image_id, row, col) order as the mask, so
+    the harness gathers the reference at ``meta["pixel_flat"]``.
+
+    ``pixel_ratio >= 1.0`` renders the full grid and returns the dense frame
+    ``[1, C, H, W, 3]`` (packed -> dense via reshape, no scatter), so eval and
+    full-res LPIPS steps share one code path. Returns (frame, alpha, meta);
+    ``meta["packed"]`` is True only when ``pixel_ratio < 1.0``.
+    """
+    from gsplat.cuda._wrapper import (
+        build_sparse_tile_layout,
+        fully_fused_projection,
+        isect_tiles_sparse,
+        _make_lazy_cuda_func,
+    )
+    from gsplat.rendering import _maybe_evaluate_sh
+
+    C = viewmats.shape[-3]
+    N = means.shape[0]
+    tile_width = (width + tile_size - 1) // tile_size
+    tile_height = (height + tile_size - 1) // tile_size
+    device = means.device
+
+    radii, means2d, depths, conics, _comp = fully_fused_projection(
+        means=means.contiguous(), covars=None, quats=quats.contiguous(),
+        scales=scales.contiguous(), viewmats=viewmats.contiguous(),
+        Ks=Ks.contiguous(), width=width, height=height, eps2d=eps2d,
+        radius_clip=radius_clip, packed=False, calc_compensations=False,
+        camera_model="pinhole",
+    )  # [C, N, 2], [C, N, 2], [C, N], [C, N, 3]
+    colors_eval = _maybe_evaluate_sh(
+        _SH_DEGREE, colors, means, radii, viewmats, (1,), C, N, True,
+    ).contiguous()  # [C, N, 3]
+    opac_bc = torch.broadcast_to(opacities[None, :], (C, N)).contiguous()
+
+    n_pix_per_img = height * width
+    if pixel_ratio >= 1.0:
+        # Full grid in row-major (image_id, row, col) order so the packed
+        # output reshapes directly to the dense frame.
+        flat = torch.arange(C * n_pix_per_img, device=device, dtype=torch.int64)
+        image_ids = flat // n_pix_per_img
+        inside = flat % n_pix_per_img
+        rows = inside // width
+        cols = inside % width
+    else:
+        sel = torch.rand((C, height, width), device=device) < pixel_ratio
+        image_ids, rows, cols = sel.nonzero(as_tuple=True)
+        image_ids = image_ids.to(torch.int64)
+        rows = rows.to(torch.int64)
+        cols = cols.to(torch.int64)
+        flat = image_ids * n_pix_per_img + rows * width + cols
+    pixels = torch.stack([rows, cols], dim=1).to(torch.int64)
+    active_tiles, active_tile_mask, tile_pixel_mask, tile_pixel_cumsum, pixel_map = (
+        build_sparse_tile_layout(
+            pixels, image_ids, C, tile_size, tile_width, tile_height,
+        )
+    )
+    tile_offsets, flatten_ids = isect_tiles_sparse(
+        means2d, radii, depths, active_tile_mask, active_tiles,
+        C, tile_size, tile_width, tile_height,
+    )
+    bg = torch.zeros((C, 3), device=device)
+    render_colors, render_alphas, _absgrad, _last_ids = (
+        _make_lazy_cuda_func("rasterize_to_pixels_sparse")(
+            means2d.contiguous(), conics.contiguous(),
+            colors_eval.contiguous(), opac_bc.contiguous(),
+            bg, active_tile_mask.contiguous(), image_ids.contiguous(),
+            width, height, tile_size, tile_width, tile_height,
+            active_tiles.contiguous(), tile_offsets.contiguous(),
+            flatten_ids.contiguous(), tile_pixel_mask.contiguous(),
+            tile_pixel_cumsum.contiguous(), pixel_map.contiguous(),
+            False, False,
+        )
+    )
+    if pixel_ratio >= 1.0:
+        frame = render_colors.reshape(1, C, height, width, 3)
+        alpha = render_alphas.reshape(1, C, height, width, 1)
+        meta = {"packed": False, "sampled_tile_ratio": 1.0}
+    else:
+        frame = render_colors
+        alpha = render_alphas
+        meta = {
+            "packed": True,
+            "pixel_image_ids": image_ids,
+            "pixel_flat": flat,
+            "pixel_ratio": float(sel.float().mean()),
+            "sampled_tile_ratio": float(sel.float().mean()),
+        }
+    return frame, alpha, meta
+
+
+def make_forward_fn(backend, width, height, handle, viewmats, Ks,
+                     radius_clip=0.0, tile_sampling_ratio=1.0,
+                     sampling_mode="uniform", cull_interval=1,
+                     cull_cache_key="default",
+                     pixel_raster_ratio=0.35):
+    from gsplat.rendering import rasterization
+
+    # "error_guided" is a harness-level strategy: the harness computes an
+    # explicit tile_mask (with importance weights) and passes it in; the
+    # rasterizer itself only knows uniform/stratified internal sampling.
+    raster_sampling_mode = (
+        "uniform"
+        if sampling_mode in ("error_guided", "sparse_pixel")
+        else sampling_mode
+    )
+
+    if backend == "higs_sparse_px":
+        def forward_fn(params_in, cam_ids, sampling_ratio=None, tile_mask=None):
+            m, q, s, o, c = params_in
+            vm = viewmats[:, cam_ids].squeeze(0)  # [C, 4, 4]
+            K = Ks[:, cam_ids].squeeze(0)         # [C, 3, 3]
+            ratio = (
+                pixel_raster_ratio
+                if sampling_ratio is None else sampling_ratio
+            )
+            return _sparse_px_forward(
+                m, q, s, o, c, vm, K, width, height, ratio,
+                radius_clip=radius_clip,
+            )
+        return forward_fn
+
+    def forward_fn(params_in, cam_ids, sampling_ratio=None, tile_mask=None):
+        m, q, s, o, c = params_in
+        vm = viewmats[:, cam_ids]
+        K = Ks[:, cam_ids]
+        ratio = tile_sampling_ratio if sampling_ratio is None else sampling_ratio
+        if backend == "std":
+            out = rasterization(
+                means=m.unsqueeze(0), quats=q.unsqueeze(0),
+                scales=s.unsqueeze(0), opacities=o.unsqueeze(0), colors=c,
+                viewmats=vm, Ks=K, width=width, height=height,
+                sh_degree=_SH_DEGREE, packed=True, radius_clip=radius_clip,
+            )
+            return out[0], out[1], {}
+        if backend == "std_ll":
+            rc, ra = _std_ll_forward(
+                m.unsqueeze(0), q.unsqueeze(0), s.unsqueeze(0),
+                o.unsqueeze(0), c, vm, K, width, height,
+                _SH_DEGREE, radius_clip=radius_clip,
+            )
+            return rc, ra, {}
+        kw = dict(
+            viewmats=vm, Ks=K, width=width, height=height,
+            sh_degree=_SH_DEGREE, use_higs_culling=True, radius_clip=radius_clip,
+            cull_refresh_interval=cull_interval,
+            cull_cache_key=cull_cache_key,
+        )
+        if backend in ("higs_native", "higs_recompute", "higs_native_ts"):
+            from gsplat.experimental import rasterize_gaussian_higs_frozen
+            if backend == "higs_recompute":
+                mode, ratio = "gsplat_recompute", 1.0
+            else:
+                mode = "higs_native"
+                if backend == "higs_native":
+                    ratio = 1.0  # full-resolution baseline backend
+            res = rasterize_gaussian_higs_frozen(
+                m, q, s, o, c, backward_mode=mode, scene=handle,
+                freeze_topology=True, tile_sampling_ratio=ratio,
+                sampling_mode=raster_sampling_mode, tile_mask=tile_mask, **kw,
+            )
+            return res["frame"], res["alpha"], res["metadata"]
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        dyn_ratio = ratio if backend == "higs_dynamic_ts" else 1.0
+        res = rasterize_gaussian_higs_dynamic(
+            m, q, s, o, c, backward_mode="higs_native",
+            tile_sampling_ratio=dyn_ratio,
+            sampling_mode=raster_sampling_mode, tile_mask=tile_mask, **kw,
+        )
+        return res["frame"], res["alpha"], res["metadata"]
+
+    return forward_fn
+
+
+def probe_native_vs_recompute(
+    params0, viewmats, Ks, cam_idx, ref, width, height, device,
+):
+    """One forward+backward each with higs_native and gsplat_recompute on
+    identical inputs; returns (grad cosine sim mean, forward parity PSNR)."""
+    from gsplat.experimental import rasterize_gaussian_higs_frozen
+    from gsplat.experimental.render.functional.gaussian_inference import (
+        _HIGS_FROZEN_TRACKER,
+        create_higs_renderer,
+    )
+
+    torch.manual_seed(1234)
+    _HIGS_FROZEN_TRACKER.reset()
+    params = [t.detach().clone().requires_grad_(True) for t in params0]
+    handle = create_higs_renderer(
+        params[0], params[1], params[2], params[3], params[4],
+        sh_degree=_SH_DEGREE,
+    )
+    try:
+        grads = {}
+        parity_psnr = None
+        for mode in ("higs_native", "gsplat_recompute"):
+            for t in params:
+                t.grad = None
+            res = rasterize_gaussian_higs_frozen(
+                params[0], params[1], params[2], params[3], params[4],
+                viewmats=viewmats[:, [cam_idx]], Ks=Ks[:, [cam_idx]],
+                width=width, height=height, sh_degree=_SH_DEGREE,
+                use_higs_culling=True, backward_mode=mode, scene=handle,
+                freeze_topology=True,
+            )
+            loss = _l1_loss(res["frame"], ref[:1])
+            loss.backward()
+            torch.cuda.synchronize(device)
+            grads[mode] = [t.grad.detach().clone().flatten() for t in params]
+            if mode == "higs_native":
+                parity_psnr = psnr(res["frame"].reshape(1, height, width, 3), ref[:1])
+        sims = []
+        for a, b in zip(grads["higs_native"], grads["gsplat_recompute"]):
+            if a.numel() == 0 or b.numel() == 0:
+                sims.append(1.0)
+            else:
+                sims.append(F.cosine_similarity(a.unsqueeze(0), b.unsqueeze(0)).item())
+        return float(np.mean(sims)), float(parity_psnr)
+    finally:
+        handle.release()
+
+
+# --------------------------------------------------------------------------
+# Training loop
+# --------------------------------------------------------------------------
+
+def _lr_at_step(base_lr, decay, step, steps):
+    """Exponential LR schedule: ``base_lr`` at step 0, ``base_lr*decay`` at the
+    final step (``step`` is 0-based, ``decay`` in (0, 1], 1.0 = constant)."""
+    if decay >= 1.0:
+        return base_lr
+    return base_lr * (decay ** ((step + 1) / max(1, steps)))
+
+
+def _accumulate_grad_norms(acc, means_grad):
+    """Window-accumulated per-Gaussian position-gradient norms for densify.
+
+    The dynamic densify decision uses the norm of the position gradient; with
+    tile-sampled training the per-step gradient is sparse (Gaussians outside
+    sampled tiles contribute zero), so the instantaneous norm under-counts
+    them. Accumulating over the densify window (standard 3DGS recipe)
+    recovers the full-signal ordering for the dup/clone decision.
+    """
+    g = means_grad.norm(dim=-1).detach()
+    if acc is None or acc.shape[0] != g.shape[0]:
+        acc = g.new_zeros(g.shape[0])
+    acc.add_(g)
+    return acc
+
+
+def _is_anchor_step(anchor_densify, is_densify_step, it, densify_every, anchor_densify_every):
+    """Whether a densify step runs at full resolution (--anchor-densify).
+
+    With ``anchor_densify_every=1`` (default) every densify step is anchored.
+    Higher values anchor only every N-th densify event (event index = the
+    1-based count of densify steps so far), trading densify signal for speed;
+    the LPIPS full-res steps still provide full-res signal on their own
+    cadence regardless.
+    """
+    if not (anchor_densify and is_densify_step):
+        return False
+    if anchor_densify_every <= 1:
+        return True
+    return ((it + 1) // densify_every) % anchor_densify_every == 0
+
+
+def _parse_res_schedule(spec):
+    """Parse a progressive-resolution schedule "0.5:0,1.0:1500".
+
+    Each "scale:start_step" pair sets the render-resolution scale active from
+    ``start_step`` onward (later pairs override earlier ones at their start).
+    Returns a list of ``(scale, start_step)`` sorted by start step; an empty
+    spec returns ``[]`` (fixed full resolution). Used for the Turbo-GS-style
+    coarse-to-fine baseline.
+    """
+    if not spec:
+        return []
+    stages = []
+    for part in spec.split(","):
+        scale_s, start_s = part.split(":")
+        stages.append((float(scale_s), int(start_s)))
+    stages.sort(key=lambda s: s[1])
+    return stages
+
+
+def _res_stage(step, schedule, fallback=1.0):
+    """Resolution scale active at ``step`` for a parsed schedule."""
+    scale = fallback
+    for s, start in schedule:
+        if step >= start:
+            scale = s
+        else:
+            break
+    return scale
+
+
+def _parse_cull_interval_schedule(spec):
+    """Parse a cull-refresh-interval schedule "1:0,16:1500".
+
+    Each "K:start_step" pair sets the train-forward cull-refresh interval
+    active from ``start_step`` onward; later pairs override earlier ones.
+    Returns a list of ``(interval, start_step)`` sorted by start step, or
+    ``[]`` for a fixed interval (--cull-interval applies for all steps).
+    """
+    if not spec:
+        return []
+    stages = []
+    for part in spec.split(","):
+        k_s, start_s = part.split(":")
+        stages.append((max(1, int(k_s)), int(start_s)))
+    stages.sort(key=lambda s: s[1])
+    return stages
+
+
+def _cull_interval_at(step, schedule, fallback=1):
+    """Cull-refresh interval active at ``step`` for a parsed schedule."""
+    ci = fallback
+    for k, start in schedule:
+        if step >= start:
+            ci = k
+        else:
+            break
+    return ci
+
+
+def _stage_ks(Ks, scale, width, height):
+    """Scale camera intrinsics to a new render resolution.
+
+    Matches ``load_cameras``: focal lengths scale linearly with the image
+    size, and the principal point sits at the center of the target frame.
+    """
+    K = Ks.clone()
+    K[..., 0, 0] = K[..., 0, 0] * scale
+    K[..., 1, 1] = K[..., 1, 1] * scale
+    K[..., 0, 2] = (width - 1) / 2.0
+    K[..., 1, 2] = (height - 1) / 2.0
+    return K
+
+
+def _stage_refs(refs, width, height):
+    """Downsample training references to ``(height, width)`` (bilinear).
+
+    Deterministic (no sampling noise), so the coarse stage sees exactly the
+    low-passed target; the full-res stage passes the originals through.
+    """
+    if refs.shape[1] == height and refs.shape[2] == width:
+        return refs
+    x = refs.permute(0, 3, 1, 2)  # [C, 3, H, W]
+    y = F.interpolate(x, size=(height, width), mode="bilinear", align_corners=False)
+    return y.permute(0, 2, 3, 1).contiguous()
+
+
+def _train_cull_mask(handle, dynamic_scene):
+    """Fetch the union-visibility bool mask [N] of the latest train forward.
+
+    The round-59/60 patched gsplat stores ``(vis_ids, visible_mask, fwd_count)``
+    per camera-set cache key on the renderer handle; the benchmark's train
+    forward uses the key "train".  The dynamic path owns its handle through
+    the module-level ``_HIGS_DYNAMIC_SCENE`` singleton (the first forward
+    lazily creates it), and the frozen path already holds the handle directly.
+    """
+    src = handle
+    if src is None and dynamic_scene is not None:
+        src = getattr(dynamic_scene, "renderer_handle", None)
+    if src is None:
+        raise RuntimeError(
+            "--masked-adam requires a HiGS renderer handle (higs_* backend)"
+        )
+    cache = getattr(src, "_cull_cache", None)
+    if not cache:
+        raise RuntimeError(
+            "--masked-adam requires the round-59/60 cull cache (patched gsplat)"
+        )
+    slot = cache.get("train")
+    if slot is None or len(slot) < 3 or slot[1] is None:
+        raise RuntimeError(
+            "--masked-adam: no train cull mask yet (the first train forward "
+            "must run before the optimizer step)"
+        )
+    return slot[1]
+
+def run_backend(
+    backend, params0, viewmats, Ks, train_idx, refs_train,
+    eval_idx, refs_eval, width, height, steps, seed, device,
+    densify_every, densify_threshold, prune_threshold, lpips_model,
+    radius_clip=0.0, fused_adam=True, tile_sampling_ratio=1.0,
+    anchor_densify=False, anchor_densify_every=1, sampling_mode="uniform",
+    error_alpha=1.0, error_refresh_every=25, error_lambda=1.0,
+    eval_every=0, lr_decay=1.0, densify_window=None,
+    lpips_loss_weight=0.0, lpips_loss_every=0,
+    lpips_full_res=False,
+    lpips_work_size=0,
+    cull_interval=1,
+    cull_interval_schedule=None,
+    densify_grad_accum=False,
+    res_schedule=None,
+    res_schedule_full_signal=False,
+    res_schedule_full_lpips=False,
+    pixel_sampling_ratio=1.0,
+    pixel_raster_ratio=0.35,
+    masked_adam=False,
+    mask_prune=False,
+    mask_prune_opacity=None,
+    mask_prune_eval_refresh=0,
+    mask_prune_min_frozen=2,
+    masked_adam_union_decay=0.0,
+    masked_adam_union_decay_eval_proj=False,
+):
+    torch.manual_seed(seed)
+    from gsplat.experimental.render.functional.gaussian_inference import _HIGS_FROZEN_TRACKER
+    _HIGS_FROZEN_TRACKER.reset()
+    means, quats, scales, opacities, sh = [t.detach().clone() for t in params0]
+    for t in (means, quats, scales, opacities, sh):
+        t.requires_grad_(True)
+    params = (means, quats, scales, opacities, sh)
+    opt = make_optimizer(params, fused=fused_adam)
+    _base_lrs = [g["lr"] for g in opt.param_groups]
+    _lr_gamma = lr_decay ** (1.0 / max(1, steps)) if lr_decay < 1.0 else 1.0
+
+    handle = None
+    dynamic_scene = None
+    if backend in ("higs_native", "higs_recompute", "higs_native_ts"):
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            create_higs_renderer,
+        )
+        handle = create_higs_renderer(
+            means, quats, scales, opacities, sh, sh_degree=_SH_DEGREE,
+        )
+    elif backend in ("higs_dynamic", "higs_dynamic_ts", "higs_sparse_px"):
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _HIGS_DYNAMIC_SCENE,
+        )
+        dynamic_scene = _HIGS_DYNAMIC_SCENE
+        dynamic_scene.reset()
+
+    eval_forward_fn = make_forward_fn(
+        backend, width, height, handle, viewmats, Ks, radius_clip=radius_clip,
+        tile_sampling_ratio=tile_sampling_ratio,
+        sampling_mode=sampling_mode,
+        cull_interval=cull_interval,
+        cull_cache_key="eval",
+        pixel_raster_ratio=pixel_raster_ratio,
+    )
+    eval_proj_mask_fn = None
+    if (masked_adam_union_decay > 0.0
+            and masked_adam_union_decay_eval_proj):
+        from gsplat.experimental.render.functional.gaussian_inference import (
+            _cull_gaussians_batched,
+        )
+        def eval_proj_mask_fn():
+            with torch.no_grad():
+                _vis_ids, _vmask, _ratio = _cull_gaussians_batched(
+                    means, quats, scales,
+                    viewmats[:, eval_idx].contiguous(),
+                    Ks[:, eval_idx].contiguous(),
+                    width, height, eps2d=0.3, near_plane=0.01,
+                    far_plane=1e10, radius_clip=radius_clip,
+                    camera_model="pinhole",
+                )
+            return _vmask
+    # Train forward fn is rebuilt at progressive-resolution stage boundaries;
+    # without a schedule it is the same full-res closure (eval stays full-res
+    # regardless, so progressive training never contaminates eval metrics).
+    # Cull-mask caching (--cull-interval > 1) is keyed per camera set so the
+    # eval renders never reuse the train-camera mask (and vice versa).
+    forward_fn = make_forward_fn(
+        backend, width, height, handle, viewmats, Ks, radius_clip=radius_clip,
+        tile_sampling_ratio=tile_sampling_ratio,
+        sampling_mode=sampling_mode,
+        cull_interval=cull_interval,
+        cull_cache_key="train",
+        pixel_raster_ratio=pixel_raster_ratio,
+    )
+    train_w, train_h = width, height
+    train_Ks = Ks
+    cur_scale = None
+    cur_cull_interval = cull_interval
+    torch.cuda.reset_peak_memory_stats(device)
+    run_wall_t0 = time.time()
+
+    if mask_prune:
+        with torch.no_grad():
+            eval_forward_fn(params, eval_idx, sampling_ratio=1.0)
+        _src0 = (
+            handle if handle is not None
+            else getattr(dynamic_scene, "renderer_handle", None)
+        )
+        _slot0 = getattr(_src0, "_cull_cache", {}).get("eval") if _src0 is not None else None
+        if _slot0 is not None and len(_slot0) >= 2 and _slot0[1] is not None:
+            eval_mask_tracked = _slot0[1].detach().clone()
+
+    fwd_times, bwd_times, total_times, train_times = [], [], [], []
+    culling_ratios, n_visibles, topo_rebuilt, isect_fracs = [], [], [], []
+    sampled_ratios = []
+    refresh_times = []
+    lpips_ms = []
+    eval_curve = []
+    eval_proj_overlap = []
+    frozen_counter = torch.zeros(
+        means.shape[0], dtype=torch.int32, device=device,
+    )
+    eval_mask_tracked = None
+    n_mask_pruned = 0
+    mask_prune_hist = []
+    n_frozen_decay_steps = 0
+    n_frozen_decay_sum = torch.zeros((), dtype=torch.int64, device=device)
+    tile_err_cache = None
+    grad_norm_acc = None
+    ref = refs_train
+
+    try:
+        for it in range(steps):
+            if res_schedule:
+                scale = _res_stage(it, res_schedule)
+                if scale != cur_scale:
+                    cur_scale = scale
+                    train_w = max(1, int(round(width * scale)))
+                    train_h = max(1, int(round(height * scale)))
+                    train_Ks = _stage_ks(Ks, scale, train_w, train_h)
+                    ref = _stage_refs(refs_train, train_w, train_h)
+                    forward_fn = make_forward_fn(
+                        backend, train_w, train_h, handle, viewmats, train_Ks,
+                        radius_clip=radius_clip,
+                        tile_sampling_ratio=tile_sampling_ratio,
+                        sampling_mode=sampling_mode,
+                        cull_interval=cull_interval,
+                        cull_cache_key="train",
+                        pixel_raster_ratio=pixel_raster_ratio,
+                    )
+                    tile_err_cache = None
+            if cull_interval_schedule:
+                ci = _cull_interval_at(it, cull_interval_schedule, cull_interval)
+                if ci != cur_cull_interval:
+                    cur_cull_interval = ci
+                    forward_fn = make_forward_fn(
+                        backend, train_w, train_h, handle, viewmats, train_Ks,
+                        radius_clip=radius_clip,
+                        tile_sampling_ratio=tile_sampling_ratio,
+                        sampling_mode=sampling_mode,
+                        cull_interval=ci,
+                        cull_cache_key="train",
+                        pixel_raster_ratio=pixel_raster_ratio,
+                    )
+                    tile_err_cache = None
+            cam_ids = train_idx
+            torch.cuda.synchronize(device)
+            t0 = time.perf_counter()
+            ev0 = torch.cuda.Event(enable_timing=True)
+            ev1 = torch.cuda.Event(enable_timing=True)
+            ev0.record()
+            is_densify_step = (
+                backend in ("higs_dynamic", "higs_dynamic_ts", "higs_sparse_px")
+                and densify_every > 0
+                and (it + 1) % densify_every == 0
+                and (densify_window is None or it < densify_window)
+            )
+            is_anchor_step = _is_anchor_step(
+                anchor_densify, is_densify_step, it,
+                densify_every, anchor_densify_every,
+            )
+            step_ratio = 1.0 if is_anchor_step else tile_sampling_ratio
+            is_lpips_step = (
+                lpips_loss_weight > 0.0 and lpips_loss_every > 0
+                and (it + 1) % lpips_loss_every == 0
+            )
+            # Full-resolution LPIPS step: one grad-enabled full render replaces
+            # the sampled-tile step AND the error-cache refresh (they share the
+            # same cadence), so the full-frame perceptual signal costs no extra
+            # render pass at the r<1 operating point. The renderer-level
+            # sparse-pixel backend samples pixels (not tiles), so its sampled
+            # operating point is ``pixel_raster_ratio < 1.0`` rather than
+            # ``step_ratio < 1.0``.
+            full_res_step = lpips_full_res and is_lpips_step and (
+                step_ratio < 1.0 or (
+                    backend == "higs_sparse_px" and pixel_raster_ratio < 1.0
+                )
+            )
+            # --res-schedule-full-signal: during progressive coarse stages keep
+            # the full-frame signal steps (LPIPS + anchor densify) at the full
+            # target resolution instead of the stage resolution.
+            use_full_signal = bool(res_schedule) and res_schedule_full_signal
+            # --res-schedule-full-lpips: keep ONLY the full-frame perceptual
+            # (LPIPS) steps at the full target resolution during coarse
+            # stages; anchor-densify stays at the stage scale. This isolates
+            # the full-res LPIPS signal from the round-52b full-signal arm,
+            # whose full-res anchor steps alternated with stage-res densify
+            # events and destabilized high-N scenes.
+            use_full_lpips = bool(res_schedule) and res_schedule_full_lpips
+            # Sparse-pixel mode renders the full frame (frozen gsplat HiGS has
+            # no pixel-sparse rasterizer) and sparsifies the LOSS instead; the
+            # pixel fraction is tracked separately for honest reporting.
+            is_sparse_px = sampling_mode == "sparse_pixel"
+            # Renderer-level sparse-pixel mode (higs_sparse_px) rasterizes
+            # only the sampled pixels inside the renderer (upstream gsplat
+            # sparse kernels); the dense fallback (ratio >= 1.0) covers eval
+            # and full-res LPIPS/anchor steps.
+            is_px_raster = backend == "higs_sparse_px"
+            eg_mask = eg_weights = None
+            if full_res_step:
+                if use_full_signal or use_full_lpips:
+                    frame, alpha, meta = eval_forward_fn(
+                        params, cam_ids, sampling_ratio=1.0,
+                    )
+                    # Coarse-stage error-guided steps render at the stage
+                    # resolution, so a full-res error cache would mismatch
+                    # their tile grid; the next sampled step refreshes the
+                    # cache at the stage resolution.
+                    tile_err_cache = None
+                    loss = _l1_loss(frame, refs_train)
+                else:
+                    frame, alpha, meta = forward_fn(
+                        params, cam_ids, sampling_ratio=1.0,
+                    )
+                    with torch.no_grad():
+                        tile_err_cache = _tile_mean_errors(
+                            frame, ref, _TILE_SIZE,
+                        )
+                    loss = _l1_loss(frame, ref)
+            else:
+                if sampling_mode == "error_guided" and step_ratio < 1.0:
+                    if tile_err_cache is None or (it + 1) % error_refresh_every == 0:
+                        with torch.no_grad():
+                            r0 = torch.cuda.Event(enable_timing=True)
+                            r1 = torch.cuda.Event(enable_timing=True)
+                            r0.record()
+                            frame_full, _, _ = forward_fn(
+                                params, cam_ids, sampling_ratio=1.0,
+                            )
+                            tile_err_cache = _tile_mean_errors(
+                                frame_full, ref, _TILE_SIZE,
+                            )
+                            r1.record()
+                            torch.cuda.synchronize(device)
+                            refresh_times.append(r0.elapsed_time(r1))
+                    eg_mask, eg_weights = _error_guided_mask(
+                        tile_err_cache, step_ratio, error_alpha, device,
+                        lambda_mix=error_lambda,
+                    )
+                    eg_mask = eg_mask.reshape(
+                        tile_err_cache.shape[0], tile_err_cache.shape[1],
+                        tile_err_cache.shape[2],
+                    )
+                step_fn = (
+                    eval_forward_fn
+                    if (is_anchor_step and use_full_signal)
+                    else forward_fn
+                )
+                step_ratio_arg = (
+                    1.0
+                    if (is_sparse_px or (is_px_raster and is_anchor_step))
+                    else (pixel_raster_ratio if is_px_raster else step_ratio)
+                )
+                frame, alpha, meta = step_fn(
+                    params, cam_ids,
+                    sampling_ratio=step_ratio_arg,
+                    tile_mask=eg_mask,
+                )
+            ev1.record()
+            torch.cuda.synchronize(device)
+            fwd_ms = ev0.elapsed_time(ev1)
+            # Full-signal steps (full-res LPIPS + anchor densify) render at the
+            # full target resolution, so their loss reference is the full-res
+            # target; sampled coarse-stage steps use the stage-scale reference.
+            loss_ref = (
+                refs_train
+                if (
+                    (use_full_signal and (full_res_step or is_anchor_step))
+                    or (use_full_lpips and full_res_step)
+                )
+                else ref
+            )
+            tile_mask = meta.get("tile_mask") if meta else None
+            if eg_mask is not None and eg_weights is not None:
+                loss = _importance_l1_loss(
+                    frame, loss_ref, eg_mask, eg_weights, _TILE_SIZE, train_w, train_h,
+                )
+            elif is_sparse_px and not full_res_step and not is_anchor_step:
+                loss = _masked_pixel_l1_loss(
+                    frame, loss_ref, pixel_sampling_ratio, device,
+                )
+            elif not full_res_step and step_ratio < 1.0 and tile_mask is not None:
+                loss = _masked_l1_loss(
+                    frame, loss_ref, tile_mask, _TILE_SIZE, train_w, train_h,
+                )
+            elif is_px_raster and meta is not None and meta.get("packed"):
+                loss = _packed_pixel_l1_loss(
+                    frame, loss_ref, meta["pixel_image_ids"],
+                    meta["pixel_flat"],
+                )
+            else:
+                loss = _l1_loss(frame, loss_ref)
+
+            if is_lpips_step:
+                evL0 = torch.cuda.Event(enable_timing=True)
+                evL1 = torch.cuda.Event(enable_timing=True)
+                evL0.record()
+                loss = loss + lpips_loss_weight * _lpips_train_loss(
+                    lpips_model, frame, loss_ref,
+                    work_size=lpips_work_size,
+                )
+                evL1.record()
+                torch.cuda.synchronize(device)
+                lpips_ms.append(evL0.elapsed_time(evL1))
+
+            ev2 = torch.cuda.Event(enable_timing=True)
+            ev3 = torch.cuda.Event(enable_timing=True)
+            ev2.record()
+            loss.backward()
+            ev3.record()
+            torch.cuda.synchronize(device)
+            bwd_ms = ev2.elapsed_time(ev3)
+            total_ms = (time.perf_counter() - t0) * 1e3
+
+            fwd_times.append(fwd_ms)
+            bwd_times.append(bwd_ms)
+            total_times.append(total_ms)
+            if meta:
+                culling_ratios.append(meta.get("culling_ratio", 0.0))
+                n_visibles.append(meta.get("n_visible", 0))
+                topo_rebuilt.append(float(meta.get("topology_rebuilt", False)))
+                # The rasterizer reports the ratio it actually used (a backend
+                # may force 1.0, e.g. ``higs_native`` even when the CLI asks for
+                # r<1); fall back to the harness-level step ratio when the
+                # metadata does not carry the field.
+                sampled_ratios.append(
+                    float(meta.get("sampled_tile_ratio", step_ratio))
+                )
+                n_isects_full = meta.get("n_isects_full", 0)
+                isect_fracs.append(
+                    meta.get("n_isects", 0) / n_isects_full
+                    if n_isects_full else 1.0
+                )
+            else:
+                culling_ratios.append(0.0)
+                n_visibles.append(means.shape[0])
+                topo_rebuilt.append(0.0)
+                sampled_ratios.append(1.0)
+
+            if lr_decay < 1.0:
+                _t = float(it + 1)
+                for _g, _b in zip(opt.param_groups, _base_lrs):
+                    _g["lr"] = _b * (_lr_gamma ** _t)
+
+            if masked_adam:
+                _ma_mask = _train_cull_mask(handle, dynamic_scene)
+                masked_adam_step(opt, _ma_mask)
+                if masked_adam_union_decay > 0.0:
+                    with torch.no_grad():
+                        _d_em = eval_mask_tracked
+                        if (_d_em is not None
+                                and _d_em.numel() == _ma_mask.numel()):
+                            _decay_rows = (~_ma_mask) & (~_d_em)
+                            opacities.data[_decay_rows] *= (
+                                masked_adam_union_decay
+                            )
+                            n_frozen_decay_steps += 1
+                            n_frozen_decay_sum += _decay_rows.sum()
+            else:
+                opt.step()
+
+            if densify_grad_accum and means.grad is not None:
+                grad_norm_acc = _accumulate_grad_norms(grad_norm_acc, means.grad)
+
+            if (
+                backend in ("higs_dynamic", "higs_dynamic_ts", "higs_sparse_px")
+                and (it + 1) % densify_every == 0
+                and (densify_window is None or it < densify_window)
+            ):
+                from gsplat.experimental.render.functional.gaussian_inference import (
+                    _densify_gaussians,
+                    _prune_gaussians,
+                    sync_optimizer_state_for_topology_change,
+                )
+                grads = means.grad
+                n_old = means.shape[0]
+                if mask_prune:
+                    _tm = _train_cull_mask(handle, dynamic_scene)
+                    frozen_counter = torch.where(
+                        _tm, torch.zeros_like(frozen_counter),
+                        frozen_counter + 1,
+                    )
+                    _em = eval_mask_tracked
+                    if (_em is not None and _em.numel() == n_old
+                            and _tm.numel() == n_old):
+                        _union_invis = (
+                            (~_tm) & (~_em)
+                            & (frozen_counter >= mask_prune_min_frozen)
+                        )
+                        if mask_prune_opacity is not None:
+                            _union_invis = _union_invis & (
+                                opacities < mask_prune_opacity
+                            )
+                        mask_prune_hist.append({
+                            "step": int(it + 1),
+                            "n_union_invis": int(_union_invis.sum().item()),
+                            "n_eval_only_vis": int((_em & (~_tm)).sum().item()),
+                            "n_pruned": 0,
+                        })
+                    else:
+                        _union_invis = None
+                else:
+                    _union_invis = None
+                if densify_grad_accum and grad_norm_acc is not None:
+                    grads_for_densify = grad_norm_acc.unsqueeze(1)
+                    dup_idx = (
+                        grad_norm_acc > densify_threshold
+                    ).nonzero().flatten()
+                else:
+                    grads_for_densify = grads
+                    dup_idx = (
+                        grads.norm(dim=-1) > densify_threshold
+                    ).nonzero().flatten() if grads is not None else torch.tensor([], device=device)
+                old_m, old_q, old_s, old_o, old_c = means, quats, scales, opacities, sh
+                new_m, new_q, new_s, new_o, new_c = _densify_gaussians(
+                    means, quats, scales, opacities, sh,
+                    grads_for_densify, threshold=densify_threshold,
+                )
+                new_m, new_q, new_s, new_o, new_c = _prune_gaussians(
+                    new_m, new_q, new_s, new_o, new_c,
+                    opacity_threshold=prune_threshold,
+                )
+                n_new = new_m.shape[0]
+                if n_new != n_old:
+                    pre_map = torch.cat([torch.arange(n_old, device=device), dup_idx])
+                    keep = (new_o > prune_threshold).nonzero().flatten()
+                    if _union_invis is not None:
+                        _exp = torch.cat([
+                            _union_invis,
+                            torch.zeros(dup_idx.numel(), dtype=torch.bool, device=device),
+                        ])
+                        _drop = _exp[keep]
+                        _n_drop = int(_drop.sum().item())
+                        n_mask_pruned += _n_drop
+                        if mask_prune_hist:
+                            mask_prune_hist[-1]["n_pruned"] = _n_drop
+                        keep = keep[~_drop]
+                        new_m = new_m[keep]
+                        new_q = new_q[keep]
+                        new_s = new_s[keep]
+                        new_o = new_o[keep]
+                        new_c = new_c[keep]
+                        n_new = new_m.shape[0]
+                    old_to_new = pre_map[keep]
+                    with torch.no_grad():
+                        means, quats, scales, opacities, sh = (
+                            new_m.detach(), new_q.detach(),
+                            new_s.detach(), new_o.detach(),
+                            new_c.detach(),
+                        )
+                    for _t in (means, quats, scales, opacities, sh):
+                        _t.requires_grad_(True)
+                    params = (means, quats, scales, opacities, sh)
+                    sync_optimizer_state_for_topology_change(
+                        opt, old_to_new,
+                        means=(old_m, means), quats=(old_q, quats),
+                        scales=(old_s, scales), opacities=(old_o, opacities),
+                        colors=(old_c, sh),
+                    )
+                    dynamic_scene.mark_dirty()
+                    if mask_prune or masked_adam_union_decay > 0.0:
+                        _counter_exp = torch.cat([
+                            frozen_counter,
+                            torch.zeros(
+                                dup_idx.numel(), dtype=torch.int32, device=device,
+                            ),
+                        ])
+                        frozen_counter = _counter_exp[keep].contiguous()
+                        if eval_mask_tracked is not None:
+                            _em_exp = torch.cat([
+                                eval_mask_tracked,
+                                eval_mask_tracked[dup_idx],
+                            ])
+                            eval_mask_tracked = _em_exp[keep]
+
+                if ((mask_prune or masked_adam_union_decay > 0.0)
+                        and mask_prune_eval_refresh > 0
+                        and (it + 1) % (densify_every * mask_prune_eval_refresh) == 0):
+                    if (eval_proj_mask_fn is not None
+                            and masked_adam_union_decay > 0.0
+                            and not mask_prune):
+                        _pmask = eval_proj_mask_fn()
+                        if _pmask.numel() == means.shape[0]:
+                            eval_mask_tracked = _pmask.detach().clone()
+                        else:
+                            eval_mask_tracked = None
+                    else:
+                        with torch.no_grad():
+                            eval_forward_fn(params, eval_idx, sampling_ratio=1.0)
+                        _src2 = (
+                            handle if handle is not None
+                            else getattr(dynamic_scene, "renderer_handle", None)
+                        )
+                        _slot2 = getattr(_src2, "_cull_cache", {}).get("eval") if _src2 is not None else None
+                        if _slot2 is not None and len(_slot2) >= 2 and _slot2[1] is not None:
+                            eval_mask_tracked = _slot2[1].detach().clone()
+
+                if densify_grad_accum:
+                    grad_norm_acc = torch.zeros(means.shape[0], device=device)
+
+            if eval_every > 0 and (it + 1) % eval_every == 0:
+                with torch.no_grad():
+                    ev_frame, _, _ = eval_forward_fn(
+                        params, eval_idx, sampling_ratio=1.0,
+                    )
+                    ev_frame = ev_frame.reshape(
+                        len(eval_idx), height, width, 3,
+                    )
+                    eval_curve.append({
+                        "step": int(it + 1),
+                        "wall_s": float(time.time() - run_wall_t0),
+                        "psnr": float(psnr(ev_frame, refs_eval)),
+                        "ssim": float(ssim(
+                            ev_frame.permute(0, 3, 1, 2),
+                            refs_eval.permute(0, 3, 1, 2),
+                        )),
+                        "lpips": float(lpips_score(
+                            lpips_model, ev_frame, refs_eval,
+                        )),
+                        "n_gaussians": int(means.shape[0]),
+                    })
+                if mask_prune or masked_adam_union_decay > 0.0:
+                    _src1 = (
+                        handle if handle is not None
+                        else getattr(dynamic_scene, "renderer_handle", None)
+                    )
+                    _slot1 = (
+                        getattr(_src1, "_cull_cache", {}).get("eval")
+                        if _src1 is not None else None
+                    )
+                    if _slot1 is not None and len(_slot1) >= 2 and _slot1[1] is not None:
+                        eval_mask_tracked = _slot1[1].detach().clone()
+                if eval_proj_mask_fn is not None:
+                    _pmask = eval_proj_mask_fn()
+                    if (_pmask.numel() == eval_mask_tracked.numel()
+                            and eval_mask_tracked is not None):
+                        _full = eval_mask_tracked
+                        eval_proj_overlap.append({
+                            "step": int(it + 1),
+                            "proj_miss_frac": float(
+                                (_full & ~_pmask).float().mean()
+                            ),
+                            "proj_extra_frac": float(
+                                (~_full & _pmask).float().mean()
+                            ),
+                            "n": int(_full.numel()),
+                        })
+
+            opt.zero_grad(set_to_none=True)
+            ev4 = torch.cuda.Event(enable_timing=True)
+            ev4.record()
+            torch.cuda.synchronize(device)
+            train_times.append(ev0.elapsed_time(ev4))
+
+        torch.cuda.synchronize(device)
+        peak = torch.cuda.max_memory_allocated(device) / 1e9
+
+        with torch.no_grad():
+            ev_frame, _, _ = eval_forward_fn(params, eval_idx, sampling_ratio=1.0)
+            ev_frame = ev_frame.reshape(len(eval_idx), height, width, 3)
+            p = psnr(ev_frame, refs_eval)
+            s = ssim(ev_frame.permute(0, 3, 1, 2), refs_eval.permute(0, 3, 1, 2))
+            l = lpips_score(lpips_model, ev_frame, refs_eval)
+    finally:
+        if handle is not None:
+            handle.release()
+        if dynamic_scene is not None:
+            dynamic_scene.reset()
+        _HIGS_FROZEN_TRACKER.reset()
+
+    return {
+        "backend": backend,
+        "fwd_ms": float(np.mean(fwd_times)),
+        "bwd_ms": float(np.mean(bwd_times)),
+        "total_ms": float(np.mean(total_times)),
+        "train_ms": float(np.mean(train_times)) if train_times else 0.0,
+        "peak_vram_gb": peak,
+        "culling_ratio": float(np.mean(culling_ratios)) if culling_ratios else 0.0,
+        "n_visible_avg": float(np.mean(n_visibles)) if n_visibles else 0.0,
+        "psnr": p,
+        "ssim": s,
+        "lpips": l,
+        "final_n": means.shape[0],
+        "topology_rebuilt_frac": float(np.mean(topo_rebuilt)) if topo_rebuilt else 0.0,
+        "sampled_tile_ratio": (
+            float(np.mean(sampled_ratios)) if sampled_ratios
+            else float(tile_sampling_ratio)
+        ),
+        "isect_frac": float(np.mean(isect_fracs)) if isect_fracs else 1.0,
+        "refresh_ms": float(np.mean(refresh_times)) if refresh_times else 0.0,
+        "lpips_loss_weight": float(lpips_loss_weight),
+        "lpips_loss_every": int(lpips_loss_every),
+        "lpips_full_res": bool(lpips_full_res),
+        "lpips_work_size": int(lpips_work_size),
+        "lpips_ms_avg": float(np.mean(lpips_ms)) if lpips_ms else 0.0,
+        "lpips_steps": len(lpips_ms),
+        "sampling_mode": sampling_mode,
+        "pixel_sampling_ratio": float(pixel_sampling_ratio),
+        "pixel_raster_ratio": (
+            float(pixel_raster_ratio) if backend == "higs_sparse_px" else None
+        ),
+        "cull_interval": int(cull_interval),
+        "cull_interval_schedule": (
+            [[k, start] for k, start in cull_interval_schedule]
+            if cull_interval_schedule else None
+        ),
+        "masked_adam": bool(masked_adam),
+        "mask_prune": bool(mask_prune),
+        "mask_prune_opacity": mask_prune_opacity,
+        "mask_prune_eval_refresh": mask_prune_eval_refresh,
+        "mask_prune_min_frozen": mask_prune_min_frozen,
+        "masked_adam_union_decay": float(masked_adam_union_decay),
+        "masked_adam_union_decay_eval_proj": bool(
+            masked_adam_union_decay_eval_proj
+        ),
+        "eval_proj_overlap": eval_proj_overlap,
+        "frozen_decay_steps": int(n_frozen_decay_steps),
+        "frozen_decay_avg_rows": (
+            float(int(n_frozen_decay_sum.item()) / n_frozen_decay_steps)
+            if n_frozen_decay_steps else 0.0
+        ),
+        "n_mask_pruned": int(n_mask_pruned),
+        "mask_prune_hist": mask_prune_hist,
+        "eval_curve": eval_curve,
+        "total_wall_s": float(time.time() - run_wall_t0),
+    }
+
+
+def build_arg_parser():
+    ap = argparse.ArgumentParser(description="HiGS training-path benchmark")
+    ap.add_argument(
+        "--base-dir",
+        default="datasets/processed",
+        help="root of processed official datasets (family/scene subdirs)",
+    )
+    ap.add_argument(
+        "--scene",
+        nargs="+",
+        default=["tanks_and_temples/train", "mipnerf360/bicycle"],
+        help="family/scene pairs, e.g. mipnerf360/garden, tanks_and_temples/truck",
+    )
+    ap.add_argument("--backends", nargs="+", default=["std", "higs_recompute", "higs_native", "higs_dynamic"])
+    ap.add_argument("--n-train", type=int, default=4)
+    ap.add_argument("--n-eval", type=int, default=3)
+    ap.add_argument("--steps", type=int, default=20)
+    ap.add_argument("--width", type=int, default=960)
+    ap.add_argument("--height", type=int, default=540)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--densify-every", type=int, default=5)
+    ap.add_argument("--densify-threshold", type=float, default=5e-3)
+    ap.add_argument("--prune-threshold", type=float, default=0.01)
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--radius-clip", type=float, default=0.0)
+    ap.add_argument(
+        "--anchor-densify",
+        action="store_true",
+        help="dynamic HiGS: run densify steps at full resolution (r=1.0)",
+    )
+    ap.add_argument(
+        "--anchor-densify-every", type=int, default=1,
+        help=(
+            "with --anchor-densify: run full-resolution densify only every "
+            "N-th densify event (1 = every densify step, the default); higher "
+            "values trade densify signal for speed (LPIPS full-res steps still "
+            "give full-res signal on their own cadence)"
+        ),
+    )
+    ap.add_argument(
+        "--densify-grad-accum",
+        action="store_true",
+        help=(
+            "dynamic HiGS: densify on window-accumulated position-gradient "
+            "norms (standard 3DGS recipe) instead of the instantaneous "
+            "per-step gradient"
+        ),
+    )
+    ap.add_argument(
+        "--res-schedule", default=None,
+        help=(
+            "progressive-resolution schedule as 'scale:start,scale:start', e.g. "
+            "'0.5:0,1.0:1500' trains at half resolution for steps [0,1500) then "
+            "full resolution (Turbo-GS-style coarse-to-fine); default None = "
+            "fixed resolution. Eval is always at the full target resolution."
+        ),
+    )
+    ap.add_argument(
+        "--res-schedule-full-signal", action="store_true",
+        help=(
+            "with --res-schedule: keep the perceptual (LPIPS) steps and "
+            "anchor-densify steps at full target resolution during coarse "
+            "stages, instead of running them at the stage scale. Sampled "
+            "training steps still run at stage scale x r."
+        ),
+    )
+    ap.add_argument(
+        "--res-schedule-full-lpips", action="store_true",
+        help=(
+            "with --res-schedule: keep only the perceptual (LPIPS) steps at "
+            "full target resolution during coarse stages; anchor-densify "
+            "stays at the stage scale (isolates the full-res LPIPS signal "
+            "from the --res-schedule-full-signal densify alternation)"
+        ),
+    )
+    ap.add_argument(
+        "--tile-sampling-ratio", type=float, default=1.0,
+        help="HiGS native tile sampling ratio in (0, 1] (1.0 = full frame)",
+    )
+    ap.add_argument(
+        "--sampling-mode", choices=("uniform", "stratified", "error_guided", "sparse_pixel"), default="uniform",
+        help="tile sampling: uniform iid, stratified (one tile per round(1/r)-tile "
+        "stratum), or error_guided (importance-sample tiles proportional to the "
+        "cached per-tile error, with unbiased importance weights)",
+    )
+    ap.add_argument(
+        "--pixel-raster-ratio", type=float, default=0.35,
+        help=(
+            "higs_sparse_px backend: fraction of pixels rasterized per step "
+            "(iid Bernoulli, renderer-level sparse pixels via upstream gsplat "
+            "sparse kernels; 1.0 = full frame). The packed-pixel L1 mean is an "
+            "unbiased estimate of the full-frame mean (like the tile-masked "
+            "loss), so no reweighting is needed. Eval / full-res LPIPS / "
+            "anchor-densify steps render the full frame regardless."
+        ),
+    )
+    ap.add_argument(
+        "--pixel-sampling-ratio", type=float, default=1.0,
+        help=(
+            "sparse_pixel mode: fraction of pixels kept per step (iid Bernoulli); "
+            "the pixel-masked L1 mean is an unbiased estimate of the full-frame "
+            "mean (like the tile-masked loss, no reweighting needed). The "
+            "rasterizer still renders the full frame (frozen gsplat HiGS has no "
+            "pixel-sparse path), so this is a training-signal baseline, not a "
+            "wall-speed arm."
+        ),
+    )
+    ap.add_argument(
+        "--error-alpha", type=float, default=1.0,
+        help="error-guided sampling: p ~ (tile_err + floor)^alpha (1.0 = variance-optimal for L1)",
+    )
+    ap.add_argument(
+        "--error-refresh-every", type=int, default=25,
+        help="error-guided sampling: refresh the full-res per-tile error map every N steps",
+    )
+    ap.add_argument(
+        "--error-lambda", type=float, default=1.0,
+        help="error-guided sampling: blend error distribution with uniform, "
+        "p = (1-lambda)/n + lambda*p_err (1.0 = pure error-guided, 0.0 = uniform)",
+    )
+    ap.add_argument(
+        "--eval-every", type=int, default=0,
+        help="record full-res eval PSNR/SSIM/LPIPS every N steps (0 = only final)",
+    )
+    ap.add_argument(
+        "--lr-decay", type=float, default=1.0,
+        help="exponential LR decay: final LR factor over `--steps` (1.0 = constant)",
+    )
+    ap.add_argument(
+        "--densify-window", type=int, default=0,
+        help="dynamic: run densify/prune only while step < window (0 = whole run)",
+    )
+    ap.add_argument(
+        "--lpips-loss-weight", type=float, default=0.0,
+        help="add full-res LPIPS loss * weight to the sampled L1 loss (0 = off)",
+    )
+    ap.add_argument(
+        "--lpips-loss-every", type=int, default=0,
+        help="apply the LPIPS loss term every N steps (0 = off; needs weight > 0)",
+    )
+    ap.add_argument(
+        "--lpips-full-res",
+        action="store_true",
+        help="LPIPS loss steps render the full frame (with grad) instead of the "
+        "sampled tiles; the full render is reused as the error-cache refresh",
+    )
+    ap.add_argument(
+        "--lpips-work-size", type=int, default=0,
+        help="round-61: downscale the train LPIPS loss inputs to a canonical "
+        "max-side work size (e.g. 256) before the LPIPS forward (0 = full "
+        "resolution); LPIPS trunks are trained on ~224px patches so this "
+        "cuts the AlexNet cost ~25x while keeping the signal in-distribution; "
+        "eval LPIPS scoring is always full-res for metric consistency",
+    )
+    ap.add_argument(
+        "--cull-interval", type=int, default=1,
+        help="dynamic HiGS: refresh the union-visibility cull every N steps "
+        "(1 = every step; the cache is invalidated by densify/prune)",
+    )
+    ap.add_argument(
+        "--cull-interval-schedule", type=str, default=None,
+        help="cull-refresh-interval schedule for the train forward as "
+             "'K:start[,...]' (e.g. '1:0,16:1500' = every step until step "
+             "1500, then every 16 steps); empty = fixed --cull-interval",
+    )
+    ap.add_argument(
+        "--masked-adam",
+        action="store_true",
+        help="replace the optimizer step with a cull-masked Adam step that "
+        "updates only the Gaussians visible in the latest train forward "
+        "(requires the round-60 patched gsplat train cull mask in the cache)",
+    )
+    ap.add_argument(
+        "--masked-adam-union-decay", type=float, default=0.0,
+        help="round-62: per-step multiplicative opacity decay applied to "
+        "rows invisible in BOTH the train and eval union-visibility masks "
+        "(requires --masked-adam and the eval cull mask); lets stale frozen "
+        "rows fade and retire via the normal opacity prune while the "
+        "optimizer stays masked (0 = R60-identical)",
+    )
+    ap.add_argument(
+        "--masked-adam-union-decay-eval-proj", action="store_true",
+        help="round-63: refresh the decay eval-visibility mask with the "
+        "projection-only cull (_cull_gaussians_batched on eval cameras, "
+        "~1.3 ms @5.8M) instead of a full eval forward (~13.5 ms); the "
+        "probe shows the projection mask is bitwise-identical to the "
+        "forward-cache mask, so the decay semantics are unchanged at ~10x "
+        "lower refresh cost",
+    )
+    ap.add_argument(
+        "--higs-quality-max",
+        action="store_true",
+        help="round-65 final quality-max preset: enables --masked-adam, "
+        "--masked-adam-union-decay 0.99, --masked-adam-union-decay-eval-proj, "
+        "and a default --res-schedule 0.5:0,1.0:1500 (progressive-resolution "
+        "x decay cell, strictly dominates full-res ctrl on bicycle/truck/"
+        "bonsai; garden uses --res-schedule 0.75:0,1.0:1500 instead; train "
+        "low-N not recommended). Explicit flags override the preset.",
+    )
+    ap.add_argument(
+        "--mask-prune",
+        action="store_true",
+        help="at densify steps, drop rows invisible in BOTH the train and "
+        "eval union-visibility masks (never rendered anywhere) after a 2-"
+        "cycle frozen grace; pixel-identical for every rendered frame, "
+        "shrinks N/cull/densify/memory (stacks with --masked-adam)",
+    )
+    ap.add_argument(
+        "--mask-prune-opacity", type=float, default=None,
+        help="round-61: only prune union-invisible Gaussians whose sigmoid "
+        "opacity is below this cap (None = no cap); protects migrating "
+        "high-opacity geometry that is only temporarily out of view",
+    )
+    ap.add_argument(
+        "--mask-prune-eval-refresh", type=int, default=None,
+        help="refresh the eval-visibility mask every N densify steps "
+        "((step+1) %% (densify_every*N) == 0); keeps the prune/decay "
+        "decision from using a stale eval mask. Default: 1 for both "
+        "--mask-prune and --masked-adam-union-decay (round-62: stale "
+        "masks collapse decay quality), 0 = natural eval cadence only",
+    )
+    ap.add_argument(
+        "--mask-prune-min-frozen", type=int, default=2,
+        help="round-61: prune a union-invisible row only after it has been "
+        "train-and-eval invisible for this many densify cycles (1 cycle = "
+        "--densify-every steps); protects migrating geometry, higher is safer",
+    )
+    ap.add_argument(
+        "--no-fused-adam",
+        action="store_false",
+        dest="fused_adam",
+        help="disable fused Adam (fall back to the foreach optimizer)",
+    )
+    return ap
+
+
+def _apply_higs_quality_max(args, raw_args):
+    """Round-65 final quality-max preset (see --higs-quality-max).
+
+    Enables the masked-Adam op point plus the decay+projection-refresh
+    quality opt-in and a default progressive-resolution schedule. Explicit
+    user flags win: an explicit --masked-adam-union-decay (including 0.0 to
+    disable decay) and any --res-schedule are honored as given.
+    """
+    if not args.higs_quality_max:
+        return
+    args.masked_adam = True
+    if not any(
+        a.split("=", 1)[0] == "--masked-adam-union-decay" for a in raw_args
+    ):
+        args.masked_adam_union_decay = 0.99
+    args.masked_adam_union_decay_eval_proj = True
+    if args.res_schedule is None:
+        args.res_schedule = "0.5:0,1.0:1500"
+
+
+def main():
+    ap = build_arg_parser()
+    args = ap.parse_args()
+    _apply_higs_quality_max(args, sys.argv[1:])
+    if args.lpips_loss_weight > 0.0 and args.lpips_loss_every <= 0:
+        ap.error("--lpips-loss-weight > 0 requires --lpips-loss-every > 0")
+
+    import lpips
+
+    device = torch.device("cuda:0")
+    torch.cuda.set_device(device)
+    print(f"device={torch.cuda.get_device_name(0)} torch={torch.__version__}")
+    lpips_model = lpips.LPIPS(net="alex").to(device).eval()
+    for p in lpips_model.parameters():
+        p.requires_grad_(False)
+
+    all_results = {}
+    for scene in args.scene:
+        scene_dir = os.path.join(args.base_dir, scene)
+        ply_path = os.path.join(scene_dir, "point_cloud.ply")
+        if not os.path.exists(ply_path):
+            print(f"[skip] no point_cloud.ply in {scene_dir}")
+            continue
+        gt_dir = os.path.join(scene_dir, "eval_images")
+
+        params0 = load_ply_scene(ply_path, device)
+        print(f"scene={scene} n_gaussians={params0[0].shape[0]}")
+        viewmats, Ks, train_idx, eval_idx = load_cameras(
+            scene_dir, args.width, args.height, args.n_train, args.n_eval, device,
+        )
+        print(f"train_cams={train_idx} eval_cams={eval_idx} res={args.width}x{args.height}")
+
+        with open(os.path.join(scene_dir, "eval_cameras.json")) as f:
+            cams = json.load(f)
+        refs_train = load_reference(gt_dir, [cams[i] for i in train_idx], args.width, args.height, device)
+        refs_eval = load_reference(gt_dir, [cams[i] for i in eval_idx], args.width, args.height, device)
+
+        cos, parity = probe_native_vs_recompute(
+            params0, viewmats, Ks, eval_idx[0], refs_eval, args.width, args.height, device,
+        )
+        print(f"probe: native-vs-recompute grad cosine={cos:.6f} init parity PSNR={parity:.2f} dB")
+
+        results = []
+        for backend in args.backends:
+            print(f"[run] backend={backend} scene={scene}", flush=True)
+            try:
+                _mper = (
+                    args.mask_prune_eval_refresh
+                    if args.mask_prune_eval_refresh is not None
+                    else (1 if (
+                        args.mask_prune
+                        or args.masked_adam_union_decay > 0.0
+                    ) else 0)
+                )
+                r = run_backend(
+                    backend, params0, viewmats, Ks, train_idx, refs_train,
+                    eval_idx, refs_eval, args.width, args.height, args.steps,
+                    args.seed, device, args.densify_every,
+                    args.densify_threshold, args.prune_threshold,
+                    lpips_model, radius_clip=args.radius_clip,
+                    fused_adam=args.fused_adam,
+                    tile_sampling_ratio=args.tile_sampling_ratio,
+                    anchor_densify=args.anchor_densify,
+                    anchor_densify_every=args.anchor_densify_every,
+                    sampling_mode=args.sampling_mode,
+                    error_alpha=args.error_alpha,
+                    error_refresh_every=args.error_refresh_every,
+                    error_lambda=args.error_lambda,
+                    eval_every=args.eval_every,
+                    lr_decay=args.lr_decay,
+                    densify_window=(
+                        None if args.densify_window == 0 else args.densify_window
+                    ),
+                    lpips_loss_weight=args.lpips_loss_weight,
+                    lpips_loss_every=args.lpips_loss_every,
+                    lpips_full_res=args.lpips_full_res,
+                    lpips_work_size=args.lpips_work_size,
+                    cull_interval=args.cull_interval,
+                    cull_interval_schedule=_parse_cull_interval_schedule(
+                        args.cull_interval_schedule
+                    ),
+                    densify_grad_accum=args.densify_grad_accum,
+                    res_schedule=_parse_res_schedule(args.res_schedule),
+                    res_schedule_full_signal=args.res_schedule_full_signal,
+                    res_schedule_full_lpips=args.res_schedule_full_lpips,
+                    pixel_sampling_ratio=args.pixel_sampling_ratio,
+                    pixel_raster_ratio=args.pixel_raster_ratio,
+                    masked_adam=args.masked_adam,
+                    mask_prune=args.mask_prune,
+                    mask_prune_opacity=args.mask_prune_opacity,
+                    mask_prune_eval_refresh=_mper,
+                    mask_prune_min_frozen=args.mask_prune_min_frozen,
+                    masked_adam_union_decay=args.masked_adam_union_decay,
+                    masked_adam_union_decay_eval_proj=(
+                        args.masked_adam_union_decay_eval_proj
+                    ),
+                )
+                r["probe_grad_cosine"] = cos
+                r["probe_init_psnr"] = parity
+                results.append(r)
+                print("  " + json.dumps(r))
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                results.append({"backend": backend, "error": str(e)})
+        all_results[scene] = results
+
+    summary = {
+        "device": torch.cuda.get_device_name(0),
+        "torch": torch.__version__,
+        "config": vars(args),
+        "scenes": all_results,
+    }
+    out = args.out or os.path.join(
+        "results", f"higs-train-benchmark-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    )
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w") as f:
+        json.dump(summary, f, indent=2, default=str)
+    print(f"\nwrote {out}")
+
+    print("\n=== SUMMARY (ms / GB / PSNR / SSIM / LPIPS) ===")
+    for scene, results in all_results.items():
+        print(f"\n-- {scene} --")
+        for r in results:
+            if "error" in r:
+                print(f"  {r['backend']}: ERROR {r['error']}")
+                continue
+            print(
+                f"  {r['backend']:<16} fwd={r['fwd_ms']:8.1f}ms "
+                f"bwd={r['bwd_ms']:8.1f}ms tot={r['total_ms']:8.1f}ms "
+                f"train={r['train_ms']:8.1f}ms "
+                f"vram={r['peak_vram_gb']:5.2f}GB cull={r['culling_ratio']:6.1%} "
+                f"sr={r['sampled_tile_ratio']:g} isect={r['isect_frac']:6.1%} "
+                f"PSNR={r['psnr']:5.2f} SSIM={r['ssim']:.4f} LPIPS={r['lpips']:.4f} "
+                f"N={r['final_n']}"
+            )
+
+
+if __name__ == "__main__":
+    main()

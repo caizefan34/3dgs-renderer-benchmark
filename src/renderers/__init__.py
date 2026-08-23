@@ -54,15 +54,20 @@ from .gsplat_renderer import (
     GsplatHiGSTile16SH32Renderer,
     GsplatHiGSTile16SH16Renderer,
     GsplatHiGSAutoRenderer,
+    GsplatHiGSCalibratedRenderer,
+    GsplatHiGSP99LPTRenderer,
+    GsplatHiGSHalfResRenderer,
+    GsplatHiGSQuarterResRenderer,
+    GsplatHiGSTemporalCacheRenderer,
 )
 from .diff_gaussian_renderer import DiffGaussianRenderer
 from .fast_gauss_renderer import FastGaussRenderer
 from .speedy_splat_renderer import SpeedySplatRenderer, SpeedySplatRawRenderer
 from .tcgs_renderer import TCGSRenderer
+from .flashgs_renderer import FlashGSRenderer
+from .local_gs_renderer import LocalGSRenderer
+from .gemm_gs_renderer import GemmGSRenderer
 from .experimental_renderer import (
-    FlashGSRenderer,
-    GemmGSRenderer,
-    LocalGSRenderer,
     StopThePopRenderer,
 )
 
@@ -75,6 +80,11 @@ register_renderer("gsplat_higs_sh16", GsplatHiGSSH16Renderer)
 register_renderer("gsplat_higs_tile16_sh32", GsplatHiGSTile16SH32Renderer)
 register_renderer("gsplat_higs_tile16_sh16", GsplatHiGSTile16SH16Renderer)
 register_renderer("gsplat_higs_auto", GsplatHiGSAutoRenderer)
+register_renderer("gsplat_higs_calibrated", GsplatHiGSCalibratedRenderer)
+register_renderer("gsplat_higs_p99_lpt", GsplatHiGSP99LPTRenderer)
+register_renderer("gsplat_higs_half", GsplatHiGSHalfResRenderer)
+register_renderer("gsplat_higs_quarter", GsplatHiGSQuarterResRenderer)
+register_renderer("gsplat_higs_temporal_cache", GsplatHiGSTemporalCacheRenderer)
 register_renderer("diff_gaussian", DiffGaussianRenderer)
 register_renderer("original_3dgs", DiffGaussianRenderer)
 register_renderer("fast_gauss", FastGaussRenderer)

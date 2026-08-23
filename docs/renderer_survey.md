@@ -1,6 +1,6 @@
 # Fast 3DGS Renderer Survey
 
-Updated: 2026-07-13. Paper-reported speedups are not directly comparable
+Updated: 2026-07-20. Paper-reported speedups are not directly comparable
 across GPUs, scenes, resolutions, quality targets, or forward/backward modes.
 Only rows marked **locally verified** belong in the benchmark leaderboard.
 
@@ -8,11 +8,11 @@ Only rows marked **locally verified** belong in the benchmark leaderboard.
 
 | Renderer | Upstream commit | Main idea | Upstream claim | Local status |
 |---|---|---|---|---|
-| original 3DGS | `54c035f7834b564019656c3e3fcc3646292f727d` (rasterizer `9c5c2028f6fbee2be239bc4c9421ff894fe4fbe0`) | Official reference rasterizer; Thrust-based tile sorting | Original real-time reference implementation | Paired-reference baseline measured on official Train model/photos |
-| gsplat | `77ab983ffe43420b2131669cb35776b883ca4c3c` | Packed/dense CUDA rasterization, AccuTile, current CUDA 13 support | General-purpose optimized rasterizer | **Locally verified** on `sm_120`; dense quality and native-camera speed measured |
-| gsplat HiGS | same gsplat commit | Macro-tile partitioning, fine-tile rasterization, fp16 packed inference scene, persistent workspace | Up to 15.8x over original 3DGS | Fastest local synthetic timing; earlier paired-reference drop matches the dense gsplat drop and is not HiGS-specific |
-| Speedy-Splat | `34c45c6d9b8bd6110231864f2f358b6d3abbf73d` | Exact Gaussian localization plus primitive pruning | 6.71x with 10.6x fewer primitives | **Locally verified**; current installed CUDA backend works on RTX 5070 Laptop |
-| TC-GS (Speedy-Splat integration) | `0bb82f88fde211c34b42e1497f0fc7265461592b` | FP16 Tensor-Core alpha evaluation with `mma.sync` | Authors report about 2x on A800 with nearly unchanged aggregate quality | **Locally verified** on `sm_120`; 24.9138 dB and 1.33x vs dense in the short real-scene run |
+| original 3DGS | `54c035f7834b564019656c3e3fcc3646292f727d` (rasterizer `9c5c2028f6fbee2be239bc4c9421ff894fe4fbe0`) | Official reference rasterizer; Thrust-based tile sorting | Original real-time reference implementation | **Tier A complete**; five-case EPIC-05 reference baseline |
+| gsplat | `77ab983ffe43420b2131669cb35776b883ca4c3c` | Packed/dense CUDA rasterization, AccuTile, current CUDA support | General-purpose optimized rasterizer | **Tier A complete**; 1.966x speed index and lowest full-suite peak VRAM |
+| gsplat HiGS | same gsplat commit | Macro-tile partitioning, fine-tile rasterization, fp16 packed inference scene, persistent workspace | Up to 15.8x over original 3DGS | **Tier A complete**; fastest in all five cases and 5.671x speed index |
+| Speedy-Splat | `34c45c6d9b8bd6110231864f2f358b6d3abbf73d` | Exact Gaussian localization plus primitive pruning | 6.71x with 10.6x fewer primitives | **Tier A complete**; generated best-balance recommendation at 2.385x |
+| TC-GS (Speedy-Splat integration) | `0bb82f88fde211c34b42e1497f0fc7265461592b` | FP16 Tensor-Core alpha evaluation with `mma.sync` | Authors report about 2x on A800 with nearly unchanged aggregate quality | **Tier A complete**; best aggregate PSNR/LPIPS and 2.048x speed index |
 | FlashGS | `cdfc4e4002318423eda356eed02df8e01fa32cb6` | Redundancy elimination, pipelining, scheduling, memory-access optimization | Average 4x on tested GPUs | Source acquired; build/adapter pending |
 | Local-GS / TiCoGS | `0c6d9e4a2cc458de90d3dc40753187d6d03ea514` | Tile-local warp coherence, parameter hoisting, warp culling, branch reduction | 1.4-1.6x on Ada; up to 7.76x on Deep Blending | Source acquired; CUDA extension pending |
 | GEMM-GS | `aca61f897f58964ff7204e1e3c6485995b5f212c` | Reformulates blending for Tensor Cores, double-buffered kernel pipeline | 1.42x over vanilla; 1.47x additional with other accelerators | Source acquired; build/adapter pending |
@@ -30,7 +30,8 @@ Only rows marked **locally verified** belong in the benchmark leaderboard.
 ## TC-GS author-reported quality (not local leaderboard data)
 
 The TC-GS repository reports the following aggregate GT-relative metrics on an
-NVIDIA A800. They motivate local reproduction but are not RTX 5070 results.
+NVIDIA A800. They are retained as upstream context and are not mixed with the
+EPIC-05 Tier A measurements.
 
 | Dataset | Path | PSNR vs GT | SSIM vs GT | LPIPS vs GT | Reported speedup |
 |---|---|---:|---:|---:|---:|

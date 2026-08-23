@@ -44,6 +44,7 @@ class CameraConventionTest(unittest.TestCase):
             "position": [0.0, 0.0, 2.0],
             "rotation": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             "fx": 8.0, "fy": 8.0,
+            "reference_crop": [0, 1, 8, 3],
         }]
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "cameras.json"
@@ -51,6 +52,7 @@ class CameraConventionTest(unittest.TestCase):
             camera = load_cameras_from_json(str(path), device="cpu")[0]
 
         self.assertEqual(camera.image_name, "frame_001")
+        self.assertEqual(camera.reference_crop, (0, 1, 8, 3))
         torch.testing.assert_close(camera.camera_center, torch.tensor([0.0, 0.0, 2.0]))
         torch.testing.assert_close(camera.viewmatrix[:3, 3], torch.tensor([0.0, 0.0, -2.0]))
 
@@ -92,6 +94,33 @@ class HiGSAutoConfigTest(unittest.TestCase):
 
         self.assertEqual(GsplatHiGSAutoRenderer.select_config(200_000), (16, "none"))
         self.assertEqual(GsplatHiGSAutoRenderer.select_config(400_000), (8, "32b"))
+
+    def test_runtime_calibration_selects_measured_tile(self):
+        from renderers.gsplat_renderer import GsplatHiGSCalibratedRenderer
+
+        self.assertEqual(
+            GsplatHiGSCalibratedRenderer.select_tile({8: 4.2, 16: 3.8}), 16
+        )
+        with self.assertRaises(ValueError):
+            GsplatHiGSCalibratedRenderer.select_tile({8: 4.2})
+
+
+class HiGSRendererTest(unittest.TestCase):
+    def test_casts_backend_output_to_float32(self):
+        from benchmark_framework import generate_cameras
+        from renderers.gsplat_renderer import GsplatHiGSRenderer
+
+        renderer = GsplatHiGSRenderer(device="cpu")
+        renderer._renderer = mock.Mock()
+        renderer._renderer.render.return_value = SimpleNamespace(
+            frame=torch.zeros(1, 4, 8, 4, dtype=torch.float16)
+        )
+
+        image = renderer.render(
+            {}, generate_cameras(1, image_width=8, image_height=4, device="cpu")[0]
+        )
+
+        self.assertEqual(image.dtype, torch.float32)
 
 
 class GsplatRendererTest(unittest.TestCase):
@@ -169,6 +198,48 @@ class GsplatRendererTest(unittest.TestCase):
 
 
 class Original3DGSRendererTest(unittest.TestCase):
+    def test_accepts_pinned_three_value_result(self):
+        settings_seen = []
+
+        class Settings:
+            def __init__(self, antialiasing, **kwargs):
+                settings_seen.append({"antialiasing": antialiasing, **kwargs})
+
+        class Rasterizer:
+            def __init__(self, raster_settings):
+                pass
+
+            def __call__(self, **kwargs):
+                return (
+                    torch.zeros(3, 4, 8),
+                    torch.zeros(1),
+                    torch.zeros(1, 4, 8),
+                )
+
+        fake = types.ModuleType("diff_gaussian_rasterization")
+        fake.GaussianRasterizationSettings = Settings
+        fake.GaussianRasterizer = Rasterizer
+        with mock.patch.dict(sys.modules, {"diff_gaussian_rasterization": fake}):
+            from benchmark_framework import generate_cameras
+            from renderers.diff_gaussian_renderer import DiffGaussianRenderer
+
+            scene = {
+                "xyz": torch.zeros(2, 3),
+                "opacity": torch.zeros(2),
+                "scales": torch.zeros(2, 3),
+                "rotations": torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(2, 1),
+                "shs": torch.zeros(2, 4, 3),
+                "sh_degree": 1,
+            }
+            renderer = DiffGaussianRenderer(device="cpu")
+            image = renderer.render(
+                renderer.prepare_scene(scene),
+                generate_cameras(1, image_width=8, image_height=4, device="cpu")[0],
+            )
+
+        self.assertEqual(image.shape, (4, 8, 3))
+        self.assertFalse(settings_seen[0]["antialiasing"])
+
     def test_uses_scene_sh_degree(self):
         settings_seen = []
 

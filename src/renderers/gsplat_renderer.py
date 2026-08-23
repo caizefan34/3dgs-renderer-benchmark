@@ -127,7 +127,7 @@ class GsplatHiGSRenderer(RendererAdapter):
             width=camera.image_width,
             height=camera.image_height,
         )
-        return result.frame[0, ..., :3].clamp(0, 1)
+        return result.frame[0, ..., :3].float().clamp(0, 1)
 
 
 class GsplatHiGSTile16Renderer(GsplatHiGSRenderer):
@@ -185,3 +185,141 @@ class GsplatHiGSAutoRenderer(GsplatHiGSRenderer):
             f"(tile {self.tile_size}, SH {self.sh_compression})"
         )
         return super().prepare_scene(scene_data)
+
+
+class GsplatHiGSCalibratedRenderer(GsplatHiGSRenderer):
+    """Choose tile 8 or 16 from a short GPU calibration on the first view."""
+
+    name = "gsplat_higs_calibrated"
+
+    def __init__(self, device: str = "cuda", calibration_repeats: int = 5):
+        super().__init__(device=device, tile_size=8)
+        self.calibration_repeats = calibration_repeats
+        self._candidate_renderers = None
+
+    def prepare_scene(self, scene_data: dict) -> dict:
+        from gsplat.experimental import GaussianInferenceRenderer, GaussianInferenceScene
+
+        scene = GaussianInferenceScene.from_gaussian_tensors(
+            scene_data["xyz"],
+            torch.nn.functional.normalize(scene_data["rotations"], dim=-1),
+            torch.exp(scene_data["scales"]),
+            torch.sigmoid(scene_data["opacity"]),
+            scene_data["shs"],
+            sh_degree=scene_data.get("sh_degree", 3),
+            sh_compression="none",
+            id="benchmark",
+        )
+        self._candidate_renderers = {
+            8: GaussianInferenceRenderer(scene, tile_size=8),
+            16: GaussianInferenceRenderer(scene, tile_size=16),
+        }
+        self._renderer = None
+        return scene_data
+
+    @staticmethod
+    def select_tile(timings: dict[int, float]) -> int:
+        if set(timings) != {8, 16}:
+            raise ValueError("HiGS calibration requires tile 8 and tile 16 timings")
+        return min(timings, key=timings.get)
+
+    def _calibrate(self, camera: Camera) -> None:
+        timings = {}
+        for tile_size, renderer in self._candidate_renderers.items():
+            renderer.render(
+                viewmat=camera.viewmatrix,
+                K=camera.K,
+                width=camera.image_width,
+                height=camera.image_height,
+            )
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+            for _ in range(self.calibration_repeats):
+                renderer.render(
+                    viewmat=camera.viewmatrix,
+                    K=camera.K,
+                    width=camera.image_width,
+                    height=camera.image_height,
+                )
+            end.record()
+            end.synchronize()
+            timings[tile_size] = start.elapsed_time(end)
+        self.tile_size = self.select_tile(timings)
+        self._renderer = self._candidate_renderers[self.tile_size]
+        self._candidate_renderers = None
+        self.implementation = (
+            "nerfstudio-project/gsplat experimental HiGS calibrated "
+            f"(tile {self.tile_size}, first-view GPU timing)"
+        )
+
+    def render(self, scene_data: dict, camera: Camera) -> torch.Tensor:
+        if self._renderer is None:
+            self._calibrate(camera)
+        return super().render(scene_data, camera)
+
+
+class GsplatHiGSP99LPTRenderer(GsplatHiGSRenderer):
+    """HiGS built with longest-processing-time-first fine-tile scheduling."""
+
+    name = "gsplat_higs_p99_lpt"
+    implementation = (
+        "nerfstudio-project/gsplat experimental HiGS "
+        "(tile 8, Gaussian-hit-count LPT warp queue)"
+    )
+
+    def __init__(self, device: str = "cuda"):
+        super().__init__(device=device, tile_size=8)
+        self.implementation = (
+            "nerfstudio-project/gsplat experimental HiGS "
+            "(tile 8, Gaussian-hit-count LPT warp queue)"
+        )
+class GsplatHiGSHalfResRenderer(GsplatHiGSRenderer):
+    name = "gsplat_higs_half"
+    def __init__(self, device="cuda", tile_size=8):
+        super().__init__(device=device, tile_size=tile_size)
+        self.implementation = f"nerfstudio-project/gsplat experimental HiGS (tile {tile_size}, 0.5x resolution, bilinear upscale)"
+    def render(self, scene_data, camera):
+        import torch.nn.functional as F
+        small_w = max(1, camera.image_width // 2)
+        small_h = max(1, camera.image_height // 2)
+        small_K = camera.K.clone()
+        small_K[0, 0] *= 0.5; small_K[1, 1] *= 0.5
+        small_K[0, 2] *= 0.5; small_K[1, 2] *= 0.5
+        result = self._renderer.render(viewmat=camera.viewmatrix, K=small_K, width=small_w, height=small_h)
+        small = result.frame[0, ..., :3].float().clamp(0, 1)
+        up = F.interpolate(small.permute(2,0,1).unsqueeze(0), size=(camera.image_height, camera.image_width), mode="bilinear", align_corners=False).squeeze(0).permute(1,2,0)
+        return up
+
+class GsplatHiGSQuarterResRenderer(GsplatHiGSRenderer):
+    name = "gsplat_higs_quarter"
+    def __init__(self, device="cuda", tile_size=8):
+        super().__init__(device=device, tile_size=tile_size)
+        self.implementation = f"nerfstudio-project/gsplat experimental HiGS (tile {tile_size}, 0.25x resolution, bilinear upscale)"
+    def render(self, scene_data, camera):
+        import torch.nn.functional as F
+        small_w = max(1, camera.image_width // 4)
+        small_h = max(1, camera.image_height // 4)
+        small_K = camera.K.clone()
+        small_K[0, 0] *= 0.25; small_K[1, 1] *= 0.25
+        small_K[0, 2] *= 0.25; small_K[1, 2] *= 0.25
+        result = self._renderer.render(viewmat=camera.viewmatrix, K=small_K, width=small_w, height=small_h)
+        small = result.frame[0, ..., :3].float().clamp(0, 1)
+        up = F.interpolate(small.permute(2,0,1).unsqueeze(0), size=(camera.image_height, camera.image_width), mode="bilinear", align_corners=False).squeeze(0).permute(1,2,0)
+        return up
+
+class GsplatHiGSTemporalCacheRenderer(GsplatHiGSRenderer):
+    name = "gsplat_higs_temporal_cache"
+    def __init__(self, device="cuda", tile_size=8):
+        super().__init__(device=device, tile_size=tile_size)
+        self._cache_frame = None
+        self._cache_viewmat = None
+        self.implementation = f"nerfstudio-project/gsplat experimental HiGS (tile {tile_size}, temporal frame cache)"
+    def render(self, scene_data, camera):
+        vm = camera.viewmatrix
+        if self._cache_viewmat is not None and (self._cache_viewmat == vm).all():
+            return self._cache_frame
+        frame = super().render(scene_data, camera)
+        self._cache_frame = frame
+        self._cache_viewmat = vm.clone()
+        return frame

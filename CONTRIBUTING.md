@@ -33,6 +33,22 @@ continues to work.
 Do not reformat or refactor unrelated modules. Do not edit generated
 leaderboard values by hand.
 
+## Research Track Contributions
+
+Keep submissions scoped to one track:
+
+- Survey entries require a stable publication URL, source URL and commit,
+  license, task taxonomy, evidence tier, and dated inclusion decision.
+- HiGS training results require the exact training start state, full recipe,
+  scene split, seeds, raw JSON, timing boundary, quality curves, and failures.
+- Compression results require codec identity, retraining class, canonical input
+  hash, encode/decode parameters, round-trip artifact, size, quality metrics,
+  and visual-audit decision.
+
+Update the matching manifest under `paper/` only when its SHA-256 evidence and
+assertions pass. A new experiment may remain `blocked`; do not relabel it
+`supported` based on a prose report alone.
+
 ## Adding a Renderer
 
 New adapters implement the strict `RendererAdapter` ABC in
@@ -80,6 +96,10 @@ between GPU cases. A test may skip an unavailable optional CUDA backend, but
 its reason must identify the missing package or platform capability.
 
 ## Submitting Benchmark Results
+
+Open a **Benchmark result submission** issue first. It captures the cohort,
+hardware, provenance, and artifact links needed for review before a pull
+request changes the published leaderboard.
 
 Include all of the following in the pull request:
 

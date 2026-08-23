@@ -1,0 +1,37 @@
+name: Release Evidence Bundle
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+      - name: Validate paper evidence claims
+        run: python src/scripts/validate_paper_evidence.py
+      - name: Build deterministic evidence bundle
+        run: |
+          python src/scripts/build_release_bundle.py --output "$RUNNER_TEMP/3dgs-renderer-benchmark-${{ github.ref_name }}.zip"
+      - name: Print bundle checksum
+        run: sha256sum "$RUNNER_TEMP/3dgs-renderer-benchmark-${{ github.ref_name }}.zip"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bundle="$RUNNER_TEMP/3dgs-renderer-benchmark-${{ github.ref_name }}.zip"
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" "$bundle" --clobber
+          else
+            gh release create "${{ github.ref_name }}" "$bundle" \
+              --title "3DGS Renderer Benchmark ${{ github.ref_name }}" \
+              --notes "Immutable evidence bundle validated by paper/claims.json. Attach the checksummed artifact to Zenodo before adding a DOI."
+          fi

@@ -1,4 +1,5 @@
 import math
+import os
 import sys
 import types
 import unittest
@@ -22,9 +23,28 @@ from benchmark.difficulty import (
 from benchmark_framework import RendererMetrics
 from run_full_benchmark import (
     _build_result_document,
+    _collect_environment,
     _load_synthetic_difficulty_catalog,
     _preload_gsplat_extension,
 )
+
+
+class EnvironmentCollectionTest(unittest.TestCase):
+    def test_cuda_visible_device_selects_physical_nvidia_smi_gpu(self):
+        def fake_check_output(command, **kwargs):
+            self.assertIn("--id=2", command)
+            if "--query-gpu=driver_version" in command:
+                return "580.105.08\n"
+            return "GPU-selected, 400.0\n"
+
+        with mock.patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": "2"}), \
+             mock.patch("run_full_benchmark.platform.processor", return_value="CPU"), \
+             mock.patch("run_full_benchmark.platform.platform", return_value="Linux"), \
+             mock.patch("run_full_benchmark.subprocess.check_output", side_effect=fake_check_output):
+            environment = _collect_environment()
+
+        self.assertEqual(environment["gpu_uuid"], "GPU-selected")
+        self.assertEqual(environment["driver"], "580.105.08")
 
 
 class DifficultyScoreTest(unittest.TestCase):

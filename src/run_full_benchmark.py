@@ -51,8 +51,20 @@ def find_scene(scene_fname, scene_dir=None):
     return None
 
 
+def _physical_gpu_identifier(device_index=0):
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if not visible:
+        return str(device_index)
+    devices = [value.strip() for value in visible.split(",") if value.strip()]
+    if device_index >= len(devices):
+        raise ValueError("CUDA_VISIBLE_DEVICES does not expose the requested device")
+    return devices[device_index]
+
+
 def _collect_environment():
     import torch
+
+    physical_gpu = _physical_gpu_identifier()
 
     try:
         gsplat_version = metadata.version("gsplat")
@@ -63,6 +75,7 @@ def _collect_environment():
         driver = subprocess.check_output(
             [
                 "nvidia-smi",
+                f"--id={physical_gpu}",
                 "--query-gpu=driver_version",
                 "--format=csv,noheader",
             ],
@@ -71,15 +84,44 @@ def _collect_environment():
         ).strip().splitlines()[0]
     except (OSError, subprocess.SubprocessError, IndexError):
         pass
+    total_ram_mb = None
+    try:
+        import psutil
+        total_ram_mb = round(psutil.virtual_memory().total / (1024 * 1024), 1)
+    except ImportError:
+        pass
+    gpu_uuid = None
+    power_limit_w = None
+    try:
+        query = subprocess.check_output(
+            [
+                "nvidia-smi",
+                f"--id={physical_gpu}",
+                "--query-gpu=uuid,power.limit",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip().splitlines()[0].split(",")
+        gpu_uuid = query[0].strip()
+        power_limit_w = float(query[1].strip())
+    except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+        pass
     return {
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        "gpu_uuid": gpu_uuid,
+        "gpu_vram_mb": round(torch.cuda.get_device_properties(0).total_memory / (1024 * 1024), 1) if torch.cuda.is_available() else None,
         "driver": driver,
+        "cpu": platform.processor() or platform.machine(),
+        "cpu_logical_count": os.cpu_count(),
+        "ram_mb": total_ram_mb,
         "os": platform.platform(),
         "python": platform.python_version(),
         "pytorch": torch.__version__,
         "cuda_runtime": torch.version.cuda,
         "gsplat_version": gsplat_version,
         "gpu_clocks_locked": False,
+        "power_limit_w": power_limit_w,
     }
 
 

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3DGS Renderer Benchmark</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1100px; margin: 0 auto; padding: 20px; background: #0f172a; color: #e2e8f0; }
+h1, h2, h3 { color: #f8fafc; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; background: #1e293b; border-radius: 8px; overflow: hidden; }
+th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #334155; }
+th { background: #0f172a; color: #60a5fa; font-weight: 600; }
+tr:hover { background: #1e3a5f; }
+.fastest { background: #065f4620 !important; }
+.card { background: #1e293b; border-radius: 12px; padding: 20px; margin: 16px 0; border: 1px solid #334155; }
+.plot { width: 100%; height: 400px; }
+.meta { font-size: 0.9em; color: #94a3b8; }
+</style>
+</head>
+<body>
+<h1>&#9733; 3DGS Renderer Benchmark</h1>
+
+<div class="card">
+<h2>Summary</h2>
+<p><b>Scientific scope:</b> Synthetic Stress speed does not establish quality equivalence. Effective FPS is experimental and is N/A without GT metrics.</p>
+<table>
+<tr><th>Rank</th><th>Renderer</th><th>Mean FPS</th><th>Effective FPS*</th><th>Median (ms)</th><th>P1 (ms)</th><th>P99 (ms)</th><th>Jitter</th><th>Stability</th><th>VRAM</th><th>Difficulty</th><th>PSNR vs GT</th><th>SSIM vs GT</th><th>LPIPS vs GT</th></tr>
+<tr class="fastest">
+            <td>1</td>
+            <td>&#9733; gsplat_dense</td>
+            <td>273.1</td>
+            <td>N/A</td>
+            <td>3.62</td>
+            <td>3.11</td>
+            <td>4.76</td>
+            <td>10.6%</td>
+            <td>0.759</td>
+            <td>1394</td>
+            <td>N/A</td>
+            <td>N/A</td>
+            <td>N/A</td>
+            <td>N/A</td>
+        </tr>
+</table>
+</div>
+
+<div class="card">
+<h2>Frame Time Timeline</h2>
+<div id="chart" class="plot"></div>
+</div>
+
+<div class="card meta">
+<p><b>GPU</b>: NVIDIA A100-SXM4-80GB |
+<b>Resolution</b>: 1920x1080 |
+<b>Frames</b>: 500</p>
+</div>
+
+<script>
+var raw = {"gsplat_dense": [3.72, 3.83, 3.75, 3.67, 4.02, 3.53, 4.0, 3.65, 3.44, 3.17, 3.59, 3.42, 3.49, 3.99, 3.67, 3.91, 3.74, 3.44, 3.52, 3.56, 3.55, 4.13, 4.14, 4.82, 3.8, 3.86, 3.35, 3.31, 3.48, 3.26, 3.51, 3.56, 3.7, 3.63, 3.49, 3.31, 3.29, 3.24, 3.96, 4.01, 3.64, 3.62, 3.68, 3.52, 3.47, 4.22, 4.0, 4.13, 4.42, 3.91, 3.77, 3.6, 3.55, 3.53, 3.75, 3.42, 3.84, 3.58, 3.46, 3.69, 3.44, 4.55, 3.06, 3.24, 3.15, 3.2, 3.3, 3.55, 3.64, 3.11, 3.72, 3.72, 3.91, 3.2, 3.23, 3.95, 3.58, 3.49, 3.79, 3.42, 3.28, 3.48, 3.74, 3.6, 4.01, 3.8, 3.49, 3.63, 8.3, 4.62, 4.38, 3.75, 3.14, 3.21, 3.61, 3.31, 3.23, 3.61, 3.67, 3.77, 3.7, 3.81, 3.75, 3.65, 4.0, 3.53, 3.99, 3.62, 3.44, 3.17, 3.56, 3.42, 3.61, 3.73, 3.67, 3.85, 3.72, 3.45, 3.48, 3.58, 3.53, 4.09, 4.05, 4.76, 3.99, 3.85, 3.33, 3.34, 3.48, 3.25, 3.52, 3.55, 3.78, 3.62, 3.49, 3.31, 3.27, 3.24, 3.94, 3.99, 3.69, 3.66, 3.64, 3.49, 3.51, 4.17, 4.01, 4.1, 4.36, 3.92, 3.75, 3.61, 3.52, 3.55, 3.73, 3.42, 3.84, 3.56, 3.48, 3.67, 3.42, 4.5, 3.05, 3.26, 3.17, 3.25, 3.31, 3.6, 3.68, 3.14, 3.75, 3.73, 3.92, 3.26, 3.26, 4.03, 3.63, 3.5, 3.72, 3.41, 3.28, 3.46, 3.77, 3.61, 4.0, 3.8, 3.48, 3.62, 4.16, 4.62, 4.4, 3.74, 3.12, 3.25, 3.62, 3.57, 3.28, 3.63, 3.65, 3.75, 3.7, 3.8, 3.81, 3.65, 4.01, 3.51, 4.0, 3.64, 3.42, 3.17, 3.56, 3.42, 3.5, 3.67, 3.69, 3.86, 3.73, 3.44, 3.48, 3.57, 3.53, 4.09, 4.09, 4.77, 3.83, 3.89, 3.34, 3.35, 3.47, 3.26, 3.5, 3.57, 3.69, 3.64, 3.49, 3.31, 3.56, 3.26, 3.96, 4.01, 3.68, 3.65, 3.65, 3.54, 3.5, 4.23, 3.95, 4.06, 4.35, 3.88, 3.71, 3.63, 3.52, 3.52, 3.73, 3.41, 3.85, 3.89, 3.48, 3.69, 3.46, 4.45, 3.05, 3.24, 3.15, 3.23, 3.29, 3.57, 3.69, 3.13, 3.74, 3.72, 3.91, 3.24, 3.24, 3.92, 3.63, 3.47, 4.06, 3.41, 3.28, 3.47, 3.74, 3.6, 3.98, 3.79, 3.48, 3.62, 4.19, 4.63, 4.39, 3.74, 3.12, 3.22, 3.6, 3.31, 3.23, 3.58, 3.63, 4.0, 3.7, 3.78, 3.74, 3.7, 3.99, 3.52, 3.98, 3.63, 3.42, 3.14, 3.54, 3.4, 3.54, 3.69, 3.66, 3.85, 3.79, 3.44, 3.48, 3.58, 3.53, 4.12, 4.08, 4.79, 3.79, 3.87, 3.35, 3.32, 3.47, 3.25, 3.5, 3.54, 3.71, 3.6, 3.5, 3.36, 3.27, 3.25, 3.95, 4.03, 3.93, 3.61, 3.61, 3.53, 3.49, 4.21, 4.03, 4.04, 4.36, 3.9, 3.73, 3.53, 3.53, 3.55, 3.71, 3.4, 3.85, 3.54, 3.66, 3.7, 3.46, 4.76, 3.11, 3.28, 3.22, 3.23, 3.31, 3.57, 3.7, 3.14, 3.74, 3.74, 3.9, 3.24, 3.29, 3.96, 3.58, 3.57, 3.71, 3.43, 3.29, 3.47, 4.01, 3.59, 3.99, 3.8, 3.48, 3.66, 4.18, 4.6, 4.44, 3.75, 3.11, 3.2, 3.6, 3.33, 3.28, 3.59, 3.64, 3.73, 3.72, 3.79, 3.84, 3.67, 3.98, 3.53, 3.98, 3.62, 3.43, 3.18, 3.57, 3.4, 3.5, 3.64, 3.68, 3.86, 3.73, 3.43, 3.51, 3.6, 3.52, 4.08, 4.19, 4.8, 3.84, 3.88, 3.34, 3.35, 3.47, 3.26, 3.48, 3.55, 3.71, 3.61, 3.5, 3.3, 3.28, 3.24, 3.97, 4.01, 3.83, 3.66, 3.68, 3.57, 3.8, 4.23, 3.96, 4.1, 4.4, 3.91, 3.72, 3.61, 3.54, 3.54, 3.71, 3.41, 3.86, 3.55, 3.47, 3.68, 3.48, 4.49, 3.05, 3.25, 3.15, 3.52, 3.34, 3.58, 3.68, 3.14, 3.74, 3.73, 3.9, 3.29, 3.3, 3.95, 3.61, 3.46, 3.75, 3.4, 3.27, 3.48, 3.74, 3.6, 3.96, 3.8, 3.75, 3.65, 4.17, 4.68, 4.37, 3.77, 3.14, 3.22, 3.59, 3.33, 3.24, 3.6, 3.67, 3.77]};
+var traces = [];
+for (var rname in raw) {
+    traces.push({
+        y: raw[rname], type: 'scatter', mode: 'lines', name: rname,
+        line: { width: 1.5 }
+    });
+}
+var layout = {
+    title: 'Frame Render Time Over Benchmark Run',
+    xaxis: { title: 'Frame', gridcolor: '#334155' },
+    yaxis: { title: 'Time (ms)', gridcolor: '#334155' },
+    paper_bgcolor: '#1e293b',
+    plot_bgcolor: '#0f172a',
+    font: { color: '#e2e8f0' },
+    legend: { orientation: 'h', y: -0.2 }
+};
+Plotly.newPlot('chart', traces, layout);
+</script>
+</body>
+</html>
