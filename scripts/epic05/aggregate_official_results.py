@@ -133,7 +133,7 @@ def export_aggregated_csv(rows: list, output_path: Path) -> None:
         "tile32_mean_ms", "tile32_median_ms", "tile32_std_ms",
         "tile32_p99_ms", "tile32_mean_fps", "tile32_peak_vram_mb",
         # tile8
-        "tile8_mean_ms", "tile8_median_ms", "tile8_p99_ms",
+        "tile8_mean_ms", "tile8_median_ms", "tile8_std_ms", "tile8_p99_ms",
         "tile8_mean_fps", "tile8_peak_vram_mb",
         # comparisons
         "speedup_tile32_vs_tile16",

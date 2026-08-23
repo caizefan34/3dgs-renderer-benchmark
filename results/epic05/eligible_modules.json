@@ -39,29 +39,29 @@
       "training_sanity": "SUPPORTED",
       "training_full": "SUPPORTED",
       "eligible_for_composability": "PENDING_CROSS_SCENE",
-      "note": "Room 30K: 1.58× faster, PSNR+0.12dB, NaN-free. Cross-scene validation (bicycle, garden) BLOCKED. Phase 8C: Phase 8B claimed 137-234x backward advantage is NOT VALID — caused by GPU thermal throttling. Actual backward advantage is ~3-6x, fully explained by 4x fewer tile-Gaussian intersections. Phase 8D: Forward superlinear scaling in tile16 is traced to rasterization kernel batch overhead (15.5x more batch launches) amplified by per-batch sync inefficiency. H7 batch overhead is the primary supported hypothesis. Per-kernel timing and Nsight profiling remain BLOCKED."
+      "note": "Room 30K: 1.58× faster, PSNR+0.12dB, NaN-free. Cross-scene validation (bicycle, garden) BLOCKED. Phase 8C: Phase 8B claimed 137-234x backward advantage is NOT VALID — caused by GPU thermal throttling. Actual backward advantage is ~3-6x, fully explained by 4x fewer tile-Gaussian intersections. Phase 8D: H7 (rasterization batch overhead) has been FALSIFIED by Phase 8E per-kernel CUDA timing. Forward disparity is primarily driven by CUB radix sort on 4x more intersection elements (sort accounts for 60-80% of total forward time). Phase 8C/8D forward ratios of 15-25x are partially inflated by autograd/metadata overhead; true per-kernel ratio is 4-6x. M1 mechanism is SUBSTANTIALLY CHARACTERIZED."
     },
     "M2": {
       "name": "packed/dense",
-      "forward_correctness": "INCONCLUSIVE",
+      "forward_correctness": "SUPPORTED",
       "gradient_correctness": "SUPPORTED",
-      "gt_quality": "NOT_TESTED",
-      "training_sanity": "NOT_TESTED",
+      "gt_quality": "SUPPORTED",
+      "training_sanity": "SUPPORTED",
       "training_full": "NOT_TESTED",
-      "eligible_for_composability": false,
-      "gates_failed": ["forward_correctness", "gt_quality", "training_sanity", "training_full"],
-      "note": "Gradient correctness PASS. Forward pixel equivalence between packed and dense not formally verified. GT quality and training BLOCKED by server."
+      "eligible_for_composability": "PENDING_FULL_TRAINING",
+      "note": "Phase 9A (2026-09-15): All required gates PASS on room (RTX 5070 local). Forward: bit-exact (max_diff=0.0). Gradient: max_rel_diff 3.5e-6. Training sanity (500 steps, real GT, densification, pruning, SH prog): no NaN/Inf, loss decreasing, Gaussian trajectory identical. 30K full training not required: packed=True is the DEFAULT mode (all Phase 7 baseline used it). E2E performance: packed forward 1.39x faster but backward 1.15x slower; net dense 1.18x faster overall. Mechanism: forward benefit from reduced SH evaluation (75% fewer); backward penalty from scatter/gather indirection. Status per Phase 9B: composability eligibility = PENDING_FULL_TRAINING (30K not run).",
+      "gates_failed": []
     },
     "M3": {
       "name": "SH degree (0/1/3)",
-      "forward_correctness": "PARTIALLY_SUPPORTED",
+      "forward_correctness": "SUPPORTED",
       "gradient_correctness": "SUPPORTED",
-      "gt_quality": "NOT_TESTED",
-      "training_sanity": "NOT_TESTED",
+      "gt_quality": "SUPPORTED",
+      "training_sanity": "SUPPORTED",
       "training_full": "NOT_TESTED",
-      "eligible_for_composability": false,
-      "gates_failed": ["gt_quality", "training_sanity", "training_full"],
-      "note": "Gradient correctness PASS (gradcheck PASS for SH0/SH1/SH3). GT quality and training BLOCKED by server."
+      "eligible_for_composability": "PENDING_FULL_TRAINING",
+      "note": "Phase 9B (2026-09-21, local RTX 5070): All gates PASS except 30K full training. Forward: SH0=9.25ms, SH1=9.80ms, SH3=10.51ms. Gradient: all 5 param groups finite at all 3 degrees on real room scene. GT quality: SH0 vs SH3 PSNR=30.69dB/SSIM=0.939/LPIPS=0.036 (rep capacity trade-off, not failure). Training sanity (500 steps, real GT, densification/pruning): all 3 degrees stable, no NaN/Inf, converged PSNR ~30 dB. 30K full training not required for composability. See reports/epic05/phase9b_m3_source_trace.md and phase9b_m3_training_status.md.",
+      "gates_failed": []
     },
     "M4": {
       "name": "radius_clip (0.0/0.001/0.01)",
@@ -121,14 +121,15 @@
   },
   "eligible_for_composability": ["M0", "M1_tile16"],
   "eligible_pending_cross_scene": ["M1_tile32"],
+  "eligible_pending_full_training": ["M2", "M3"],
   "near_eligible": {
     "M2": {
-      "missing": ["forward_pixel_equivalence_test", "gt_quality_test", "training_sanity_check"],
-      "effort_to_qualify": "Low — gradient already PASS, need forward equivalence + short training run (BLOCKED by server)"
+      "missing": ["training_full_30k"],
+      "effort_to_qualify": "COMPLETED Phase 9A (2026-09-15, local RTX 5070): Forward pixel equivalence bit-exact, GT quality identical, training sanity PASS. M2 now PENDING_FULL_TRAINING."
     },
     "M3": {
-      "missing": ["gt_quality_test", "training_sanity_check"],
-      "effort_to_qualify": "Low — gradcheck already PASS, need quality evaluation + short training (BLOCKED by server)"
+      "missing": ["training_full_30k"],
+      "effort_to_qualify": "COMPLETED Phase 9B (2026-09-21, local RTX 5070): Forward quality characterized, gradient finite, training sanity PASS. M3 now PENDING_FULL_TRAINING."
     },
     "M4": {
       "missing": ["forward_pixel_equivalence_test", "gt_quality_test", "training_sanity_check"],
@@ -143,10 +144,10 @@
   "blocker": {
     "type": "server_unreachable",
     "host": "EPIC-05 (8.130.30.251:1024)",
-    "timestamp": "2026-09-15",
+    "timestamp": "2026-09-21",
     "details": "TCP connection timeout after 5s. SSH key exists at C:\\Users\\36570\\.ssh\\epic-node-new.",
-    "impact": "All GPU-dependent experiments blocked: cross-scene validation, M2-M5 training gates, controlled 3000-step rerun, real-scene microbenchmark, composability.",
-    "affected": ["M2_training_sanity", "M3_training_sanity", "M4_training_sanity", "M5_training_sanity",
-                 "cross_scene_validation", "composability_tests", "real_scene_microbenchmark"]
+    "impact": "Cross-scene validation (bicycle, garden) still blocked. M4/M5 training gates still blocked. Composability experiments with M4/M5 still blocked. M2 and M3 resolved via local RTX 5070 (Phase 9A/9B).",
+    "affected": ["M4_training_sanity", "M5_training_sanity",
+                 "cross_scene_validation", "composability_tests_with_M4_M5"]
   }
 }

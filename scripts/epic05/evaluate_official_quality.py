@@ -34,6 +34,22 @@ import torch
 from torch.nn.functional import conv2d, interpolate
 
 # ---------------------------------------------------------------------------
+# Environment setup: add MSVC and CUDA to PATH before any gsplat import.
+# The compiled gsplat_cuda.pyd is cached; _backend.py needs cl.exe on PATH
+# to verify the compiler version, even for cached builds.
+# ---------------------------------------------------------------------------
+import torch.utils.cpp_extension as cpp_ext
+cpp_ext.SUBPROCESS_DECODE_ARGS = ('utf-8', 'ignore')
+
+_msvc_dir = r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64"
+_cuda_bin = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3\bin"
+for _p in [_msvc_dir, _cuda_bin]:
+    if _p not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = _p + os.pathsep + os.environ.get("PATH", "")
+os.environ["CUDA_PATH"] = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3".strip()
+os.environ["CCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING"] = "1"
+
+# ---------------------------------------------------------------------------
 # Project paths
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -273,7 +289,8 @@ def evaluate_scene_quality(
     gt_images = None
     if gt_images_dir and gt_images_dir.exists():
         gt_images = _load_ground_truth_images(
-            cameras, gt_images_dir, device, background="black"
+            cameras, gt_images_dir, device, background="black",
+            target_size=target_resolution,
         )
         print(f"  Loaded {len(gt_images)} GT images from {gt_images_dir}")
     else:
@@ -470,7 +487,8 @@ def evaluate_scene_quality(
 
 
 def _load_ground_truth_images(
-    cameras, gt_dir: Path, device: str, background: str = "black"
+    cameras, gt_dir: Path, device: str, background: str = "black",
+    target_size: Optional[Tuple[int, int]] = None,
 ) -> List[torch.Tensor]:
     """Load ground truth images matching the camera image_names."""
     try:
@@ -494,6 +512,9 @@ def _load_ground_truth_images(
             continue
         fpath = index[stem]
         with Image.open(fpath) as source:
+            # Resize GT to match rendering resolution if specified
+            if target_size is not None:
+                source = source.resize(target_size, Image.LANCZOS)
             rgba = np.asarray(source.convert("RGBA"), dtype=np.float32) / 255.0
         rgb, alpha = rgba[..., :3], rgba[..., 3:4]
         bg_val = 1.0 if background == "white" else 0.0
