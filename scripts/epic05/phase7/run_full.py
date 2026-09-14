@@ -24,7 +24,7 @@ from typing import List
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(1, str(REPO_ROOT / "src"))
 
 from scripts.epic05.phase7.train_3dgs import TrainingConfig, TrainingPipeline
 

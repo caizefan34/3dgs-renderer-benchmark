@@ -40,9 +40,10 @@ import numpy as np
 import torch
 
 # Add repo root to path
+# NOTE: repo root must come FIRST to avoid shadowing by src/scripts/
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT))
 
 
 def run_sanity_check(args) -> Dict:

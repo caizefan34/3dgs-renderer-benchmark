@@ -1,14 +1,29 @@
 {
   "schema_version": 2,
   "experiment_id": "phase8-eligibility-audit",
-  "date": "2026-09-15",
-  "description": "Strict Candidate Eligibility Gate. Only modules passing ALL gates (Forward + Gradient + GT Quality + Full Training) may enter composability. Phase 8 update: M1_tile32 set to PENDING_CROSS_SCENE until bicycle/garden validated.",
+  "date": "2026-09-21",
+  "description": "Strict Candidate Eligibility Gate. Phase 12 update (2026-09-21): Cross-scene validation COMPLETED via frozen snapshot timing on bicycle and garden (real cameras). M1 tile32: FOUND SCENE-DEPENDENT — room +58%, outdoor -44%. M3 SH degree: cross-scene quality consistent, but NOT a performance knob (<4% timing impact). No module qualifies as universal performance candidate. Composability: NOT RECOMMENDED.",
   "gate_criteria": {
-    "forward_correctness": {"required": "SUPPORTED", "description": "Forward pixel equivalence verified (bit-exact or max_pixel_error < 0.01)"},
-    "gradient_correctness": {"required": "SUPPORTED", "description": "Gradcheck + finite-difference PASS (max_abs_error < 1e-4)"},
-    "gt_quality": {"required": "SUPPORTED", "description": "PSNR/SSIM/LPIPS vs GT verified (delta < 0.1 dB / 0.001 / 0.001)"},
-    "training_sanity": {"required": "SUPPORTED", "description": "500-step pass with real GT, no NaN/Inf, loss decreasing"},
-    "training_full": {"required": "PARTIALLY_SUPPORTED", "description": "Full 30K training pass (room minimum)"}
+    "forward_correctness": {
+      "required": "SUPPORTED",
+      "description": "Forward pixel equivalence verified (bit-exact or max_pixel_error < 0.01)"
+    },
+    "gradient_correctness": {
+      "required": "SUPPORTED",
+      "description": "Gradcheck + finite-difference PASS (max_abs_error < 1e-4)"
+    },
+    "gt_quality": {
+      "required": "SUPPORTED",
+      "description": "PSNR/SSIM/LPIPS vs GT verified (delta < 0.1 dB / 0.001 / 0.001)"
+    },
+    "training_sanity": {
+      "required": "SUPPORTED",
+      "description": "500-step pass with real GT, no NaN/Inf, loss decreasing"
+    },
+    "training_full": {
+      "required": "PARTIALLY_SUPPORTED",
+      "description": "Full 30K training pass (room minimum)"
+    }
   },
   "modules": {
     "M0": {
@@ -38,8 +53,14 @@
       "gt_quality": "SUPPORTED",
       "training_sanity": "SUPPORTED",
       "training_full": "SUPPORTED",
-      "eligible_for_composability": "PENDING_CROSS_SCENE",
-      "note": "Room 30K: 1.58× faster, PSNR+0.12dB, NaN-free. Cross-scene validation (bicycle, garden) BLOCKED. Phase 8C: Phase 8B claimed 137-234x backward advantage is NOT VALID — caused by GPU thermal throttling. Actual backward advantage is ~3-6x, fully explained by 4x fewer tile-Gaussian intersections. Phase 8D: H7 (rasterization batch overhead) has been FALSIFIED by Phase 8E per-kernel CUDA timing. Forward disparity is primarily driven by CUB radix sort on 4x more intersection elements (sort accounts for 60-80% of total forward time). Phase 8C/8D forward ratios of 15-25x are partially inflated by autograd/metadata overhead; true per-kernel ratio is 4-6x. M1 mechanism is SUBSTANTIALLY CHARACTERIZED."
+      "eligible_for_composability": "SCENE_DEPENDENT",
+      "note": "Room 30K: 1.58× faster, PSNR+0.12dB, NaN-free. Phase 12 cross-scene (bicycle/garden, frozen snapshot, real camera): tile32 is SLOWER (0.69×). Scene-dependent: +58% indoor (1.6M Gs), -44% outdoor (5.8-6.1M Gs). 30K training on bicycle/garden LOCALLY_INFEASIBLE (peak 8.27GB on 8GB GPU). tile32 is NOT universally beneficial.",
+      "scene_dependence": {
+        "room_speedup": 1.58,
+        "bicycle_ratio_t16_t32": 0.69,
+        "garden_ratio_t16_t32": 0.69,
+        "conclusion": "Scene-dependent. Optimal tile size depends on scene and hardware."
+      }
     },
     "M2": {
       "name": "packed/dense",
@@ -47,9 +68,9 @@
       "gradient_correctness": "SUPPORTED",
       "gt_quality": "SUPPORTED",
       "training_sanity": "SUPPORTED",
-      "training_full": "NOT_TESTED",
-      "eligible_for_composability": "PENDING_FULL_TRAINING",
-      "note": "Phase 9A (2026-09-15): All required gates PASS on room (RTX 5070 local). Forward: bit-exact (max_diff=0.0). Gradient: max_rel_diff 3.5e-6. Training sanity (500 steps, real GT, densification, pruning, SH prog): no NaN/Inf, loss decreasing, Gaussian trajectory identical. 30K full training not required: packed=True is the DEFAULT mode (all Phase 7 baseline used it). E2E performance: packed forward 1.39x faster but backward 1.15x slower; net dense 1.18x faster overall. Mechanism: forward benefit from reduced SH evaluation (75% fewer); backward penalty from scatter/gather indirection. Status per Phase 9B: composability eligibility = PENDING_FULL_TRAINING (30K not run).",
+      "training_full": "SUPPORTED",
+      "eligible_for_composability": true,
+      "note": "Phase 10A (2026-09-23, local RTX 5070): Full 30K training COMPLETED for both packed and dense modes on room. Packed: 62.2min, 31.36dB. Dense: 64.3min, 31.29dB. BOTH STABLE — zero NaN/Inf. Nearly identical Gaussian trajectory (0.07% final diff). Identical VRAM (2,911MB). Key finding: M2 packed/dense is functionally a NO-OP for single-camera training — no meaningful performance, quality, or trajectory difference. The packed inference advantage (2.02x) does not translate to training. All gates PASS → eligible_for_composability=true.",
       "gates_failed": []
     },
     "M3": {
@@ -58,32 +79,38 @@
       "gradient_correctness": "SUPPORTED",
       "gt_quality": "SUPPORTED",
       "training_sanity": "SUPPORTED",
-      "training_full": "NOT_TESTED",
-      "eligible_for_composability": "PENDING_FULL_TRAINING",
-      "note": "Phase 9B (2026-09-21, local RTX 5070): All gates PASS except 30K full training. Forward: SH0=9.25ms, SH1=9.80ms, SH3=10.51ms. Gradient: all 5 param groups finite at all 3 degrees on real room scene. GT quality: SH0 vs SH3 PSNR=30.69dB/SSIM=0.939/LPIPS=0.036 (rep capacity trade-off, not failure). Training sanity (500 steps, real GT, densification/pruning): all 3 degrees stable, no NaN/Inf, converged PSNR ~30 dB. 30K full training not required for composability. See reports/epic05/phase9b_m3_source_trace.md and phase9b_m3_training_status.md.",
+      "training_full": "SUPPORTED",
+      "eligible_for_composability": true,
+      "note": "Phase 9C (2026-08-23, local RTX 5070): Full 30K training COMPLETED for SH0/SH1/SH3 on room. ALL STABLE — zero NaN/Inf. SH0: 38.1min, 32.34dB best PSNR, 1,041MB VRAM. SH1: 42.8min, 32.22dB, 1,398MB VRAM. SH3: 68.7min, ~31.44dB, 2,824MB VRAM. Gaussian trajectory nearly identical across degrees. Dominant cost: optimizer (scales with SH param count). All gates PASS → eligible_for_composability=true. Cross-scene (bicycle, garden) still PENDING. See reports/epic05/phase9c_m3_full_training.md.",
       "gates_failed": []
     },
     "M4": {
-      "name": "radius_clip (0.0/0.001/0.01)",
-      "forward_correctness": "INCONCLUSIVE",
+      "name": "radius_clip",
+      "forward_correctness": "SUPPORTED",
       "gradient_correctness": "SUPPORTED",
-      "gt_quality": "NOT_TESTED",
-      "training_sanity": "NOT_TESTED",
-      "training_full": "NOT_TESTED",
+      "gt_quality": "SUPPORTED",
+      "training_sanity": "FALSIFIED__NO_WORKLOAD_REDUCTION",
+      "training_full": "NOT_TESTED__NO_WORKLOAD",
       "eligible_for_composability": false,
-      "gates_failed": ["forward_correctness", "gt_quality", "training_sanity", "training_full"],
-      "note": "Gradient norms match within 3.1e-7. Pixel equivalence and GT quality BLOCKED by server."
+      "gates_failed": [
+        "performance_training",
+        "training_sanity"
+      ],
+      "note": "Phase 11 (2026-09-21, local RTX 5070): Forward+Gradient+GT Quality all PASS. Workload analysis shows <1% intersection reduction at quality-preserving thresholds. FALSIFIED for E2E benefit."
     },
     "M5": {
-      "name": "eps2d (0.01/0.1/0.5)",
-      "forward_correctness": "INCONCLUSIVE",
+      "name": "eps2d",
+      "forward_correctness": "SUPPORTED",
       "gradient_correctness": "SUPPORTED",
-      "gt_quality": "NOT_TESTED",
-      "training_sanity": "NOT_TESTED",
-      "training_full": "NOT_TESTED",
+      "gt_quality": "SUPPORTED",
+      "training_sanity": "FALSIFIED__NO_QUALITY_PRESERVING_TUNING",
+      "training_full": "NOT_TESTED__NO_GAIN",
       "eligible_for_composability": false,
-      "gates_failed": ["forward_correctness", "gt_quality", "training_sanity", "training_full"],
-      "note": "Gradient norms finite, minor variation expected. Pixel equivalence and training BLOCKED by server."
+      "gates_failed": [
+        "performance_training",
+        "training_sanity"
+      ],
+      "note": "Phase 11 (2026-09-21, local RTX 5070): Forward+Gradient+GT Quality all PASS. Default eps2d=0.3 is at quality optimum. FALSIFIED for E2E benefit."
     },
     "M6": {
       "name": "HiGS inference renderer",
@@ -93,7 +120,12 @@
       "training_sanity": "NOT_TESTED",
       "training_full": "NOT_TESTED",
       "eligible_for_composability": false,
-      "gates_failed": ["gradient_correctness", "gt_quality", "training_sanity", "training_full"],
+      "gates_failed": [
+        "gradient_correctness",
+        "gt_quality",
+        "training_sanity",
+        "training_full"
+      ],
       "note": "Inference-only renderer — no backward pass. Cannot participate in training. Removed from Phase 8 scope."
     },
     "M7": {
@@ -104,7 +136,12 @@
       "training_sanity": "NOT_TESTED",
       "training_full": "NOT_TESTED",
       "eligible_for_composability": false,
-      "gates_failed": ["gradient_correctness", "gt_quality", "training_sanity", "training_full"],
+      "gates_failed": [
+        "gradient_correctness",
+        "gt_quality",
+        "training_sanity",
+        "training_full"
+      ],
       "note": "Inference-only. SH32 quality OK (64.85 dB min), SH16 degraded (49.79 dB min). Removed from Phase 8 scope."
     },
     "M9": {
@@ -115,39 +152,278 @@
       "training_sanity": "NOT_TESTED",
       "training_full": "NOT_TESTED",
       "eligible_for_composability": false,
-      "gates_failed": ["gradient_correctness", "gt_quality", "training_sanity", "training_full"],
+      "gates_failed": [
+        "gradient_correctness",
+        "gt_quality",
+        "training_sanity",
+        "training_full"
+      ],
       "note": "External repository. Removed from Phase 8 gsplat optimization scope."
     }
   },
-  "eligible_for_composability": ["M0", "M1_tile16"],
-  "eligible_pending_cross_scene": ["M1_tile32"],
-  "eligible_pending_full_training": ["M2", "M3"],
+  "eligible_for_composability": [
+    "M0",
+    "M1_tile16",
+    "M2",
+    "M3"
+  ],
+  "eligible_pending_cross_scene": [],
+  "eligible_pending_full_training": [],
+  "eligible_scene_dependent": [
+    "M1_tile32"
+  ],
   "near_eligible": {
     "M2": {
-      "missing": ["training_full_30k"],
-      "effort_to_qualify": "COMPLETED Phase 9A (2026-09-15, local RTX 5070): Forward pixel equivalence bit-exact, GT quality identical, training sanity PASS. M2 now PENDING_FULL_TRAINING."
+      "missing": [],
+      "effort_to_qualify": "COMPLETED Phase 10A (2026-09-23, local RTX 5070): Full 30K training for both packed and dense modes completed. All gates PASS. M2 now eligible_for_composability=true. Functionally a NO-OP for training performance."
     },
     "M3": {
-      "missing": ["training_full_30k"],
-      "effort_to_qualify": "COMPLETED Phase 9B (2026-09-21, local RTX 5070): Forward quality characterized, gradient finite, training sanity PASS. M3 now PENDING_FULL_TRAINING."
+      "missing": [],
+      "effort_to_qualify": "COMPLETED Phase 9C (2026-08-23, local RTX 5070): Full 30K training for SH0/SH1/SH3 completed. All gates PASS. M3 now eligible_for_composability=true."
     },
     "M4": {
-      "missing": ["forward_pixel_equivalence_test", "gt_quality_test", "training_sanity_check"],
-      "effort_to_qualify": "Low — gradient norms already match (BLOCKED by server)"
+      "missing": [
+        "training_sanity_check",
+        "training_full"
+      ],
+      "effort_to_qualify": "EVALUATED Phase 11 (2026-09-21): Forward/Gradient/GT Quality all PASS. However, workload analysis shows radius_clip provides <1% intersection reduction at quality-preserving thresholds. Training would not improve on this. Marked FALSIFIED for performance benefit."
     },
     "M5": {
-      "missing": ["forward_pixel_equivalence_test", "gt_quality_test", "training_sanity_check"],
-      "effort_to_qualify": "Low — gradient norms already finite (BLOCKED by server)"
+      "missing": [
+        "training_sanity_check",
+        "training_full"
+      ],
+      "effort_to_qualify": "EVALUATED Phase 11 (2026-09-21): Forward/Gradient/GT Quality all PASS. Default eps2d=0.3 confirmed as quality optimum. Reducing eps2d costs up to 1.61dB PSNR. No quality-preserving configuration change possible. Marked FALSIFIED for performance benefit."
     }
   },
-  "not_eligible_for_training": ["M6", "M7", "M9"],
+  "not_eligible_for_training": [
+    "M6",
+    "M7",
+    "M9"
+  ],
+  "phase13a_oracle": {
+    "status": "COMPLETE",
+    "date": "2026-08-28",
+    "best_feature": "tpg_std",
+    "threshold": 135.1193,
+    "accuracy": 0.933,
+    "leave_one_scene_out_accuracy": 1.0,
+    "n_workloads": 15,
+    "n_scenes": 3,
+    "room_checkpoint_stable": false,
+    "key_finding": "tpg_std (tiles_per_gauss standard deviation) predicts tile-size winner with 93.3% accuracy. Threshold: tpg_std > 135 → tile32. p95_intersections_per_tile (effect_size=3.06), tpg_mean (effect_size=3.50) also strong predictors. Synthetic camera is fundamentally misleading — real camera MUST be used.",
+    "recommendation": "Scene-level static oracle is sufficient (room always tile32 after early training, outdoor always tile16). Adaptive kernel NOT yet justified — need training-level validation.",
+    "next_step": "Phase 13B: Validate oracle on real training data (fwd+bwd over actual training trajectory)"
+  },
   "blocker": {
-    "type": "server_unreachable",
-    "host": "EPIC-05 (8.130.30.251:1024)",
-    "timestamp": "2026-08-23",
-    "details": "TCP connection timeout after 5s. SSH key exists at C:\\Users\\36570\\.ssh\\epic-node-new.",
-    "impact": "Cross-scene validation (bicycle, garden) still blocked. M4/M5 training gates still blocked. Composability experiments with M4/M5 still blocked. M3 resolved via local RTX 5070 (Phase 9C — full 30K, all gates PASS). M2 resolved via local RTX 5070 (Phase 9A — all gates PASS except full 30K).",
-    "affected": ["M4_training_sanity", "M5_training_sanity",
-                 "cross_scene_validation", "composability_tests_with_M4_M5"]
+    "type": "vram_limitation_and_no_universal_candidate",
+    "host": "N/A",
+    "timestamp": "2026-09-21",
+    "details": "Cross-scene validated via frozen snapshot (bicycle/garden real cameras). 30K training locally infeasible (OOM). tile32 scene-dependent: +58% room, -44% outdoor. No Tier A universal candidate.",
+    "impact": "No module qualifies as universal performance candidate. Composability not recommended.",
+    "affected": []
+  },
+  "phase13B_findings": {
+    "M1_tile_size_expanded": {
+      "supported_values": [
+        4,
+        8,
+        12,
+        16,
+        20,
+        24,
+        28,
+        32
+      ],
+      "optimal": {
+        "room": 20,
+        "bicycle": 24,
+        "garden": 12
+      },
+      "universal_candidate": 20,
+      "pixel_identical": true,
+      "max_supported": 32,
+      "max_supported_limit": "1024 threads/block"
+    },
+    "phase13A_predictor_revision": {
+      "status": "FRAGILE",
+      "accuracy_on_expanded": "58.3% (14/24)",
+      "reason": "Threshold-based binary predictor does not generalize to multi-tile space"
+    },
+    "candidate_reconnaissance": {
+      "top_priority": "adaptive_tile_size (10-15% benefit, low risk)",
+      "next_priority": "segmented_sort (already exists as experimental flag)",
+      "third_priority": "visibility_culling (10-30% for outdoor scenes)"
+    }
+  },
+  "phase13C_findings": {
+    "M1_tile_size_expanded": {
+      "supported_values": [
+        4,
+        8,
+        12,
+        16,
+        20,
+        24,
+        28,
+        32
+      ],
+      "pixel_identical": true,
+      "room_forward_optimal": 20,
+      "room_fwbwd_optimal": 16,
+      "room_30k_training_winner": 32,
+      "bicycle_forward_optimal": 24,
+      "bicycle_fwbwd_optimal": 20,
+      "garden_forward_optimal": 12,
+      "garden_fwbwd_optimal": 20,
+      "universal_candidate": 20,
+      "training_candidates_evaluated": {
+        "room_tile16": "COMPLETE (Phase 7)",
+        "room_tile20": "500-step SANITY PASS",
+        "room_tile24": "500-step SANITY PASS",
+        "room_tile32": "COMPLETE (Phase 7)",
+        "bicycle_tile16": "500-step PENDING",
+        "bicycle_tile20": "500-step PENDING",
+        "garden_tile12": "500-step PENDING",
+        "garden_tile16": "500-step PENDING",
+        "garden_tile20": "500-step PENDING"
+      },
+      "decoupling_finding": "RENDERER/TRAINING DECOUPLING CONFIRMED — room forward-snapshot-optimal (tile20) ≠ fwd+bwd-optimal (tile16) ≠ 30K-training-optimal (tile32). Snapshot winner does NOT predict training winner.",
+      "phase13A_predictor_revision": "FRAGILE. Binary threshold does not generalize to 8-tile space. Simple ranking rules (tpg_std ranking) are monotonic but insufficient for exact prediction."
+    }
+  },
+  "phase14A_tile20_anomaly": {
+    "status": "COMPLETE",
+    "date": "2026-09-23",
+    "tile20_training_classification": "FALSIFIED — training-system-level topology spillover",
+    "tile20_training_viable": false,
+    "tile20_30k_wall_minutes": 561.8,
+    "tile20_30k_best_psnr": 29.54,
+    "tile20_30k_iter_per_sec": 0.89,
+    "root_cause": "Asynchronous topology spillover on densification iterations",
+    "topology_async_events": 42,
+    "avg_topology_overrun_ms": 7789.0,
+    "max_topology_overrun_ms": 116635.2
+  },
+  "phase14B_sorting": {
+    "status": "COMPLETE",
+    "date": "2026-09-23",
+    "segmented_sort_benchmarked": true,
+    "segmented_sort_candidate": false,
+    "segmented_sort_reason": "1.9-4.5x slower than global radix sort in all tile/config combinations. Pixel correct (bit-exact).",
+    "visibility_culling": {
+      "existing_culling": {
+        "frustum_culling": "PACKED_MODE_DEFAULT",
+        "radius_clip": "FALSIFIED_PHASE_11",
+        "visibility_compaction": "PACKED_MODE_DEFAULT"
+      },
+      "new_optimization_available": false
+    }
+  },
+  "phase15_implementation_recon": {
+    "status": "COMPLETE",
+    "date": "2026-10-07",
+    "method": "Full CUDA source audit of gsplat rasterization pipeline: IntersectTile.cu, ProjectionEWA3DGS*.cu, RasterizeToPixels3DGS*.cu, SphericalHarmonicsCUDA.cu, Intersect.cpp, Common.h, Rasterization.h, Intersect.h.",
+    "forward_bottleneck": "Intersection generation + global radix sort pipeline (S3→S5). n_isects up to 176M. Sort covers 45-bit key, ~12 CUB passes, 24×n_isects bytes memory traffic.",
+    "backward_bottleneck": "Backward kernel re-reads all forward input tensors from global memory (~10 tensor reads) + gpuAtomicAdd contention for gradient writes.",
+    "largest_data_structure": "isect_ids / flatten_ids at n_isects elements. For tile16: ~1.4GB + 700MB + sorted variants + CUB temp ~3GB = ~6-7GB total.",
+    "candidate_C1_depth_compression": {
+      "status": "RECOMMENDED",
+      "description": "Reduce sort key depth field from 32-bit to 16-bit (upper half of float32). Sort passes: 12→8 (33% reduction). ~10 lines in 1 file. Zero backward/gradient risk.",
+      "score": 4.0
+    },
+    "candidate_C2_sync_elimination": {
+      "status": "RECOMMENDED",
+      "description": "Replace .item<int64_t>() host sync in Intersect.cpp with pre-allocated max-size buffers and GPU-side n_isects tracking. Eliminates 5-30μs sync per iteration.",
+      "score": 3.5
+    },
+    "candidate_C4_atomic_reduction": {
+      "status": "RECOMMENDED",
+      "description": "Shared-memory gradient accumulator in backward kernel. Merges 8 warps→1 atomicAdd per gaussian per tile. 8× fewer atomic calls.",
+      "score": 2.8
+    },
+    "candidate_C3_buffer_reuse": {
+      "status": "LOWER_PRIORITY",
+      "description": "Pre-allocate intersection buffers at max capacity. Modest benefit given PyTorch caching allocator.",
+      "score": 2.5
+    },
+    "candidate_C5_float16_storage": {
+      "status": "LOWER_PRIORITY",
+      "description": "Float16 storage for fwd colors/opacities. Standard technique, modest benefit.",
+      "score": 2.3
+    },
+    "no_high_confidence_status": "If C1 fails forward-only ablation, conclusion becomes NO HIGH-CONFIDENCE CANDIDATE — renderer near performance frontier for current algorithm.",
+    "next_phase_recommendation": "A — implement C1 (depth bit-width compression) as independent ablation"
+  },
+  "phase16_C1_implementation": {
+    "status": "COMPLETE",
+    "date": "2026-08-30",
+    "verdict": "C1 is CORRECT but NOT BENEFICIAL",
+    "verdict_type": "D (Sort not faster on this GPU)",
+    "key_encoding_verified": {
+      "baseline_layout": "depth(32b@[0:31])|tile_id(Xt@[32:32+Xt-1])|image_id(Xc@above)",
+      "depth_encoding": "IEEE 754 float32 bitcast→uint32, zero-extended. NO quantization.",
+      "sort_end_bit": "32+tile_n_bits+image_n_bits (47 for tile16 1080p, 1 image)",
+      "baseline_passes": 12,
+      "c1_passes": 8
+    },
+    "ordering_correctness": "ZERO inversions (mathematically proven). Ties within <0.8% depth.",
+    "forward_correctness": "PASS. No NaN/Inf across tile16/20/32.",
+    "benchmark_speedup": "<1% on RTX 5070 (within measurement noise)",
+    "conclusion": "33% fewer sort passes exists theoretically but does not produce measurable forward speedup. CUB radix sort is not the forward bottleneck — rasterization dominates.",
+    "gradient_risk": "ZERO (backward uses flatten_ids, not isect_ids)",
+    "training_not_run": "Not justified — <1% speedup → E2E ~0.4% benefit"
+  },
+  "phase17B_C17_1_tile_local_queues": {
+    "status": "COMPLETE",
+    "date": "2026-10-18",
+    "phase": "17B-0 Feasibility ✅ + 17B-1 Performance ⚠️",
+    "verdict": "CORRECT (feasibility proven) — CUDA implementation required for speed measurement",
+    "verdict_classification": "B — Correct, renderer-level optimization likely",
+    "key_results": {
+      "feasibility": {
+        "configurations_tested": 9,
+        "scenes": ["room", "bicycle", "garden"],
+        "tile_sizes_tested": [16, 20, 32],
+        "total_intersections_checked": 34800973,
+        "total_tiles_checked": 25932,
+        "missing_intersections": 0,
+        "extra_intersections": 0,
+        "duplicates": 0,
+        "exact_order_match_tiles": 25932,
+        "order_match_percent": 100.0,
+        "depth_violations": 0,
+        "tile_id_decode_accuracy": "100%",
+        "overall_feasibility": true
+      },
+      "capacity_analysis": {
+        "max_per_tile_isects_observed": 14174,
+        "max_scene_config": "bicycle_t32 (1920×1080)",
+        "recommended_capacity_tile16": 8192,
+        "recommended_capacity_tile32": 16384,
+        "overflow_rate_at_recommended": {
+          "room_t16_cap8192": "0.00%",
+          "bicycle_t16_cap8192": "0.99%",
+          "garden_t16_cap8192": "0.00%"
+        }
+      },
+      "memory_analysis": {
+        "baseline_sort_buffer_mem_bicycle_t16": "306 MB (isect_ids + flatten_ids + sorted + CUB temp)",
+        "c17_queue_cap8192_bicycle_t16": "510 MB (8,160 tiles × 8,192 entries × 8B)",
+        "memory_delta": "+204 MB (uniform pre-allocation)",
+        "two_pass_mitigation": "drops to ~59 MB with per-tile exact allocation"
+      },
+      "baseline_forward_timing": {
+        "room_t16": "7.52 ms",
+        "room_t20": "7.83 ms",
+        "room_t32": "9.52 ms",
+        "bicycle_t16": "25.88 ms",
+        "bicycle_t20": "29.05 ms",
+        "bicycle_t32": "37.15 ms"
+      }
+    },
+    "comparison_with_phase14B": "C17-1 is architecturally different from Phase 14B segmented sort. Phase 14B (1.9-4.5× slower) re-sorted already-materialized global arrays. C17-1 avoids global materialization from inception — direct per-tile writes + block-level local sort.",
+    "relationship_with_C1": "C1 depth compression was pre-applied to the installed gsplat. Phase 17B restored the TRUE baseline (v1.5.3, full 32-bit depth sort) for all validation. Key takeaway: C17-1 sorting by full float32 depth would be MORE correct than C1's 16-bit depth_upper sort.",
+    "next_step": "Phase 17C: C17-2 Two-Phase Sort (simpler CUDA implementation, fewer file changes). C17-1 CUDA implementation deferred pending C17-2 results."
   }
 }
