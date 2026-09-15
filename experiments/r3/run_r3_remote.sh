@@ -11,43 +11,39 @@
 
 set -euo pipefail
 DEVICE="${1:-1}"
+REPO_DIR="$HOME/3dgs-renderer-benchmark"
 R3_BASE="/tmp/3dgs-r3"
 
 # *** C4: PINNED COMMIT — never rebase ***
-# This must match the canonical REFERENCE_V1_ABSGRAD commit.
-# You changed this to the actual pinned commit.
 PINNED_COMMIT="e494458"  # R3: n_lanes -> faithful W_color/W_unclamped replay
 
 echo "=== R3 — Certificate Tightness Gate (Corrected) ==="
 echo "GPU device: $DEVICE"
+echo "Repo dir: $REPO_DIR"
 echo "Working dir: $R3_BASE"
 echo "Pinned commit: $PINNED_COMMIT"
 echo ""
 
 # Step 0: Environment Isolation (C4: checkout pinned commit, never rebase)
 echo "=== [0] Environment Isolation (C4: pinned commit) ==="
+cd "$REPO_DIR"
+echo "  Repo state: $(git rev-parse --short HEAD)"
 mkdir -p "$R3_BASE"
-cd "$R3_BASE"
 
-if [ ! -d ".git" ]; then
+if [ ! -f "$R3_BASE/.git" ]; then
     echo "  Creating git worktree at pinned commit $PINNED_COMMIT..."
     git worktree add "$R3_BASE" "$PINNED_COMMIT" 2>/dev/null || \
-    ( echo "  Worktree exists; checking out pinned commit..." && \
-      git checkout "$PINNED_COMMIT" )
-else
-    # Verify we're on the right commit
-    CURRENT=$(git rev-parse --short HEAD)
-    if [ "$CURRENT" != "$PINNED_COMMIT" ]; then
-        echo "  WARNING: Current commit $CURRENT != pinned $PINNED_COMMIT"
-        echo "  Checking out pinned commit..."
-        git checkout "$PINNED_COMMIT"
-    fi
+    echo "  Worktree already exists (skip creation)."
 fi
 
-# C4: Verify clean tree
 cd "$R3_BASE"
+# C4: Verify clean tree
 DIRTY=$(git status --porcelain)
 COMMIT=$(git rev-parse HEAD)
+if [ "$(git rev-parse --short HEAD)" != "$PINNED_COMMIT" ]; then
+    echo "  ERROR: worktree on $(git rev-parse --short HEAD), expected $PINNED_COMMIT"
+    exit 1
+fi
 if [ -z "$DIRTY" ]; then
     echo "  git status: CLEAN (commit $COMMIT)"
 else
