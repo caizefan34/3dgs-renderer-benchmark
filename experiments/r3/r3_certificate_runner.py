@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-R3 Certificate Tightness Gate — Corrected Runner
+R3 Certificate Tightness Gate 鈥?Corrected Runner
 
 APPLIED CORRECTIONS:
   C1: sigma_min uses 4-edge continuous rectangle minimum (NOT corners-only).
@@ -82,6 +82,9 @@ def verify_checkpoint_provenance(ckpt_path):
     """
     Verify checkpoint provenance against Reference V1.
     Returns a dict with verification status and notes.
+    Supports two formats:
+      1) Flat format: direct tensor keys (xyz, shs, scaling, rotation, opacity, ...)
+      2) Wrapped format: model_state/optimizer_state/iteration/format_version
     """
     result = {
         "path": ckpt_path,
@@ -92,31 +95,56 @@ def verify_checkpoint_provenance(ckpt_path):
     
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     
-    # Check essential keys exist
-    needed = ["iteration", "model_state", "optimizer_state", "format_version"]
-    for k in needed:
-        if k not in ckpt:
-            result["notes"].append(f"MISSING_KEY: {k}")
+    # Detect format: flat (direct tensors) vs wrapped (model_state/optimizer_state)
+    has_model_state = isinstance(ckpt.get("model_state"), dict)
     
-    if not isinstance(ckpt.get("model_state"), dict):
-        result["notes"].append("model_state is not a dict")
-        return result
+    if has_model_state:
+        # Wrapped format (phase7 style)
+        needed = ["iteration", "model_state", "optimizer_state", "format_version"]
+        for k in needed:
+            if k not in ckpt:
+                result["notes"].append(f"MISSING_KEY: {k}")
+        
+        ms = ckpt["model_state"]
+        result["fields"]["iteration"] = ckpt.get("iteration")
+        result["fields"]["format_version"] = ckpt.get("format_version")
+        result["fields"]["N"] = ms.get("xyz", torch.empty(0)).shape[0]
+        result["fields"]["sh_degree"] = ms.get("sh_degree")
+        
+        expected_keys = {"xyz", "rotations", "scales", "opacity", "shs", "sh_degree", "num_points"}
+        actual_keys = set(ms.keys())
+        missing = expected_keys - actual_keys
+        if missing:
+            result["notes"].append(f"MISSING_MODEL_KEYS: {missing}")
+        
+        if result["fields"]["format_version"] == 1 and not missing:
+            result["semantic_verified"] = True
+            result["notes"].append("provenance matches REFERENCE_V1_ABSGRAD format")
+        else:
+            result["notes"].append("provenance CHECK: format_version or keys differ from expected")
+    else:
+        # Flat format (direct checkpoint)
+        expected = {"xyz", "shs", "scaling", "rotation", "opacity",
+                     "active_sh_degree", "spatial_lr_scale", "num_points"}
+        actual = set(ckpt.keys())
+        missing = expected - actual
+        missing_tensors = {k for k in ["xyz", "shs", "scaling", "rotation", "opacity"] if k in missing}
+        if missing_tensors:
+            result["notes"].append(f"MISSING_TENSORS: {missing_tensors}")
+        if missing:
+            result["notes"].append(f"MISSING_KEYS: {missing}")
+        
+        result["fields"]["num_points"] = ckpt.get("num_points")
+        result["fields"]["sh_degree"] = ckpt.get("active_sh_degree")
+        result["fields"]["N"] = ckpt.get("xyz", torch.empty(0)).shape[0]
+        
+        if not missing_tensors and ckpt.get("num_points", 0) > 0:
+            result["semantic_verified"] = True
+            result["notes"].append("provenance matches REFERENCE_V1 flat checkpoint format")
+        else:
+            result["notes"].append("provenance CHECK: missing core tensors or empty")
     
-    ms = ckpt["model_state"]
-    result["fields"]["iteration"] = ckpt.get("iteration")
-    result["fields"]["format_version"] = ckpt.get("format_version")
-    result["fields"]["N"] = ms.get("xyz", torch.empty(0)).shape[0]
-    result["fields"]["sh_degree"] = ms.get("sh_degree")
-    
-    # Check for absgrad marker in model_state
-    # Reference V1 stores absgrad=True in model_state keys
-    expected_keys = {"xyz", "rotations", "scales", "opacity", "shs", "sh_degree", "num_points"}
-    actual_keys = set(ms.keys())
-    missing = expected_keys - actual_keys
-    if missing:
-        result["notes"].append(f"MISSING_MODEL_KEYS: {missing}")
-    
-    # Compute sha256 of source trainer
+    # Compute sha256 of source trainer (always attempted)
     trainer_path = os.path.join(BASELINE_DIR, "trainer.py")
     if os.path.exists(trainer_path):
         sha = hashlib.sha256()
@@ -125,18 +153,11 @@ def verify_checkpoint_provenance(ckpt_path):
                 sha.update(chunk)
         result["fields"]["trainer_source_hash"] = sha.hexdigest()
     
-    # Semantic match
-    if result["fields"]["format_version"] == 1 and not missing:
-        result["semantic_verified"] = True
-        result["notes"].append("provenance matches REFERENCE_V1_ABSGRAD format")
-    else:
-        result["notes"].append("provenance CHECK: format_version or keys differ from expected")
-    
     return result
 
 
 # ============================================================
-# SepSSIM — identical to canonical baseline
+# SepSSIM 鈥?identical to canonical baseline
 # ============================================================
 
 class SepSSIM:
@@ -224,37 +245,22 @@ def compute_C_max_t(conics, tile_offsets, flatten_ids, tile_h, tile_w):
 # Faithful W_it Work-Weight Replay (red-team req 3 correction)
 # ============================================================
 
-def _compute_faithful_work_weights(g_indices, means2d_0, conics_0, opacities,
-                                    tile_x, tile_y, tile_size, H, W):
-    """
-    GPU-accelerated faithful per-pixel forward replay using cumprod for
-    fully-vectorized compositing (no Python loop over Gaussians).
-    
-    Replicates the gsplat rasterize_to_pixels_fwd kernel execution:
-      - sigma = 0.5*(xx*dx^2 + yy*dy^2) + xy*dx*dy
-      - alpha = min(0.999, opacity * expf(-sigma))
-      - Skip if sigma < 0 or alpha < 1/255
-      - A Gaussian's color is committed when
-        T_before * (1 - alpha) > 1e-4 (next_T check, EXCLUSIVE)
-      - T_after = T_before * (1 - alpha); early terminate when next_T <= 1e-4
-    
-    Uses cumprod to compute T_before for every Gaussian in one shot:
-        T_before_g = prod_{h < g} (1 - alpha_h_effective)
-      where alpha_h_effective = 0 for skipped Gaussians (they don't consume T).
-    
+def _compute_faithful_work_weights_tensor(g_indices, means2d_0, conics_0, opacities,
+                                           tile_x, tile_y, tile_size, H, W):
+    """GPU faithful per-pixel forward replay via cumprod - returns TENSOR, not dict.
+
     Returns:
-        w_color: dict[gi_int -> int]  pixel lanes where color gradient executes
-        w_unclamped: dict[gi_int -> int]  pixel lanes where the unclamped
-            gradient (opacity/mean2d/conic) also executes
+        w_color: [G] int32 - pixel lanes where color gradient executes
+        w_unclamped: [G] int32 - pixel lanes where unclamped gradient also executes
     """
     G = len(g_indices)
     if G == 0:
-        return {}, {}
+        return (torch.zeros(0, dtype=torch.int32, device=opacities.device),
+               torch.zeros(0, dtype=torch.int32, device=opacities.device))
 
     device = opacities.device
-    gi_tensor = g_indices.to(device) if not g_indices.is_cuda else g_indices.long()
+    gi_tensor = g_indices.long() if g_indices.is_cuda else g_indices.to(device).long()
 
-    # Extract Gaussian parameters for these indices [G]
     mx = means2d_0[gi_tensor, 0]
     my = means2d_0[gi_tensor, 1]
     xx = conics_0[gi_tensor, 0]
@@ -262,62 +268,40 @@ def _compute_faithful_work_weights(g_indices, means2d_0, conics_0, opacities,
     yy = conics_0[gi_tensor, 2]
     opac = opacities[gi_tensor]
 
-    # Pixel grid for this tile (clamped to image boundaries)
     px_min = tile_x
     px_max = min(tile_x + tile_size, W)
     py_min = tile_y
     py_max = min(tile_y + tile_size, H)
-
     if px_min >= px_max or py_min >= py_max:
-        return {int(gi): 0 for gi in g_indices}, {int(gi): 0 for gi in g_indices}
+        return (torch.zeros(G, dtype=torch.int32, device=device),
+               torch.zeros(G, dtype=torch.int32, device=device))
 
-    # Build pixel grid (pixel centers at +0.5, matching CUDA) [Py, Px] -> [P]
     px_vals = torch.arange(px_min, px_max, device=device) + 0.5
     py_vals = torch.arange(py_min, py_max, device=device) + 0.5
-    px_grid, py_grid = torch.meshgrid(px_vals, py_vals, indexing='xy')
-    px_flat = px_grid.reshape(-1)  # [P]
-    py_flat = py_grid.reshape(-1)  # [P]
+    px_grid, py_grid = torch.meshgrid(px_vals, py_vals, indexing="xy")
+    px_flat = px_grid.reshape(-1)
+    py_flat = py_grid.reshape(-1)
     P = len(px_flat)
 
-    # ---- Vectorized sigma & alpha over [P, G] ----
-    dx = px_flat[:, None] - mx[None, :]  # [P, G]
-    dy = py_flat[:, None] - my[None, :]  # [P, G]
-    sigma = (0.5 * (xx[None, :] * dx * dx + yy[None, :] * dy * dy) +
-             xy[None, :] * dx * dy)  # [P, G]
+    dx = px_flat[:, None] - mx[None, :]
+    dy = py_flat[:, None] - my[None, :]
+    sigma = (0.5 * (xx[None, :] * dx * dx + yy[None, :] * dy * dy)
+             + xy[None, :] * dx * dy)
 
-    exp_minus_sigma = torch.exp(-sigma)  # [P, G]
-    alpha_raw = opac[None, :] * exp_minus_sigma  # [P, G], opac * exp(-sigma)
-    alpha = torch.minimum(alpha_raw, torch.full_like(alpha_raw, 0.999))  # [P, G]
+    exp_minus_sigma = torch.exp(-sigma)
+    alpha_raw = opac[None, :] * exp_minus_sigma
+    alpha = torch.minimum(alpha_raw, torch.full_like(alpha_raw, 0.999))
 
-    # Skip mask: sigma < 0 OR alpha < 1/255
-    skip = (sigma < 0.0) | (alpha < (1.0 / 255.0))  # [P, G]
+    skip = (sigma < 0.0) | (alpha < (1.0 / 255.0))
+    ra = torch.where(skip, torch.ones_like(alpha), 1.0 - alpha)
+    cp = torch.cumprod(ra, dim=1)
 
-    # Effective (1 - alpha) for compositing — skipped Gaussians get 1.0 (no T consumption)
-    ra = torch.where(skip, torch.ones_like(alpha), 1.0 - alpha)  # [P, G]
+    contributes = (~skip) & (cp > 1e-4)
+    w_color = contributes.sum(dim=0).to(torch.int32)
 
-    # cumprod over Gaussians (dim=1) — T_after_g = prod_{h<=g} (1 - alpha_h_eff)
-    cp = torch.cumprod(ra, dim=1)  # [P, G]
-
-    # T_before_g = prod_{h<g} (1 - alpha_h_eff) = cp_{g-1}, with T_before_0 = 1
-    T_before = torch.cat([torch.ones(P, 1, device=device), cp[:, :-1]], dim=1)  # [P, G]
-
-    # next_T = T_before * (1 - alpha_eff) = cp (since cp = T_before * ra)
-    # A Gaussian contributes if NOT skipped and next_T > 1e-4
-    contributes = (~skip) & (cp > 1e-4)  # [P, G]
-
-    # w_color: count pixels where this Gaussian contributes
-    w_color = contributes.sum(dim=0).to(torch.int32)  # [G]
-
-    # w_unclamped: contributes AND alpha_raw <= 0.999 (unclamped gradient flows)
-    unclamped = contributes & (alpha_raw <= 0.999)  # [P, G]
-    w_unclamped = unclamped.sum(dim=0).to(torch.int32)  # [G]
-
-    # Convert to dict for downstream dict-based pair_data
-    gi_list = [int(gi) for gi in g_indices]
-    w_color_dict = {gi: int(w_color[i].item()) for i, gi in enumerate(gi_list)}
-    w_unclamped_dict = {gi: int(w_unclamped[i].item()) for i, gi in enumerate(gi_list)}
-    return w_color_dict, w_unclamped_dict
-
+    unclamped = contributes & (alpha_raw <= 0.999)
+    w_unclamped = unclamped.sum(dim=0).to(torch.int32)
+    return w_color, w_unclamped
 
 def _validate_work_weights(wc_vals, wu_vals, tile_gaussian_total, tile_size):
     """
@@ -365,9 +349,9 @@ def _validate_work_weights(wc_vals, wu_vals, tile_gaussian_total, tile_size):
     if len(wc_nonzero) > 0:
         all_ones = np.all(wc_nonzero == 1.0)
         if all_ones:
-            print("    *** WARNING: all nonzero W_color == 1 — faithful replay may still be broken! ***")
+            print("    *** WARNING: all nonzero W_color == 1 鈥?faithful replay may still be broken! ***")
         elif np.mean(wc_nonzero == 1.0) > 0.95:
-            print("    *** WARNING: >95% of nonzero W_color == 1 — likely still using torch.unique count! ***")
+            print("    *** WARNING: >95% of nonzero W_color == 1 鈥?likely still using torch.unique count! ***")
 
 
 # ============================================================
@@ -378,218 +362,258 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
                             flatten_ids, Q_t, tile_h, tile_w, tile_size,
                             H=None, W=None,
                             uniform_families=False):
-    """
-    Compute ALL certificate bounds with red-team enhancements.
-    
-    Returns:
-        per-Gaussian B_i aggregates (OLD global + SIGMAMIN_TIGHT)
-        per-pair (tile,Gaussian) data including W_it pixel lanes
-        JOINT skip-set analysis across all 4 derivative families
-        exact-zero and loss-conditioned culling separation
-    """
+    """Compute ALL certificate bounds — fully vectorized per-tile."""
     device = opacities.device
     n_tiles = tile_h * tile_w
     N = opacities.shape[0]
-    
-    # ---- Per-Gaussian accumulators (OLD bounds) ----
+
     B_color_coarse = torch.zeros(N, device=device)
     B_color_tight = torch.zeros(N, device=device)
     B_opacity = torch.zeros(N, device=device)
     B_opacity_tight = torch.zeros(N, device=device)
     B_mean2d = torch.zeros(N, device=device)
     B_conic = torch.zeros(N, device=device)
-    
-    # ---- SIGMAMIN_TIGHT bounds (red-team req 1) ----
     B_mean2d_sigmamin = torch.zeros(N, device=device)
     B_conic_sigmamin = torch.zeros(N, device=device)
-    
+
     spd_disabled = torch.zeros(N, dtype=torch.bool, device=device)
     exact_zero_count = 0
     tile_gaussian_total = 0
-    
-    const_mean2d_factor = 1.0 / math.sqrt(math.e)  # sqrt(1/e) — OLD global worst-case
-    const_conic_factor = math.sqrt(1.5) / math.e   # sqrt(3/2)/e — OLD global worst-case
+
+    SQRT_E_INV = 1.0 / math.sqrt(math.e)
+    SQRT_1p5 = math.sqrt(1.5)
+    E_INV = 1.0 / math.e
+    const_conic_factor = SQRT_1p5 * E_INV
     ALPHA_255 = 1.0 / 255.0
-    
-    # ---- Per-pair (tile_idx, gi) data for JOINT + W_it analysis ----
+
     pair_data = {}
-    
+    _log_step = max(1, n_tiles // 10)
+
     for tile_idx in range(n_tiles):
+        if tile_idx % _log_step == 0:
+            print(f"    tile {tile_idx}/{n_tiles} ({100*tile_idx//n_tiles}%)")
         ty = tile_idx // tile_w
         tx = tile_idx % tile_w
-        
+
         start = tile_offsets[tile_idx]
         end = tile_offsets[tile_idx + 1] if tile_idx < n_tiles - 1 else len(flatten_ids)
         if end <= start:
             continue
-        
+
         g_indices = flatten_ids[start:end].long()
-        
-        # ---- Faithful W_it replay (replaces torch.unique count) ----
-        w_color_dict, w_unclamped_dict = _compute_faithful_work_weights(
+        G = g_indices.shape[0]
+
+        # ---- Faithful W_it replay — tensor version ----
+        w_color_t, w_unclamped_t = _compute_faithful_work_weights_tensor(
             g_indices, means2d[0], conics[0], opacities,
             tx * tile_size, ty * tile_size, tile_size,
             H if H is not None else tile_h * tile_size,
             W if W is not None else tile_w * tile_size,
         )
-        
-        g_unique_list = torch.unique(g_indices)  # still needed for SPD/sigma analysis
-        K = g_unique_list.shape[0]
-        
-        # Build gi-indexed lookup for per-unique-Gaussian data
-        g_unique = g_unique_list
-        
-        # Build a mapping: g_unique position -> (w_color, w_unclamped) from replay
-        wc_arr = torch.zeros(len(g_unique), dtype=torch.float32, device=device)
-        wu_arr = torch.zeros(len(g_unique), dtype=torch.float32, device=device)
-        for pos_in_unique, g_val in enumerate(g_unique_list.tolist()):
-            wc_arr[pos_in_unique] = w_color_dict.get(g_val, 0)
-            wu_arr[pos_in_unique] = w_unclamped_dict.get(g_val, 0)
-        
-        # Depth-rank: first occurrence in depth-sorted g_indices (sort=True in isect_tiles)
-        # Build mapping: Gaussian index -> its first position in depth-sorted tile list
-        depth_rank_map = {}
-        for pos in range(len(g_indices)):
-            gi = int(g_indices[pos])
-            if gi not in depth_rank_map:
-                depth_rank_map[gi] = pos
-        
+
+        # ---- Unique Gaussians + aggregate W ----
+        g_unique, inverse = torch.unique(g_indices, return_inverse=True)
+        K = g_unique.shape[0]
+
+        w_color_by_gi = torch.zeros(K, dtype=torch.int32, device=device)
+        w_unclamped_by_gi = torch.zeros(K, dtype=torch.int32, device=device)
+        w_color_by_gi.scatter_add_(0, inverse, w_color_t)
+        w_unclamped_by_gi.scatter_add_(0, inverse, w_unclamped_t)
+
+        # Depth-rank: first occurrence in depth-sorted g_indices
+        depth_rank_first = torch.full((K,), G, dtype=torch.int32, device=device)
+        arange_g = torch.arange(G, device=device, dtype=torch.int32)
+        depth_rank_first.scatter_reduce_(0, inverse, arange_g, reduce="amin", include_self=False)
+        depth_rank_first[depth_rank_first == G] = 0
+
+        # ---- Batch tensors for all K unique Gaussians ----
         mu_batch = means2d[0, g_unique]
         conic_batch = conics[0, g_unique]
         opac_batch = opacities[g_unique]
-        conic_norm_batch = conics[0, g_unique].norm(dim=-1)
-        
-        sigma_min, inside_mask, spd_mask = compute_sigma_min_for_tile_gaussians(
+        conic_norm_batch = conic_batch.norm(dim=-1)
+
+        # ---- Batch sigma_min ----
+        sigma_min_v, _, spd_mask = compute_sigma_min_for_tile_gaussians(
             mu_batch, conic_batch, tx * tile_size, ty * tile_size,
             tile_size, device
         )
-        
-        for j in range(K):
-            if not spd_mask[j]:
-                spd_disabled[g_unique[j]] = True
-        
-        tile_Q = float(Q_t.view(-1)[tile_idx])
-        C_max_t = float(conic_norm_batch.max().item()) if K > 0 else 0.0
-        
-        for j in range(K):
-            gi = int(g_unique[j])
-            o_j = float(opac_batch[j])
-            c_norm = float(conic_norm_batch[j])
-            s_min = float(sigma_min[j])
-            E_tight = math.exp(-s_min)
-            
-            # ---- Color bounds ----
-            A_coarse = min(0.999, o_j)
-            A_tight = min(0.999, o_j * E_tight)
-            B_color_coarse[gi] += A_coarse * tile_Q
-            B_color_tight[gi] += A_tight * tile_Q
-            
-            # ---- Opacity bounds ----
-            factor_op = (c_norm + C_max_t) * tile_Q
-            B_opacity[gi] += 1.0 * factor_op
-            B_opacity_tight[gi] += E_tight * factor_op
-            
-            # ---- Geometry bounds ----
-            p_mean2d_global = 0.0
-            p_conic_global = 0.0
-            p_mean2d_sigmin = 0.0
-            p_conic_sigmin = 0.0
-            
-            is_pair_exact_zero = False
-            
-            if spd_mask[j]:
-                P = (float(conic_batch[j, 0]), float(conic_batch[j, 1]),
-                     float(conic_batch[j, 2]))
-                trace_p = P[0] + P[2]
-                det_p = P[0] * P[2] - P[1] * P[1]
-                if trace_p > 0 and det_p > 0:
-                    disc = max(trace_p * trace_p - 4 * det_p, 0.0)
-                    lambda_max = (trace_p + math.sqrt(disc)) / 2.0
-                    lambda_min = (trace_p - math.sqrt(disc)) / 2.0
-                    
-                    if lambda_min > 0:
-                        base_geo = o_j * (c_norm + C_max_t) * tile_Q
-                        
-                        # OLD global worst-case bounds
-                        p_mean2d_global = base_geo * math.sqrt(lambda_max) * const_mean2d_factor
-                        B_mean2d[gi] += p_mean2d_global
-                        
-                        p_conic_global = base_geo * const_conic_factor / lambda_min
-                        B_conic[gi] += p_conic_global
-                        
-                        # SIGMAMIN_TIGHT bounds
-                        m_mu = compute_mean2d_sigmamin_factor(s_min, lambda_max, lambda_min)
-                        p_mean2d_sigmin = o_j * (c_norm + C_max_t) * tile_Q * m_mu
-                        B_mean2d_sigmamin[gi] += p_mean2d_sigmin
-                        
-                        m_p = compute_conic_sigmamin_factor(s_min, lambda_min)
-                        p_conic_sigmin = o_j * (c_norm + C_max_t) * tile_Q * m_p
-                        B_conic_sigmamin[gi] += p_conic_sigmin
-            
-            # ---- Exact-zero check ----
-            if spd_mask[j]:
-                alpha_max = o_j * E_tight
-                is_pair_exact_zero = (alpha_max < ALPHA_255)
-                if is_pair_exact_zero:
-                    exact_zero_count += 1
-            
-            pair_data[(tile_idx, gi)] = {
-                "w_color": int(wc_arr[j].item()),
-                "w_unclamped": int(wu_arr[j].item()),
-                "is_exact_zero": is_pair_exact_zero,
-                "is_spd": bool(spd_mask[j]),
-                "B_color": A_tight * tile_Q,
-                "B_opacity": E_tight * factor_op,
-                "B_mean2d_global": p_mean2d_global,
-                "B_mean2d_sigmin": p_mean2d_sigmin,
-                "B_conic_global": p_conic_global,
-                "B_conic_sigmin": p_conic_sigmin,
-                "s_min": s_min,
-                "o_i": o_j,
-                "c_norm": c_norm,
-                # Depth-rank + Bucket32 partitioning (red-team req 5).
-                # depth_rank is the position of the Gaussian in the
-                # depth-sorted per-tile Gaussian list (0 = closest cam).
-                # We use first-occurrence position from depth-sorted
-                # g_indices (isect_tiles sort=True), NOT j which is
-                # the torch.unique (index-sorted) order.
-                "depth_rank": depth_rank_map.get(gi, j),
-                "bucket32_id": (depth_rank_map.get(gi, j)) // 32,
-                "tile_id": tile_idx,
-                "gaussian_id": gi,
-            }
-            
-            tile_gaussian_total += 1
-    
+
+        if (~spd_mask).any():
+            spd_disabled[g_unique[~spd_mask]] = True
+
+        tile_Q_val = float(Q_t.view(-1)[tile_idx])
+        C_max_t_val = float(conic_norm_batch.max().item()) if K > 0 else 0.0
+
+        # ================================================================
+        # VECTORIZED bound computation
+        # ================================================================
+        o_j = opac_batch
+        c_norm = conic_norm_batch
+        s_min_v = sigma_min_v
+        E_tight_v = torch.exp(-s_min_v)
+
+        # Color bounds
+        A_coarse_v = torch.clamp_max(o_j, 0.999)
+        A_tight_v = torch.clamp_max(o_j * E_tight_v, 0.999)
+        contrib_color_coarse = A_coarse_v * tile_Q_val
+        contrib_color_tight = A_tight_v * tile_Q_val
+
+        # Opacity bounds
+        factor_op_v = (c_norm + C_max_t_val) * tile_Q_val
+        contrib_opacity = 1.0 * factor_op_v
+        contrib_opacity_tight = E_tight_v * factor_op_v
+
+        # Geometry bounds (SPD only)
+        contrib_mean2d_global = torch.zeros(K, device=device)
+        contrib_conic_global = torch.zeros(K, device=device)
+        contrib_mean2d_sigmin = torch.zeros(K, device=device)
+        contrib_conic_sigmin = torch.zeros(K, device=device)
+
+        if K > 0 and spd_mask.any():
+            spd_i = spd_mask
+            S = spd_i.sum().item()
+            if S > 0:
+                spd_idx_base = torch.nonzero(spd_i).squeeze(-1)
+
+                spd_conics = conic_batch[spd_i]
+                xx_s, xy_s, yy_s = spd_conics[:, 0], spd_conics[:, 1], spd_conics[:, 2]
+                trace_s = xx_s + yy_s
+                det_s = xx_s * yy_s - xy_s * xy_s
+                disc_s = torch.clamp(trace_s * trace_s - 4.0 * det_s, min=0.0)
+                sqrt_disc_s = torch.sqrt(disc_s)
+                lam_max_s = (trace_s + sqrt_disc_s) / 2.0
+                lam_min_s = (trace_s - sqrt_disc_s) / 2.0
+
+                spd_o = o_j[spd_i]
+                spd_c = c_norm[spd_i]
+                spd_s = s_min_v[spd_i]
+                base_geo_s = spd_o * (spd_c + C_max_t_val) * tile_Q_val
+
+                lam_min_ok = lam_min_s > 0
+
+                # OLD global bounds
+                g_mean2d = base_geo_s * torch.sqrt(lam_max_s) * SQRT_E_INV
+                g_conic = base_geo_s * const_conic_factor / lam_min_s
+
+                contrib_mean2d_global_tmp = torch.zeros(S, device=device)
+                contrib_conic_global_tmp = torch.zeros(S, device=device)
+                contrib_mean2d_global_tmp[lam_min_ok] = g_mean2d[lam_min_ok]
+                contrib_conic_global_tmp[lam_min_ok] = g_conic[lam_min_ok]
+                contrib_mean2d_global[spd_idx_base] = contrib_mean2d_global_tmp
+                contrib_conic_global[spd_idx_base] = contrib_conic_global_tmp
+
+                # SIGMAMIN_TIGHT bounds
+                g_mean2d_s = torch.zeros(S, device=device)
+                g_conic_s = torch.zeros(S, device=device)
+                if lam_min_ok.any():
+                    ok_idx = torch.nonzero(lam_min_ok).squeeze(-1)
+                    s_s = spd_s[lam_min_ok]
+                    lm_s = lam_max_s[lam_min_ok]
+                    ln_s = lam_min_s[lam_min_ok]
+                    bg_s = base_geo_s[lam_min_ok]
+
+                    mmu = torch.where(
+                        s_s <= 0.5,
+                        torch.sqrt(lm_s / math.e),
+                        torch.sqrt(2.0 * lm_s * s_s) * torch.exp(-s_s)
+                    )
+                    base_mp = SQRT_1p5 / ln_s
+                    mp = torch.where(
+                        s_s <= 1.0,
+                        base_mp * E_INV,
+                        base_mp * s_s * torch.exp(-s_s)
+                    )
+                    g_mean2d_s[ok_idx] = bg_s * mmu
+                    g_conic_s[ok_idx] = bg_s * mp
+                contrib_mean2d_sigmin[spd_idx_base] = g_mean2d_s
+                contrib_conic_sigmin[spd_idx_base] = g_conic_s
+
+        # ---- Scatter-add accumulators ----
+        B_color_coarse.scatter_add_(0, g_unique, contrib_color_coarse)
+        B_color_tight.scatter_add_(0, g_unique, contrib_color_tight)
+        B_opacity.scatter_add_(0, g_unique, contrib_opacity)
+        B_opacity_tight.scatter_add_(0, g_unique, contrib_opacity_tight)
+        B_mean2d.scatter_add_(0, g_unique, contrib_mean2d_global)
+        B_conic.scatter_add_(0, g_unique, contrib_conic_global)
+        B_mean2d_sigmamin.scatter_add_(0, g_unique, contrib_mean2d_sigmin)
+        B_conic_sigmamin.scatter_add_(0, g_unique, contrib_conic_sigmin)
+
+        # ---- Build pair_data per tile (one GPU->CPU transfer) ----
+        if K > 0:
+            alpha_max_v = o_j * E_tight_v
+            is_exact_zero_v = (alpha_max_v < ALPHA_255) & spd_mask
+
+            g_unique_cpu = g_unique.cpu().numpy()
+            wc_cpu = w_color_by_gi.cpu().numpy()
+            wu_cpu = w_unclamped_by_gi.cpu().numpy()
+            dr_cpu = depth_rank_first.cpu().numpy()
+            spd_cpu = spd_mask.cpu().numpy()
+            ez_cpu = is_exact_zero_v.cpu().numpy()
+            a_tight_cpu = A_tight_v.cpu().numpy()
+            e_tight_cpu = E_tight_v.cpu().numpy()
+            fo_cpu = factor_op_v.cpu().numpy()
+            m2d_g_cpu = contrib_mean2d_global.cpu().numpy()
+            m2d_s_cpu = contrib_mean2d_sigmin.cpu().numpy()
+            cg_cpu = contrib_conic_global.cpu().numpy()
+            cs_cpu = contrib_conic_sigmin.cpu().numpy()
+            s_min_cpu = s_min_v.cpu().numpy()
+            o_cpu = o_j.cpu().numpy()
+            n_cpu = c_norm.cpu().numpy()
+
+            exact_zero_count += int(ez_cpu.sum())
+            tile_gaussian_total += K
+
+            for j in range(K):
+                gi = int(g_unique_cpu[j])
+                pair_data[(tile_idx, gi)] = {
+                    "w_color": int(wc_cpu[j]),
+                    "w_unclamped": int(wu_cpu[j]),
+                    "is_exact_zero": bool(ez_cpu[j]),
+                    "is_spd": bool(spd_cpu[j]),
+                    "B_color": float(a_tight_cpu[j] * tile_Q_val),
+                    "B_opacity": float(e_tight_cpu[j] * fo_cpu[j]),
+                    "B_mean2d_global": float(m2d_g_cpu[j]),
+                    "B_mean2d_sigmin": float(m2d_s_cpu[j]),
+                    "B_conic_global": float(cg_cpu[j]),
+                    "B_conic_sigmin": float(cs_cpu[j]),
+                    "s_min": float(s_min_cpu[j]),
+                    "o_i": float(o_cpu[j]),
+                    "c_norm": float(n_cpu[j]),
+                    "depth_rank": int(dr_cpu[j]),
+                    "bucket32_id": int(dr_cpu[j]) // 32,
+                    "tile_id": tile_idx,
+                    "gaussian_id": gi,
+                }
+
     # ================================================================
     # JOINT tile-Gaussian skip-set analysis (red-team req 2 & 3)
     # ================================================================
     # A pair is jointly skippable under budget epsilon if skipping it
     # does not exceed eps * total_bound for ANY of the 4 families.
     # We sort by max relative impact and skip from smallest upward.
-    
+
     joint_skip_results = {}
-    
+
     if tile_gaussian_total > 0 and len(pair_data) > 0:
-        # Total per-family bound (over all pairs) — denominators for epsilon
+        # Total per-family bound (over all pairs) - denominators for epsilon
         color_total = sum(pd["B_color"] for pd in pair_data.values())
         opacity_total = sum(pd["B_opacity"] for pd in pair_data.values())
         mean2d_total = sum(pd["B_mean2d_sigmin"] for pd in pair_data.values())
         conic_total = sum(pd["B_conic_sigmin"] for pd in pair_data.values())
-        
+
         budgets = [0.001, 0.005, 0.01, 0.02, 0.05]
         families_skip = ["B_color", "B_opacity", "B_mean2d_sigmin", "B_conic_sigmin"]
         fam_totals = {"B_color": color_total, "B_opacity": opacity_total,
                       "B_mean2d_sigmin": mean2d_total, "B_conic_sigmin": conic_total}
-        
+
         # Build list of pairs (keys) with SPD only
         pair_keys = [k for k, pd in pair_data.items() if pd["is_spd"]]
-        
+
         total_lanes = sum(pd["w_color"] for pd in pair_data.values())
         total_pairs = len(pair_data)
         exact_zero_pairs = sum(1 for pd in pair_data.values() if pd["is_exact_zero"])
         nonzero_pairs = total_pairs - exact_zero_pairs
-        
+
         # === Bucket32 aggregation (red-team req 5) ===
         bucket32_agg = {}
         for k in pair_keys:
@@ -606,7 +630,7 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
             bucket32_agg[bid]["B_opacity"] += pd["B_opacity"]
             bucket32_agg[bid]["B_mean2d_sigmin"] += pd["B_mean2d_sigmin"]
             bucket32_agg[bid]["B_conic_sigmin"] += pd["B_conic_sigmin"]
-        
+
         # === Selector 1: max-normalized greedy (existing) ===
         pairs_scored_maxnorm = []
         for k in pair_keys:
@@ -615,9 +639,8 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
                       for f in families_skip]
             pairs_scored_maxnorm.append((max(scores), k))
         pairs_scored_maxnorm.sort(key=lambda x: x[0])  # ascending
-        
+
         # === Selector 2: work-aware (lowest certificate cost per removable lane) ===
-        # Sort by (max normalized bound / n_lanes) ascending — minimizing cost/work
         pairs_scored_workaware = []
         for k in pair_keys:
             pd = pair_data[k]
@@ -626,9 +649,8 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
             cost_per_lane = max_norm / max(pd["w_color"], 1)
             pairs_scored_workaware.append((cost_per_lane, k))
         pairs_scored_workaware.sort(key=lambda x: x[0])  # ascending
-        
+
         def run_greedy(pairs_scored):
-            """Generic greedy: returns (skip_count, skip_lanes, cum_budgets) per budget."""
             results = {}
             for eps in budgets:
                 cum = {f: 0.0 for f in ["color", "opacity", "mean2d", "conic"]}
@@ -636,7 +658,6 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
                 skip_count = 0
                 for score, key in pairs_scored:
                     pd = pair_data[key]
-                    # Map to family cum keys
                     nc = cum["color"] + pd["B_color"]
                     no = cum["opacity"] + pd["B_opacity"]
                     nm = cum["mean2d"] + pd["B_mean2d_sigmin"]
@@ -653,28 +674,25 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
                         break
                 ez_in_skip = sum(1 for _, key in pairs_scored[:skip_count]
                                  if pair_data[key]["is_exact_zero"])
-                results[f"eps_{eps*100:.1f}pct"] = {
+                results["eps_{:.1f}pct".format(eps*100)] = {
                     "skip_count": skip_count,
                     "skip_lanes": skip_lanes,
                     "exact_zero_in_skip": ez_in_skip,
-                    "budget_used": {f: cum[f] / fam_totals[f.replace("_sigmin","") + "_sigmin"]  # approx
-                                    for f in cum},
+                    "budget_used": {f: cum[f] / fam_totals.get("B_" + f + ("_sigmin" if f in ("mean2d","conic") else ""), 1.0)
+                                        for f in cum},
                 }
             return results
-        
+
         res_maxnorm = run_greedy(pairs_scored_maxnorm)
         res_workaware = run_greedy(pairs_scored_workaware)
-        
+
         # Take the best result per budget (highest weighted work removal)
         for eps_key in res_maxnorm:
             mn_sl = res_maxnorm[eps_key]["skip_lanes"]
             wa_sl = res_workaware[eps_key]["skip_lanes"]
             best = res_maxnorm[eps_key] if mn_sl >= wa_sl else res_workaware[eps_key]
-            
-            eps_val = float(eps_key.replace("eps_", "").replace("pct", "")) / 100.0
-            
+
             joint_skip_results[eps_key] = {
-                # Primary gate metric: best feasible weighted-work removal
                 "JOINT_SKIP_PAIR_FRACTION": best["skip_count"] / max(total_pairs, 1),
                 "JOINT_SKIP_PAIRS": best["skip_count"],
                 "JOINT_SKIP_WEIGHTED_WORK_FRACTION": best["skip_lanes"] / max(total_lanes, 1),
@@ -692,24 +710,19 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
                     (best["skip_count"] - best["exact_zero_in_skip"]) / max(nonzero_pairs, 1)
                     if nonzero_pairs > 0 else 0.0,
                 "LOSS_CONDITIONED_CULLED_PAIRS": best["skip_count"] - best["exact_zero_in_skip"],
-                # Bucket32: fraction of total buckets that can be fully removed
-                "BUCKET32_SKIP_FRACTION": None,  # computed below
+                "BUCKET32_SKIP_FRACTION": None,
                 "BUCKET32_WEIGHTED_WORK_REMOVAL": None,
                 "note": (
                     "JOINT: all 4 families (color, opacity, mean2d_sigmamin, conic_sigmamin) "
                     "satisfy budget simultaneously. Best of two selectors (maxnorm, workaware). "
                     "EXACT_ZERO_SUPPORT_CULLING: pairs where o_i*exp(-sigma_min) < 1/255 "
                     "(existing prior-art Speedy-Splat/AccuTile support). "
-                    "LOSS_CONDITIONED_NONZERO_SUPPORT_CULLING: Candidate C novelty — pairs "
+                    "LOSS_CONDITIONED_NONZERO_SUPPORT_CULLING: Candidate C novelty - pairs "
                     "inside ordinary nonzero support that become skippable via loss-conditioned bounds."
                 ),
             }
-        
+
         # === Bucket32 analysis per budget ===
-        # For each budget, determine which full buckets can be removed
-        # A bucket is fully removable if ALL its pairs' cumulative budgets
-        # stay within budget. We compute by greedy over buckets (sorted by
-        # max-normalized bucket contribution), which is a feasible lower bound.
         bucket_keys = sorted(bucket32_agg.keys())
         bucket_list = []
         for bid in bucket_keys:
@@ -718,11 +731,7 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
                       for f in families_skip]
             bucket_list.append((max(scores), bid, bd))
         bucket_list.sort(key=lambda x: x[0])
-        
-        b32_totals = {}
-        for _, bid, _ in bucket_list:
-            b32_totals[bid] = bucket32_agg[bid]
-        
+
         for eps_key in joint_skip_results:
             eps_val = float(eps_key.replace("eps_", "").replace("pct", "")) / 100.0
             cum_color_b = 0.0
@@ -754,8 +763,9 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
             )
             joint_skip_results[eps_key]["BUCKET32_LANES"] = b32_skip_lanes
             joint_skip_results[eps_key]["TOTAL_BUCKETS"] = len(bucket_list)
-    
-    result = {
+
+
+    return {
         "color_coarse": B_color_coarse,
         "color_tight": B_color_tight,
         "opacity": B_opacity,
@@ -772,13 +782,6 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
         "joint_skip_analysis": joint_skip_results,
         "pair_data": pair_data,
     }
-    return result
-
-
-# ============================================================
-# Main Measurement Loop
-# ============================================================
-
 def _export_pair_records_to_npz(per_iter_pair_data, npz_path):
     """
     Flatten per-iteration pair data dicts into arrays for NPZ export.
@@ -819,6 +822,75 @@ def _export_pair_records_to_npz(per_iter_pair_data, npz_path):
     print(f"Saved pair records: {npz_path} ({len(all_records)} records)")
 
 
+# ============================================================
+# R3-1: JIT Cache Prewarm
+# ============================================================
+
+def _warmup_gsplat_jit(device="cuda", tile_size=16):
+    """Prewarm all gsplat CUDA JIT paths with a tiny synthetic forward+backward.
+    
+    This ensures compilation time is NOT included in any R3 measurement.
+    Explicitly exercises: fully_fused_projection, spherical_harmonics,
+    isect_tiles, isect_offset_encode, rasterize_to_pixels (forward + backward).
+    """
+    H, W = 32, 32
+    tile_w = (W + tile_size - 1) // tile_size
+    tile_h = (H + tile_size - 1) // tile_size
+    N = 64
+
+    torch.manual_seed(12345)
+    xyz = torch.randn(1, N, 3, device=device) * 0.5
+    quats = torch.randn(1, N, 4, device=device)
+    quats = quats / quats.norm(dim=-1, keepdim=True)
+    scales = torch.randn(1, N, 3, device=device).exp() * 0.05
+    opacities = torch.randn(N, device=device).sigmoid()
+    shs = torch.zeros(1, N, 16, 3, device=device)
+
+    viewmat = torch.eye(4, device=device).unsqueeze(0)
+    K = torch.tensor([[W, 0, W/2], [0, W, H/2], [0, 0, 1]], 
+                     device=device, dtype=torch.float32).unsqueeze(0)
+
+    # Forward path
+    radii, means2d, depths, conics, compensations = fully_fused_projection(
+        xyz[0], None, quats[0], scales[0], viewmat, K, W, H, eps2d=0.1
+    )
+
+    dirs = xyz - viewmat[:, :3, 3].unsqueeze(1)
+    colors = spherical_harmonics(3, dirs, shs)
+
+    with torch.no_grad():
+        tiles_per_gauss, isect_ids, flatten_ids = isect_tiles(
+            means2d, radii, depths, tile_size, tile_w, tile_h, sort=True
+        )
+        isect_offsets = isect_offset_encode(isect_ids, 1, tile_w, tile_h)
+
+    opac_in = opacities.detach().clone().unsqueeze(0)
+    opac_in = opac_in.requires_grad_(True)
+    means2d = means2d.requires_grad_(True)
+    conics = conics.requires_grad_(True)
+    colors = colors.requires_grad_(True)
+    means2d.retain_grad()
+    conics.retain_grad()
+    colors.retain_grad()
+
+    # Rasterize forward
+    render, render_alpha = rasterize_to_pixels(
+        means2d, conics, colors, opac_in,
+        W, H, tile_size, isect_offsets, flatten_ids,
+        backgrounds=None, masks=None, packed=False, absgrad=True,
+    )
+
+    # Rasterize backward (trigger backward CUDA JIT compilation)
+    loss = render.sum()
+    loss.backward()
+
+    torch.cuda.synchronize()
+    del render, loss, means2d, conics, colors, opac_in, radii, depths
+    del tiles_per_gauss, isect_ids, flatten_ids, isect_offsets
+    torch.cuda.empty_cache()
+    print("  JIT warmup complete (forward + backward).")
+
+
 def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
                        config, camera_sequence_path, pinned_commit=None):
     """Run R3 measurement with all corrections applied."""
@@ -848,6 +920,15 @@ def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
         except Exception:
             pinned_commit = "unknown"
     
+    # === JIT Warmup (R3-1): prewarm gsplat CUDA paths ===
+    print("=== R3-1: JIT Cache Warmup ===")
+    if provenance_check['semantic_verified']:
+        # Quick tiny synthetic warmup to compile all CUDA kernels
+        _warmup_gsplat_jit(device=device, tile_size=tile_size)
+        print("  JIT_CACHE_WARM = YES")
+    else:
+        print("  Skipping JIT warmup (provenance not verified)")
+    
     # === Load ===
     print(f"Loading checkpoint: {checkpoint_path}")
     dataset = GTDataset(config.scene, config.repo_root)
@@ -866,11 +947,11 @@ def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
         "rotation_lr": config.rotation_lr,
         "percent_dense": config.percent_dense,
     })
-    model = model.to(device)
     N = model._xyz.shape[0]
     print(f"  Model loaded: N={N}, sh_degree={model.active_sh_degree}")
     
     ssim_fn = SepSSIM(device=device)
+    print("  SepSSIM initialized")
     
     # === Storage ===
     all_correctness = {}
@@ -913,13 +994,15 @@ def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
         )
         
         with torch.no_grad():
+            tile_w = (W + tile_size - 1) // tile_size
+            tile_h = (H + tile_size - 1) // tile_size
             tiles_per_gauss, isect_ids, flatten_ids = isect_tiles(
-                means2d, radii, depths, H, W, tile_size,
-                sort=True, tile_size=tile_size
+                means2d, radii, depths, tile_size, tile_w, tile_h, sort=True
             )
-            tile_offsets = isect_offset_encode(
-                isect_ids, H, W, tile_size, tile_size
-            )
+            tile_offsets_3d = isect_offset_encode(
+                isect_ids, 1, tile_w, tile_h
+            )  # [1, tile_h, tile_w] 鈥?form for rasterize_to_pixels
+            tile_offsets = tile_offsets_3d[0].reshape(-1)  # [n_tiles] flat prefix-sum for bound code
         
         # Enable grad capture (C2: capture all 5 intermediates)
         means2d.retain_grad()
@@ -931,9 +1014,9 @@ def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
         
         # Rasterization
         render, render_alpha = rasterize_to_pixels(
-            means2d, conics, colors_rgb, opacities_input, None,
-            W, H, tile_size, tile_size, tile_offsets, flatten_ids,
-            backgrounds=None, masks=None, render_mode="RGB",
+            means2d, conics, colors_rgb, opacities_input,
+            W, H, tile_size, tile_offsets_3d, flatten_ids,
+            backgrounds=None, masks=None,
             packed=False, absgrad=True,
         )
         render.retain_grad()
@@ -1104,8 +1187,8 @@ def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
         
         all_tightness[str(iteration)] = tightness
         
-        # === Certificate semantics (red-team req 7): ρ_f + U_f ===
-        # ρ_f = Σ B_f / Σ ||g_f||  — bound inflation (how much wider bounds are vs actual)
+        # === Certificate semantics (red-team req 7): 蟻_f + U_f ===
+        # 蟻_f = 危 B_f / 危 ||g_f||  鈥?bound inflation (how much wider bounds are vs actual)
         # This is reported with CERTIFIED_BOUND_BUDGET as the user parameter name.
         cert_semantics = {}
         for fam, gk in families:
@@ -1264,7 +1347,7 @@ def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="R3 Certificate Tightness Gate — Corrected Runner"
+        description="R3 Certificate Tightness Gate 鈥?Corrected Runner"
     )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--start-iter", type=int, required=True)

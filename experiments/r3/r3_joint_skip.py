@@ -137,29 +137,33 @@ def load_pair_records(npz_path):
     """Load pair records from the runner's saved .npz artifact."""
     if not os.path.exists(npz_path):
         return None
-    data = np.load(npz_path, allow_pickle=True)
-    # Support both old (n_lanes) and new (w_color, w_unclamped) formats
-    has_w_color = "w_color" in data and "w_unclamped" in data
-    if not has_w_color and "n_lanes" not in data:
+    npz = np.load(npz_path, allow_pickle=True)
+    # The structured array is stored under key 'records'
+    if 'records' not in npz:
         return None
-    n = len(data["tile_idx"])
+    arr = npz['records']
+    # Detect field presence using the structured dtype
+    has_w_color = 'w_color' in arr.dtype.names
     records = []
     for i in range(n):
         r = {
-            "tile_idx": int(data["tile_idx"][i]),
-            "gauss_idx": int(data["gauss_idx"][i]),
-            "B_color": float(data["B_color"][i]),
-            "B_opacity": float(data["B_opacity"][i]),
-            "B_mean2d": float(data["B_mean2d"][i]),
-            "B_conic": float(data["B_conic"][i]),
-            "is_exact_zero": bool(data["is_exact_zero"][i]),
+            "tile_idx": int(arr[i]['tile_idx']),
+            "gauss_idx": int(arr[i]['gauss_idx']),
+            "B_color": float(arr[i]['B_color']),
+            "B_opacity": float(arr[i]['B_opacity']),
+            "B_mean2d": float(arr[i]['B_mean2d']),
+            "B_conic": float(arr[i]['B_conic']),
+            "is_exact_zero": bool(arr[i]['is_exact_zero']),
         }
         if has_w_color:
-            r["w_color"] = int(data["w_color"][i])
-            r["w_unclamped"] = int(data["w_unclamped"][i])
+            r["w_color"] = int(arr[i]['w_color'])
+            r["w_unclamped"] = int(arr[i]['w_unclamped'])
+        elif 'n_lanes' in arr.dtype.names:
+            r["w_color"] = int(arr[i]['n_lanes'])
+            r["w_unclamped"] = int(arr[i]['n_lanes'])
         else:
-            r["w_color"] = int(data["n_lanes"][i])
-            r["w_unclamped"] = int(data["n_lanes"][i])
+            r["w_color"] = 0
+            r["w_unclamped"] = 0
         records.append(r)
     return records
 
