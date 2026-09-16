@@ -538,49 +538,57 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
         B_mean2d_sigmamin.scatter_add_(0, g_unique, contrib_mean2d_sigmin)
         B_conic_sigmamin.scatter_add_(0, g_unique, contrib_conic_sigmin)
 
-        # ---- Build pair_data per tile (one GPU->CPU transfer) ----
+        # ---- Build pair_data per tile (single GPU->CPU transfer) ----
         if K > 0:
             alpha_max_v = o_j * E_tight_v
             is_exact_zero_v = (alpha_max_v < ALPHA_255) & spd_mask
 
-            g_unique_cpu = g_unique.cpu().numpy()
-            wc_cpu = w_color_by_gi.cpu().numpy()
-            wu_cpu = w_unclamped_by_gi.cpu().numpy()
-            dr_cpu = depth_rank_first.cpu().numpy()
-            spd_cpu = spd_mask.cpu().numpy()
-            ez_cpu = is_exact_zero_v.cpu().numpy()
-            a_tight_cpu = A_tight_v.cpu().numpy()
-            e_tight_cpu = E_tight_v.cpu().numpy()
-            fo_cpu = factor_op_v.cpu().numpy()
-            m2d_g_cpu = contrib_mean2d_global.cpu().numpy()
-            m2d_s_cpu = contrib_mean2d_sigmin.cpu().numpy()
-            cg_cpu = contrib_conic_global.cpu().numpy()
-            cs_cpu = contrib_conic_sigmin.cpu().numpy()
-            s_min_cpu = s_min_v.cpu().numpy()
-            o_cpu = o_j.cpu().numpy()
-            n_cpu = c_norm.cpu().numpy()
+            # Single batch transfer: stack all [K] tensors into [12, K], transfer once
+            batch = torch.stack([
+                g_unique.float(), w_color_by_gi.float(), w_unclamped_by_gi.float(),
+                depth_rank_first.float(), spd_mask.float(), is_exact_zero_v.float(),
+                A_tight_v, E_tight_v, factor_op_v,
+                s_min_v, o_j, c_norm,
+            ]).cpu().numpy()  # [12, K] — single .cpu() call
+            m2d_g_np = contrib_mean2d_global.cpu().numpy()  # [K] — separate (already computed)
+            m2d_s_np = contrib_mean2d_sigmin.cpu().numpy()
+            cg_np = contrib_conic_global.cpu().numpy()
+            cs_np = contrib_conic_sigmin.cpu().numpy()
 
-            exact_zero_count += int(ez_cpu.sum())
+            g_unique_np = batch[0].astype(np.int64)
+            wc_np = batch[1].astype(np.int32)
+            wu_np = batch[2].astype(np.int32)
+            dr_np = batch[3].astype(np.int32)
+            spd_np = batch[4].astype(np.bool_)
+            ez_np = batch[5].astype(np.bool_)
+            a_tight_np = batch[6]
+            e_tight_np = batch[7]
+            fo_np = batch[8]
+            s_min_np = batch[9]
+            o_np = batch[10]
+            n_np = batch[11]
+
+            exact_zero_count += int(ez_np.sum())
             tile_gaussian_total += K
 
             for j in range(K):
-                gi = int(g_unique_cpu[j])
+                gi = int(g_unique_np[j])
                 pair_data[(tile_idx, gi)] = {
-                    "w_color": int(wc_cpu[j]),
-                    "w_unclamped": int(wu_cpu[j]),
-                    "is_exact_zero": bool(ez_cpu[j]),
-                    "is_spd": bool(spd_cpu[j]),
-                    "B_color": float(a_tight_cpu[j] * tile_Q_val),
-                    "B_opacity": float(e_tight_cpu[j] * fo_cpu[j]),
-                    "B_mean2d_global": float(m2d_g_cpu[j]),
-                    "B_mean2d_sigmin": float(m2d_s_cpu[j]),
-                    "B_conic_global": float(cg_cpu[j]),
-                    "B_conic_sigmin": float(cs_cpu[j]),
-                    "s_min": float(s_min_cpu[j]),
-                    "o_i": float(o_cpu[j]),
-                    "c_norm": float(n_cpu[j]),
-                    "depth_rank": int(dr_cpu[j]),
-                    "bucket32_id": int(dr_cpu[j]) // 32,
+                    "w_color": int(wc_np[j]),
+                    "w_unclamped": int(wu_np[j]),
+                    "is_exact_zero": bool(ez_np[j]),
+                    "is_spd": bool(spd_np[j]),
+                    "B_color": float(a_tight_np[j] * tile_Q_val),
+                    "B_opacity": float(e_tight_np[j] * fo_np[j]),
+                    "B_mean2d_global": float(m2d_g_np[j]),
+                    "B_mean2d_sigmin": float(m2d_s_np[j]),
+                    "B_conic_global": float(cg_np[j]),
+                    "B_conic_sigmin": float(cs_np[j]),
+                    "s_min": float(s_min_np[j]),
+                    "o_i": float(o_np[j]),
+                    "c_norm": float(n_np[j]),
+                    "depth_rank": int(dr_np[j]),
+                    "bucket32_id": int(dr_np[j]) // 32,
                     "tile_id": tile_idx,
                     "gaussian_id": gi,
                 }
