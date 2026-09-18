@@ -78,7 +78,7 @@ class ReferenceV1Config:
     instrument_iterations: tuple = (500, 1000, 2000, 5000, 10000, 15000, 20000, 25000)
 
     # === Model checkpoints (for continuation experiments) ===
-    checkpoint_iterations: tuple = (30000,)
+    checkpoint_iterations: tuple = ()
 
     def to_dict(self) -> Dict:
         d = asdict(self)
