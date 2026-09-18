@@ -149,7 +149,7 @@ def main():
 
     # Run training
     from trainer import run_training
-    run_training(config, args.output)
+    run_training(config, args.output, allow_dirty=True)
 
     # Save mode info
     info = {"scene": args.scene, "mode": args.mode, "budget": args.budget,
