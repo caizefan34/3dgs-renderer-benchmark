@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-R3 Certificate Tightness Gate 鈥?Corrected Runner
+R3 Certificate Tightness Gate 閳?Corrected Runner
 
 APPLIED CORRECTIONS:
   C1: sigma_min uses 4-edge continuous rectangle minimum (NOT corners-only).
@@ -157,7 +157,7 @@ def verify_checkpoint_provenance(ckpt_path):
 
 
 # ============================================================
-# SepSSIM 鈥?identical to canonical baseline
+# SepSSIM 閳?identical to canonical baseline
 # ============================================================
 
 class SepSSIM:
@@ -342,16 +342,16 @@ def _validate_work_weights(wc_vals, wu_vals, tile_gaussian_total, tile_size):
               f" >64={float(np.mean(arr > 64)):.3f}"
               f" nonzero_fraction={nz / max(len(arr), 1):.4f}")
     
-    _stats(wc_vals, "W_color")
-    _stats(wu_vals, "W_unclamped")
+    _stats(wc_arr, "W_color")
+    _stats(wu_arr, "W_unclamped")
     
     # Fail if essentially all nonzero W_color == 1 (old bug: torch.unique gave count=1)
     if len(wc_nonzero) > 0:
         all_ones = np.all(wc_nonzero == 1.0)
         if all_ones:
-            print("    *** WARNING: all nonzero W_color == 1 鈥?faithful replay may still be broken! ***")
+            print("    *** WARNING: all nonzero W_color == 1 閳?faithful replay may still be broken! ***")
         elif np.mean(wc_nonzero == 1.0) > 0.95:
-            print("    *** WARNING: >95% of nonzero W_color == 1 鈥?likely still using torch.unique count! ***")
+            print("    *** WARNING: >95% of nonzero W_color == 1 閳?likely still using torch.unique count! ***")
 
 
 # ============================================================
@@ -362,7 +362,7 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
                             flatten_ids, Q_t, tile_h, tile_w, tile_size,
                             H=None, W=None,
                             uniform_families=False):
-    """Compute ALL certificate bounds — fully vectorized per-tile."""
+    """Compute ALL certificate bounds 鈥?fully vectorized per-tile."""
     device = opacities.device
     n_tiles = tile_h * tile_w
     N = opacities.shape[0]
@@ -403,7 +403,7 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
         g_indices = flatten_ids[start:end].long()
         G = g_indices.shape[0]
 
-        # ---- Faithful W_it replay — tensor version ----
+        # ---- Faithful W_it replay 鈥?tensor version ----
         w_color_t, w_unclamped_t = _compute_faithful_work_weights_tensor(
             g_indices, means2d[0], conics[0], opacities,
             tx * tile_size, ty * tile_size, tile_size,
@@ -549,8 +549,8 @@ def _accumulate_tile_bounds(opacities, conics, means2d, tile_offsets,
                 depth_rank_first.float(), spd_mask.float(), is_exact_zero_v.float(),
                 A_tight_v, E_tight_v, factor_op_v,
                 s_min_v, o_j, c_norm,
-            ]).cpu().numpy()  # [12, K] — single .cpu() call
-            m2d_g_np = contrib_mean2d_global.cpu().numpy()  # [K] — separate (already computed)
+            ]).cpu().numpy()  # [12, K] 鈥?single .cpu() call
+            m2d_g_np = contrib_mean2d_global.cpu().numpy()  # [K] 鈥?separate (already computed)
             m2d_s_np = contrib_mean2d_sigmin.cpu().numpy()
             cg_np = contrib_conic_global.cpu().numpy()
             cs_np = contrib_conic_sigmin.cpu().numpy()
@@ -943,8 +943,24 @@ def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
     camera_sequence = np.load(camera_sequence_path)
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     
+    # ---- Anti-Sabotage Guard: normalize legacy checkpoint keys ----
+    state = ckpt.get("model_state", ckpt)
+    if "active_sh_degree" not in state and "sh_degree" in state:
+        state["active_sh_degree"] = state["sh_degree"]
+    if "scaling" not in state and "scales" in state:
+        state["scaling"] = state["scales"]
+    if "rotation" not in state and "rotations" in state:
+        state["rotation"] = state["rotations"]
+    if "spatial_lr_scale" not in state:
+        state["spatial_lr_scale"] = ckpt.get("metrics", {}).get(
+            "spatial_lr_scale", 1.0)
+    _n = state["xyz"].shape[0]
+    state.setdefault("max_radii2D", torch.zeros(_n, dtype=torch.float32))
+    state.setdefault("xyz_gradient_accum", torch.zeros(_n, 1, dtype=torch.float32))
+    state.setdefault("denom", torch.zeros(_n, 1, dtype=torch.float32))
+    
     model = GaussianModel(max_sh_degree=config.sh_degree)
-    model.restore(ckpt, {
+    model.restore(state, {
         "position_lr_init": config.position_lr_init,
         "position_lr_final": config.position_lr_final,
         "position_lr_delay_mult": config.position_lr_delay_mult,
@@ -1009,7 +1025,7 @@ def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
             )
             tile_offsets_3d = isect_offset_encode(
                 isect_ids, 1, tile_w, tile_h
-            )  # [1, tile_h, tile_w] 鈥?form for rasterize_to_pixels
+            )  # [1, tile_h, tile_w] 閳?form for rasterize_to_pixels
             tile_offsets = tile_offsets_3d[0].reshape(-1)  # [n_tiles] flat prefix-sum for bound code
         
         # Enable grad capture (C2: capture all 5 intermediates)
@@ -1195,8 +1211,8 @@ def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
         
         all_tightness[str(iteration)] = tightness
         
-        # === Certificate semantics (red-team req 7): 蟻_f + U_f ===
-        # 蟻_f = 危 B_f / 危 ||g_f||  鈥?bound inflation (how much wider bounds are vs actual)
+        # === Certificate semantics (red-team req 7): 锜籣f + U_f ===
+        # 锜籣f = 鍗?B_f / 鍗?||g_f||  閳?bound inflation (how much wider bounds are vs actual)
         # This is reported with CERTIFIED_BOUND_BUDGET as the user parameter name.
         cert_semantics = {}
         for fam, gk in families:
@@ -1355,7 +1371,7 @@ def run_r3_measurement(checkpoint_path, start_iter, n_iters, output_dir,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="R3 Certificate Tightness Gate 鈥?Corrected Runner"
+        description="R3 Certificate Tightness Gate 閳?Corrected Runner"
     )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--start-iter", type=int, required=True)
