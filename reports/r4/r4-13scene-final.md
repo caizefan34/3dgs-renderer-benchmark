@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Implemented certificate-guided backward skip as a real CUDA kernel in gsplat, validated correctness, and benchmarked across 13 scenes with 30K training iterations. The CUDA kernel is structurally correct (MODE0/MODE1/MODE2 all pass), but the Python-side skip mask computation introduces significant overhead that makes the candidate **2.4x slower** than baseline while producing a **-2.32 dB average PSNR drop** across 5 completed scenes.
+Implemented certificate-guided backward skip as a real CUDA kernel in gsplat, validated correctness on room (MODE0/MODE1/MODE2 all PASS), and ran full 30K training across all 13 benchmark scenes. The CUDA kernel is structurally correct, but the Python-side skip mask computation introduces significant overhead that makes the candidate **2.7x slower** than baseline. Quality results are mixed: 11/13 scenes show degradation (-0.63 to -6.65 dB), but 2/13 T&T scenes show **improvement** (+0.48 and +2.13 dB), suggesting a regularization effect. **Verdict: DROP** as a training accelerator, with INVESTIGATE for T&T regularization.
 
 ## Phase 1-4: CUDA Implementation & Correctness ✅
 
