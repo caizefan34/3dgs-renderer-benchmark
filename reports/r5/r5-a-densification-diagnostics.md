@@ -6,6 +6,21 @@ Tracked N_GS_B(t), N_GS_C(t), and R_GS(t) = N_C/N_B at all evaluation checkpoint
 
 Densification is active from iter 500 to 15000 (config: densify_from_iter=500, densify_until_iter=15000, interval=100). No densification occurs after iter 15000, so N_GS is constant from 15K onward.
 
+### ⚠️ Seed-0 candidate_c per-checkpoint data caveat
+
+The per-checkpoint N_GS values for seed-0 candidate_c come from the **re-run** `training_metrics.json`
+(mtime 2026-09-19 01:04–01:07), NOT the original R4 run. The original run's per-checkpoint data was
+overwritten (see `r5-a-provenance-reconciliation.md`). The `final_results.json` (authoritative for
+seed-0 final 30K metrics) contains only the final N_GS (train: 472,289; truck: 1,185,928), which
+differs from the re-run's final N_GS (train: 476,167; truck: 1,181,561).
+
+Seed-0 **baseline** per-checkpoint data is from the original run (training_metrics.json NOT
+overwritten, mtime 2026-09-18 22:46). Therefore, R_GS for seed-0 is computed using original-run
+baseline vs re-run candidate_c — a mix of two executions. The R_GS trend is qualitatively
+consistent with seeds 1 and 2, so this mix does not affect the diagnostic conclusions.
+
+Seeds 1 and 2 per-checkpoint data are from fresh R5-A runs with no provenance issues.
+
 ## Train Scene
 
 ### N_GS(t) and R_GS(t) at all checkpoints

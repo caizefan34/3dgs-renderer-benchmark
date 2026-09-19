@@ -59,7 +59,7 @@ Identical dirty state — same uncommitted changes were present for all runs.
 
 ## Verdict
 
-**ORIGINAL_R4_PAIR_REUSABLE = YES**
+**ORIGINAL_R4_PAIR_REUSABLE = YES** (provenance identity verified)
 
 ### Reason
 1. Seed is explicitly 0 for all runs ✅
@@ -72,11 +72,29 @@ Identical dirty state — same uncommitted changes were present for all runs.
 
 The R4 seed=0 paired results can serve as one of the 3 required paired seeds.
 
-### R4 seed=0 results (for reference)
+### ⚠️ Metrics file overwrite — see r5-a-provenance-reconciliation.md
+
+The `provenance.json` and `camera_sequence.npy` (both mtime 2026-09-18 22:46–22:47) are from the
+**original** R4 run and were NOT overwritten. However, the candidate_c `training_metrics.json` for
+train and truck was **overwritten by an unidentified re-run** at 2026-09-19 01:04–01:07.
+
+The **original** R4 seed=0 metrics are preserved in `final_results.json` (mtime 2026-09-18 23:58:04,
+sha256 prefix `ea645ac3a0f61f1b`), which is the authoritative artifact for R4 seed-0.
+
+The R5-A0 audit verified provenance identity (correct), but the R5-A aggregation initially read the
+overwritten `training_metrics.json` instead of `final_results.json`. All R5-A reports have been
+corrected to use `final_results.json` as the sole seed-0 source. See
+`r5-a-provenance-reconciliation.md` for full forensics.
+
+### R4 seed=0 results (from final_results.json — the authoritative artifact)
 | Scene | B_PSNR | C_PSNR | ΔPSNR | B_SSIM | C_SSIM | ΔSSIM | B_N | C_N |
 |-------|--------|--------|-------|--------|--------|-------|-----|-----|
-| train | 21.86 | 22.34 | +0.48 | 0.8313 | 0.8166 | -0.0146 | 419478 | 472289 |
-| truck | 22.33 | 24.46 | +2.13 | 0.8520 | 0.8506 | -0.0014 | 1074296 | 1185928 |
+| train | 21.8608 | 22.3361 | +0.4752 | 0.8313 | 0.8166 | -0.0146 | 419478 | 472289 |
+| truck | 22.3348 | 24.4609 | +2.1261 | 0.8520 | 0.8506 | -0.0014 | 1074296 | 1185928 |
+
+**Source**: `/mnt/storage_pool/liaoyuanjun/r4_13scene_v2/final_results.json`
+**Mtime**: 2026-09-18 23:58:04 CST
+**sha256 prefix**: ea645ac3a0f61f1b
 
 ## R5-A seed plan
 
