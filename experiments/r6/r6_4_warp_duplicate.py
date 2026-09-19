@@ -2,6 +2,17 @@
 """
 R6-A: Warp/block duplicate analysis for atomic reduction potential.
 
+**SUPERSEDED by r6_a_direct_atomic.py** — this script uses a footprint-based
+ESTIMATE of within-tile warp multiplicity. The direct pixel-level simulation
+in r6_a_direct_atomic.py provides more accurate measurements.
+
+KNOWN DIMENSIONAL ISSUE (corrected in r6_a_direct_atomic.py):
+  - `n_warps_per_gaussian` is labeled "warps per Gaussian" but is actually
+    "within-tile warps per Gaussian" (per-tile, not total across all tiles)
+  - The correct total warps per Gaussian = tiles_per_gaussian × within_tile_warps
+  - The original "cross-tile vs cross-warp" decomposition was nonsensical
+  - See r6_a_direct_atomic.py for corrected definitions and direct measurement
+
 gsplat 1.5.3's backward kernel ALREADY does warp-level aggregation:
 - All 32 lanes of a warp process the SAME Gaussian t
 - warpSum reduces across lanes
@@ -11,14 +22,16 @@ So the relevant duplicate is NOT within-warp (already aggregated) but:
 1. CROSS-WARP (within tile): how many of the 8 warps in a tile write to the same Gaussian?
 2. CROSS-TILE: how many tiles contain the same Gaussian?
 
-This script computes:
+This script computes (ESTIMATED, not direct):
 - Per-Gaussian tile intersection count (cross-tile duplicates)
-- Per-tile warp coverage estimate (cross-warp duplicates)
-- R_atomic_potential = total_atomic_ops / ideal_atomic_ops
+- Per-tile warp coverage estimate (cross-warp duplicates) — FOOTPRINT-BASED, overestimates
+- R_atomic_potential = total_warp_gaussian_pairs / total_tile_gaussian_pairs
 
-The ideal (with block-level aggregation) = 1 atomic per (tile, Gaussian) pair.
-The current (warp-level only) = 1 atomic per (warp, Gaussian) pair where the
-warp has ≥1 active pixel for that Gaussian.
+CORRECTED definitions:
+  tiles_per_gaussian (T/G): number of tiles each visible Gaussian intersects
+  within_tile_warps (W/tile/G): warps per Gaussian within each tile (THIS script estimates it)
+  R_atomic = W/tile/G (weighted): block-aggregation reduction factor
+  total_warps_per_gaussian = T/G × R_atomic: total warp-Gaussian pairs per Gaussian
 
 Usage (on mx):
   CUDA_VISIBLE_DEVICES=4 PYTHONNOUSERSITE=1 \
@@ -250,7 +263,8 @@ def main():
             "R_atomic_std": float(np.std(R_atomic_vals)),
             "n_isects_mean": float(np.mean(n_isects_vals)),
             "tiles_per_gauss_mean": float(np.mean(tiles_per_gauss)),
-            "warps_per_gauss_mean": float(np.mean(warps_per_gauss)),
+            "within_tile_warps_per_gauss_mean": float(np.mean(warps_per_gauss)),  # CORRECTED LABEL: was warps_per_gauss_mean
+            "total_warps_per_gauss_est": float(np.mean(tiles_per_gauss)) * float(np.mean(R_atomic_vals)),  # ADDED: T/G × R_atomic
         },
     }
 
