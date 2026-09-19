@@ -14,6 +14,8 @@ PYTHONPATH=/tmp/r6b:$PYTHONPATH python experiments/r6/r6_b/run_r6b.py ...
 ```
 
 `r6b_set_mode(1)` enables B0 (persistent capacity-managed buffers plus a full
-active-range clear). `r6b_invalidate()`
+active-range clear). `r6b_set_mode(2)` enables B1: the next iteration clears
+only the prior iteration's `flatten_ids`, then the current IDs become its next
+prior set. `r6b_invalidate()`
 must be called after clone, split, or prune; it makes the following backward
 perform a full clear.  Packed rendering remains baseline by construction.

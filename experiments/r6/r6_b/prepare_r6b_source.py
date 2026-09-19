@@ -83,12 +83,14 @@ def main() -> None:
         '    m.def("rasterize_to_pixels_bwd", &gsplat::rasterize_to_pixels_bwd_tensor);\n'
         '    m.def("r6b_set_mode", &gsplat::r6b::set_mode);\n'
         '    m.def("r6b_mode", &gsplat::r6b::mode);\n'
-        '    m.def("r6b_invalidate", &gsplat::r6b::invalidate);',
+        '    m.def("r6b_invalidate", &gsplat::r6b::invalidate);\n'
+        '    m.def("r6b_last_prepare_ms", &gsplat::r6b::last_prepare_ms);',
     )
     replace_once(
         target / "ext.cpp",
         '#include "bindings.h"',
-        '#include "bindings.h"\n#include "r6b_persistent_buffers.cuh"',
+        '#include "bindings.h"\n\nnamespace gsplat::r6b {\n'
+        'void set_mode(int mode);\nint mode();\nvoid invalidate();\nfloat last_prepare_ms();\n}',
     )
     print(f"R6-B patched source ready: {args.output}")
 
