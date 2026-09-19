@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
-"""CUDA-event replay benchmark for R6-B modes on an existing R6 checkpoint."""
+"""CUDA-event replay benchmark for R6-B modes on an existing R6 checkpoint.
+
+Reports per-mode:
+  - T_bwd_ms:      backward wall time (CUDA events)
+  - T_iter_ms:     full iteration (zero_grad + forward + loss + backward + optimizer)
+  - T_prepare_ms:  rasterizer buffer preparation (B0: full clear; B1-v2: clear phase)
+  - T_scatter_ms:  B1-v2 only: touched-mask scatter phase (in finish)
+  - T_clear_ms:    B0/B1-v2: the clear kernel itself (subset of T_prepare)
+  - metadata_bytes: B1-v2 only: persistent [C*N] bool touched mask
+  - n_rows:        B1-v2 only: C*N row count
+  - memory_delta_mb: peak VRAM delta relative to start-of-run baseline
+"""
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -16,7 +26,8 @@ HERE = Path(__file__).resolve()
 REPO = HERE.parents[3]
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(REPO / "experiments" / "r6"))
-from runtime import configure, last_prepare_ms
+from runtime import (configure, last_prepare_ms, last_scatter_ms,  # noqa: E402
+                     last_clear_ms, metadata_bytes, prev_n_rows)
 from r6_1_bwd_decompose import (  # noqa: E402
     ReferenceV1Config, GTDataset, SepSSIM, load_model_from_ckpt, render_with_meta,
 )
@@ -32,7 +43,13 @@ def replay(model, cam, target, ssim, mode: str, warmup: int, measure: int) -> di
     configure(mode)
     bwd_start, bwd_end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     iter_start, iter_end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-    bwd, iteration, prepare = [], [], []
+    bwd, iteration, prepare, scatter, clear = [], [], [], [], []
+    meta_bytes, n_rows = 0, 0
+
+    # Record baseline VRAM before measure phase
+    torch.cuda.reset_peak_memory_stats()
+    mem_before = torch.cuda.memory_allocated()
+
     for step in range(warmup + measure):
         model.optimizer.zero_grad(set_to_none=True)
         iter_start.record()
@@ -49,9 +66,30 @@ def replay(model, cam, target, ssim, mode: str, warmup: int, measure: int) -> di
             iteration.append(iter_start.elapsed_time(iter_end))
             if mode != "baseline":
                 prepare.append(last_prepare_ms())
-    result = {"T_bwd_ms": summary(bwd), "T_iter_ms": summary(iteration)}
+                clear.append(last_clear_ms())
+                if mode == "b1":
+                    scatter.append(last_scatter_ms())
+                    meta_bytes = metadata_bytes()
+                    n_rows = prev_n_rows()
+
+    mem_after = torch.cuda.memory_allocated()
+    peak_mem = torch.cuda.max_memory_allocated()
+
+    result = {
+        "T_bwd_ms": summary(bwd),
+        "T_iter_ms": summary(iteration),
+    }
     if prepare:
-        result["T_raster_prepare_cuda_event_ms"] = summary(prepare)
+        result["T_prepare_ms"] = summary(prepare)
+        result["T_clear_ms"] = summary(clear)
+    if scatter:
+        result["T_scatter_ms"] = summary(scatter)
+        result["metadata_bytes"] = meta_bytes
+        result["n_rows"] = n_rows
+        result["metadata_MB"] = round(meta_bytes / 1048576, 3)
+    result["memory_allocated_MB"] = round(mem_after / 1048576, 1)
+    result["peak_memory_MB"] = round(peak_mem / 1048576, 1)
+    result["memory_delta_vs_start_MB"] = round((mem_after - mem_before) / 1048576, 1)
     return result
 
 
@@ -74,6 +112,7 @@ def main() -> None:
     result = replay(model, cam, target, SepSSIM(device="cuda"), args.mode, args.warmup, args.measure)
     result.update({"scene": args.scene, "checkpoint": args.ckpt, "mode": args.mode,
                    "warmup": args.warmup, "measure": args.measure,
+                   "camera_idx": args.camera_idx,
                    "timing_source": "torch.cuda.Event"})
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

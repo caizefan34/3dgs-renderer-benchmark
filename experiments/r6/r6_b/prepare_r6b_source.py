@@ -74,7 +74,8 @@ def main() -> None:
     replace_once(
         target / "rasterize_to_pixels_bwd.cu",
         "    return std::make_tuple(\n        v_means2d_abs, v_means2d, v_conics, v_colors, v_opacities\n    );",
-        "    if (r6b_enabled) r6b::raster_buffers().finish(flatten_ids);\n"
+        "    if (r6b_enabled) r6b::raster_buffers().finish(\n"
+        "        flatten_ids, means2d.size(0) * means2d.size(1));\n"
         "    return std::make_tuple(\n        v_means2d_abs, v_means2d, v_conics, v_colors, v_opacities\n    );",
     )
     replace_once(
@@ -84,13 +85,18 @@ def main() -> None:
         '    m.def("r6b_set_mode", &gsplat::r6b::set_mode);\n'
         '    m.def("r6b_mode", &gsplat::r6b::mode);\n'
         '    m.def("r6b_invalidate", &gsplat::r6b::invalidate);\n'
-        '    m.def("r6b_last_prepare_ms", &gsplat::r6b::last_prepare_ms);',
+        '    m.def("r6b_last_prepare_ms", &gsplat::r6b::last_prepare_ms);\n'
+        '    m.def("r6b_last_scatter_ms", &gsplat::r6b::last_scatter_ms);\n'
+        '    m.def("r6b_last_clear_ms", &gsplat::r6b::last_clear_ms);\n'
+        '    m.def("r6b_metadata_bytes", &gsplat::r6b::metadata_bytes);\n'
+        '    m.def("r6b_prev_n_rows", &gsplat::r6b::prev_n_rows);',
     )
     replace_once(
         target / "ext.cpp",
         '#include "bindings.h"',
         '#include "bindings.h"\n\nnamespace gsplat::r6b {\n'
-        'void set_mode(int mode);\nint mode();\nvoid invalidate();\nfloat last_prepare_ms();\n}',
+        'void set_mode(int mode);\nint mode();\nvoid invalidate();\nfloat last_prepare_ms();\n'
+        'float last_scatter_ms();\nfloat last_clear_ms();\nint64_t metadata_bytes();\nint64_t prev_n_rows();\n}',
     )
     print(f"R6-B patched source ready: {args.output}")
 
