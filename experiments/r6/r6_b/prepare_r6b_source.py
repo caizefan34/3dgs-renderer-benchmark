@@ -24,6 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 HEADER = ROOT / "r6b_persistent_buffers.cuh"
+CU_IMPL = ROOT / "r6b_persistent_buffers.cu"
 
 
 def replace_once(path: Path, old: str, new: str) -> None:
@@ -49,8 +50,9 @@ def detect_layout(csrc: Path, cuda_parent: Path) -> str:
 
 def patch_modern(target_csrc: Path, cuda_dir: Path) -> None:
     """Patch gsplat >= 1.5.0 (CamelCase files, at::zeros_like)."""
-    # 1. Copy header into csrc
+    # 1. Copy header + .cu implementation into csrc
     shutil.copy2(HEADER, target_csrc / HEADER.name)
+    shutil.copy2(CU_IMPL, target_csrc / CU_IMPL.name)
 
     # 2. Patch Rasterization.cpp: add include + replace allocation + add finish()
     rast = target_csrc / "Rasterization.cpp"
@@ -142,6 +144,7 @@ def patch_modern(target_csrc: Path, cuda_dir: Path) -> None:
 def patch_legacy(target_csrc: Path, cuda_parent: Path) -> None:
     """Patch gsplat < 1.5.0 (snake_case files, torch::zeros_like)."""
     shutil.copy2(HEADER, target_csrc / HEADER.name)
+    shutil.copy2(CU_IMPL, target_csrc / CU_IMPL.name)
     bwd = target_csrc / "rasterize_to_pixels_bwd.cu"
     replace_once(
         bwd,
