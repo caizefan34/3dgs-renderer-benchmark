@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "module": "R6-B",
-  "status": "not_evaluated",
+  "status": "evaluated",
   "implemented_buffers": [
     "v_means2d",
     "v_conics",
@@ -10,10 +10,71 @@
     "v_means2d_abs"
   ],
   "excluded_buffers": ["projection", "spherical_harmonics", "parameter_gradients"],
-  "b0_commit": "14849f6",
-  "b1_commit": "b50afa7",
-  "correctness": {"status": "not_run", "reason": "R6 checkpoints/data unavailable locally"},
-  "benchmark": {"status": "not_run", "reason": "R6 checkpoints/data unavailable locally"},
-  "training_sanity": {"status": "not_run", "reason": "R6 checkpoints/data unavailable locally"},
-  "gate": "not_evaluated"
+  "commits": {
+    "b0": "14849f6",
+    "b1_v1": "b50afa7",
+    "b1_v1_label": "SUPERSEDED",
+    "b1_v2": ["1be8f82", "3329d4e", "c7d05bc", "8c8d8fb", "d53f6d3"]
+  },
+  "b0": {
+    "correctness": "PASS",
+    "e2e_gain_mean_pct": -0.11,
+    "e2e_gain_range": [-0.39, 0.03],
+    "negative_workloads": "7/9",
+    "clear_cost_ms_range": [0.031, 0.137],
+    "gate": "B0_SUCCESS=FAIL (no stable positive E2E benefit)"
+  },
+  "b1_v1": {
+    "label": "SUPERSEDED",
+    "flaw": "prev_touched_ = flatten_ids [n_isects] (intersection list with duplicates). O(n_isects) gradient writes. Correctness-safe but performance-invalid.",
+    "benchmarked": false
+  },
+  "b1_v2": {
+    "mechanism": "scatter flatten_ids into [C*N] bool touched mask, scan mask, clear only touched rows",
+    "correctness": {
+      "rasterizer_equivalence": "PASS (bit-exact)",
+      "sequential_stale_gradient_rasterizer": "PASS (all stale rows exactly zero)",
+      "sequential_stale_gradient_checkpoint": "PASS (room 5K, all 7 gradient types zero for A-touched/B-untouched)",
+      "topology_capacity_growth": "PASS (no stale data after buffer expansion)",
+      "full_clear_after_invalidate": "PASS (correct fallback)"
+    },
+    "metadata": {
+      "extra_persistent_bytes": "C*N (bool mask)",
+      "room_15k_MB": 0.89,
+      "bicycle_15k_MB": 3.77,
+      "garden_15k_MB": 2.49,
+      "scatter_ms_range": [0.129, 0.267],
+      "clear_ms_range": [0.024, 0.104],
+      "no_hidden_unique_sort_cumsum": true
+    },
+    "benchmark": {
+      "e2e_gain_mean_pct": -0.40,
+      "e2e_gain_range": [-0.70, -0.20],
+      "negative_workloads": "9/9",
+      "scatter_exceeds_clear_savings": true
+    },
+    "gate": "B1_DROP (touched-mask overhead exceeds zero-fill savings)"
+  },
+  "gate": {
+    "B0_SUCCESS": "FAIL",
+    "B1_SUCCESS": "FAIL",
+    "B1_DROP": "PASS",
+    "verdict": "B0_NEUTRAL + B1_DROP"
+  },
+  "environment": {
+    "gpu": "NVIDIA A100-PCIE-40GB",
+    "gsplat": "1.5.3",
+    "pytorch": "2.4.1+cu124",
+    "cuda_arch": "sm_80",
+    "build": "FAST_COMPILE=1, -O0",
+    "warmup": 20,
+    "measure": 100
+  },
+  "report_paths": [
+    "reports/r6/r6-b-implementation-audit.md",
+    "reports/r6/r6-b1-v2-design.md",
+    "reports/r6/r6-b-correctness.md",
+    "reports/r6/r6-b-benchmark.md",
+    "reports/r6/r6-b-final.md"
+  ]
 }
