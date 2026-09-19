@@ -1,0 +1,57 @@
+R4 AGGREGATION CHECK (FINAL)
+============================
+Date: 2026-09-19 10:10 CST+8
+
+Completion: 13/13 scenes x 2 modes (26 runs) at 30K iterations
+Timing coverage: 11/13 (bicycle, garden baseline time records lost in disk incident)
+
+PER-SCENE DELTAS (C - B)
+------------------------
+bicycle    : dPSNR -1.80, dSSIM -0.1023, speedup n/a
+bonsai     : dPSNR -1.55, dSSIM -0.0403, speedup 0.41x
+counter    : dPSNR -1.70, dSSIM -0.0265, speedup 0.26x
+flowers    : dPSNR -1.60, dSSIM -0.0891, speedup 0.30x
+garden     : dPSNR -6.65, dSSIM -0.1961, speedup n/a
+kitchen    : dPSNR -0.98, dSSIM -0.0161, speedup 0.36x
+room       : dPSNR -0.63, dSSIM -0.0199, speedup 0.45x
+stump      : dPSNR -1.82, dSSIM -0.0634, speedup 0.30x
+treehill   : dPSNR -2.05, dSSIM -0.0778, speedup 0.31x
+train      : dPSNR +0.48, dSSIM -0.0146, speedup 0.32x
+truck      : dPSNR +2.13, dSSIM -0.0014, speedup 0.35x
+drjohnson  : dPSNR -2.56, dSSIM -0.0478, speedup 0.63x
+playroom   : dPSNR +0.05, dSSIM +0.0048, speedup 0.40x
+
+R5-A MULTI-SEED PAIRED DELTAS (train/truck, seeds 0-2)
+------------------------------------------------------
+train  seed0: dPSNR +0.52, dSSIM -0.0130
+train  seed1: dPSNR -0.64, dSSIM -0.0192
+train  seed2: dPSNR -1.16, dSSIM -0.0224
+truck  seed0: dPSNR +1.94, dSSIM -0.0042
+truck  seed1: dPSNR -0.00, dSSIM -0.0159
+truck  seed2: dPSNR +0.81, dSSIM -0.0088
+       (avg dPSNR +0.24 dB but dSSIM negative on 6/6; no speedup records)
+
+AGGREGATE
+---------
+avg dPSNR  : -1.44 dB   (min -6.65 garden, max +2.13 truck)
+avg dSSIM  : -0.0531    (worst -0.1961 garden)
+avg speedup: 0.37x      (candidate ~2.7x SLOWER than baseline)
+PSNR wins vs baseline   : 3/13 (train, truck, playroom)
+PSNR losses >=0.5 dB    : 10/13
+
+VERDICT
+-------
+REJECT Candidate C as a general-purpose optimization.
+- Negative on 10/13 scenes, all <1.0x speed, worst -6.65 dB on garden.
+- The 3 'wins' are within training-noise range and do not offset outdoor collapses.
+- Multi-seed replication confirms: dSSIM negative on 6/6 runs even where
+  PSNR improved (e.g., truck seed0 +1.94 PSNR but -0.0042 SSIM).
+- Root causes: Python-side skip-mask + full-complexity fill_mask per iteration,
+  dense dL_dw reduction for every surviving pair, momentum/pruning
+  feedback perturbation visible in final Gaussian counts.
+
+NEXT STEPS
+----------
+1. Archive this verdict + artifacts as a negative result.
+2. Disk cleanup: delete intermediate checkpoints and old logs (largest consumers).
+3. Free GPU capacity for next campaign (WarmEmit 13-scene matrix).
