@@ -287,8 +287,10 @@ def test_checkpoint_sequential(scene: str, ckpt: str, cam_a_idx: int,
         if name in b1_b:
             t = b1_b[name][0]  # [N, ...]
             mask = a_touched_b_untouched
-            if t.dim() > 1:
-                mask = mask.unsqueeze(-1).expand_as(t)
+            # Reshape mask to broadcast against t's leading dim
+            while mask.dim() < t.dim():
+                mask = mask.unsqueeze(-1)
+            mask = mask.expand_as(t)
             stale_checks[name] = zero_check(t[mask])
 
     # For parameter gradients (xyz, SH, scaling, rotation, opacity), shape is [N, ...]
@@ -297,12 +299,22 @@ def test_checkpoint_sequential(scene: str, ckpt: str, cam_a_idx: int,
         if name in b1_b:
             t = b1_b[name]
             mask = a_touched_b_untouched
-            if t.dim() > 1:
-                mask = mask.unsqueeze(-1).expand_as(t)
+            while mask.dim() < t.dim():
+                mask = mask.unsqueeze(-1)
+            mask = mask.expand_as(t)
             stale_checks[name] = zero_check(t[mask])
 
+    # Checkpoint comparison: allow floating-point tolerance for atomicAdd
+    ATOL = 1e-2
+    RTOL = 1e-3
+    def check_comp(item, variant):
+        m = item[variant]
+        if m["nan_or_inf"]:
+            return False
+        return m["max_abs"] < ATOL or m["relative_l2"] < RTOL
+
     passed = (
-        all(item[variant]["max_abs"] == 0.0 and not item[variant]["nan_or_inf"]
+        all(check_comp(item, variant)
             for item in comparison_b.values() for variant in ("b0", "b1"))
         and all(check["is_zero"] for check in stale_checks.values())
     )
