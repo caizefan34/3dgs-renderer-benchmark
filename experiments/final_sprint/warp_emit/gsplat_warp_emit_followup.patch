@@ -1,0 +1,38 @@
+--- a/cuda/csrc/IntersectTile.cu
++++ b/cuda/csrc/IntersectTile.cu
+@@ -104,12 +104,15 @@ __global__ void intersect_tile_kernel(
+     int64_t cur_idx = (idx == 0) ? 0 : cum_tiles_per_gauss[idx - 1];
+-    for (int32_t i = tile_min.y; i < tile_max.y; ++i) {
+-        for (int32_t j = tile_min.x; j < tile_max.x; ++j) {
+-            int64_t tile_id = i * tile_width + j;
+-            // e.g. tile_n_bits = 22:
+-            // image id (10 bits) | tile id (22 bits) | depth (32 bits)
+-            isect_ids[cur_idx] = iid_enc | (tile_id << 32) | depth_id_enc;
+-            // the flatten index in [I * N] or [nnz]
+-            flatten_ids[cur_idx] = static_cast<int32_t>(idx);
+-            ++cur_idx;
+-        }
++    // k is the original baseline row-major logical output position.
++    const uint32_t lane = threadIdx.x & 31;
++    const uint32_t row_width = tile_max.x - tile_min.x;
++    const uint32_t count = (tile_max.y - tile_min.y) * row_width;
++    for (uint32_t k = lane; k < count; k += 32) {
++        const uint32_t row = k / row_width;
++        const uint32_t col = k - row * row_width;
++        int64_t tile_id = (tile_min.y + row) * tile_width + tile_min.x + col;
++        // e.g. tile_n_bits = 22:
++        // image id (10 bits) | tile id (22 bits) | depth (32 bits)
++        isect_ids[cur_idx + k] = iid_enc | (tile_id << 32) | depth_id_enc;
++        // the flatten index in [I * N] or [nnz]
++        flatten_ids[cur_idx + k] = static_cast<int32_t>(idx);
+     }
+ }
+@@ -159,3 +161,6 @@ void launch_intersect_tile_kernel(
+ 
+     dim3 threads(256);
+-    dim3 grid((n_elements + threads.x - 1) / threads.x);
++    // Second pass maps one warp to one Gaussian; count pass is unchanged.
++    const int64_t launch_elements = cum_tiles_per_gauss.has_value()
++        ? n_elements * 32 : n_elements;
++    dim3 grid((launch_elements + threads.x - 1) / threads.x);
+     int64_t shmem_size = 0; // No shared memory used in this kernel

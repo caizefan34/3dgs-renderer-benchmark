@@ -1,0 +1,19 @@
+{
+  "title": "Topology/Optimizer Interaction + Attribute Utility Overlap",
+  "note": "Section 24 (topology event traces) and 25 (attribute utility overlap) require running checkpoint-based microbenchmarks on A100 with the locked baseline. These are NOT available locally.",
+  "topology_events": {
+    "data_needed": "Per-iteration traces around 50 events at: clone, split, opacity_reset+prune. Requires C51/C53 instrumentation framework on A100 baseline runs.",
+    "available_alternative": "Phase C50/C53 results at results/a100/phase-c50/ and results/a100/phase-c53-validation/ provide gradient temporal predictability and attribute utility analyses that partially answer these questions.",
+    "requires_a100_experiment": true
+  },
+  "attribute_utility_overlap": {
+    "data_needed": "Per-Gaussian gradient norms for: xyz, scale, rotation, opacity, SH at multiple checkpoints. Required metrics: Top20/32/50 overlap, Jaccard, Recall, Spearman between parameter-group pairs.",
+    "available_alternative": "Phase C49 lifecycle_profile.json at results/a100/phase-c49/ contains gradient concentration data. Phase C53 has computational utility rankings.",
+    "requires_a100_experiment": true
+  },
+  "existing_c50_reference": {
+    "path": "results/a100/phase-c50/",
+    "description": "Gradient temporal persistence analysis. Measures how well gradient norms from iteration t predict iteration t+1.",
+    "key_finding_reported": "C50 measured near-zero gradient temporal persistence (lag-1 cosine similarity <0.1 for most Gaussians). C53 measured workload/tile persistence (p50=0.64 for lag-1). These are distinct phenomena."
+  }
+}

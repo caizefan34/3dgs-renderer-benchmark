@@ -1,0 +1,18 @@
+diff --git a/gsplat/rendering.py b/gsplat/rendering.py
+--- a/gsplat/rendering.py
++++ b/gsplat/rendering.py
+@@ -261,4 +261,5 @@ def rasterization(
+     segmented: bool = False,
+     covars: Optional[Tensor] = None,
+     with_ut: bool = False,
++    accutile: bool = False,
+     with_eval3d: bool = False,
+@@ -892,6 +893,6 @@ def rasterization(
+             n_images=I,
+             image_ids=image_ids,
+             gaussian_ids=gaussian_ids,
+-            conics=None if with_ut else conics,
+-            opacities=None if with_ut else opacities,
++            conics=conics if accutile and not with_ut else None,
++            opacities=opacities if accutile and not with_ut else None,
+         )

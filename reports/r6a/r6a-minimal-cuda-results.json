@@ -1,0 +1,52 @@
+{
+  "baseline": "B1A",
+  "candidate": "R6-A",
+  "hardware": {
+    "gpu": "NVIDIA A100-PCIE-40GB",
+    "sm": "8.0",
+    "pytorch": "2.4.1+cu124",
+    "cuda": "12.4",
+    "nvcc": "12.4.131",
+    "gcc": "11.4.0"
+  },
+  "commits": {
+    "repository_freeze": "02375033388d4348376b6b607ab85f551e498a77",
+    "gsplat": "937e29912570c372bed6747a5c9bf85fed877bae",
+    "accutile_upstream": "28e794ca44a4c25ffc39175370c5ee7b38bfcc36",
+    "accutile_port_sha256": "33292a08ebb74437b5108fcf9282b01ac9621d45495bbba219f8b41000c803f1"
+  },
+  "correctness": {
+    "scene": "room",
+    "camera": 0,
+    "forward": {"rgb_max_abs": 0.0, "alpha_max_abs": 0.0, "intersections_identical": true},
+    "gradients": {
+      "v_colors": {"max_abs": 0.012451171875, "mean_abs": 1.368179169958239e-08, "relative_l2": 6.413677752447739e-06, "cosine_similarity": 1.0, "nonzero_mismatch_count": 286},
+      "v_conics": {"max_abs": 7864320.0, "mean_abs": 3.6320810317993164, "relative_l2": 4.675401812112026e-06, "cosine_similarity": 0.9999999542862427, "nonzero_mismatch_count": 282},
+      "v_means2d": {"max_abs": 7.729977369308472e-08, "mean_abs": 2.035830407249098e-13, "relative_l2": 3.277116782572133e-06, "cosine_similarity": 0.9999998977084287, "nonzero_mismatch_count": 193},
+      "v_means2d_abs": {"max_abs": 0.00069427490234375, "mean_abs": 1.3619547711840596e-09, "relative_l2": 8.087376145305894e-06, "cosine_similarity": 1.0, "nonzero_mismatch_count": 183},
+      "v_opacity": {"max_abs": 0.001922607421875, "mean_abs": 3.1431788283242668e-09, "relative_l2": 4.5134746338995454e-06, "cosine_similarity": 1.0, "nonzero_mismatch_count": 91}
+    },
+    "nan": 0,
+    "inf": 0,
+    "shape_and_dtype_identical": true,
+    "relative_l2_gate": "PASS"
+  },
+  "atomic_counts": {
+    "method": "device counters in the actual B1A and R6-A rasterizer backward kernels; counts are warp/block writer events, and absgrad call counts are event_count * 11",
+    "room": {"before_writer_events": 5475862, "after_writer_events": 687077, "block_local_reduction_events": 14260555, "before_global_atomic_add_calls": 60234482, "after_global_atomic_add_calls": 7557847, "realized_reduction": 7.969794},
+    "bicycle": {"before_writer_events": 16910211, "after_writer_events": 2142988, "block_local_reduction_events": 12127849, "before_global_atomic_add_calls": 186012321, "after_global_atomic_add_calls": 23572868, "realized_reduction": 7.890950},
+    "garden": {"before_writer_events": 34693503, "after_writer_events": 4590302, "block_local_reduction_events": 9400526, "before_global_atomic_add_calls": 381628533, "after_global_atomic_add_calls": 50493322, "realized_reduction": 7.558000}
+  },
+  "resource_usage": {
+    "B1A": {"registers_per_thread": 70, "static_shared_bytes": 0, "dynamic_shared_bytes_at_16x16_cdim3": 10240, "threads_per_block": 256, "max_blocks_per_sm": 3, "theoretical_occupancy": 0.375, "local_memory_bytes": 0},
+    "R6A": {"registers_per_thread": 68, "static_shared_bytes": 0, "dynamic_shared_bytes_at_16x16_cdim3": 10624, "threads_per_block": 256, "max_blocks_per_sm": 3, "theoretical_occupancy": 0.375, "local_memory_bytes": 0}
+  },
+  "timings": {
+    "protocol": {"warmup": 20, "measure": 100, "camera": 0, "accutile": true},
+    "room": {"B1A": {"forward_ms": 5.638533134460449, "backward_ms": 6.313287668228149, "total_ms": 11.951820821762086}, "R6A": {"forward_ms": 5.614950404167176, "backward_ms": 74.57142845153808, "total_ms": 80.18637817382813}, "backward_speedup_pct": -91.53, "total_speedup_pct": -85.09},
+    "bicycle": {"B1A": {"forward_ms": 9.228523483276367, "backward_ms": 15.903313913345336, "total_ms": 25.131837482452394}, "R6A": {"forward_ms": 9.07255805015564, "backward_ms": 68.71185432434082, "total_ms": 77.7844123840332}, "backward_speedup_pct": -76.86, "total_speedup_pct": -67.69},
+    "garden": {"B1A": {"forward_ms": 10.886799383163453, "backward_ms": 24.771993656158447, "total_ms": 35.65879306793213}, "R6A": {"forward_ms": 10.57273850440979, "backward_ms": 56.15053813934326, "total_ms": 66.72327644348144}, "backward_speedup_pct": -55.88, "total_speedup_pct": -46.56}
+  },
+  "training_semantics": {"scene": "room", "resolution": [778, 519], "seed": 42, "iterations": 800, "densification": [500, 600, 700], "max_loss_abs": 0.0003460198640823364, "max_psnr_abs": 0.012872864390983452, "final_gaussian_count": {"B1A": 1582849, "R6A": 1582837, "delta": -12}, "result": "PASS_FP_LEVEL"},
+  "gate": "DROP"
+}

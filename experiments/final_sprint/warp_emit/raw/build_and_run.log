@@ -1,0 +1,761 @@
+Detected CUDA files, patching ldflags
+Emitting ninja build file /home/liaoyuanjun/warp_emit_a0/build/build.ninja...
+/home/liaoyuanjun/miniforge3/envs/anysplat/lib/python3.10/site-packages/torch/utils/cpp_extension.py:1965: UserWarning: TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation. 
+If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'].
+  warnings.warn(
+Building extension module warp_emit_ext_w1...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+[1/3] c++ -MMD -MF warp_emit_ext.o.d -DTORCH_EXTENSION_NAME=warp_emit_ext_w1 -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1011\" -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/lib/python3.10/site-packages/torch/include -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/lib/python3.10/site-packages/torch/include/torch/csrc/api/include -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/lib/python3.10/site-packages/torch/include/TH -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/lib/python3.10/site-packages/torch/include/THC -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/include -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/include/python3.10 -D_GLIBCXX_USE_CXX11_ABI=0 -fPIC -std=c++17 -O3 -c /home/liaoyuanjun/warp_emit_a0/warp_emit_ext.cpp -o warp_emit_ext.o 
+[2/3] /home/liaoyuanjun/miniforge3/envs/anysplat/bin/nvcc --generate-dependencies-with-compile --dependency-output warp_emit_ext.cuda.o.d -DTORCH_EXTENSION_NAME=warp_emit_ext_w1 -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1011\" -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/lib/python3.10/site-packages/torch/include -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/lib/python3.10/site-packages/torch/include/torch/csrc/api/include -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/lib/python3.10/site-packages/torch/include/TH -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/lib/python3.10/site-packages/torch/include/THC -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/include -isystem /home/liaoyuanjun/miniforge3/envs/anysplat/include/python3.10 -D_GLIBCXX_USE_CXX11_ABI=0 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr -gencode=arch=compute_80,code=compute_80 -gencode=arch=compute_80,code=sm_80 --compiler-options '-fPIC' -O3 -std=c++17 -c /home/liaoyuanjun/warp_emit_a0/warp_emit_ext.cu -o warp_emit_ext.cuda.o 
+[3/3] c++ warp_emit_ext.o warp_emit_ext.cuda.o -shared -L/home/liaoyuanjun/miniforge3/envs/anysplat/lib/python3.10/site-packages/torch/lib -lc10 -lc10_cuda -ltorch_cpu -ltorch_cuda -ltorch -ltorch_python -L/home/liaoyuanjun/miniforge3/envs/anysplat/lib -lcudart -o warp_emit_ext_w1.so
+Loading extension module warp_emit_ext_w1...
+room {
+  "meta": {
+    "n_visible": 16076,
+    "n_isects": 25475247,
+    "tile_grid": [
+      195,
+      130
+    ],
+    "intersections_per_visible": 1584.6757277929833
+  },
+  "identity": {
+    "production_vs_serial_isect_ids": 0,
+    "production_vs_serial_flatten_ids": 0,
+    "warp_vs_production": {
+      "128": {
+        "isect_ids_mismatch": 0,
+        "flatten_ids_mismatch": 0
+      },
+      "256": {
+        "isect_ids_mismatch": 0,
+        "flatten_ids_mismatch": 0
+      }
+    }
+  },
+  "workload": {
+    "distribution": {
+      "mean": 1584.6757277929833,
+      "p50": 39.0,
+      "p90": 3076.5,
+      "p95": 13260.0,
+      "p99": 25350.0,
+      "max": 25350
+    },
+    "buckets": [
+      {
+        "bucket": "1\u20134",
+        "gaussians": 1567,
+        "intersections": 4934,
+        "gaussian_fraction": 0.09747449614331924,
+        "work_fraction": 0.00019367820064708304
+      },
+      {
+        "bucket": "5\u201316",
+        "gaussians": 3985,
+        "intersections": 40229,
+        "gaussian_fraction": 0.2478850460313511,
+        "work_fraction": 0.0015791407243274226
+      },
+      {
+        "bucket": "17\u201332",
+        "gaussians": 2076,
+        "intersections": 50370,
+        "gaussian_fraction": 0.12913660114456332,
+        "work_fraction": 0.001977213410335138
+      },
+      {
+        "bucket": "33\u201364",
+        "gaussians": 1798,
+        "intersections": 84713,
+        "gaussian_fraction": 0.11184374222443394,
+        "work_fraction": 0.0033253063257836124
+      },
+      {
+        "bucket": "65\u2013128",
+        "gaussians": 1460,
+        "intersections": 133705,
+        "gaussian_fraction": 0.09081861159492412,
+        "work_fraction": 0.0052484280132789295
+      },
+      {
+        "bucket": "129\u2013256",
+        "gaussians": 1187,
+        "intersections": 217580,
+        "gaussian_fraction": 0.0738367753172431,
+        "work_fraction": 0.008540839662908863
+      },
+      {
+        "bucket": "257\u2013512",
+        "gaussians": 884,
+        "intersections": 325510,
+        "gaussian_fraction": 0.05498880318487186,
+        "work_fraction": 0.012777501234826103
+      },
+      {
+        "bucket": "513\u20131024",
+        "gaussians": 657,
+        "intersections": 475182,
+        "gaussian_fraction": 0.04086837521771585,
+        "work_fraction": 0.018652694515582127
+      },
+      {
+        "bucket": ">1024",
+        "gaussians": 2462,
+        "intersections": 24143024,
+        "gaussian_fraction": 0.1531475491415775,
+        "work_fraction": 0.9477051979123107
+      }
+    ]
+  },
+  "timings": {
+    "serial": {
+      "median_ms": 10.638336181640625,
+      "mean_ms": 10.638596177101135,
+      "std_ms": 0.0010715215832560053,
+      "n": 40,
+      "samples_ms": [
+        10.638336,
+        10.642592,
+        10.638336,
+        10.638336,
+        10.640384,
+        10.638336,
+        10.63936,
+        10.63936,
+        10.63936,
+        10.638336,
+        10.63936,
+        10.637312,
+        10.63936,
+        10.63936,
+        10.638336,
+        10.638336,
+        10.63936,
+        10.638336,
+        10.637312,
+        10.638336,
+        10.640384,
+        10.637312,
+        10.63936,
+        10.638336,
+        10.63936,
+        10.638336,
+        10.63936,
+        10.638336,
+        10.63936,
+        10.638336,
+        10.637312,
+        10.638336,
+        10.638336,
+        10.637312,
+        10.638336,
+        10.637312,
+        10.637312,
+        10.637312,
+        10.637312,
+        10.638336
+      ]
+    },
+    "warp_128": {
+      "median_ms": 0.34508800506591797,
+      "mean_ms": 0.34716159999370577,
+      "std_ms": 0.03444761190103105,
+      "n": 40,
+      "samples_ms": [
+        0.347136,
+        0.31744,
+        0.423936,
+        0.349184,
+        0.362496,
+        0.359424,
+        0.34816,
+        0.304128,
+        0.323584,
+        0.381952,
+        0.357376,
+        0.316416,
+        0.345088,
+        0.32768,
+        0.350208,
+        0.3328,
+        0.342016,
+        0.360448,
+        0.331776,
+        0.321536,
+        0.334848,
+        0.313344,
+        0.315392,
+        0.329728,
+        0.385024,
+        0.315392,
+        0.375808,
+        0.382976,
+        0.384,
+        0.364544,
+        0.3072,
+        0.29184,
+        0.318464,
+        0.398336,
+        0.395264,
+        0.29696,
+        0.379904,
+        0.346112,
+        0.439296,
+        0.309248
+      ]
+    },
+    "warp_256": {
+      "median_ms": 0.3665919899940491,
+      "mean_ms": 0.3737447984516621,
+      "std_ms": 0.031943803618320006,
+      "n": 40,
+      "samples_ms": [
+        0.433568,
+        0.41472,
+        0.39936,
+        0.345088,
+        0.362496,
+        0.466944,
+        0.329728,
+        0.35328,
+        0.415744,
+        0.331776,
+        0.364544,
+        0.357376,
+        0.379904,
+        0.35328,
+        0.34816,
+        0.385024,
+        0.387072,
+        0.44544,
+        0.400384,
+        0.375808,
+        0.346112,
+        0.338944,
+        0.370688,
+        0.351232,
+        0.334848,
+        0.351232,
+        0.338944,
+        0.40448,
+        0.397312,
+        0.37376,
+        0.330752,
+        0.354304,
+        0.359424,
+        0.39424,
+        0.36864,
+        0.366592,
+        0.396288,
+        0.377856,
+        0.366592,
+        0.377856
+      ]
+    }
+  },
+  "best_warp": "warp_128",
+  "derived": {
+    "best_emit_speedup": 30.82789324887868
+  }
+}
+bicycle {
+  "meta": {
+    "n_visible": 13654,
+    "n_isects": 18550853,
+    "tile_grid": [
+      310,
+      206
+    ],
+    "intersections_per_visible": 1358.6387139299839
+  },
+  "identity": {
+    "production_vs_serial_isect_ids": 0,
+    "production_vs_serial_flatten_ids": 0,
+    "warp_vs_production": {
+      "128": {
+        "isect_ids_mismatch": 0,
+        "flatten_ids_mismatch": 0
+      },
+      "256": {
+        "isect_ids_mismatch": 0,
+        "flatten_ids_mismatch": 0
+      }
+    }
+  },
+  "workload": {
+    "distribution": {
+      "mean": 1358.6387139299839,
+      "p50": 56.0,
+      "p90": 1646.4000000000015,
+      "p95": 4918.89999999998,
+      "p99": 38895.69999999979,
+      "max": 63860
+    },
+    "buckets": [
+      {
+        "bucket": "1\u20134",
+        "gaussians": 931,
+        "intersections": 2876,
+        "gaussian_fraction": 0.0681851472096089,
+        "work_fraction": 0.00015503330224222035
+      },
+      {
+        "bucket": "5\u201316",
+        "gaussians": 2777,
+        "intersections": 28422,
+        "gaussian_fraction": 0.20338362384649186,
+        "work_fraction": 0.0015321128359973527
+      },
+      {
+        "bucket": "17\u201332",
+        "gaussians": 1813,
+        "intersections": 43913,
+        "gaussian_fraction": 0.13278160246081736,
+        "work_fraction": 0.0023671687765516765
+      },
+      {
+        "bucket": "33\u201364",
+        "gaussians": 1697,
+        "intersections": 79757,
+        "gaussian_fraction": 0.1242859235388897,
+        "work_fraction": 0.0042993710316177915
+      },
+      {
+        "bucket": "65\u2013128",
+        "gaussians": 1571,
+        "intersections": 145390,
+        "gaussian_fraction": 0.11505785850300278,
+        "work_fraction": 0.00783737545653561
+      },
+      {
+        "bucket": "129\u2013256",
+        "gaussians": 1269,
+        "intersections": 231597,
+        "gaussian_fraction": 0.09293979786143254,
+        "work_fraction": 0.01248443939478147
+      },
+      {
+        "bucket": "257\u2013512",
+        "gaussians": 1001,
+        "intersections": 366846,
+        "gaussian_fraction": 0.07331185000732386,
+        "work_fraction": 0.019775155352694564
+      },
+      {
+        "bucket": "513\u20131024",
+        "gaussians": 769,
+        "intersections": 559529,
+        "gaussian_fraction": 0.05632049216346858,
+        "work_fraction": 0.030161901450030358
+      },
+      {
+        "bucket": ">1024",
+        "gaussians": 1826,
+        "intersections": 17092523,
+        "gaussian_fraction": 0.1337337044089644,
+        "work_fraction": 0.921387442399549
+      }
+    ]
+  },
+  "timings": {
+    "serial": {
+      "median_ms": 6.916096210479736,
+      "mean_ms": 6.916262459754944,
+      "std_ms": 0.0018051109156867252,
+      "n": 40,
+      "samples_ms": [
+        6.915072,
+        6.920704,
+        6.913024,
+        6.91712,
+        6.916096,
+        6.919168,
+        6.916096,
+        6.915072,
+        6.918144,
+        6.918144,
+        6.913024,
+        6.91712,
+        6.916096,
+        6.91712,
+        6.91712,
+        6.916096,
+        6.914048,
+        6.918144,
+        6.91712,
+        6.915072,
+        6.915072,
+        6.916096,
+        6.915072,
+        6.916096,
+        6.918144,
+        6.91712,
+        6.914048,
+        6.916096,
+        6.915072,
+        6.919168,
+        6.920192,
+        6.91712,
+        6.915072,
+        6.915072,
+        6.915072,
+        6.915072,
+        6.91712,
+        6.914048,
+        6.914048,
+        6.916096
+      ]
+    },
+    "warp_128": {
+      "median_ms": 0.31539198756217957,
+      "mean_ms": 0.31895039826631544,
+      "std_ms": 0.029392487259533327,
+      "n": 40,
+      "samples_ms": [
+        0.295936,
+        0.28672,
+        0.31744,
+        0.29696,
+        0.301056,
+        0.359424,
+        0.316416,
+        0.32256,
+        0.321536,
+        0.354304,
+        0.3328,
+        0.351232,
+        0.325632,
+        0.335872,
+        0.33792,
+        0.294912,
+        0.315392,
+        0.319488,
+        0.397312,
+        0.278528,
+        0.315392,
+        0.330752,
+        0.314368,
+        0.319488,
+        0.28672,
+        0.304128,
+        0.320512,
+        0.31232,
+        0.347136,
+        0.288768,
+        0.290816,
+        0.300032,
+        0.347136,
+        0.30208,
+        0.288768,
+        0.303104,
+        0.329728,
+        0.415744,
+        0.303104,
+        0.27648
+      ]
+    },
+    "warp_256": {
+      "median_ms": 0.32972800731658936,
+      "mean_ms": 0.33721679970622065,
+      "std_ms": 0.026008692186878426,
+      "n": 40,
+      "samples_ms": [
+        0.323104,
+        0.360448,
+        0.314368,
+        0.300032,
+        0.30208,
+        0.364544,
+        0.309248,
+        0.319488,
+        0.326656,
+        0.37888,
+        0.295936,
+        0.32768,
+        0.32768,
+        0.38912,
+        0.364544,
+        0.352256,
+        0.386048,
+        0.329728,
+        0.336896,
+        0.375808,
+        0.309248,
+        0.36864,
+        0.325632,
+        0.309248,
+        0.374784,
+        0.361472,
+        0.339968,
+        0.309248,
+        0.318464,
+        0.305152,
+        0.346112,
+        0.34304,
+        0.347136,
+        0.319488,
+        0.331776,
+        0.329728,
+        0.325632,
+        0.315392,
+        0.365568,
+        0.3584
+      ]
+    }
+  },
+  "best_warp": "warp_128",
+  "derived": {
+    "best_emit_speedup": 21.928572960707275
+  }
+}
+garden {
+  "meta": {
+    "n_visible": 100582,
+    "n_isects": 11257252,
+    "tile_grid": [
+      325,
+      211
+    ],
+    "intersections_per_visible": 111.92113897118769
+  },
+  "identity": {
+    "production_vs_serial_isect_ids": 0,
+    "production_vs_serial_flatten_ids": 0,
+    "warp_vs_production": {
+      "128": {
+        "isect_ids_mismatch": 0,
+        "flatten_ids_mismatch": 0
+      },
+      "256": {
+        "isect_ids_mismatch": 0,
+        "flatten_ids_mismatch": 0
+      }
+    }
+  },
+  "workload": {
+    "distribution": {
+      "mean": 111.92113897118769,
+      "p50": 2.0,
+      "p90": 128.0,
+      "p95": 380.0,
+      "p99": 2260.3800000000047,
+      "max": 57603
+    },
+    "buckets": [
+      {
+        "bucket": "1\u20134",
+        "gaussians": 64172,
+        "intersections": 110023,
+        "gaussian_fraction": 0.6380068004215466,
+        "work_fraction": 0.009773521992756313
+      },
+      {
+        "bucket": "5\u201316",
+        "gaussians": 12130,
+        "intersections": 117878,
+        "gaussian_fraction": 0.12059811894772425,
+        "work_fraction": 0.010471294415368867
+      },
+      {
+        "bucket": "17\u201332",
+        "gaussians": 5335,
+        "intersections": 127198,
+        "gaussian_fraction": 0.0530412996361178,
+        "work_fraction": 0.011299205170142766
+      },
+      {
+        "bucket": "33\u201364",
+        "gaussians": 4731,
+        "intersections": 221730,
+        "gaussian_fraction": 0.047036249030641665,
+        "work_fraction": 0.019696636443778642
+      },
+      {
+        "bucket": "65\u2013128",
+        "gaussians": 4161,
+        "intersections": 385047,
+        "gaussian_fraction": 0.04136923107514267,
+        "work_fraction": 0.03420435111517447
+      },
+      {
+        "bucket": "129\u2013256",
+        "gaussians": 3483,
+        "intersections": 636018,
+        "gaussian_fraction": 0.03462846234912807,
+        "work_fraction": 0.0564985131362432
+      },
+      {
+        "bucket": "257\u2013512",
+        "gaussians": 2527,
+        "intersections": 922459,
+        "gaussian_fraction": 0.025123779602712216,
+        "work_fraction": 0.08194353293325937
+      },
+      {
+        "bucket": "513\u20131024",
+        "gaussians": 1825,
+        "intersections": 1310380,
+        "gaussian_fraction": 0.01814439959436082,
+        "work_fraction": 0.11640318614169781
+      },
+      {
+        "bucket": ">1024",
+        "gaussians": 2218,
+        "intersections": 7426519,
+        "gaussian_fraction": 0.02205165934262592,
+        "work_fraction": 0.6597097586515785
+      }
+    ]
+  },
+  "timings": {
+    "serial": {
+      "median_ms": 2.9767680168151855,
+      "mean_ms": 2.9773480236530303,
+      "std_ms": 0.002452251975625108,
+      "n": 40,
+      "samples_ms": [
+        2.975744,
+        2.974368,
+        2.980864,
+        2.976768,
+        2.978816,
+        2.976768,
+        2.980864,
+        2.972672,
+        2.980864,
+        2.975744,
+        2.981888,
+        2.97472,
+        2.977792,
+        2.975744,
+        2.977792,
+        2.97472,
+        2.975744,
+        2.976768,
+        2.977792,
+        2.976768,
+        2.97984,
+        2.976768,
+        2.978816,
+        2.97472,
+        2.981888,
+        2.972672,
+        2.978816,
+        2.976768,
+        2.97984,
+        2.976768,
+        2.97984,
+        2.977792,
+        2.980864,
+        2.975744,
+        2.97984,
+        2.975744,
+        2.977792,
+        2.97472,
+        2.977792,
+        2.973696
+      ]
+    },
+    "warp_128": {
+      "median_ms": 0.24985599517822266,
+      "mean_ms": 0.2509824000298977,
+      "std_ms": 0.0020055521930731784,
+      "n": 40,
+      "samples_ms": [
+        0.249856,
+        0.251904,
+        0.249856,
+        0.253952,
+        0.249856,
+        0.249856,
+        0.254976,
+        0.254976,
+        0.249856,
+        0.248832,
+        0.254976,
+        0.248832,
+        0.249856,
+        0.247808,
+        0.25088,
+        0.249856,
+        0.25088,
+        0.248832,
+        0.25088,
+        0.252928,
+        0.251904,
+        0.248832,
+        0.251904,
+        0.249856,
+        0.249856,
+        0.249856,
+        0.251904,
+        0.249856,
+        0.248832,
+        0.249856,
+        0.249856,
+        0.251904,
+        0.252928,
+        0.256,
+        0.25088,
+        0.253952,
+        0.251904,
+        0.249856,
+        0.249856,
+        0.249856
+      ]
+    },
+    "warp_256": {
+      "median_ms": 0.2519040107727051,
+      "mean_ms": 0.2526952035725117,
+      "std_ms": 0.00239450749554969,
+      "n": 40,
+      "samples_ms": [
+        0.262048,
+        0.252928,
+        0.254976,
+        0.249856,
+        0.252928,
+        0.251904,
+        0.25088,
+        0.251904,
+        0.251904,
+        0.251904,
+        0.252928,
+        0.25088,
+        0.252928,
+        0.259072,
+        0.251904,
+        0.251904,
+        0.251904,
+        0.251904,
+        0.252928,
+        0.254976,
+        0.251904,
+        0.251904,
+        0.25088,
+        0.254976,
+        0.254976,
+        0.251904,
+        0.251904,
+        0.25088,
+        0.25088,
+        0.256,
+        0.251904,
+        0.252928,
+        0.25088,
+        0.254976,
+        0.25088,
+        0.251904,
+        0.251904,
+        0.253952,
+        0.249856,
+        0.249856
+      ]
+    }
+  },
+  "best_warp": "warp_128",
+  "derived": {
+    "best_emit_speedup": 11.91393472344681
+  }
+}

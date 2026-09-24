@@ -1,0 +1,167 @@
+diff --git a/gsplat/cuda/csrc/RasterizeToPixels3DGSSerialBatchFwd.cu b/gsplat/cuda/csrc/RasterizeToPixels3DGSSerialBatchFwd.cu
+index 6e44c79..a00630e 100644
+--- a/gsplat/cuda/csrc/RasterizeToPixels3DGSSerialBatchFwd.cu
++++ b/gsplat/cuda/csrc/RasterizeToPixels3DGSSerialBatchFwd.cu
+@@ -34,6 +34,92 @@ namespace gsplat
+ {
+ using SupportedChannels = dispatch::IntParam<GSPLAT_NUM_CHANNELS>;
+ 
++// H4-P0: exact/conservative 4x4 lower-alpha support.  The quadratic is
++// minimized analytically on the continuous pixel-center box of each block;
++// that is conservative for its 16 discrete pixel centers and therefore cannot
++// reject a contributing pixel.  This helper does not alter F4 or F5 ordering.
++__device__ __forceinline__ float h4_b16_clamp(const float x, const float lo, const float hi)
++{
++    return fminf(hi, fmaxf(lo, x));
++}
++
++__device__ __forceinline__ float h4_b16_sigma(const vec3 &conic, const float dx, const float dy)
++{
++    return 0.5f * (conic.x * dx * dx + conic.z * dy * dy) + conic.y * dx * dy;
++}
++
++__device__ __forceinline__ float h4_b16_min_sigma_box(
++    const vec3 &conic, const float dx_lo, const float dx_hi, const float dy_lo, const float dy_hi
++)
++{
++    float best = h4_b16_sigma(conic, dx_lo, dy_lo);
++    best       = fminf(best, h4_b16_sigma(conic, dx_lo, dy_hi));
++    best       = fminf(best, h4_b16_sigma(conic, dx_hi, dy_lo));
++    best       = fminf(best, h4_b16_sigma(conic, dx_hi, dy_hi));
++
++    // The remaining candidates are the exact 1-D stationary points on each
++    // rectangle edge.  Positive definiteness supplies A,C > 0.
++    float dy = h4_b16_clamp(-conic.y * dx_lo / conic.z, dy_lo, dy_hi);
++    best     = fminf(best, h4_b16_sigma(conic, dx_lo, dy));
++    dy       = h4_b16_clamp(-conic.y * dx_hi / conic.z, dy_lo, dy_hi);
++    best     = fminf(best, h4_b16_sigma(conic, dx_hi, dy));
++    float dx = h4_b16_clamp(-conic.y * dy_lo / conic.x, dx_lo, dx_hi);
++    best     = fminf(best, h4_b16_sigma(conic, dx, dy_lo));
++    dx       = h4_b16_clamp(-conic.y * dy_hi / conic.x, dx_lo, dx_hi);
++    return fminf(best, h4_b16_sigma(conic, dx, dy_hi));
++}
++
++__device__ __forceinline__ uint16_t h4_b16_support_mask(
++    const vec3 &conic, const vec3 &xy_opacity, const uint32_t tile_x, const uint32_t tile_y
++)
++{
++    if(xy_opacity.z < ALPHA_THRESHOLD)
++    {
++        return 0;
++    }
++    const float tau = __logf(255.0f * xy_opacity.z);
++    const float ox  = tile_x * 16.0f;
++    const float oy  = tile_y * 16.0f;
++    uint16_t mask   = 0;
++#    pragma unroll
++    for(uint32_t by = 0; by < 4; ++by)
++    {
++#        pragma unroll
++        for(uint32_t bx = 0; bx < 4; ++bx)
++        {
++            const float px0 = ox + bx * 4.0f + 0.5f;
++            const float py0 = oy + by * 4.0f + 0.5f;
++            const float min_sigma = h4_b16_min_sigma_box(
++                conic,
++                xy_opacity.x - (px0 + 3.0f), xy_opacity.x - px0,
++                xy_opacity.y - (py0 + 3.0f), xy_opacity.y - py0
++            );
++            if(min_sigma <= tau)
++            {
++                mask |= static_cast<uint16_t>(1u << (by * 4 + bx));
++            }
++        }
++    }
++    return mask;
++}
++
++// 32x32 bit-matrix transpose. Lane j supplies one per-Gaussian mask, and lane
++// t receives the depth-ordered word for block t. Bits 16..31 are zero for B16.
++__device__ __forceinline__ uint32_t h4_warp_bit_transpose(uint32_t val)
++{
++    constexpr uint32_t masks[5] = {0x0000FFFFu, 0x00FF00FFu, 0x0F0F0F0Fu, 0x33333333u, 0x55555555u};
++    const uint32_t lane = threadIdx.x & 31u;
++#    pragma unroll
++    for(int k = 4; k >= 0; --k)
++    {
++        const uint32_t delta = 1u << k;
++        const uint32_t other = __shfl_xor_sync(0xffffffffu, val, delta);
++        const uint32_t m     = masks[4 - k];
++        val = (lane & delta) ? ((val & ~m) | ((other >> delta) & m)) : ((val & m) | ((other & m) << delta));
++    }
++    return val;
++}
++
+ ////////////////////////////////////////////////////////////////
+ // Forward
+ ////////////////////////////////////////////////////////////////
+@@ -171,6 +257,9 @@ __global__ void __launch_bounds__(CTA_SIZE) rasterize_to_pixels_3dgs_fwd_kernel(
+     int32_t *id_batch      = (int32_t *)s;                                            // [BATCH_SIZE]
+     vec3 *xy_opacity_batch = reinterpret_cast<vec3 *>(&id_batch[BATCH_SIZE]);         // [BATCH_SIZE]
+     vec3 *conic_batch      = reinterpret_cast<vec3 *>(&xy_opacity_batch[BATCH_SIZE]); // [BATCH_SIZE]
++    // 16 depth-order words for every 32-G subgroup.  This state is transient:
++    // it is reconstructed after every existing batch load and never persists.
++    uint32_t *h4_live_words = reinterpret_cast<uint32_t *>(&conic_batch[BATCH_SIZE]);
+ 
+     // current visibility left to render
+     // transmittance is gonna be used in the backward pass which requires a high
+@@ -218,10 +307,38 @@ __global__ void __launch_bounds__(CTA_SIZE) rasterize_to_pixels_3dgs_fwd_kernel(
+             __syncthreads();
+         }
+ 
++        // One lane builds one B16 mask; each warp transposes 32 masks into
++        // 16 block words.  A full CTA barrier publishes all 8 subgroup words
++        // because every pixel thread walks every depth subgroup.
++        const uint32_t h4_batch_size = min(BATCH_SIZE, (uint32_t)range_end - batch_start);
++        if constexpr(TILE_SIZE == 16)
++        {
++            uint32_t h4_mask = 0;
++            if(tid < h4_batch_size)
++            {
++                h4_mask = static_cast<uint32_t>(h4_b16_support_mask(conic_batch[tid], xy_opacity_batch[tid], tile_x, tile_y));
++            }
++            const uint32_t h4_word = h4_warp_bit_transpose(h4_mask);
++            if((tid & 31u) < 16u)
++            {
++                h4_live_words[(tid >> 5u) * 16u + (tid & 31u)] = h4_word;
++            }
++            __syncthreads();
++        }
++
+         // process gaussians in the current batch
+-        const uint32_t batch_size = min(BATCH_SIZE, (uint32_t)range_end - batch_start);
++        const uint32_t batch_size = h4_batch_size;
+         for(uint32_t t = 0; (t < batch_size) && (done_mask != ALL_DONE); ++t)
+         {
++            if constexpr(TILE_SIZE == 16)
++            {
++                const uint32_t h4_block_id = ((thread_y >> 2u) << 2u) + (thread_x >> 2u);
++                const uint32_t h4_word_t = h4_live_words[(t >> 5u) * 16u + h4_block_id];
++                if((h4_word_t & (1u << (t & 31u))) == 0)
++                {
++                    continue;
++                }
++            }
+             const vec3 conic   = conic_batch[t];
+             const vec3 xy_opac = xy_opacity_batch[t];
+             const float opac   = xy_opac.z;
+@@ -343,7 +460,8 @@ void launch_rasterize_to_pixels_3dgs_fwd_kernel(
+         auto launch_variant = [&]<uint32_t TILE_SIZE, uint32_t CTA_SIZE>()
+         {
+             const dim3 threads       = dim3{CTA_SIZE, 1, 1};
+-            const int64_t shmem_size = CTA_SIZE * (sizeof(int32_t) + sizeof(vec3) + sizeof(vec3));
++            const int64_t shmem_size = CTA_SIZE * (sizeof(int32_t) + sizeof(vec3) + sizeof(vec3))
++                                      + ((CTA_SIZE + 31) / 32) * 16 * sizeof(uint32_t);
+ 
+             if(cudaFuncSetAttribute(
+                    rasterize_to_pixels_3dgs_fwd_kernel<CDIM, TILE_SIZE, CTA_SIZE>,
+@@ -461,7 +579,8 @@ void launch_rasterize_to_pixels_3dgs_fwd_kernels(
+         auto launch_variant = [&]<uint32_t TILE_SIZE, uint32_t CTA_SIZE>()
+         {
+             const dim3 threads       = dim3{CTA_SIZE, 1, 1};
+-            const int64_t shmem_size = CTA_SIZE * (sizeof(int32_t) + sizeof(vec3) + sizeof(vec3));
++            const int64_t shmem_size = CTA_SIZE * (sizeof(int32_t) + sizeof(vec3) + sizeof(vec3))
++                                      + ((CTA_SIZE + 31) / 32) * 16 * sizeof(uint32_t);
+ 
+             const float *bg_ptr   = backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr;
+             const bool *masks_ptr = masks.has_value() ? masks.value().const_data_ptr<bool>() : nullptr;

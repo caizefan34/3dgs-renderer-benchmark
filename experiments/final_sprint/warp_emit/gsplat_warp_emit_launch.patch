@@ -1,0 +1,10 @@
+--- a/cuda/csrc/IntersectTile.cu
++++ b/cuda/csrc/IntersectTile.cu
+@@ -161,3 +161,6 @@
+     dim3 threads(256);
+-    dim3 grid((n_elements + threads.x - 1) / threads.x);
++    // Second pass maps one warp to one Gaussian; count pass is unchanged.
++    const int64_t launch_elements = cum_tiles_per_gauss.has_value()
++        ? n_elements * 32 : n_elements;
++    dim3 grid((launch_elements + threads.x - 1) / threads.x);
+     int64_t shmem_size = 0; // No shared memory used in this kernel

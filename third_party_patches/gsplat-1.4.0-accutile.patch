@@ -1,0 +1,243 @@
+# Apply from the root of the gsplat 1.4.0 source checkout:
+#   git apply --check third_party_patches/gsplat-1.4.0-accutile.patch
+#   git apply third_party_patches/gsplat-1.4.0-accutile.patch
+#
+# Upstream reference: gsplat 28e794ca44a4c25ffc39175370c5ee7b38bfcc36.
+# The CUDA build-flag hunk is Windows/CUDA 13.3 compatibility only.
+
+diff --git a/gsplat/cuda/csrc/isect_tiles.cu b/gsplat/cuda/csrc/isect_tiles.cu
+index f61d8f2..c4fd9d3 100644
+--- a/gsplat/cuda/csrc/isect_tiles.cu
++++ b/gsplat/cuda/csrc/isect_tiles.cu
+@@ -9,6 +9,43 @@ namespace gsplat {
+ 
+ namespace cg = cooperative_groups;
+ 
++// AccuTile's conservative predicate.  It uses the same opacity-thresholded
++// conic as upstream gsplat, but evaluates the exact continuous minimum of q
++// over each candidate tile.  The small positive margin only retains boundary
++// tiles, so it cannot remove a tile containing a rasterizer pixel center.
++inline __device__ bool accutile_tile_may_contribute(
++    const float A,
++    const float B,
++    const float C,
++    const float mean_x,
++    const float mean_y,
++    const float threshold,
++    const float x0,
++    const float y0,
++    const float x1,
++    const float y1
++) {
++    const float dx0 = x0 - mean_x;
++    const float dx1 = x1 - mean_x;
++    const float dy0 = y0 - mean_y;
++    const float dy1 = y1 - mean_y;
++    const auto q = [=] __device__ (const float dx, const float dy) {
++        return A * dx * dx + 2.f * B * dx * dy + C * dy * dy;
++    };
++    float qmin = fminf(fminf(q(dx0, dy0), q(dx0, dy1)),
++                        fminf(q(dx1, dy0), q(dx1, dy1)));
++    const float dy_at_x0 = fminf(dy1, fmaxf(dy0, -B * dx0 / C));
++    const float dy_at_x1 = fminf(dy1, fmaxf(dy0, -B * dx1 / C));
++    const float dx_at_y0 = fminf(dx1, fmaxf(dx0, -B * dy0 / A));
++    const float dx_at_y1 = fminf(dx1, fmaxf(dx0, -B * dy1 / A));
++    qmin = fminf(qmin, fminf(q(dx0, dy_at_x0), q(dx1, dy_at_x1)));
++    qmin = fminf(qmin, fminf(q(dx_at_y0, dy0), q(dx_at_y1, dy1)));
++    if (dx0 <= 0.f && dx1 >= 0.f && dy0 <= 0.f && dy1 >= 0.f) {
++        qmin = 0.f;
++    }
++    return qmin <= threshold + 1e-5f * fmaxf(1.f, threshold);
++}
++
+ /****************************************************************************
+  * Gaussian Tile Intersection
+  ****************************************************************************/
+@@ -28,6 +65,8 @@ __global__ void isect_tiles(
+     const T *__restrict__ means2d,                   // [C, N, 2] or [nnz, 2]
+     const int32_t *__restrict__ radii,               // [C, N] or [nnz]
+     const T *__restrict__ depths,                    // [C, N] or [nnz]
++    const float *__restrict__ conics,                // [C, N, 3] or [nnz], optional
++    const float *__restrict__ opacities,             // [C, N] or [nnz], optional
+     const int64_t *__restrict__ cum_tiles_per_gauss, // [C, N] or [nnz]
+     const uint32_t tile_size,
+     const uint32_t tile_width,
+@@ -69,7 +108,38 @@ __global__ void isect_tiles(
+     tile_max.x = min(max(0, (uint32_t)ceil(tile_x + tile_radius)), tile_width);
+     tile_max.y = min(max(0, (uint32_t)ceil(tile_y + tile_radius)), tile_height);
+ 
++    // `radii` still defines the candidate AABB exactly as the frozen path.
++    // Passing both tensors enables conservative conic-vs-tile rejection.
++    bool use_accutile = conics != nullptr && opacities != nullptr;
++    float A = 0.f, B = 0.f, Cc = 0.f, threshold = 0.f;
++    if (use_accutile) {
++        A = conics[idx * 3];
++        B = conics[idx * 3 + 1];
++        Cc = conics[idx * 3 + 2];
++        const float opacity = opacities[idx];
++        threshold = fminf(3.33f * 3.33f, 2.f * logf(opacity * 255.f));
++        // Invalid or sub-threshold inputs retain the original AABB path.
++        use_accutile = isfinite(A) && isfinite(B) && isfinite(Cc) &&
++                       isfinite(threshold) && A > 0.f && Cc > 0.f &&
++                       A * Cc - B * B > 0.f && threshold > 0.f;
++    }
++
+     if (first_pass) {
++        if (use_accutile) {
++            int32_t count = 0;
++            for (int32_t i = tile_min.y; i < tile_max.y; ++i) {
++                for (int32_t j = tile_min.x; j < tile_max.x; ++j) {
++                    if (accutile_tile_may_contribute(
++                            A, B, Cc, mean2d.x, mean2d.y, threshold,
++                            j * tile_size, i * tile_size,
++                            (j + 1) * tile_size, (i + 1) * tile_size)) {
++                        ++count;
++                    }
++                }
++            }
++            tiles_per_gauss[idx] = count;
++            return;
++        }
+         // first pass only writes out tiles_per_gauss
+         tiles_per_gauss[idx] = static_cast<int32_t>(
+             (tile_max.y - tile_min.y) * (tile_max.x - tile_min.x)
+@@ -93,6 +163,12 @@ __global__ void isect_tiles(
+     int64_t cur_idx = (idx == 0) ? 0 : cum_tiles_per_gauss[idx - 1];
+     for (int32_t i = tile_min.y; i < tile_max.y; ++i) {
+         for (int32_t j = tile_min.x; j < tile_max.x; ++j) {
++            if (use_accutile && !accutile_tile_may_contribute(
++                    A, B, Cc, mean2d.x, mean2d.y, threshold,
++                    j * tile_size, i * tile_size,
++                    (j + 1) * tile_size, (i + 1) * tile_size)) {
++                continue;
++            }
+             int64_t tile_id = i * tile_width + j;
+             // e.g. tile_n_bits = 22:
+             // camera id (10 bits) | tile id (22 bits) | depth (32 bits)
+@@ -108,6 +184,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> isect_tiles_tensor(
+     const torch::Tensor &means2d,                    // [C, N, 2] or [nnz, 2]
+     const torch::Tensor &radii,                      // [C, N] or [nnz]
+     const torch::Tensor &depths,                     // [C, N] or [nnz]
++    const at::optional<torch::Tensor> &conics,       // [C, N, 3] or [nnz, 3]
++    const at::optional<torch::Tensor> &opacities,    // [C, N] or [nnz]
+     const at::optional<torch::Tensor> &camera_ids,   // [nnz]
+     const at::optional<torch::Tensor> &gaussian_ids, // [nnz]
+     const uint32_t C,
+@@ -121,6 +199,22 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> isect_tiles_tensor(
+     GSPLAT_CHECK_INPUT(means2d);
+     GSPLAT_CHECK_INPUT(radii);
+     GSPLAT_CHECK_INPUT(depths);
++    TORCH_CHECK(conics.has_value() == opacities.has_value(),
++                "AccuTile requires conics and opacities together.");
++    const float *conics_ptr = nullptr;
++    const float *opacities_ptr = nullptr;
++    if (conics.has_value()) {
++        GSPLAT_CHECK_INPUT(conics.value());
++        GSPLAT_CHECK_INPUT(opacities.value());
++        TORCH_CHECK(conics.value().scalar_type() == torch::kFloat &&
++                    opacities.value().scalar_type() == torch::kFloat,
++                    "AccuTile conics and opacities must be float32.");
++        TORCH_CHECK(conics.value().size(0) == means2d.size(0) &&
++                    opacities.value().sizes() == depths.sizes(),
++                    "AccuTile tensors must match projected Gaussian dimensions.");
++        conics_ptr = conics.value().data_ptr<float>();
++        opacities_ptr = opacities.value().data_ptr<float>();
++    }
+     if (camera_ids.has_value()) {
+         GSPLAT_CHECK_INPUT(camera_ids.value());
+     }
+@@ -186,6 +280,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> isect_tiles_tensor(
+                     reinterpret_cast<scalar_t *>(means2d.data_ptr<scalar_t>()),
+                     radii.data_ptr<int32_t>(),
+                     depths.data_ptr<scalar_t>(),
++                    conics_ptr,
++                    opacities_ptr,
+                     nullptr,
+                     tile_size,
+                     tile_width,
+@@ -229,6 +325,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> isect_tiles_tensor(
+                     reinterpret_cast<scalar_t *>(means2d.data_ptr<scalar_t>()),
+                     radii.data_ptr<int32_t>(),
+                     depths.data_ptr<scalar_t>(),
++                    conics_ptr,
++                    opacities_ptr,
+                     cum_tiles_per_gauss.data_ptr<int64_t>(),
+                     tile_size,
+                     tile_width,
+@@ -389,4 +487,4 @@ torch::Tensor isect_offset_encode_tensor(
+     return offsets;
+ }
+ 
+-} // namespace gsplat
+\ No newline at end of file
++} // namespace gsplat
+diff --git a/gsplat/cuda/csrc/bindings.h b/gsplat/cuda/csrc/bindings.h
+index cf0dc87..c1daa5f 100644
+--- a/gsplat/cuda/csrc/bindings.h
++++ b/gsplat/cuda/csrc/bindings.h
+@@ -148,6 +148,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> isect_tiles_tensor(
+     const torch::Tensor &means2d,                    // [C, N, 2] or [nnz, 2]
+     const torch::Tensor &radii,                      // [C, N] or [nnz]
+     const torch::Tensor &depths,                     // [C, N] or [nnz]
++    const at::optional<torch::Tensor> &conics,       // [C, N, 3] or [nnz, 3]
++    const at::optional<torch::Tensor> &opacities,    // [C, N] or [nnz]
+     const at::optional<torch::Tensor> &camera_ids,   // [nnz]
+     const at::optional<torch::Tensor> &gaussian_ids, // [nnz]
+     const uint32_t C,
+diff --git a/gsplat/cuda/_wrapper.py b/gsplat/cuda/_wrapper.py
+index 1c38261..0c969d2 100644
+--- a/gsplat/cuda/_wrapper.py
++++ b/gsplat/cuda/_wrapper.py
+@@ -334,6 +334,8 @@ def isect_tiles(
+     n_cameras: Optional[int] = None,
+     camera_ids: Optional[Tensor] = None,
+     gaussian_ids: Optional[Tensor] = None,
++    conics: Optional[Tensor] = None,
++    opacities: Optional[Tensor] = None,
+ ) -> Tuple[Tensor, Tensor, Tensor]:
+     """Maps projected Gaussians to intersecting tiles.
+ 
+@@ -383,6 +385,8 @@ def isect_tiles(
+         means2d.contiguous(),
+         radii.contiguous(),
+         depths.contiguous(),
++        conics.contiguous() if conics is not None else None,
++        opacities.contiguous() if opacities is not None else None,
+         camera_ids,
+         gaussian_ids,
+         C,
+diff --git a/gsplat/rendering.py b/gsplat/rendering.py
+index 83ec6e7..6596595 100644
+--- a/gsplat/rendering.py
++++ b/gsplat/rendering.py
+@@ -51,6 +51,7 @@ def rasterization(
+     distributed: bool = False,
+     camera_model: Literal["pinhole", "ortho", "fisheye"] = "pinhole",
+     covars: Optional[Tensor] = None,
++    accutile: bool = False,
+ ) -> Tuple[Tensor, Tensor, Dict]:
+     """Rasterize a set of 3D Gaussians (N) to a batch of image planes (C).
+ 
+@@ -505,6 +506,8 @@ def rasterization(
+         n_cameras=C,
+         camera_ids=camera_ids,
+         gaussian_ids=gaussian_ids,
++        conics=conics if accutile else None,
++        opacities=opacities if accutile else None,
+     )
+     # print("rank", world_rank, "Before isect_offset_encode")
+     isect_offsets = isect_offset_encode(isect_ids, C, tile_width, tile_height)
+diff --git a/gsplat/cuda/_backend.py b/gsplat/cuda/_backend.py
+index b646c0b..403164b 100644
+--- a/gsplat/cuda/_backend.py
++++ b/gsplat/cuda/_backend.py
+@@ -95,6 +95,8 @@ except ImportError:
+             extra_cuda_cflags = ["-O3"]
+         else:
+             extra_cuda_cflags = ["-O3", "--use_fast_math"]
++        if os.name == "nt":
++            extra_cuda_cflags += ["-Xcompiler", "/Zc:preprocessor"]
+         sources = list(glob.glob(os.path.join(PATH, "csrc/*.cu"))) + list(
+             glob.glob(os.path.join(PATH, "csrc/*.cpp"))
+         )
+

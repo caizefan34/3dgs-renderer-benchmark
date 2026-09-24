@@ -1,0 +1,21 @@
+{
+  "date": "2026-09-18",
+  "experiment": "selective_adam_standalone_ablation",
+  "baseline": "Reference V1 standard torch.optim.Adam",
+  "selective_adam_available_in_reference_v1": false,
+  "discovered_masked_implementation": "benchmark/higs_masked_adam.py",
+  "discovered_integration": "benchmark/run_higs_train_benchmark.py",
+  "mask_source": "HiGS renderer _cull_cache['train'] union-visibility mask",
+  "current_camera_visibility_available_in_reference_v1": "meta['radii'] > 0, densification-only",
+  "semantic_difference": "False mask rows leave parameter, exp_avg, and exp_avg_sq unchanged; standard Adam advances moments and can update parameters for zero-gradient rows.",
+  "action": "stop_before_microbenchmark",
+  "reason": "No existing Reference V1 SelectiveAdam entry point; integration would add a new optimizer path and/or mix forbidden HiGS infrastructure.",
+  "measurements": {
+    "three_scene_microbenchmark": "not_run",
+    "paired_5k": "not_run",
+    "checkpoint_13scene": "not_run"
+  },
+  "classification": "SELECTIVE_ADAM_NEUTRAL",
+  "classification_qualification": "Unsupported standalone ablation, not measured neutral performance.",
+  "composition_with_candidate_c": "COMPOSITION_NOT_MEASURED"
+}

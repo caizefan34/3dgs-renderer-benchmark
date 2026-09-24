@@ -1,0 +1,552 @@
+diff --git "a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu" "b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu"
+index f94c775..fe9422f 100644
+--- "a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu"
++++ "b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu"
+@@ -36,6 +36,7 @@
+ #include <cooperative_groups/reduce.h>
+ 
+ #include <cstdint>
++#include <cstring>
+ #include <cstdlib>
+ 
+ #include "Common.h"
+@@ -49,6 +50,17 @@ namespace gaussian_render_inference_scene
+ {
+ namespace cg = cooperative_groups;
+ 
++// Optional H2-only inspection tensors. They are assigned only when the
++// corresponding capture/instrumentation mode is requested and are never read
++// by the production autograd path.
++at::Tensor g_higs_cf_last_means2d;
++at::Tensor g_higs_cf_last_conics;
++at::Tensor g_higs_cf_last_colors;
++at::Tensor g_higs_cf_last_opacities;
++#ifdef HIGS_BWD_CF_INSTRUMENT
++at::Tensor g_higs_cf_sigma_stats;
++#endif
++
+ namespace
+ {
+ constexpr uint32_t kHigsColorDim = 3; // RGB channels (depth modes use 1 or 4)
+@@ -293,6 +305,352 @@ __global__ void __launch_bounds__(256, 5) higs_blend_bwd_kernel(
+ }
+ 
+ 
++
++// ============================================================================
++// H2-BWD-CF: isolated compute-factored PX backward variants.
++//
++// The baseline higs_blend_bwd_px_kernel above is intentionally left untouched.
++// This companion kernel is selected only by HIGS_BWD_CF_VARIANT.  Its template
++// flags keep each experimental variant independently compilable and make the
++// combined variant exactly the requested composition of the three factors.
++// ============================================================================
++enum HigsBwdCfVariant : int
++{
++    HIGS_BWD_CF_BASELINE = 0,
++    HIGS_BWD_CF_SIGMA_GATE = 1,
++    HIGS_BWD_CF_SCALAR_ADJOINT = 2,
++    HIGS_BWD_CF_UV_REUSE = 4,
++    HIGS_BWD_CF_COMBINED = 7,
++};
++
++struct HigsCfWeight
++{
++    float vis;
++    float alpha;
++    float ux;
++    float uy;
++    bool valid;
++    bool pre_drop;
++    bool pre_clamp;
++};
++
++template<bool SIGMA_GATE, bool UV_REUSE>
++__device__ __forceinline__ HigsCfWeight higs_cf_weight(
++    const vec3 &conic, const float dx, const float dy, const float opac)
++{
++    HigsCfWeight out;
++    if constexpr(UV_REUSE)
++    {
++        out.ux = conic.x * dx + conic.y * dy;
++        out.uy = conic.y * dx + conic.z * dy;
++    }
++    else
++    {
++        out.ux = 0.f;
++        out.uy = 0.f;
++    }
++    const float sigma = UV_REUSE
++        ? 0.5f * (dx * out.ux + dy * out.uy)
++        : 0.5f * (conic.x * dx * dx + conic.z * dy * dy) + conic.y * dx * dy;
++    out.pre_drop = false;
++    out.pre_clamp = false;
++    if constexpr(SIGMA_GATE)
++    {
++        // Retain the legacy predicate boundaries: sigma < 0 and alpha <
++        // ALPHA_THRESHOLD are invalid; equality is contributing.  No exp is
++        // evaluated in the mathematically excluded or strictly clamped region.
++        if(sigma < 0.f || opac < ALPHA_THRESHOLD)
++        {
++            out.vis = 0.f;
++            out.alpha = 0.f;
++            out.valid = false;
++            out.pre_drop = true;
++            return out;
++        }
++        const float sigma_drop = logf(opac / ALPHA_THRESHOLD);
++        if(sigma > sigma_drop)
++        {
++            out.vis = 0.f;
++            out.alpha = 0.f;
++            out.valid = false;
++            out.pre_drop = true;
++            return out;
++        }
++        const float sigma_clamp = logf(opac / MAX_ALPHA);
++        if(opac >= MAX_ALPHA && sigma <= sigma_clamp)
++        {
++            // vis is retained as the exact clamp boundary ratio for the
++            // downstream saturated-alpha branch; alpha itself needs no exp.
++            out.vis = MAX_ALPHA / opac;
++            out.alpha = MAX_ALPHA;
++            out.valid = true;
++            out.pre_clamp = true;
++            return out;
++        }
++    }
++    out.vis = __expf(-sigma);
++    out.alpha = min(MAX_ALPHA, opac * out.vis);
++    out.valid = !(sigma < 0.f || out.alpha < ALPHA_THRESHOLD);
++    return out;
++}
++
++template<uint32_t CDIM, bool SCALAR_ADJOINT, bool UV_REUSE>
++__device__ __forceinline__ void higs_cf_blend_bwd_step(
++    const vec3 &conic,
++    const vec2 &delta,
++    const float opac,
++    const HigsCfWeight &gw,
++    const float *__restrict__ rgbs,
++    const float *__restrict__ v_render_c,
++    const float v_render_a,
++    const float T_final,
++    const float *__restrict__ backgrounds,
++    float &T,
++    float (&buffer)[CDIM],
++    float &buffer_dot,
++    const float tail_const,
++    float (&v_rgb_local)[CDIM],
++    vec3 &v_conic_local,
++    vec2 &v_xy_local,
++    float &v_opacity_local)
++{
++    const float ra = 1.0f / fmaxf(MIN_ONE_MINUS_ALPHA, 1.0f - gw.alpha);
++    T *= ra;
++    const float fac = gw.alpha * T;
++    float rgb_dot = 0.f;
++#pragma unroll
++    for(uint32_t k = 0; k < CDIM; ++k)
++    {
++        v_rgb_local[k] = fac * v_render_c[k];
++        if constexpr(SCALAR_ADJOINT)
++        {
++            rgb_dot += rgbs[k] * v_render_c[k];
++        }
++    }
++    float v_alpha = 0.f;
++    if constexpr(SCALAR_ADJOINT)
++    {
++        v_alpha = T * rgb_dot + ra * (tail_const - buffer_dot);
++    }
++    else
++    {
++#pragma unroll
++        for(uint32_t k = 0; k < CDIM; ++k)
++        {
++            v_alpha += (rgbs[k] * T - buffer[k] * ra) * v_render_c[k];
++        }
++        v_alpha += T_final * ra * v_render_a;
++        if(backgrounds != nullptr)
++        {
++            float bg_dot = 0.f;
++#pragma unroll
++            for(uint32_t k = 0; k < CDIM; ++k)
++            {
++                bg_dot += backgrounds[k] * v_render_c[k];
++            }
++            v_alpha -= T_final * ra * bg_dot;
++        }
++    }
++    // The pre-clamp region is saturated by construction.  The non-gated path
++    // preserves the baseline's <= subgradient predicate unchanged.
++    if(!gw.pre_clamp && opac * gw.vis <= MAX_ALPHA)
++    {
++        const float v_sigma = -opac * gw.vis * v_alpha;
++        v_conic_local = {0.5f * v_sigma * delta.x * delta.x,
++                         v_sigma * delta.x * delta.y,
++                         0.5f * v_sigma * delta.y * delta.y};
++        if constexpr(UV_REUSE)
++        {
++            v_xy_local = {v_sigma * gw.ux, v_sigma * gw.uy};
++        }
++        else
++        {
++            v_xy_local = {v_sigma * (conic.x * delta.x + conic.y * delta.y),
++                          v_sigma * (conic.y * delta.x + conic.z * delta.y)};
++        }
++        v_opacity_local = gw.vis * v_alpha;
++    }
++    if constexpr(SCALAR_ADJOINT)
++    {
++        buffer_dot += rgb_dot * fac;
++    }
++    else
++    {
++#pragma unroll
++        for(uint32_t k = 0; k < CDIM; ++k)
++        {
++            buffer[k] += rgbs[k] * fac;
++        }
++    }
++}
++
++template<uint32_t CDIM, uint32_t PX, int VARIANT>
++__global__ void __launch_bounds__(256 / PX, PX == 1 ? 5 : PX == 2 ? 5 : PX == 4 ? 8 : 10)
++higs_blend_bwd_px_cf_kernel(
++    const uint32_t I, const uint32_t N, const uint32_t n_isects,
++    const vec2 *__restrict__ means2d, const vec3 *__restrict__ conics,
++    const float *__restrict__ colors, const float *__restrict__ opacities,
++    const float *__restrict__ backgrounds, const uint32_t tile_width,
++    const uint32_t tile_height, const int32_t *__restrict__ active_tiles,
++    const bool skip_background_atomic, const uint32_t image_width,
++    const uint32_t image_height, const uint32_t tile_size,
++    const int32_t *__restrict__ tile_offsets, const int32_t *__restrict__ flatten_ids,
++    const float *__restrict__ render_alphas, const int32_t *__restrict__ last_ids,
++    const float *__restrict__ v_render_colors, const float *__restrict__ v_render_alphas,
++    vec2 *__restrict__ v_means2d, vec3 *__restrict__ v_conics,
++    float *__restrict__ v_colors, float *__restrict__ v_opacities,
++    float *__restrict__ v_backgrounds, uint64_t *__restrict__ sigma_stats)
++{
++    constexpr bool SIGMA_GATE = (VARIANT & HIGS_BWD_CF_SIGMA_GATE) != 0;
++    constexpr bool SCALAR_ADJOINT = (VARIANT & HIGS_BWD_CF_SCALAR_ADJOINT) != 0;
++    constexpr bool UV_REUSE = (VARIANT & HIGS_BWD_CF_UV_REUSE) != 0;
++    auto block = cg::this_thread_block();
++    uint32_t image_id, tile_id, i0, j0;
++    if(active_tiles != nullptr)
++    {
++        const int32_t global_tile = active_tiles[blockIdx.x];
++        image_id = static_cast<uint32_t>(global_tile / (int32_t)(tile_width * tile_height));
++        tile_id = static_cast<uint32_t>(global_tile % (int32_t)(tile_width * tile_height));
++        j0 = (tile_id % tile_width) * tile_size;
++        i0 = (tile_id / tile_width) * tile_size;
++    }
++    else
++    {
++        image_id = block.group_index().x;
++        tile_id = block.group_index().y * tile_width + block.group_index().z;
++        i0 = block.group_index().y * tile_size;
++        j0 = block.group_index().z * tile_size;
++    }
++    const uint32_t ty = block.thread_index().y, tx = block.thread_index().x;
++    constexpr uint32_t PX_ROWS = 16 / PX;
++    tile_offsets += (int64_t)image_id * tile_height * tile_width;
++    render_alphas += (int64_t)image_id * image_height * image_width;
++    last_ids += (int64_t)image_id * image_height * image_width;
++    v_render_colors += (int64_t)image_id * image_height * image_width * CDIM;
++    v_render_alphas += (int64_t)image_id * image_height * image_width;
++    if(backgrounds != nullptr) backgrounds += image_id * CDIM;
++
++    float px[PX], py[PX], T_final[PX], T[PX], buffer_dot[PX], tail_const[PX];
++    int32_t pix_id[PX], bin_final[PX];
++    bool inside[PX], valid[PX];
++    float buffer[PX][CDIM], v_render_c[PX][CDIM];
++    float v_render_a[PX];
++#pragma unroll
++    for(uint32_t q = 0; q < PX; ++q)
++    {
++        const uint32_t i = i0 + ty + q * PX_ROWS, j = j0 + tx;
++        px[q] = (float)j + 0.5f; py[q] = (float)i + 0.5f;
++        pix_id[q] = min(i * image_width + j, image_width * image_height - 1);
++        inside[q] = (i < image_height && j < image_width);
++        T_final[q] = 1.0f - render_alphas[pix_id[q]]; T[q] = T_final[q];
++        bin_final[q] = inside[q] ? last_ids[pix_id[q]] : 0;
++        float bg_dot = 0.f;
++#pragma unroll
++        for(uint32_t k = 0; k < CDIM; ++k)
++        {
++            v_render_c[q][k] = v_render_colors[pix_id[q] * CDIM + k];
++            buffer[q][k] = 0.f;
++            if constexpr(SCALAR_ADJOINT)
++                if(backgrounds != nullptr) bg_dot += backgrounds[k] * v_render_c[q][k];
++        }
++        v_render_a[q] = v_render_alphas[pix_id[q]];
++        buffer_dot[q] = 0.f;
++        tail_const[q] = T_final[q] * (v_render_a[q] - bg_dot);
++        if(backgrounds != nullptr && !skip_background_atomic)
++        {
++#pragma unroll
++            for(uint32_t k = 0; k < CDIM; ++k)
++                atomicAdd(v_backgrounds + k, T_final[q] * v_render_c[q][k]);
++        }
++    }
++    const int32_t range_start = tile_offsets[tile_id];
++    const int32_t range_end = (image_id == I - 1) && (tile_id == tile_width * tile_height - 1)
++        ? (int32_t)n_isects : tile_offsets[tile_id + 1];
++    const uint32_t block_size = block.size();
++    const uint32_t num_batches = (range_end - range_start + block_size - 1) / block_size;
++    extern __shared__ int s[];
++    int32_t *id_batch = (int32_t *)s;
++    vec3 *xy_opacity_batch = reinterpret_cast<vec3 *>(&id_batch[block_size]);
++    vec3 *conic_batch = reinterpret_cast<vec3 *>(&xy_opacity_batch[block_size]);
++    float *rgbs_batch = (float *)&conic_batch[block_size];
++    const uint32_t tr = block.thread_rank();
++    cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
++    int32_t warp_bin_final = 0;
++#pragma unroll
++    for(uint32_t q = 0; q < PX; ++q) warp_bin_final = max(warp_bin_final, bin_final[q]);
++    warp_bin_final = cg::reduce(warp, warp_bin_final, cg::greater<int>());
++    for(uint32_t b = 0; b < num_batches; ++b)
++    {
++        block.sync();
++        const int32_t batch_end = range_end - 1 - (int32_t)(block_size * b);
++        const int32_t batch_size = min((int32_t)block_size, batch_end + 1 - range_start);
++        const int32_t idx = batch_end - (int32_t)tr;
++        if(idx >= range_start)
++        {
++            const int32_t g = flatten_ids[idx]; id_batch[tr] = g;
++            const vec2 xy = means2d[g]; const float opac = opacities[g];
++            xy_opacity_batch[tr] = {xy.x, xy.y, opac}; conic_batch[tr] = conics[g];
++#pragma unroll
++            for(uint32_t k = 0; k < CDIM; ++k) rgbs_batch[tr * CDIM + k] = colors[(int64_t)g * CDIM + k];
++        }
++        block.sync();
++        for(uint32_t t = (uint32_t)max(0, batch_end - warp_bin_final); t < (uint32_t)batch_size; ++t)
++        {
++            float v_rgb_local[CDIM] = {0.f}; vec3 v_conic_local = {0.f, 0.f, 0.f};
++            vec2 v_xy_local = {0.f, 0.f}; float v_opacity_local = 0.f; bool any_valid = false;
++#pragma unroll
++            for(uint32_t q = 0; q < PX; ++q)
++            {
++                valid[q] = inside[q] && (batch_end - (int32_t)t <= bin_final[q]);
++                if(valid[q])
++                {
++                    const vec3 conic = conic_batch[t]; const vec3 xy_opac = xy_opacity_batch[t];
++                    const vec2 delta = {xy_opac.x - px[q], xy_opac.y - py[q]};
++                    const HigsCfWeight gw = higs_cf_weight<SIGMA_GATE, UV_REUSE>(conic, delta.x, delta.y, xy_opac.z);
++#ifdef HIGS_BWD_CF_INSTRUMENT
++                    if constexpr(SIGMA_GATE)
++                    {
++                        atomicAdd((unsigned long long *)&sigma_stats[0], 1ULL);
++                        if(gw.pre_drop) atomicAdd((unsigned long long *)&sigma_stats[1], 1ULL);
++                        else if(gw.pre_clamp) atomicAdd((unsigned long long *)&sigma_stats[2], 1ULL);
++                        else atomicAdd((unsigned long long *)&sigma_stats[3], 1ULL);
++                    }
++#endif
++                    if(!gw.valid) valid[q] = false;
++                    else
++                    {
++                        any_valid = true;
++                        float v_rgb_q[CDIM] = {0.f}; vec3 v_conic_q = {0.f, 0.f, 0.f};
++                        vec2 v_xy_q = {0.f, 0.f}; float v_opacity_q = 0.f;
++                        higs_cf_blend_bwd_step<CDIM, SCALAR_ADJOINT, UV_REUSE>(
++                            conic, delta, xy_opac.z, gw, rgbs_batch + t * CDIM, v_render_c[q],
++                            v_render_a[q], T_final[q], backgrounds, T[q], buffer[q], buffer_dot[q],
++                            tail_const[q], v_rgb_q, v_conic_q, v_xy_q, v_opacity_q);
++#pragma unroll
++                        for(uint32_t k = 0; k < CDIM; ++k) v_rgb_local[k] += v_rgb_q[k];
++                        v_conic_local.x += v_conic_q.x; v_conic_local.y += v_conic_q.y; v_conic_local.z += v_conic_q.z;
++                        v_xy_local.x += v_xy_q.x; v_xy_local.y += v_xy_q.y; v_opacity_local += v_opacity_q;
++                    }
++                }
++            }
++            if(!warp.any(any_valid)) continue;
++            warpSum<CDIM>(v_rgb_local, warp); warpSum(v_conic_local, warp);
++            warpSum(v_xy_local, warp); warpSum(v_opacity_local, warp);
++            if(warp.thread_rank() == 0)
++            {
++                const int32_t g = id_batch[t]; float *v_rgb_ptr = v_colors + (int64_t)CDIM * g;
++#pragma unroll
++                for(uint32_t k = 0; k < CDIM; ++k) atomicAdd(v_rgb_ptr + k, v_rgb_local[k]);
++                float *v_conic_ptr = (float *)v_conics + 3 * (int64_t)g;
++                atomicAdd(v_conic_ptr, v_conic_local.x); atomicAdd(v_conic_ptr + 1, v_conic_local.y); atomicAdd(v_conic_ptr + 2, v_conic_local.z);
++                float *v_xy_ptr = (float *)v_means2d + 2 * (int64_t)g;
++                atomicAdd(v_xy_ptr, v_xy_local.x); atomicAdd(v_xy_ptr + 1, v_xy_local.y);
++                atomicAdd(v_opacities + g, v_opacity_local);
++            }
++        }
++    }
++}
++
+ // ============================================================================
+ // PX-pixels-per-thread variant of the pixel-blend backward.  Each thread owns
+ // PX pixels (strided by 16/PX rows inside the 16x16 render tile), so a tile's
+@@ -1291,6 +1649,27 @@ higs_rasterize_backward(
+         n_active_tiles   = static_cast<uint32_t>(active_tiles.value().numel());
+     }
+     const bool compacted = (active_tiles_ptr != nullptr);
++    const char *cf_env = std::getenv("HIGS_BWD_CF_VARIANT");
++    const char *cf_name = (cf_env == nullptr) ? "baseline" : cf_env;
++    int cf_variant = HIGS_BWD_CF_BASELINE;
++    if(strcmp(cf_name, "baseline") == 0)
++        cf_variant = HIGS_BWD_CF_BASELINE;
++    else if(strcmp(cf_name, "sigma_gate") == 0)
++        cf_variant = HIGS_BWD_CF_SIGMA_GATE;
++    else if(strcmp(cf_name, "scalar_adjoint") == 0)
++        cf_variant = HIGS_BWD_CF_SCALAR_ADJOINT;
++    else if(strcmp(cf_name, "uv_reuse") == 0)
++        cf_variant = HIGS_BWD_CF_UV_REUSE;
++    else if(strcmp(cf_name, "combined") == 0)
++        cf_variant = HIGS_BWD_CF_COMBINED;
++    else
++        TORCH_CHECK(false, "unsupported HIGS_BWD_CF_VARIANT: ", cf_name);
++
++    uint64_t *sigma_stats_ptr = nullptr;
++#ifdef HIGS_BWD_CF_INSTRUMENT
++    g_higs_cf_sigma_stats = at::zeros({4}, opts.dtype(at::kLong));
++    sigma_stats_ptr = reinterpret_cast<uint64_t *>(g_higs_cf_sigma_stats.data_ptr<int64_t>());
++#endif
+     // Channel layout of the captured colors_eval: 1 = depth-only, 3 = RGB,
+     // 4 = RGB + depth (depth is the LAST channel). -1 means no depth channel.
+     const int32_t depth_channel = (color_dim == 4) ? 3 : (color_dim == 1) ? 0 : -1;
+@@ -1314,6 +1693,26 @@ higs_rasterize_backward(
+                 static_cast<uint32_t>(tile_w)
+             );
+         }
++#define HIGS_LAUNCH_CF_KERNEL(CDIM, PX_VALUE, CF_VARIANT)                                         \
++    higs_blend_bwd_px_cf_kernel<(CDIM), (PX_VALUE), (CF_VARIANT)><<<grid, threads_px,              \
++        static_cast<size_t>(shmem_size), stream>>>(                                                \
++        static_cast<uint32_t>(I), static_cast<uint32_t>(N), static_cast<uint32_t>(n_isects),       \
++        reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                           \
++        reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                            \
++        colors_eval.const_data_ptr<float>(), opacities.const_data_ptr<float>(),                    \
++        backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,           \
++        static_cast<uint32_t>(tile_w), static_cast<uint32_t>(tile_h), active_tiles_ptr, compacted, \
++        static_cast<uint32_t>(width), static_cast<uint32_t>(height),                               \
++        static_cast<uint32_t>(tile_size), tile_offsets.const_data_ptr<int32_t>(),                  \
++        flatten_ids.const_data_ptr<int32_t>(), render_alphas.const_data_ptr<float>(),              \
++        last_ids.const_data_ptr<int32_t>(), v_render_colors.const_data_ptr<float>(),               \
++        v_render_alphas.const_data_ptr<float>(),                                                   \
++        reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                                    \
++        reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                                 \
++        v_colors_flat.data_ptr<float>(), v_opacities_flat.data_ptr<float>(),                       \
++        v_backgrounds.data_ptr<float>(), sigma_stats_ptr);                                        \
++    C10_CUDA_KERNEL_LAUNCH_CHECK();
++
+ #define LAUNCH_BLEND_BWD(CDIM)                                                                     \
+     {                                                                                              \
+         const char *px_env = std::getenv("HIGS_PX_RUNTIME");                                       \
+@@ -1325,7 +1724,27 @@ higs_rasterize_backward(
+             * (sizeof(int32_t) + sizeof(vec3) + sizeof(vec3) + sizeof(float) * (CDIM));             \
+         dim3 threads_px(static_cast<uint32_t>(tile_size),                                           \
+                         static_cast<uint32_t>(thrs / tile_size), 1);                                \
+-        if(px_safe == 0)                                                                            \
++        if(cf_variant != HIGS_BWD_CF_BASELINE)                                                     \
++        {                                                                                           \
++            TORCH_CHECK(px_safe == 2, "H2-BWD-CF variants require HIGS_PX_RUNTIME=2");            \
++            if(cf_variant == HIGS_BWD_CF_SIGMA_GATE)                                               \
++            {                                                                                       \
++                HIGS_LAUNCH_CF_KERNEL(CDIM, 2, HIGS_BWD_CF_SIGMA_GATE)                             \
++            }                                                                                       \
++            else if(cf_variant == HIGS_BWD_CF_SCALAR_ADJOINT)                                     \
++            {                                                                                       \
++                HIGS_LAUNCH_CF_KERNEL(CDIM, 2, HIGS_BWD_CF_SCALAR_ADJOINT)                         \
++            }                                                                                       \
++            else if(cf_variant == HIGS_BWD_CF_UV_REUSE)                                            \
++            {                                                                                       \
++                HIGS_LAUNCH_CF_KERNEL(CDIM, 2, HIGS_BWD_CF_UV_REUSE)                               \
++            }                                                                                       \
++            else                                                                                    \
++            {                                                                                       \
++                HIGS_LAUNCH_CF_KERNEL(CDIM, 2, HIGS_BWD_CF_COMBINED)                               \
++            }                                                                                       \
++        }                                                                                           \
++        else if(px_safe == 0)                                                                       \
+         {                                                                                           \
+             C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_kernel<(CDIM)>,                      \
+                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shmem_size)));        \
+@@ -1436,6 +1855,7 @@ higs_rasterize_backward(
+             break;
+         }
+ #undef LAUNCH_BLEND_BWD
++#undef HIGS_LAUNCH_CF_KERNEL
+ 
+         if(compacted && backgrounds.has_value())
+         {
+@@ -1581,6 +2001,13 @@ higs_rasterize_backward(
+         C10_CUDA_KERNEL_LAUNCH_CHECK();
+     }
+ 
++    if(std::getenv("HIGS_BWD_CF_CAPTURE_RAW") != nullptr)
++    {
++        g_higs_cf_last_means2d = v_means2d;
++        g_higs_cf_last_conics = v_conics_out;
++        g_higs_cf_last_colors = v_colors_flat;
++        g_higs_cf_last_opacities = v_opacities_flat;
++    }
+     (void)eps2d;
+     return {
+         grad_means,
+@@ -1592,5 +2019,25 @@ higs_rasterize_backward(
+         v_means2d
+     };
+ }
++
++std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> higs_bwd_cf_last_raw_grads()
++{
++    TORCH_CHECK(g_higs_cf_last_means2d.defined(),
++        "H2-BWD-CF raw gradients unavailable; set HIGS_BWD_CF_CAPTURE_RAW=1 before backward");
++    return {g_higs_cf_last_means2d, g_higs_cf_last_conics,
++            g_higs_cf_last_colors, g_higs_cf_last_opacities};
++}
++
++at::Tensor higs_bwd_cf_sigma_stats()
++{
++#ifdef HIGS_BWD_CF_INSTRUMENT
++    TORCH_CHECK(g_higs_cf_sigma_stats.defined(),
++        "H2-BWD-CF sigma counters unavailable; run one backward first");
++    return g_higs_cf_sigma_stats;
++#else
++    TORCH_CHECK(false,
++        "H2-BWD-CF sigma instrumentation was not compiled; rebuild with HIGS_BWD_CF_INSTRUMENT=1");
++#endif
++}
+ } // namespace gaussian_render_inference_scene
+ } // namespace gsplat
+diff --git "a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h" "b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h"
+index d0f2adf..89e64dc 100644
+--- "a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h"
++++ "b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h"
+@@ -92,5 +92,10 @@ namespace gaussian_render_inference_scene
+         const at::Tensor &grad_opacities, // [M] float32
+         const at::Tensor &grad_colors     // [M, K, D] (SH) or [M, D] (RGB) float32
+     );
++
++    std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
++    higs_bwd_cf_last_raw_grads();
++
++    at::Tensor higs_bwd_cf_sigma_stats();
+ } // namespace gaussian_render_inference_scene
+ } // namespace gsplat
+diff --git "a/gsplat/experimental/render/kernels/cuda/ext.cpp" "b/gsplat/experimental/render/kernels/cuda/ext.cpp"
+index 426d402..d3b6739 100644
+--- "a/gsplat/experimental/render/kernels/cuda/ext.cpp"
++++ "b/gsplat/experimental/render/kernels/cuda/ext.cpp"
+@@ -95,6 +95,17 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+         py::arg("grad_colors")
+     );
+ 
++    m.def(
++        "higs_bwd_cf_last_raw_grads",
++        &gsplat::gaussian_render_inference_scene::higs_bwd_cf_last_raw_grads,
++        "H2-BWD-CF raw Stage-1 gradients from the most recent captured backward."
++    );
++    m.def(
++        "higs_bwd_cf_sigma_stats",
++        &gsplat::gaussian_render_inference_scene::higs_bwd_cf_sigma_stats,
++        "H2-BWD-CF SIGMA_GATE counters [samples, pre_exp_drop, pre_exp_clamp, exp]."
++    );
++
+     m.def(
+         "higs_gather_visible",
+         &gsplat::gaussian_render_inference_scene::higs_gather_visible,

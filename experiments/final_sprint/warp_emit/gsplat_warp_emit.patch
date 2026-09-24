@@ -1,0 +1,56 @@
+--- a/cuda/csrc/IntersectTile.cu
++++ b/cuda/csrc/IntersectTile.cu
+@@ -46,8 +46,10 @@ __global__ void intersect_tile_kernel(
+     int64_t *__restrict__ isect_ids,       // [n_isects]
+     int32_t *__restrict__ flatten_ids      // [n_isects]
+ ) {
+-    // parallelize over I * N.
+-    uint32_t idx = cg::this_grid().thread_rank();
++    // Pass 1 remains one thread/Gaussian.  Pass 2 uses one warp/Gaussian;
++    // idx remains the baseline Gaussian index and lane owns k = lane + 32*n.
++    uint32_t thread_idx = cg::this_grid().thread_rank();
+     bool first_pass = cum_tiles_per_gauss == nullptr;
++    uint32_t idx = first_pass ? thread_idx : (thread_idx >> 5);
+     if (idx >= (packed ? nnz : I * N)) {
+         return;
+     }
+@@ -99,18 +101,20 @@ __global__ void intersect_tile_kernel(
+     // int64_t depth_id_enc = (int64_t) * (int32_t *)&(depths[idx]);
+     
+     int64_t cur_idx = (idx == 0) ? 0 : cum_tiles_per_gauss[idx - 1];
+-    for (int32_t i = tile_min.y; i < tile_max.y; ++i) {
+-        for (int32_t j = tile_min.x; j < tile_max.x; ++j) {
+-            int64_t tile_id = i * tile_width + j;
+-            // e.g. tile_n_bits = 22:
+-            // image id (10 bits) | tile id (22 bits) | depth (32 bits)
+-            isect_ids[cur_idx] = iid_enc | (tile_id << 32) | depth_id_enc;
+-            // the flatten index in [I * N] or [nnz]
+-            flatten_ids[cur_idx] = static_cast<int32_t>(idx);
+-            ++cur_idx;
+-        }
++    // k recreates baseline's y-major/x-major serial logical output position.
++    // Distinct prefix-sum ranges make these writes atomic-free and disjoint.
++    const uint32_t lane = threadIdx.x & 31;
++    const uint32_t row_width = tile_max.x - tile_min.x;
++    const uint32_t count = (tile_max.y - tile_min.y) * row_width;
++    for (uint32_t k = lane; k < count; k += 32) {
++        const uint32_t row = k / row_width;
++        const uint32_t col = k - row * row_width;
++        int64_t tile_id = (tile_min.y + row) * tile_width + tile_min.x + col;
++        // e.g. tile_n_bits = 22:
++        // image id (10 bits) | tile id (22 bits) | depth (32 bits)
++        isect_ids[cur_idx + k] = iid_enc | (tile_id << 32) | depth_id_enc;
++        // the flatten index in [I * N] or [nnz]
++        flatten_ids[cur_idx + k] = static_cast<int32_t>(idx);
+     }
+ }
+@@ -154,7 +158,10 @@ void launch_intersect_tile_kernel(
+ 
+     dim3 threads(256);
+-    dim3 grid((n_elements + threads.x - 1) / threads.x);
++    // In second pass each 32-thread warp handles one Gaussian.  The first
++    // pass deliberately keeps its original one-thread/Gaussian mapping.
++    const int64_t launch_elements = cum_tiles_per_gauss.has_value()
++        ? n_elements * 32 : n_elements;
++    dim3 grid((launch_elements + threads.x - 1) / threads.x);
+     int64_t shmem_size = 0; // No shared memory used in this kernel

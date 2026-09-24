@@ -1,0 +1,1009 @@
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu
+@@ -70,7 +70,6 @@
+         }
+ 
+         auto opts_f = at::TensorOptions().dtype(at::kFloat).device(scene.means_planar.device());
+-        auto opts_h = at::TensorOptions().dtype(at::kHalf).device(scene.means_planar.device());
+         auto opts_i = at::TensorOptions().dtype(at::kInt).device(scene.means_planar.device());
+ 
+         // ---- Determine K from shape ----
+@@ -116,12 +115,12 @@
+         state->visible        = at::zeros({(num_gaussians + 31) / 32}, opts_i);
+         state->means2d        = at::empty({1, 1, num_gaussians, 2}, opts_f);
+         state->depths         = at::empty({1, 1, num_gaussians}, opts_f);
+-        state->conics         = at::empty({1, 1, num_gaussians, 4}, opts_h);
+-        state->colors         = at::zeros({num_gaussians, 4}, opts_h);
++        state->conics         = at::empty({1, 1, num_gaussians, 4}, opts_f);
++        state->colors         = at::zeros({num_gaussians, 4}, opts_f);
+ 
+         // ---- Pre-allocate default black background: [R, G, B, T] ----
+-        state->background = at::zeros({1, 4}, opts_h);
+-        state->background.select(1, 3).fill_(at::Half(1.0f));
++        state->background = at::zeros({1, 4}, opts_f);
++        state->background.select(1, 3).fill_(1.0f);
+ 
+         // ---- Create intersection stage ----
+         state->isect = std::make_unique<IntersectMTFused>();
+@@ -164,14 +163,14 @@
+         // redundant guard would cost ~2 us per frame in thread-local toggles.
+         DEVICE_GUARD(scene.means_planar);
+ 
+-        auto opts_h = at::TensorOptions().dtype(at::kHalf).device(scene.means_planar.device());
++        auto opts_f = at::TensorOptions().dtype(at::kFloat).device(scene.means_planar.device());
+ 
+         // ---- Validate out_rgbt if provided ----
+         if(out_rgbt.has_value())
+         {
+             const auto &buf = out_rgbt.value();
+             TORCH_CHECK(buf.is_cuda(), "out_rgbt must be a CUDA tensor");
+-            TORCH_CHECK(buf.dtype() == at::kHalf, "out_rgbt must be float16");
++            TORCH_CHECK(buf.dtype() == at::kFloat, "out_rgbt must be float32");
+             TORCH_CHECK(buf.is_contiguous(), "out_rgbt must be contiguous");
+             TORCH_CHECK(buf.dim() == 4, "out_rgbt must be 4D");
+             TORCH_CHECK(
+@@ -195,12 +194,12 @@
+         // ---- Early return for empty scene ----
+         if(state.num_gaussians == 0)
+         {
+-            at::Tensor rgbt = out_rgbt.has_value() ? out_rgbt.value() : at::zeros({1, height, width, 4}, opts_h);
++            at::Tensor rgbt = out_rgbt.has_value() ? out_rgbt.value() : at::zeros({1, height, width, 4}, opts_f);
+             rgbt.zero_();
+-            rgbt.select(3, 3).fill_(at::Half(1.0f));
++            rgbt.select(3, 3).fill_(1.0f);
+             if(background.has_value())
+             {
+-                rgbt.narrow(3, 0, 3).copy_(background.value().reshape({1, 1, 1, 3}).to(at::kHalf));
++                rgbt.narrow(3, 0, 3).copy_(background.value().reshape({1, 1, 1, 3}).to(at::kFloat));
+             }
+             return rgbt;
+         }
+@@ -238,22 +237,21 @@
+         // ---- Set background only when it changes from the cached default. ----
+         if(background.has_value())
+         {
+-            state.background.narrow(1, 0, 3).copy_(background.value().unsqueeze(0).to(at::kHalf));
++            state.background.narrow(1, 0, 3).copy_(background.value().unsqueeze(0).to(at::kFloat));
+             state.backgroundIsDefault = false;
+         }
+         else if(!state.backgroundIsDefault)
+         {
+             state.background.zero_();
+-            state.background.select(1, 3).fill_(at::Half(1.0f));
++            state.background.select(1, 3).fill_(1.0f);
+             state.backgroundIsDefault = true;
+         }
+ 
+         // ---- Select output framebuffer ----
+         // Python callers normally pass a pre-allocated out tensor; the allocation
+         // fallback keeps the C++ helper usable for direct calls and the stateless
+-        // compatibility wrapper.  Output is always half (fp16); callers that need
+-        // float32 convert after the call.
+-        at::Tensor rgbt = out_rgbt.has_value() ? out_rgbt.value() : at::empty({1, height, width, 4}, opts_h);
++        // compatibility wrapper.  Output is float32 in the FP32 native path.
++        at::Tensor rgbt = out_rgbt.has_value() ? out_rgbt.value() : at::empty({1, height, width, 4}, opts_f);
+ 
+         // ==================================================================
+         // Projection + SH evaluation
+@@ -387,8 +385,10 @@
+                 {}
+             );
+ 
+-            // colors_packed is already [N, 4] half {R, G, B, 0}
+-            raster_colors = &colors_packed;
++            // Pre-activated RGB: projection only, then copy colors (half or float)
++            // into the FP32 state buffer so the rasterizer always consumes float.
++            state.colors    = colors_packed.to(at::kFloat).contiguous();
++            raster_colors   = &state.colors;
+         }
+ 
+         // ==================================================================
+@@ -416,7 +416,7 @@
+         );
+ 
+         // ==================================================================
+-        // Return native half4 RGBT output
++        // Return native float4 RGBT output (FP32)
+         // ==================================================================
+         return rgbt;
+     }
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/IntersectCommon.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/IntersectCommon.h
+@@ -63,15 +63,14 @@
+ };
+ 
+ inline __device__ bool decode_gaussian_conic(
+-    const __half *__restrict__ conics, const float *__restrict__ means2d, int32_t idx, GaussianConic &gc
++    const float *__restrict__ conics, const float *__restrict__ means2d, int32_t idx, GaussianConic &gc
+ )
+ {
+-    __half conics_opac[4];
+-    AssignAs<uint2>(conics_opac, conics[idx * 4]);
+-    const float l0      = __half2float(conics_opac[0]);
+-    const float l1      = __half2float(conics_opac[1]);
+-    const float l2      = __half2float(conics_opac[2]);
+-    const float opacity = __half2float(conics_opac[3]);
++    const float4 conics_opac = reinterpret_cast<const float4 *>(conics)[idx]; // {l0,l1,l2,opacity} fp32
++    const float l0           = conics_opac.x;
++    const float l1           = conics_opac.y;
++    const float l2           = conics_opac.z;
++    const float opacity      = conics_opac.w;
+ 
+     gc.A = l0 * l0;
+     gc.B = l0 * l1;
+@@ -296,7 +295,7 @@
+     const float *__restrict__ means2d,
+     const uint32_t *__restrict__ visible,
+     const float *__restrict__ depths,
+-    const __half *__restrict__ conics,
++    const float *__restrict__ conics,
+     const int32_t macro_tile_cols,
+     const int32_t macro_tile_rows,
+     const int32_t *__restrict__ mt_gauss_offsets,
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/IntersectMTFused.cu
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/IntersectMTFused.cu
+@@ -46,7 +46,7 @@
+     const float *__restrict__ means2d,               // [N, 2] gaussian 2D positions
+     const uint32_t *__restrict__ visible,            // [ceil(N/32)] visibility bitmask
+     const float *__restrict__ depths,                // [N] gaussian depths (FILL only)
+-    const __half *__restrict__ conics,               // [N, 4] half {l0,l1,l2,opacity}
++    const float *__restrict__ conics,                // [N, 4] float {l0,l1,l2,opacity}
+     const int32_t macro_tile_cols,                   // macro-tile grid width
+     const int32_t macro_tile_rows,                   // macro-tile grid height
+     const int32_t *__restrict__ mt_gauss_offsets,    // [n_mt+1] FILL in: exclusive prefix sum
+@@ -87,7 +87,7 @@
+     const float *means2d,
+     const uint32_t *visible,
+     const float *depths,
+-    const __half *conics,
++    const float *conics,
+     const int32_t *mt_gauss_offsets,
+     int32_t *mt_depth_keys,
+     int32_t *mt_gauss_ids,
+@@ -246,7 +246,7 @@
+         means2d.data_ptr<float>(),
+         reinterpret_cast<const uint32_t *>(visible.data_ptr<int32_t>()),
+         nullptr,
+-        reinterpret_cast<const __half *>(conics.data_ptr<at::Half>()),
++        conics.data_ptr<float>(),
+         nullptr,
+         nullptr,
+         nullptr,
+@@ -296,7 +296,7 @@
+             means2d.data_ptr<float>(),
+             reinterpret_cast<const uint32_t *>(visible.data_ptr<int32_t>()),
+             depths.data_ptr<float>(),
+-            reinterpret_cast<const __half *>(conics.data_ptr<at::Half>()),
++            conics.data_ptr<float>(),
+             m_mtGaussOffsets.data_ptr<int32_t>(),
+             m_mtDepthKeys.data_ptr<int32_t>(),
+             m_mtGaussIds.data_ptr<int32_t>(),
+@@ -352,7 +352,7 @@
+     const int64_t max_tile_buf_size = max_tiles * m_tileSize * m_tileSize * 4;
+     if(max_tile_buf_size > m_tileBufferCapacity)
+     {
+-        m_tileBuffer         = at::empty({max_tile_buf_size}, at::TensorOptions().dtype(at::kHalf).device(at::kCUDA));
++        m_tileBuffer         = at::empty({max_tile_buf_size}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA));
+         m_tileBufferCapacity = max_tile_buf_size;
+     }
+ 
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/IntersectMTFused.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/IntersectMTFused.h
+@@ -103,8 +103,8 @@
+     int64_t m_chunkBlockScratchCapacity = 0; // high-water-mark for block_sums/block_prefixes
+ 
+     // Fused rasterize buffers (written by macro_tile_rasterize_kernel, read by post_blend)
+-    at::Tensor m_tileBuffer;          // [N] half — fixed-layout partial RGBT per (cta, mt-slot)
++    at::Tensor m_tileBuffer;          // [N] float — fixed-layout partial RGBT per (cta, mt-slot)
+     at::Tensor m_activeMask;          // [total_ctas] uint32 — per-CTA 32-bit tile overlap mask
+-    int64_t m_tileBufferCapacity = 0; // high-water-mark for m_tileBuffer (in half elements)
++    int64_t m_tileBufferCapacity = 0; // high-water-mark for m_tileBuffer (in float elements)
+     int64_t m_metadataCapacity   = 0; // high-water-mark for m_activeMask
+ };
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.cu
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.cu
+@@ -15,7 +15,7 @@
+  * limitations under the License.
+  */
+ 
+-// Macro-tile rasterize + post-blend kernels.
++// Macro-tile rasterize + post-blend kernels (FP32 forward-only native hierarchy).
+ //
+ // Kernel 1 (macro_tile_rasterize_kernel):
+ //   CTA_WARPS warps per (macro-tile, batch) pair.  Two-phase design
+@@ -41,15 +41,14 @@
+ //
+ //   Deferred color load (between transition and phase 2):
+ //     Full CTA re-reads gauss ids and pulls per-gaussian colors from
+-//     global into the overlap region.  Colors are packed {RG : half2,
+-//     B : half} to drop the unused 4th slot of the [N,4] half layout.
++//     global into the overlap region.  Colors are fp32 {R,G,B,0}.
+ //
+ //   Phase 2 — per-tile rasterization:
+ //     Loops over active tiles with work-stealing warp assignment.  Each
+-//     warp cooperatively rasterizes one tile using N_PAIRS x 4 half2
++//     warp cooperatively rasterizes one tile using N_PAIRS x 4 float2
+ //     accumulators.  For each tile, reads pre-computed masks from smem
+ //     and iterates set bits to fetch gaussian data from smem (xy_mt,
+-//     conic, color_rg, color_b).
++//     conic, color).
+ //     Writes partial RGBT to sparse tile_buffer after each tile.
+ //
+ // Kernel 2 (macro_tile_post_blend_kernel):
+@@ -57,6 +56,12 @@
+ //   order, reads partial RGBT from sparse buffer (skipping inactive
+ //   batches via active_mask), composites front-to-back with transmittance
+ //   early-out, writes final image.
++//
++// FP32 PORT: all gaussian state (conics/opacity, colors, partial RGBT,
++// background) and all per-pixel compose arithmetic use FP32 (float / float2)
++// instead of FP16.  The algorithm, ordering, thresholds, mask semantics and
++// buffer layout are unchanged except that each 16-bit lane value becomes a
++// 32-bit float.
+ 
+ #include <ATen/core/Tensor.h>
+ #include <ATen/ops/empty.h>
+@@ -84,6 +89,34 @@
+ static_assert(ALPHA_THRESHOLD == 1.0f / 255.0f, "LOG2_INV_AT / ALPHA_THRESHOLD mismatch -> update LOG2_INV_AT");
+ static constexpr float MIN_TRANSPARENCY = 1e-4f;
+ 
++// ---- FP32 vector helpers (FP32 replacement for the deprecated half2 SIMD intrinsics) ----
++// A float2 holds a 2-pixel lane-pair, mirroring the original __half2 pair slots.
++__device__ __forceinline__ float2 F2Add(float2 a, float2 b)
++{
++    return make_float2(a.x + b.x, a.y + b.y);
++}
++__device__ __forceinline__ float2 F2Sub(float2 a, float2 b)
++{
++    return make_float2(a.x - b.x, a.y - b.y);
++}
++__device__ __forceinline__ float2 F2Mul(float2 a, float2 b)
++{
++    return make_float2(a.x * b.x, a.y * b.y);
++}
++// fused-multiply-add with a scalar broadcast first operand
++__device__ __forceinline__ float2 F2Sfma(float s, float2 b, float2 c)
++{
++    return make_float2(fmaf(s, b.x, c.x), fmaf(s, b.y, c.y));
++}
++__device__ __forceinline__ float2 F2Fma(float2 a, float2 b, float2 c)
++{
++    return make_float2(fmaf(a.x, b.x, c.x), fmaf(a.y, b.y, c.y));
++}
++__device__ __forceinline__ float2 F2Clamp(float2 a, float2 lo, float2 hi)
++{
++    return make_float2(fminf(fmaxf(a.x, lo.x), hi.x), fminf(fmaxf(a.y, lo.y), hi.y));
++}
++
+ // 32x32 bit-matrix transpose within a warp via 5 stages of __shfl_xor_sync.
+ // input:  thread j holds val where bit t means "gaussian j overlaps tile t"
+ // output: thread t holds val where bit j means "gaussian j overlaps tile t"
+@@ -103,72 +136,62 @@
+ }
+ 
+ // generate a 32-bit render-tile mask for a single gaussian against all 32 render-tiles.
+-__device__ __forceinline__ uint32_t
+-    GetMacroTileVisibilityMask(const __half2 &xy_mt, const __half2 (&rast_conic)[2], float neg_l1_rcp_C, float t_rast)
++// con = {l0, l1, l2, neg_log_opac} in render-tile units (already cholesky-scaled / opacity-fused).
++// FP32 port of the original half2 lane math: same geometric tests, scalar float arithmetic.
++__device__ __forceinline__ uint32_t GetMacroTileVisibilityMask(
++    const float2 &xy_mt, const float4 &con, float neg_l1_rcp_C, float t_rast
++)
+ {
+-    // test against all 32 render-tiles (4 rows x 4 column-pairs).
+-    // row setup and inner loop are pure half2 math.
++    const float mt_rel_x = xy_mt.x;
++    const float mt_rel_y = xy_mt.y;
++    const float c_l0     = con.x;
++    const float c_l1     = con.y;
++    const float c_l2     = con.z;
+ 
+-    // half2 broadcasts for the overlap test (2 columns at a time)
+-    const __half2 h2_mt_rel_x     = __low2half2(xy_mt);
+-    const __half2 h2_mt_rel_y     = __high2half2(xy_mt);
+-    const __half2 h2_c_l0         = __low2half2(rast_conic[0]);
+-    const __half2 h2_c_l1         = __high2half2(rast_conic[0]);
+-    const __half2 h2_c_l2         = __low2half2(rast_conic[1]);
+-    const __half2 h2_neg_l1_rcp_C = __float2half2_rn(neg_l1_rcp_C);
+-    const __half2 h2_t_rast       = __float2half2_rn(t_rast);
+-
+-    uint32_t tile_mask_even = 0;
+-    uint32_t tile_mask_odd  = 0;
++    uint32_t tile_mask = 0;
+ #pragma unroll
+     for(int32_t r = 0; r < FUSED_MACRO_TILE_HEIGHT; ++r)
+     {
+-        const __half2 h2_ny = __hsub2(h2_mt_rel_y, __float2half2_rn(r + 0.5f - FUSED_MACRO_TILE_HEIGHT * 0.5f));
+-        const uint32_t ny_inside_mask = __hlt2_mask(__habs2(h2_ny), __float2half2_rn(0.5f));
+-        const __half2 h2_dy0          = __hsub2(__float2half2_rn(-0.5f), h2_ny);
+-        const __half2 h2_dy1          = __hadd2(h2_dy0, __float2half2_rn(1.f));
+-        const __half2 h2_dy_h         = __h2if(__hgeu2_mask(h2_ny, __float2half2_rn(0.0f)), h2_dy1, h2_dy0);
+-        const __half2 h2_l1_dy        = __hmul2(h2_c_l1, h2_dy_h);
+-        const __half2 h2_v_h          = __hmul2(h2_c_l2, h2_dy_h);
+-        const __half2 h2_v_h_sq       = __hmul2(h2_v_h, h2_v_h);
++        const float ny      = mt_rel_y - (r + 0.5f - FUSED_MACRO_TILE_HEIGHT * 0.5f);
++        const float dy0     = -0.5f - ny;
++        const float dy1     = dy0 + 1.f;
++        const float dy_h    = (ny >= 0.f) ? dy1 : dy0;
++        const float l1_dy   = c_l1 * dy_h;
++        const float v_h     = c_l2 * dy_h;
++        const float v_h_sq  = v_h * v_h;
+ 
+ #pragma unroll
+-        for(int32_t c = 0; c < FUSED_MACRO_TILE_WIDTH; c += 2)
++        for(int32_t c = 0; c < FUSED_MACRO_TILE_WIDTH; ++c)
+         {
+             const int32_t t = r * FUSED_MACRO_TILE_WIDTH + c;
+ 
+-            const __half2 nx = __hsub2(
+-                h2_mt_rel_x,
+-                __floats2half2_rn(c + 0.5f - FUSED_MACRO_TILE_WIDTH * 0.5f, c + 1.5f - FUSED_MACRO_TILE_WIDTH * 0.5f)
+-            );
+-
+-            const __half2 dx0    = __hsub2(__float2half2_rn(-0.5f), nx);
+-            const __half2 l0_dx0 = __hmul2(h2_c_l0, dx0);
+-            const __half2 l0_dx1 = __hadd2(l0_dx0, h2_c_l0);
++            const float nx   = mt_rel_x - (c + 0.5f - FUSED_MACRO_TILE_WIDTH * 0.5f);
++            const float dx0  = -0.5f - nx;
++            const float l0_dx0 = c_l0 * dx0;
++            const float l0_dx1 = l0_dx0 + c_l0;
+ 
+             // horizontal edge test
+-            const __half2 u_h
+-                = __hmin2(__hmax2(__float2half2_rn(0.0f), __hadd2(l0_dx0, h2_l1_dy)), __hadd2(l0_dx1, h2_l1_dy));
+-            const __half2 q_h = __hfma2(u_h, u_h, h2_v_h_sq);
++            const float u_h = fminf(fmaxf(0.0f, l0_dx0 + l1_dy), l0_dx1 + l1_dy);
++            const float q_h = u_h * u_h + v_h_sq;
+ 
+             // vertical edge test
+-            const __half2 l0_dx = __h2if(__hgeu2_mask(nx, __float2half2_rn(0.0f)), l0_dx1, l0_dx0);
+-            const __half2 dy_v  = __hmin2(__hmax2(__hmul2(l0_dx, h2_neg_l1_rcp_C), h2_dy0), h2_dy1);
+-            const __half2 u_v   = __hfma2(h2_c_l1, dy_v, l0_dx);
+-            const __half2 v_v   = __hmul2(h2_c_l2, dy_v);
+-            const __half2 q_v   = __hfma2(v_v, v_v, __hmul2(u_v, u_v));
+-
+-            // center inside = |nx| < 0.5 AND |ny| < 0.5 (both masks in {bit0, bit16} format)
+-            const uint32_t center_hit = ny_inside_mask & __hlt2_mask(__habs2(nx), __float2half2_rn(0.5f));
+-            const uint32_t edge_hit   = __hle2_mask(__hmin2(q_h, q_v), h2_t_rast);
+-            const uint32_t hit        = center_hit | edge_hit;
+-
+-            // __hxx2_mask: bit 0 = low half, bit 16 = high half → pack to positions t, t+1
+-            tile_mask_even |= (hit & 1u) << t;
+-            tile_mask_odd  |= (hit >> 31) << (t + 1);
++            const float l0_dx = (nx >= 0.f) ? l0_dx1 : l0_dx0;
++            const float dy_v  = fminf(fmaxf(l0_dx * neg_l1_rcp_C, dy0), dy1);
++            const float u_v   = c_l1 * dy_v + l0_dx;
++            const float v_v   = c_l2 * dy_v;
++            const float q_v   = v_v * v_v + u_v * u_v;
++
++            // center inside = |nx| < 0.5 AND |ny| < 0.5
++            const bool center_hit = (fabsf(nx) < 0.5f) && (fabsf(ny) < 0.5f);
++            const bool edge_hit   = fminf(q_h, q_v) <= t_rast;
++
++            if(center_hit || edge_hit)
++            {
++                tile_mask |= (1u << t);
++            }
+         }
+     }
+-    return tile_mask_even | tile_mask_odd;
++    return tile_mask;
+ }
+ 
+ // kernel arguments passed as a single struct to reduce parameter count.
+@@ -179,12 +202,12 @@
+     int32_t tile_width;
+     int32_t tile_height;
+     const float *means2d;
+-    const __half *conics;
+-    const __half *colors;
++    const float *conics;
++    const float *colors;
+     const int32_t *mt_gauss_offsets;
+     const int32_t *mt_gauss_ids_sorted;
+     const int32_t *mt_batch_offsets;
+-    __half *tile_buffer;
++    float *tile_buffer;
+     uint32_t *out_active_mask;
+ };
+ 
+@@ -219,10 +242,11 @@
+     constexpr int32_t PIXELS_PER_THREAD = TILE_SIZE * TILE_SIZE / (32 / GAUSS_PER_WARP);
+     constexpr int32_t N_PAIRS           = PIXELS_PER_THREAD / 2;
+ 
+-    // shared memory — single raw block, pointers chained from top
++    // shared memory — single raw block, pointers chained from top.
++    // FP32 smem state: xy_mt as float2, conic as float4, color as float4.
+     constexpr int32_t SMEM_MASKS_COUNT = MAX_MINI_BATCHES * MACRO_TILE_SIZE;
+     constexpr int32_t SMEM_SIZE
+-        = FUSED_GAUSS_BATCH_SIZE * (sizeof(__half2) + sizeof(uint2) + sizeof(__half2) + sizeof(__half2))
++        = FUSED_GAUSS_BATCH_SIZE * (sizeof(float2) + sizeof(float4) + sizeof(float4))
+         + (MACRO_TILE_SIZE + 2) * sizeof(int32_t)
+         + SMEM_MASKS_COUNT * sizeof(uint32_t)
+         + 1 * sizeof(int32_t);
+@@ -231,8 +255,8 @@
+         (RASTERIZE_QUEUE_CAPACITY & (RASTERIZE_QUEUE_CAPACITY - 1)) == 0, "QUEUE_CAPACITY must be a power of 2"
+     );
+ 
+-    // N_PAIRS x {R,G,B,T} half2 accumulators — each [pp] is a contiguous uint4
+-    using TileAccum = __half2[N_PAIRS][4];
++    // N_PAIRS x {R,G,B,T} float2 accumulators — each [pp] is a scalar-pair holding one 2-pixel row-pair
++    using TileAccum = float2[N_PAIRS][4];
+ 
+     // let NVCC know that warp_id is a warm uniform (doh!)
+     const int32_t warp_id = __shfl_sync(~0u, threadIdx.x >> 5, 0);
+@@ -240,23 +264,21 @@
+ 
+     __shared__ alignas(16) char smem_raw[SMEM_SIZE];
+ 
+-    // gaussian position + conic (written in phase 1, read in phase 2)
+-    __half2 *smem_xy_mt   = reinterpret_cast<__half2 *>(smem_raw);
+-    uint2 *smem_conic_raw = reinterpret_cast<uint2 *>(smem_xy_mt + FUSED_GAUSS_BATCH_SIZE);
+-
+-    // tile work queue: [0..31] tile ids, [32] queue size, [33] pull counter
+-    int32_t *smem_tile_queue = reinterpret_cast<int32_t *>(smem_conic_raw + FUSED_GAUSS_BATCH_SIZE);
+-    int32_t &smem_queue_size = smem_tile_queue[MACRO_TILE_SIZE];
+-    int32_t &smem_queue_idx  = smem_tile_queue[MACRO_TILE_SIZE + 1];
++    // gaussian color {R,G,B,0} and fused cholesky conic {l0,l1,l2,-log2opac} (16B aligned first)
++    float4 *smem_conic_raw = reinterpret_cast<float4 *>(smem_raw);
++    float4 *smem_color     = reinterpret_cast<float4 *>(smem_conic_raw + FUSED_GAUSS_BATCH_SIZE);
+ 
+-    // per-gaussian color packed as 4xfp16 (loaded before phase 2)
+-    ushort4 *smem_color = reinterpret_cast<ushort4 *>(smem_tile_queue + MACRO_TILE_SIZE + 2);
++    // gaussian position (16B-aligned base, 8B stride is fine for float2)
++    float2 *smem_xy_mt = reinterpret_cast<float2 *>(smem_color + FUSED_GAUSS_BATCH_SIZE);
+ 
+-    // visibility masks (filled during fused load via warp transpose, read in phase 2)
+-    uint32_t *smem_masks = reinterpret_cast<uint32_t *>(smem_color + FUSED_GAUSS_BATCH_SIZE);
++    // tile work queue: [0..31] tile ids, [32] queue size, [33] pull counter
++    uint32_t *smem_masks      = reinterpret_cast<uint32_t *>(smem_xy_mt + FUSED_GAUSS_BATCH_SIZE);
++    int32_t *smem_tile_queue  = reinterpret_cast<int32_t *>(smem_masks + SMEM_MASKS_COUNT);
++    int32_t &smem_queue_size  = smem_tile_queue[MACRO_TILE_SIZE];
++    int32_t &smem_queue_idx   = smem_tile_queue[MACRO_TILE_SIZE + 1];
+ 
+     // cross-warp broadcast scratch:
+-    int32_t *smem_scratch = reinterpret_cast<int32_t *>(smem_masks + SMEM_MASKS_COUNT);
++    int32_t *smem_scratch = reinterpret_cast<int32_t *>(smem_tile_queue + MACRO_TILE_SIZE + 2);
+     int32_t &smem_mt_id   = smem_scratch[0];
+ 
+     // per-warp gaussian index queue for rasterization (ring buffer, filled across mini-batches).
+@@ -285,47 +307,47 @@
+     // smem loads and dx/u0_base are invariant across pairs — only dy-dependent
+     // math runs per pair, keeping smem traffic at 1 load per gaussian.
+     auto rasterizeGaussian = [&smem_xy_mt, &smem_conic_raw, &smem_color](
+-                                 int32_t idx, const __half2 &offset_x, const __half2(&offset_y)[N_PAIRS], TileAccum &acc
++                                 int32_t idx, float offset_x, const float2(&offset_y)[N_PAIRS], TileAccum &acc
+                              )
+     {
+-        const __half2 xy_mt_j = smem_xy_mt[idx];
+-        __half2 rc[2];
+-        AssignAs<uint2>(rc, smem_conic_raw[idx]);
+-        __half2 col[2];
+-        AssignAs<uint2>(col, smem_color[idx]);
+-
+-        const __half2 sigma_thresh = __float2half2_rn(LOG2_INV_AT);
+-        const __half2 l00          = __low2half2(rc[0]);
+-        const __half2 l10          = __high2half2(rc[0]);
+-        const __half2 l11          = __low2half2(rc[1]);
+-        const __half2 neg_log_opac = __high2half2(rc[1]);
+-        const __half2 cr           = __half2half2(__low2half(col[0]));
+-        const __half2 cg           = __half2half2(__high2half(col[0]));
+-        const __half2 cb           = __low2half2(col[1]);
+-
+-        const __half2 dx      = __hsub2(__low2half2(xy_mt_j), offset_x);
+-        const __half2 mean_y  = __high2half2(xy_mt_j);
+-        const __half2 u0_base = __hmul2(l00, dx);
++        const float2 xy_mt_j = smem_xy_mt[idx];
++        const float4 rc      = smem_conic_raw[idx]; // {l0,l1,l2,-log2opac}
++        const float4 col     = smem_color[idx];     // {R,G,B,0}
++
++        const float sigma_thresh = LOG2_INV_AT;
++        const float l00          = rc.x;
++        const float l10          = rc.y;
++        const float l11          = rc.z;
++        const float neg_log_opac = rc.w;
++        const float cR           = col.x;
++        const float cG           = col.y;
++        const float cB           = col.z;
++
++        const float2 dx      = make_float2(xy_mt_j.x - offset_x, xy_mt_j.y - offset_x);
++        const float  mean_y  = xy_mt_j.y;
++        const float2 u0_base = make_float2(l00 * dx.x, l00 * dx.y);
+ 
+ #pragma unroll
+         for(int32_t pp = 0; pp < N_PAIRS; ++pp)
+         {
+-            const __half2 dy       = __hsub2(mean_y, offset_y[pp]);
+-            const __half2 u0       = __hfma2(l10, dy, u0_base);
+-            const __half2 u1       = __hmul2(l11, dy);
++            const float2 dy       = make_float2(mean_y - offset_y[pp].x, mean_y - offset_y[pp].y);
++            const float2 u0       = make_float2(fmaf(l10, dy.x, u0_base.x), fmaf(l10, dy.y, u0_base.y));
++            const float2 u1       = make_float2(l11 * dy.x, l11 * dy.y);
+             // fused sigma: u0^2 + u1^2 - log2(opac), so exp2(-sigma) = opac * exp2(-(u0^2+u1^2))
+-            const __half2 sigma    = __hfma2(u1, u1, __hfma2(u0, u0, neg_log_opac));
++            const float2 sigma    = make_float2(
++                fmaf(u1.x, u1.x, fmaf(u0.x, u0.x, neg_log_opac)),
++                fmaf(u1.y, u1.y, fmaf(u0.y, u0.y, neg_log_opac))
++            );
+             // threshold in sigma domain (sigma < log2(1/AT) implies alpha > AT);
+-            // strict < avoids boundary rounding from exp2 approx; comparison
+-            // runs parallel with hneg2+exp2, off the critical path
+-            const uint32_t ok_mask = __hlt2_mask(sigma, sigma_thresh);
+-            const __half2 alpha    = __h2exp2_approx(__hneg2(sigma));
+-            const __half2 alpha_ht = __h2if(ok_mask, alpha, __float2half2_rn(0.0f));
+-            const __half2 vis      = __hmul2(alpha_ht, acc[pp][3]);
+-            acc[pp][0]             = __hfma2(cr, vis, acc[pp][0]);
+-            acc[pp][1]             = __hfma2(cg, vis, acc[pp][1]);
+-            acc[pp][2]             = __hfma2(cb, vis, acc[pp][2]);
+-            acc[pp][3]             = __hsub2_sat(acc[pp][3], vis);
++            const float2 alpha    = make_float2(exp2f(-sigma.x), exp2f(-sigma.y));
++            const float2 alpha_ht = make_float2((sigma.x < sigma_thresh) ? alpha.x : 0.0f,
++                                                (sigma.y < sigma_thresh) ? alpha.y : 0.0f);
++            const float2 vis      = F2Mul(alpha_ht, acc[pp][3]);
++            acc[pp][0]            = F2Sfma(cR, vis, acc[pp][0]);
++            acc[pp][1]            = F2Sfma(cG, vis, acc[pp][1]);
++            acc[pp][2]            = F2Sfma(cB, vis, acc[pp][2]);
++            // saturating subtract: transmittance stays in [0,1]
++            acc[pp][3]            = F2Clamp(F2Sub(acc[pp][3], vis), make_float2(0.0f, 0.0f), make_float2(1.0f, 1.0f));
+         }
+     };
+ 
+@@ -372,34 +394,31 @@
+ 
+             float2 pos;
+             AssignAs<float2>(pos, args.means2d[g * 2]);
+-            __half2 raw_conic[2];
+-            AssignAs<uint2>(raw_conic, args.conics[g * 4]);
++            const float4 raw_conic = reinterpret_cast<const float4 *>(args.conics)[g]; // {l0,l1,l2,opacity} fp32
+ 
+             // write persistent smem for phase 2
+             const float mt_rel_x = pos.x * INV_TILE_SIZE - mt_cx;
+             const float mt_rel_y = pos.y * INV_TILE_SIZE - mt_cy;
+             // gaussian position in render-tile units relative to macro-tile center
+-            const __half2 xy_mt  = __floats2half2_rn(mt_rel_x, mt_rel_y);
+-            smem_xy_mt[i]        = xy_mt;
++            smem_xy_mt[i] = make_float2(mt_rel_x, mt_rel_y);
+ 
+             // cholesky factors in render-tile units, with -log2(opac) fused into the conic
+-            // slot formerly occupied by raw opacity (eliminates one hmul2 in the rasterization loop)
+-            const float opacity   = __half2float(__high2half(raw_conic[1]));
++            // slot formerly occupied by raw opacity
++            const float opacity   = raw_conic.w;
+             const float log2_opac = __log2f(opacity);
+-            __half2 rast_conic[2]
+-                = {__hmul2(raw_conic[0], __floats2half2_rn(CHOL_SCALE, CHOL_SCALE)),
+-                   __floats2half2_rn(__half2float(__low2half(raw_conic[1])) * CHOL_SCALE, -log2_opac)};
+-            AssignAs<uint2>(smem_conic_raw[i], rast_conic);
++            const float4 rast_conic
++                = make_float4(raw_conic.x * CHOL_SCALE, raw_conic.y * CHOL_SCALE, raw_conic.z * CHOL_SCALE, -log2_opac);
++            smem_conic_raw[i] = rast_conic;
+ 
+             // neg_l1_rcp_C and t_rast need fp32 (division, log2)
+-            const float c_l1_f = __half2float(__high2half(rast_conic[0]));
+-            const float c_l2_f = __half2float(__low2half(rast_conic[1]));
++            const float c_l1_f = rast_conic.y;
++            const float c_l2_f = rast_conic.z;
+ 
+             const float C            = c_l1_f * c_l1_f + c_l2_f * c_l2_f;
+             const float neg_l1_rcp_C = (C > 0.f) ? (-c_l1_f / C) : 0.f;
+             const float t_rast       = min(MAX_EXTEND_CHOL_SQ, log2_opac + LOG2_INV_AT);
+ 
+-            tile_mask = GetMacroTileVisibilityMask(xy_mt, rast_conic, neg_l1_rcp_C, t_rast);
++            tile_mask = GetMacroTileVisibilityMask(smem_xy_mt[i], rast_conic, neg_l1_rcp_C, t_rast);
+         }
+ 
+         // warp bit-matrix transpose: per-gaussian tile masks -> per-tile gaussian masks
+@@ -414,12 +433,12 @@
+         smem_masks[mb * MACRO_TILE_SIZE + lane_id] = 0;
+     }
+ 
+-    // deferred color load
++    // deferred color load (fp32 {R,G,B,0})
+ #pragma unroll 1
+     for(int32_t i = threadIdx.x; i < n_gauss; i += blockDim.x)
+     {
+-        const int32_t g = args.mt_gauss_ids_sorted[gauss_start + i];
+-        AssignAs<uint2>(smem_color[i], args.colors[g * 4]);
++        const int32_t g  = args.mt_gauss_ids_sorted[gauss_start + i];
++        smem_color[i]    = reinterpret_cast<const float4 *>(args.colors)[g];
+     }
+ 
+     __syncthreads(); // persistent smem + masks visible to all warps
+@@ -474,24 +493,26 @@
+         const int32_t tile_idx = smem_tile_queue[queue_idx];
+ 
+         // combined pixel offset: render-tile column + intra-tile pixel x, in macro-tile-relative tile units
+-        const __half2 offset_x = __float2half2_rn(static_cast<float>(tile_idx % FUSED_MACRO_TILE_WIDTH) + px);
++        const float offset_x = static_cast<float>(tile_idx % FUSED_MACRO_TILE_WIDTH) + px;
+         // combined pixel-pair offsets: render-tile row + intra-tile pixel y + per-pair row step
+-        const __half2 base_y   = __float2half2_rn(static_cast<float>(tile_idx / FUSED_MACRO_TILE_WIDTH) + py);
++        const float base_y   = static_cast<float>(tile_idx / FUSED_MACRO_TILE_WIDTH) + py;
+ 
+         // distance in rows between even/odd lanes of the accumulator.
+         // for GAUSS_PER_WARP=2 each half-warp (16 lanes) covers the entire tile, so the row stride
+         // halves and N_PAIRS doubles compared to GAUSS_PER_WARP=1 — total pixel coverage per half is identical.
+         constexpr int32_t ROW_STRIDE  = (32 / GAUSS_PER_WARP) / TILE_SIZE;
+         constexpr float ROW_PAIR_STEP = ROW_STRIDE * INV_TILE_SIZE;
+-        __half2 offset_y[N_PAIRS];
++        float2 offset_y[N_PAIRS];
+ #pragma unroll
+         for(int32_t pp = 0; pp < N_PAIRS; ++pp)
+         {
+-            offset_y[pp] = __hadd2(base_y, __floats2half2_rn((2 * pp) * ROW_PAIR_STEP, (2 * pp + 1) * ROW_PAIR_STEP));
++            offset_y[pp] = make_float2(base_y + (2 * pp) * ROW_PAIR_STEP, base_y + (2 * pp + 1) * ROW_PAIR_STEP);
+         }
+ 
+-        constexpr int32_t TILE_SIZE_BYTES = TILE_SIZE * TILE_SIZE * 4 * sizeof(__half);
+-        constexpr int32_t PAIR_STRIDE     = 32 * sizeof(uint4);
++        // fp32 tile payload: TILE_SIZE*TILE_SIZE pixels, 4 channels (R,G,B,T) each.
++        constexpr int32_t TILE_SIZE_BYTES = TILE_SIZE * TILE_SIZE * 4 * sizeof(float);
++        // pair-major layout: all 32 lanes' (8-float) slot for one pair contiguous, then next pair
++        constexpr int32_t PAIR_STRIDE     = 32 * (4 * sizeof(float2));
+ 
+         // seed accumulators to identity.
+         // For GAUSS_PER_WARP=2 the drain loop wipes half-B's slot back to identity at the
+@@ -501,10 +522,10 @@
+ #pragma unroll
+         for(int32_t pp = 0; pp < N_PAIRS; ++pp)
+         {
+-            acc_rgbt[pp][0] = __float2half2_rn(0.f);
+-            acc_rgbt[pp][1] = __float2half2_rn(0.f);
+-            acc_rgbt[pp][2] = __float2half2_rn(0.f);
+-            acc_rgbt[pp][3] = __float2half2_rn(1.f);
++            acc_rgbt[pp][0] = make_float2(0.f, 0.f);
++            acc_rgbt[pp][1] = make_float2(0.f, 0.f);
++            acc_rgbt[pp][2] = make_float2(0.f, 0.f);
++            acc_rgbt[pp][3] = make_float2(1.f, 1.f);
+         }
+ 
+         // ring-buffer rasterization: stream masks across mini-batches into a
+@@ -576,10 +597,10 @@
+ #pragma unroll
+                     for(int32_t pp = 0; pp < N_PAIRS; ++pp)
+                     {
+-                        acc_rgbt[pp][0] = __float2half2_rn(0.f);
+-                        acc_rgbt[pp][1] = __float2half2_rn(0.f);
+-                        acc_rgbt[pp][2] = __float2half2_rn(0.f);
+-                        acc_rgbt[pp][3] = __float2half2_rn(1.f);
++                        acc_rgbt[pp][0] = make_float2(0.f, 0.f);
++                        acc_rgbt[pp][1] = make_float2(0.f, 0.f);
++                        acc_rgbt[pp][2] = make_float2(0.f, 0.f);
++                        acc_rgbt[pp][3] = make_float2(1.f, 1.f);
+                     }
+                 }
+ 
+@@ -629,24 +650,25 @@
+ #pragma unroll
+                     for(int32_t k = 0; k < 4; ++k)
+                     {
+-                        other[pp][k] = __shfl_xor_sync(~0u, acc_rgbt[pp][k], 16);
++                        other[pp][k].x = __shfl_xor_sync(~0u, acc_rgbt[pp][k].x, 16);
++                        other[pp][k].y = __shfl_xor_sync(~0u, acc_rgbt[pp][k].y, 16);
+                     }
+                 }
+ #pragma unroll
+                 for(int32_t pp = 0; pp < N_PAIRS; ++pp)
+                 {
+-                    const __half2 a_r = is_half_a ? acc_rgbt[pp][0] : other[pp][0];
+-                    const __half2 a_g = is_half_a ? acc_rgbt[pp][1] : other[pp][1];
+-                    const __half2 a_b = is_half_a ? acc_rgbt[pp][2] : other[pp][2];
+-                    const __half2 a_t = is_half_a ? acc_rgbt[pp][3] : other[pp][3];
+-                    const __half2 b_r = is_half_a ? other[pp][0] : acc_rgbt[pp][0];
+-                    const __half2 b_g = is_half_a ? other[pp][1] : acc_rgbt[pp][1];
+-                    const __half2 b_b = is_half_a ? other[pp][2] : acc_rgbt[pp][2];
+-                    const __half2 b_t = is_half_a ? other[pp][3] : acc_rgbt[pp][3];
+-                    acc_rgbt[pp][0]   = __hfma2(a_t, b_r, a_r);
+-                    acc_rgbt[pp][1]   = __hfma2(a_t, b_g, a_g);
+-                    acc_rgbt[pp][2]   = __hfma2(a_t, b_b, a_b);
+-                    acc_rgbt[pp][3]   = __hmul2(a_t, b_t);
++                    const float2 a_r = is_half_a ? acc_rgbt[pp][0] : other[pp][0];
++                    const float2 a_g = is_half_a ? acc_rgbt[pp][1] : other[pp][1];
++                    const float2 a_b = is_half_a ? acc_rgbt[pp][2] : other[pp][2];
++                    const float2 a_t = is_half_a ? acc_rgbt[pp][3] : other[pp][3];
++                    const float2 b_r = is_half_a ? other[pp][0] : acc_rgbt[pp][0];
++                    const float2 b_g = is_half_a ? other[pp][1] : acc_rgbt[pp][1];
++                    const float2 b_b = is_half_a ? other[pp][2] : acc_rgbt[pp][2];
++                    const float2 b_t = is_half_a ? other[pp][3] : acc_rgbt[pp][3];
++                    acc_rgbt[pp][0]   = F2Fma(a_t, b_r, a_r);
++                    acc_rgbt[pp][1]   = F2Fma(a_t, b_g, a_g);
++                    acc_rgbt[pp][2]   = F2Fma(a_t, b_b, a_b);
++                    acc_rgbt[pp][3]   = F2Mul(a_t, b_t);
+                 }
+             }
+             read_head += count;
+@@ -655,10 +677,14 @@
+ #pragma unroll
+             for(int32_t pp = 0; pp < N_PAIRS; ++pp)
+             {
+-                uint32_t stripe_done = __hlt2_mask(acc_rgbt[pp][3], __float2half2_rn(MIN_TRANSPARENCY));
+-                if constexpr(N_PAIRS > 1)
++                uint32_t stripe_done = 0;
++                if(acc_rgbt[pp][3].x < MIN_TRANSPARENCY)
++                {
++                    stripe_done |= (1u << pp);
++                }
++                if(acc_rgbt[pp][3].y < MIN_TRANSPARENCY)
+                 {
+-                    stripe_done &= (0x10001u << pp);
++                    stripe_done |= (0x10000u << pp);
+                 }
+                 tile_done |= stripe_done;
+             }
+@@ -672,10 +698,11 @@
+             }
+         }
+ 
+-        // write tile — pair-major layout for coalesced access across the warp
++        // write tile — pair-major layout for coalesced access across the warp.
++        // each lane writes its 8-float (R,G,B,T pair) patch per pp via float2 slots.
+         const int64_t tile_base = static_cast<int64_t>(mt_batch_idx) * (MACRO_TILE_SIZE * TILE_SIZE_BYTES)
+                                 + tile_idx * TILE_SIZE_BYTES
+-                                + lane_id * sizeof(uint4);
++                                + lane_id * (4 * sizeof(float2));
+         uint8_t *dst_ptr        = reinterpret_cast<uint8_t *>(args.tile_buffer) + tile_base;
+         if constexpr(GAUSS_PER_WARP == 1)
+         {
+@@ -683,9 +710,11 @@
+             for(int32_t pp = 0; pp < N_PAIRS; ++pp)
+             {
+                 // let's use streaming stores since we're not going to touch this data anymore
+-                uint4 val;
+-                AssignAs<uint4>(val, acc_rgbt[pp]);
+-                __stcs(reinterpret_cast<uint4 *>(dst_ptr + pp * PAIR_STRIDE), val);
++                float2 *p = reinterpret_cast<float2 *>(dst_ptr + pp * PAIR_STRIDE);
++                __stcs(p + 0, acc_rgbt[pp][0]);
++                __stcs(p + 1, acc_rgbt[pp][1]);
++                __stcs(p + 2, acc_rgbt[pp][2]);
++                __stcs(p + 3, acc_rgbt[pp][3]);
+             }
+         }
+         else
+@@ -698,16 +727,18 @@
+ #pragma unroll
+             for(int32_t pp = 0; pp < N_PAIRS_OUT; ++pp)
+             {
+-                __half2 out[4];
++                float2 outv[4];
+ #pragma unroll
+                 for(int32_t k = 0; k < 4; ++k)
+                 {
+-                    out[k] = is_half_a ? __lows2half2(acc_rgbt[2 * pp][k], acc_rgbt[2 * pp + 1][k])
+-                                       : __highs2half2(acc_rgbt[2 * pp][k], acc_rgbt[2 * pp + 1][k]);
++                    outv[k] = is_half_a ? make_float2(acc_rgbt[2 * pp][k].x, acc_rgbt[2 * pp + 1][k].x)
++                                        : make_float2(acc_rgbt[2 * pp][k].y, acc_rgbt[2 * pp + 1][k].y);
+                 }
+-                uint4 val;
+-                AssignAs<uint4>(val, out);
+-                __stcs(reinterpret_cast<uint4 *>(dst_ptr + pp * PAIR_STRIDE), val);
++                float2 *p = reinterpret_cast<float2 *>(dst_ptr + pp * PAIR_STRIDE);
++                __stcs(p + 0, outv[0]);
++                __stcs(p + 1, outv[1]);
++                __stcs(p + 2, outv[2]);
++                __stcs(p + 3, outv[3]);
+             }
+         }
+ 
+@@ -728,12 +759,12 @@
+     const int32_t tile_width,
+     const int32_t macro_tile_cols,
+     const int32_t *__restrict__ mt_batch_offsets,
+-    const __half *__restrict__ tile_buffer,
++    const float *__restrict__ tile_buffer,
+     const uint32_t *__restrict__ in_active_mask,
+-    const __half *__restrict__ backgrounds,
++    const float *__restrict__ backgrounds,
+     const uint32_t image_width,
+     const uint32_t image_height,
+-    __half *__restrict__ render_colors
++    float *__restrict__ render_colors
+ )
+ {
+     static_assert(TILE_SIZE == 8 || TILE_SIZE == 16, "TILE_SIZE must be 8 or 16");
+@@ -742,7 +773,7 @@
+     constexpr int32_t PIXELS_PER_THREAD = TILE_SIZE * TILE_SIZE / 32;
+     constexpr int32_t N_PAIRS           = PIXELS_PER_THREAD / 2;
+ 
+-    using TileAccum = __half2[N_PAIRS][4];
++    using TileAccum = float2[N_PAIRS][4];
+ 
+     const int32_t warp_id       = threadIdx.x >> 5;
+     const int32_t lane_id       = threadIdx.x & 31;
+@@ -774,18 +805,18 @@
+ #pragma unroll
+     for(int32_t pp = 0; pp < N_PAIRS; ++pp)
+     {
+-        acc_rgbt[pp][0] = __float2half2_rn(0.0f);
+-        acc_rgbt[pp][1] = __float2half2_rn(0.0f);
+-        acc_rgbt[pp][2] = __float2half2_rn(0.0f);
+-        acc_rgbt[pp][3] = __float2half2_rn(1.0f);
++        acc_rgbt[pp][0] = make_float2(0.0f, 0.0f);
++        acc_rgbt[pp][1] = make_float2(0.0f, 0.0f);
++        acc_rgbt[pp][2] = make_float2(0.0f, 0.0f);
++        acc_rgbt[pp][3] = make_float2(1.0f, 1.0f);
+     }
+ 
+     const int32_t batch_start = mt_batch_offsets[mt_id];
+     const int32_t batch_end   = mt_batch_offsets[mt_id + 1];
+ 
+-    constexpr int32_t TILE_SIZE_BYTES = TILE_SIZE * TILE_SIZE * 4 * sizeof(__half);
++    constexpr int32_t TILE_SIZE_BYTES = TILE_SIZE * TILE_SIZE * 4 * sizeof(float);
+     // pair-major layout: all 32 lanes' data for one pair contiguous, then next pair
+-    constexpr int32_t PAIR_STRIDE     = 32 * sizeof(uint4);
++    constexpr int32_t PAIR_STRIDE     = 32 * (4 * sizeof(float2));
+ 
+     uint32_t tile_done = 0;
+ #pragma unroll 1
+@@ -800,23 +831,28 @@
+         // fixed layout: tile (batch_idx, local_rt) lives at slot batch_idx * MACRO_TILE_SIZE + local_rt
+         const int64_t pos
+             = static_cast<int64_t>(batch_idx) * (MACRO_TILE_SIZE * TILE_SIZE_BYTES) + local_rt * TILE_SIZE_BYTES;
+-        const int64_t tile_base = pos + lane_id * sizeof(uint4);
++        const int64_t tile_base = pos + lane_id * (4 * sizeof(float2));
+ 
+ #pragma unroll
+         for(int32_t pp = 0; pp < N_PAIRS; ++pp)
+         {
+-            __half2 batch[4];
+-            AssignAs<uint4>(batch, reinterpret_cast<const uint8_t *>(tile_buffer)[tile_base + pp * PAIR_STRIDE]);
++            const float2 *p   = reinterpret_cast<const float2 *>(reinterpret_cast<const uint8_t *>(tile_buffer)
++                                                                 + (tile_base + pp * PAIR_STRIDE));
++            const float2 batch[4] = {p[0], p[1], p[2], p[3]};
++
++            acc_rgbt[pp][0] = F2Fma(acc_rgbt[pp][3], batch[0], acc_rgbt[pp][0]);
++            acc_rgbt[pp][1] = F2Fma(acc_rgbt[pp][3], batch[1], acc_rgbt[pp][1]);
++            acc_rgbt[pp][2] = F2Fma(acc_rgbt[pp][3], batch[2], acc_rgbt[pp][2]);
++            acc_rgbt[pp][3] = F2Mul(acc_rgbt[pp][3], batch[3]);
+ 
+-            acc_rgbt[pp][0] = __hfma2(acc_rgbt[pp][3], batch[0], acc_rgbt[pp][0]);
+-            acc_rgbt[pp][1] = __hfma2(acc_rgbt[pp][3], batch[1], acc_rgbt[pp][1]);
+-            acc_rgbt[pp][2] = __hfma2(acc_rgbt[pp][3], batch[2], acc_rgbt[pp][2]);
+-            acc_rgbt[pp][3] = __hmul2(acc_rgbt[pp][3], batch[3]);
+-
+-            uint32_t is_done = __hlt2_mask(acc_rgbt[pp][3], __float2half2_rn(MIN_TRANSPARENCY));
+-            if constexpr(N_PAIRS > 1)
++            uint32_t is_done = 0;
++            if(acc_rgbt[pp][3].x < MIN_TRANSPARENCY)
++            {
++                is_done |= (1u << pp);
++            }
++            if(acc_rgbt[pp][3].y < MIN_TRANSPARENCY)
+             {
+-                is_done &= (0x10001u << pp);
++                is_done |= (0x10000u << pp);
+             }
+             tile_done |= is_done;
+         }
+@@ -832,15 +868,14 @@
+ 
+     if(out_x < image_width)
+     {
+-        __half2 bg[2];
++        float4 bg;
+         if(backgrounds != nullptr)
+         {
+-            AssignAs<uint2>(bg, backgrounds[0]);
++            bg = reinterpret_cast<const float4 *>(backgrounds)[0]; // {R,G,B,pad}
+         }
+         else
+         {
+-            bg[0] = __float2half2_rn(0.0f);
+-            bg[1] = __float2half2_rn(0.0f);
++            bg = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+         }
+ 
+         constexpr uint32_t ROW_STRIDE = 32 / TILE_SIZE;
+@@ -848,21 +883,26 @@
+ #pragma unroll
+         for(int32_t pp = 0; pp < N_PAIRS; ++pp)
+         {
+-            const __half2 final_r = __hfma2(acc_rgbt[pp][3], __low2half2(bg[0]), acc_rgbt[pp][0]);
+-            const __half2 final_g = __hfma2(acc_rgbt[pp][3], __high2half2(bg[0]), acc_rgbt[pp][1]);
+-            const __half2 final_b = __hfma2(acc_rgbt[pp][3], __low2half2(bg[1]), acc_rgbt[pp][2]);
++            const float2 bg_r = make_float2(bg.x, bg.x);
++            const float2 bg_g = make_float2(bg.y, bg.y);
++            const float2 bg_b = make_float2(bg.z, bg.z);
++            const float2 finalR = F2Fma(make_float2(acc_rgbt[pp][3].x, acc_rgbt[pp][3].y), bg_r, make_float2(acc_rgbt[pp][0].x, acc_rgbt[pp][0].y));
++            const float2 finalG = F2Fma(make_float2(acc_rgbt[pp][3].x, acc_rgbt[pp][3].y), bg_g, make_float2(acc_rgbt[pp][1].x, acc_rgbt[pp][1].y));
++            const float2 finalB = F2Fma(make_float2(acc_rgbt[pp][3].x, acc_rgbt[pp][3].y), bg_b, make_float2(acc_rgbt[pp][2].x, acc_rgbt[pp][2].y));
+ 
+             const uint32_t out_y0 = tile_y * TILE_SIZE + thread_y + (2 * pp) * ROW_STRIDE;
+             if(out_y0 < image_height)
+             {
+-                const __half2 out[2] = {__lows2half2(final_r, final_g), __lows2half2(final_b, acc_rgbt[pp][3])};
+-                AssignAs<uint2>(reinterpret_cast<uint2 *>(render_colors)[out_y0 * image_width + out_x], out);
++                // pixel RGBA = {finalR.x, finalG.x, finalB.x, T.x}
++                float4 outv = make_float4(finalR.x, finalG.x, finalB.x, acc_rgbt[pp][3].x);
++                *(reinterpret_cast<float4 *>(render_colors + 4 * (out_y0 * image_width + out_x))) = outv;
+             }
+             const uint32_t out_y1 = out_y0 + ROW_STRIDE;
+             if(out_y1 < image_height)
+             {
+-                const __half2 out[2] = {__highs2half2(final_r, final_g), __highs2half2(final_b, acc_rgbt[pp][3])};
+-                AssignAs<uint2>(reinterpret_cast<uint2 *>(render_colors)[out_y1 * image_width + out_x], out);
++                // pixel RGBA = {finalR.y, finalG.y, finalB.y, T.y}
++                float4 outv = make_float4(finalR.y, finalG.y, finalB.y, acc_rgbt[pp][3].y);
++                *(reinterpret_cast<float4 *>(render_colors + 4 * (out_y1 * image_width + out_x))) = outv;
+             }
+         }
+     }
+@@ -902,12 +942,12 @@
+     kargs.tile_width          = tile_width;
+     kargs.tile_height         = tile_height;
+     kargs.means2d             = means2d.data_ptr<float>();
+-    kargs.conics              = reinterpret_cast<const __half *>(conics.data_ptr<at::Half>());
+-    kargs.colors              = reinterpret_cast<const __half *>(colors.data_ptr<at::Half>());
++    kargs.conics              = conics.data_ptr<float>();
++    kargs.colors              = colors.data_ptr<float>();
+     kargs.mt_gauss_offsets    = mt_gauss_offsets.data_ptr<int32_t>();
+     kargs.mt_gauss_ids_sorted = mt_gauss_ids_sorted.data_ptr<int32_t>();
+     kargs.mt_batch_offsets    = mt_batch_offsets.data_ptr<int32_t>();
+-    kargs.tile_buffer         = reinterpret_cast<__half *>(tile_buffer.data_ptr<at::Half>());
++    kargs.tile_buffer         = tile_buffer.data_ptr<float>();
+     kargs.out_active_mask     = reinterpret_cast<uint32_t *>(active_mask.data_ptr<int32_t>());
+ 
+     auto launch = [&](auto kernel_fn)
+@@ -944,8 +984,7 @@
+     const int32_t n_tiles = tile_width * tile_height;
+     const int32_t grid    = (n_tiles + WARPS_PER_CTA - 1) / WARPS_PER_CTA;
+ 
+-    const __half *bg_ptr
+-        = backgrounds.defined() ? reinterpret_cast<const __half *>(backgrounds.data_ptr<at::Half>()) : nullptr;
++    const float *bg_ptr = backgrounds.defined() ? backgrounds.data_ptr<float>() : nullptr;
+ 
+     auto stream = at::cuda::getCurrentCUDAStream();
+ 
+@@ -956,12 +995,12 @@
+             tile_width,
+             macro_tile_cols,
+             mt_batch_offsets.data_ptr<int32_t>(),
+-            reinterpret_cast<const __half *>(tile_buffer.data_ptr<at::Half>()),
++            tile_buffer.data_ptr<float>(),
+             reinterpret_cast<const uint32_t *>(active_mask.data_ptr<int32_t>()),
+             bg_ptr,
+             image_width,
+             image_height,
+-            reinterpret_cast<__half *>(render_colors.data_ptr<at::Half>())
++            render_colors.data_ptr<float>()
+         );
+     };
+ 
+@@ -971,4 +1010,4 @@
+     case 8:  launch(macro_tile_post_blend_kernel<8>); break;
+     }
+ }
+-} // namespace higs
++} // namespace higs
+\ No newline at end of file
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.h
+@@ -39,12 +39,12 @@
+     int32_t tile_width,                    // render-tile grid width
+     int32_t tile_height,                   // render-tile grid height
+     const at::Tensor &means2d,             // [N, 2] float
+-    const at::Tensor &conics,              // [N, 4] half {l0,l1,l2,opacity}
+-    const at::Tensor &colors,              // [N, 4] half {R,G,B,0}
++    const at::Tensor &conics,              // [N, 4] float {l0,l1,l2,opacity}
++    const at::Tensor &colors,              // [N, 4] float {R,G,B,0}
+     const at::Tensor &mt_gauss_offsets,    // [n_mt+1] macro-tile segment offsets
+     const at::Tensor &mt_gauss_ids_sorted, // [n_mt_isects] sorted gaussian IDs
+     const at::Tensor &mt_batch_offsets,    // [n_mt+1] gaussian batch start indices
+-    at::Tensor &tile_buffer,               // fixed-layout partial RGBT
++    at::Tensor &tile_buffer,               // fixed-layout partial RGBT (fp32)
+     at::Tensor &active_mask
+ ); // [total_ctas] uint32
+ 
+@@ -58,11 +58,11 @@
+     int32_t n_macro_tiles,              // number of macro-tiles
+     int32_t macro_tile_cols,            // macro-tile grid width
+     const at::Tensor &mt_batch_offsets, // [n_mt+1] gaussian batch start indices
+-    const at::Tensor &tile_buffer,      // fixed-layout partial RGBT
++    const at::Tensor &tile_buffer,      // fixed-layout partial RGBT (fp32)
+     const at::Tensor &active_mask,      // [total_ctas] uint32
+-    const at::Tensor &backgrounds,      // [4] half {R,G,B,pad}
++    const at::Tensor &backgrounds,      // [4] float {R,G,B,pad}
+     uint32_t image_width,
+     uint32_t image_height,
+     at::Tensor &render_colors
+-); // [H, W, 4] half {R,G,B,T} output
++); // [H, W, 4] float {R,G,B,T} output
+ } // namespace higs

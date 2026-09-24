@@ -1,0 +1,79 @@
+{
+  "status": "ACCUTILE_PASS (variant A = true AccuTile)",
+  "P_status": "ACCUTILE_DROP (variant P = per-tile predicate, NOT true AccuTile)",
+  "B1A_status": "FROZEN ENHANCED BASELINE",
+  "R6A_gate": "ADVANCE_TO_MINIMAL_CUDA_PROTOTYPE",
+  "classification": "Baseline engineering uplift / composition component (PRIOR ART — Speedy-Splat)",
+  "identity_audit": {
+    "TESTED_IMPLEMENTATION_IS_TRUE_ACCUTILE": false,
+    "P_algorithm": "Per-candidate-tile conservative conic predicate: O(AABB_tiles × predicate_cost)",
+    "A_algorithm": "True AccuTile strip-based SnugBox + ellipse intersection: O(shorter_span + emitted_tiles)",
+    "algorithmic_difference_estimate": "~46x per-Gaussian work difference (analytical estimate, not measured runtime speedup)"
+  },
+  "B1A_freeze": {
+    "short_training_verdict": "PASS — FP-level divergence only",
+    "short_training_config": "room, 778x519, seed=42, 800 iters, densification at 500/600/700",
+    "short_training_max_loss_diff": 1.84e-5,
+    "short_training_max_psnr_diff": 0.004,
+    "short_training_final_N_diff": 48,
+    "multicam_parity": "13/15 cameras bit-identical, 2/15 FP-level (max 3.3e-5)",
+    "frozen": true
+  },
+  "backward_scaling": {
+    "room": {"isect_reduction": 0.5112, "bwd_time_reduction": 0.1353, "atomic_reduction": 0.0, "ratio_isect_bwd": 3.78},
+    "bicycle": {"isect_reduction": 0.5337, "bwd_time_reduction": 0.1034, "atomic_reduction": 0.0, "ratio_isect_bwd": 5.16},
+    "garden": {"isect_reduction": 0.4634, "bwd_time_reduction": 0.1048, "atomic_reduction": 0.0, "ratio_isect_bwd": 4.44},
+    "explanation": "AccuTile reduces intersection count but NOT atomic count. ~20% of backward time scales with intersections (iteration overhead), ~65% is atomics (unchanged), ~15% is other."
+  },
+  "direct_atomic_instrumentation": {
+    "method": "Standalone CUDA kernel replicating backward iteration pattern with self-contained bin_final computation",
+    "atomics_per_warp_leader_event": 11,
+    "room_cam0": {"n_warp_atomics_B1": 111610710, "n_warp_atomics_B1A": 111610710, "n_block_uniques_B1": 14217247, "n_block_uniques_B1A": 14217247, "duplication_B1": 7.85, "duplication_B1A": 7.85},
+    "bicycle_cam0": {"n_warp_atomics_B1": 93373956, "n_warp_atomics_B1A": 93373956, "n_block_uniques_B1": 12083259, "n_block_uniques_B1A": 12083259, "duplication_B1": 7.73, "duplication_B1A": 7.73},
+    "garden_cam0": {"n_warp_atomics_B1": 69783199, "n_warp_atomics_B1A": 69783182, "n_block_uniques_B1": 9302551, "n_block_uniques_B1A": 9302548, "duplication_B1": 7.50, "duplication_B1A": 7.50},
+    "key_finding": "B1 and B1A have IDENTICAL warp atomic counts. AccuTile is orthogonal to block-level aggregation."
+  },
+  "R6A_gate": {
+    "duplication_potential": "7.1-7.9x (mean ~7.5x) on B1A",
+    "conservative_E2E_opportunity": "5-12% (at 20-30% atomic reduction efficiency)",
+    "workloads_passing": "3/3 (room, bicycle, garden)",
+    "based_on_direct_instrumentation": true,
+    "decision": "ADVANCE_TO_MINIMAL_CUDA_PROTOTYPE",
+    "survives_stronger_baseline": true,
+    "rationale": "Duplication factor is identical on B1 and B1A. R6-A addresses atomic overhead (65% of backward time), which AccuTile does not reduce. Effects are orthogonal and additive."
+  },
+  "environment": {
+    "repository_commit": "02375033388d4348376b6b607ab85f551e498a77",
+    "gsplat_version": "1.5.3",
+    "gsplat_baseline_commit": "937e29912570c372bed6747a5c9bf85fed877bae",
+    "A_true_upstream_commit": "28e794ca44a4c25ffc39175370c5ee7b38bfcc36",
+    "A_v153_port_sha256": "33292a08ebb74437b5108fcf9282b01ac9621d45495bbba219f8b41000c803f1",
+    "speedy_splat_paper": "https://arxiv.org/pdf/2412.00578",
+    "gpu": "NVIDIA A100-PCIE-40GB",
+    "compute_capability": "8.0",
+    "pytorch": "2.4.1+cu124",
+    "cuda": "12.4",
+    "compiler": "gcc 11.4.0, nvcc 12.4.131"
+  },
+  "baselines": {
+    "B1": "Frozen clean gsplat v1.5.3 baseline (AABB tile enumeration)",
+    "P": "B1 + per-tile conservative conic predicate (NOT true AccuTile) — DROP",
+    "B1A": "B1 + true AccuTile (strip-based SnugBox + ellipse intersection) — FROZEN ENHANCED BASELINE"
+  },
+  "three_scene_b1a_results": {
+    "room": {"gaussian_count": 1105873, "resolution": [3114, 2075], "B1_total_ms": 15.28, "B1A_total_ms": 11.95, "total_speedup": 1.279, "fwd_speedup": 1.450, "bwd_speedup": 1.127, "reduction": 0.5112},
+    "bicycle": {"gaussian_count": 2589484, "resolution": [4946, 3286], "B1_total_ms": 28.88, "B1A_total_ms": 25.15, "total_speedup": 1.148, "fwd_speedup": 1.208, "bwd_speedup": 1.114, "reduction": 0.5337},
+    "garden": {"gaussian_count": 874019, "resolution": [5187, 3361], "B1_total_ms": 39.78, "B1A_total_ms": 35.57, "total_speedup": 1.118, "fwd_speedup": 1.126, "bwd_speedup": 1.115, "reduction": 0.4634},
+    "geomean": {"fwd_speedup": 1.248, "bwd_speedup": 1.118, "tot_speedup": 1.178}
+  },
+  "report_paths": {
+    "b1a_r6a_rescreen": "reports/accutile/accutile-b1a-r6a-rescreen.md",
+    "identity_audit": "reports/accutile/accutile-identity-audit.md",
+    "final": "reports/accutile/accutile-a100-final.md",
+    "correctness_P_SUPERSEDED": "reports/accutile/accutile-a100-correctness.md",
+    "intersections_P_SUPERSEDED": "reports/accutile/accutile-a100-intersections.md",
+    "benchmark_P_SUPERSEDED": "reports/accutile/accutile-a100-benchmark.md",
+    "training_sanity_P_SUPERSEDED": "reports/accutile/accutile-training-sanity.md",
+    "results_json": "reports/accutile/accutile-a100-results.json"
+  }
+}

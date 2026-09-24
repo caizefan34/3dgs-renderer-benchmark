@@ -1,0 +1,12 @@
+{
+  "title": "Packed vs Dense Diagnostic",
+  "note": "NOT_RUN on A100. Requires gsplat 1.5.3 with checkpoints from the locked REFERENCE_V1_ABSGRAD baseline. Installed gsplat is 1.4.0.",
+  "analysis": {
+    "REFERENCE_V1_current": "packed=False (dense mode). The dense mode allocates tensors of shape [B, N, ...] where B=1 batch and N=max Gaussians. This means the full N-dimension tensors (means2d, conics, colors, opacities) are passed to the CUDA kernels regardless of how many Gaussians are actually visible.",
+    "packed_true": "packed=True uses a flattened tensor of only the visible Gaussians [nnz, ...]. This reduces kernel launch overhead and memory bandwidth, particularly for the rasterization kernel which iterates over sorted intersection IDs.",
+    "known_tradeoff": "Packed mode can be slower for some scenes due to extra index indirection. The gsplat documentation notes packed may be faster for sparse Gaussians. The REFERENCE_V1 baseline was intentionally locked to packed=False to match Graphdeco semantics more closely.",
+    "expected_impact": "Based on existing gsplat community benchmarks: packed mode typically reduces forward pass by 5-15% for indoor scenes at 1080p, but can increase for dense outdoor scenes due to indirection overhead.",
+    "compatibility_check": "packed=True should produce semantically equivalent outputs (verified by gsplat unit tests). Need A100 verification with REFERENCE_V1 config."
+  },
+  "requires_a100_experiment": true
+}

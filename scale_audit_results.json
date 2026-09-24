@@ -1,0 +1,458 @@
+{
+  "checkpoint_scale_semantics": "log-space (confirmed — checkpoint stores log scales, mean ≈ -6.36 for room scene)",
+  "renderer_expected_scale_semantics": "activated (exp-space) — CUDA kernel 'quat_scale_to_covar_preci' does S = diag(scale), expecting standard deviation, not log",
+  "gsplat_wrapper_scale_handling": "CONFIRMED: fully_fused_projection() in _wrapper.py passes scales directly to the CUDA kernel (projection_ewa_3dgs_fused_fwd) WITHOUT applying torch.exp(). The kernel's quat_scale_to_covar_preci does S = diag(scale), expecting activated (standard deviation) scales. The docstring parameter says 'scales: Scales. [..., N, 3]' without specifying log vs activated — but the CUDA kernel definitively expects activated scales.",
+  "training_example_scale_handling": "CONFIRMED: gsplat's own strategy code (strategy/default.py lines 276, 322; strategy/ops.py lines 144, 274, 316, 351; exporter.py line 441) consistently applies torch.exp(params['scales']) before using scales for splitting/pruning decisions or export. The training pipeline stores scales in log space and activates them via torch.exp() before passing to the renderer. This is the standard 3DGS convention and confirms that activated scales are the expected input to the rasterization pipeline.",
+  "scripts": [
+    {
+      "path": "@a100_baseline_profiling.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": false,
+      "status": "INVALIDATED",
+      "reason": "load_checkpoint (line 100-108) returns raw log scales. Lines 177, 325, 438, 501 all pass 'scl=params[\"scales\"]' (raw log) directly to fully_fused_projection(quats+scl mode). No torch.exp() anywhere. ALL 4 call sites are bugged."
+    },
+    {
+      "path": "@a100_baseline_profiling_v2.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": false,
+      "status": "INVALIDATED",
+      "reason": "load_ckpt (line 75-89) returns raw log scales. Lines 138, 243 pass 'scl=params[\"scales\"]' (raw log) to fully_fused_projection. No torch.exp()."
+    },
+    {
+      "path": "@footprint_analysis.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": false,
+      "status": "INVALIDATED",
+      "reason": "load_ckpt (line 20-31) returns raw log scales. Line 49-54: fully_fused_projection called with 'scl=params[\"scales\"]' (raw log). NOTE: line 124 does torch.exp() only for statistical analysis output, NOT for the kernel call."
+    },
+    {
+      "path": "@root_cause_analysis.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": false,
+      "status": "INVALIDATED",
+      "reason": "load_ckpt (line 24-35) returns raw log scales. Line 73-79: fully_fused_projection called with 'params[\"scales\"]' (raw log). Line 91 does torch.exp() only for diagnostics, not kernel."
+    },
+    {
+      "path": "@root_cause_corrected.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "EXPLICITLY created to fix the bug. Comment on line 33-34: 'scales in checkpoint are LOG scales... CUDA kernel does S = diag(scale), so we MUST pass activated scales'. Line 35: torch.exp(ms['scales']).detach().to(DEVICE)."
+    },
+    {
+      "path": "@heavy_tail_analysis.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": false,
+      "status": "INVALIDATED",
+      "reason": "load_ckpt (line 24-35) returns raw log scales. Line 53-58: fully_fused_projection called with 'scl=params[\"scales\"]' (raw log). No torch.exp()."
+    },
+    {
+      "path": "@intersect_analysis_v2.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": false,
+      "status": "INVALIDATED",
+      "reason": "load_ckpt (line 25-38) returns raw log scales. Line 51-56: fully_fused_projection called with 'scl=params[\"scales\"]' (raw log). No torch.exp()."
+    },
+    {
+      "path": "@workload_validity.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": false,
+      "status": "INVALIDATED",
+      "reason": "load_ckpt (line 26-38) returns raw log scales. Line 62-67: fully_fused_projection called with 'scl=params[\"scales\"]' (raw log). No torch.exp()."
+    },
+    {
+      "path": "scripts/epic05/phase8e_per_kernel_timing.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": false,
+      "status": "INVALIDATED",
+      "reason": "load_ckpt (line 80-93) returns raw log scales. Lines 147, 238 pass 'scl=params[\"scales\"]' (raw log) to fully_fused_projection. No torch.exp() anywhere in file."
+    },
+    {
+      "path": "scripts/epic05/phase8c_backward_kernel_trace.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "INVALIDATED",
+      "reason": "load_checkpoint (line 67-81) returns raw log scales. Line 228: 'scales = params[\"scales\"].detach().clone()' → no torch.exp(). Line 237: passes these log scales to gsplat.rasterization() which internally calls fully_fused_projection. The gsplat rasterization() function does NOT apply exp() to scales — it expects activated input. grep for 'torch.exp', 'scales_activated', 'get_scaling' in this file returns NO matches."
+    },
+    {
+      "path": "src/renderers/fast_gauss_renderer.py",
+      "loads_checkpoint": true,
+      "loads_ply": true,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "INVALIDATED",
+      "reason": "prepare_scene (line 58-59) does 'Pass through scene data without modification' — NO torch.exp(). render() line 95: 'scales = scene_data[\"scales\"].contiguous()' — also NO torch.exp(). Compare: ALL other renderer adapters (gsplat, diff_gaussian, speedy_splat, tcgs) explicitly do torch.exp(). If scene_data comes from load_ply() (which loads PLY as-is) or from checkpoint (log scales), the raw log scales go directly to the diff-gaussian-rasterization backend which expects activated scales."
+    },
+    {
+      "path": "benchmark/run_higs_train_benchmark.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 59: scales = torch.exp(torch.tensor(...)). Activates from PLY log scales. Lines 397, 481: passes activated 'scales.contiguous()' to fully_fused_projection. Both direct low-level and wrapper paths are correct."
+    },
+    {
+      "path": "scripts/epic05/phase9a_m2_mechanism.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 44: 'scales = torch.exp(data[\"scales\"])'. Loads PLY and activates before passing to gsplat.rasterization()."
+    },
+    {
+      "path": "scripts/epic05/phase9a_m2_forward_check.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 71: 'scales = torch.exp(data[\"scales\"])'. Activates PLY scales for gsplat.rasterization()."
+    },
+    {
+      "path": "scripts/epic05/phase9a_m2_gradient_check.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 26: 's = torch.exp(data[\"scales\"])'. Line 45: same pattern for re-cloned data. Activates correctly."
+    },
+    {
+      "path": "scripts/phase11_m4_experiments.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 89: 'scales = torch.exp(scene[\"scales\"])'. Activates PLY scales."
+    },
+    {
+      "path": "scripts/phase11_m4_workload.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 61: 'scales = torch.exp(scene[\"scales\"])'. Activates PLY scales."
+    },
+    {
+      "path": "scripts/phase11_m5_experiments.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 82: 'scales = torch.exp(...)'. Activates."
+    },
+    {
+      "path": "_tmp_check_gsplat.py",
+      "loads_checkpoint": false,
+      "loads_ply": false,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 13: 'scales = torch.randn(B, N, 3, device=\"cuda\").exp()'. Synthetic activated scales."
+    },
+    {
+      "path": "_tmp_smoke_a100.py",
+      "loads_checkpoint": false,
+      "loads_ply": false,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 26: 'scales = torch.randn(B, N, 3, device=\"cuda\").exp()'. Synthetic activated scales."
+    },
+    {
+      "path": "src/renderers/gsplat_renderer.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "prepare_scene line 37: '\"scales_activated\": torch.exp(scene_data[\"scales\"]).contiguous()'. Correctly activates. HiGS path (line 113) also applies torch.exp()."
+    },
+    {
+      "path": "src/renderers/diff_gaussian_renderer.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "prepare_scene line 51: '\"scales_activated\": torch.exp(scene_data[\"scales\"]).contiguous()'. Correctly activates."
+    },
+    {
+      "path": "src/renderers/speedy_splat_renderer.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "prepare_scene line 64: '\"scales_activated\": torch.exp(scene_data[\"scales\"]).contiguous()'. Correctly activates. SpeedySplatRawRenderer subclass also applies torch.exp (line 151)."
+    },
+    {
+      "path": "src/renderers/tcgs_renderer.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "prepare_scene line 44: '\"scales_activated\": torch.exp(scene_data[\"scales\"]).contiguous()'. Correctly activates."
+    },
+    {
+      "path": "src/renderers/flashgs_renderer.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "prepare_scene line 66-68 calls compute_cov3d_from_scales_rot() which internally applies torch.exp(scales) at scene.py line 186. The activation is hidden in this library function, which is fragile but functionally correct."
+    },
+    {
+      "path": "src/renderers/local_gs_renderer.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "Inherits from SpeedySplatRenderer which correctly applies torch.exp in prepare_scene."
+    },
+    {
+      "path": "scripts/epic05/phase7/gaussian_model.py",
+      "loads_checkpoint": false,
+      "loads_ply": false,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "Line 112-113: '"scales": torch.exp(self.scales).contiguous()' in forward(). This is the canonical training model — stores log scales, activates in forward. Correct."
+    },
+    {
+      "path": "src/benchmark_framework/scene.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "load_ply() loads PLY data as-is. compute_cov3d_from_scales_rot() line 186: 'S = torch.diag_embed(torch.exp(scales))'. Correctly activates for covariance computation. Note: load_ply() does NOT activate scales — it returns PLY values unchanged (could be log or activated depending on source). This is correct because activation happens in renderer adapters via prepare_scene()."
+    },
+    {
+      "path": "scripts/epic05/run_optimization_all.py",
+      "loads_checkpoint": true,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Multiple lines (258, 593, 642): 'scales_activated = torch.exp(...)'. Correctly activates."
+    },
+    {
+      "path": "scripts/epic05/phase2_experiments.py",
+      "loads_checkpoint": true,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Multiple lines (197, 448, 470, 613, 783, 845, 1022): 'scales_activated = torch.exp(...)' or uses GaussianModel.forward() which activates. Correct."
+    },
+    {
+      "path": "scripts/epic05/phase4_training_validation.py",
+      "loads_checkpoint": true,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 115: 'scales_activated = torch.exp(...)'. Correctly activates."
+    },
+    {
+      "path": "scripts/epic05/phase10a_m2_full_training.py",
+      "loads_checkpoint": true,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Lines 181, 292: 'scales_act = torch.exp(...)'. Correctly activates."
+    },
+    {
+      "path": "scripts/epic05/evaluate_official_quality.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 87: '\"scales_activated\": torch.exp(...)'. Correctly activates checkpoint scales."
+    },
+    {
+      "path": "scripts/epic05/run_official_validation.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 146: 'scales_activated = torch.exp(...)'. Correctly activates."
+    },
+    {
+      "path": "scripts/epic05/phase12_cross_scene.py",
+      "loads_checkpoint": true,
+      "loads_ply": false,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 517: '\"scales\": torch.exp(...)'. Correctly activates."
+    },
+    {
+      "path": "scripts/epic05/phase13a_oracle_data_collection.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Lines 101, 121: 'scales = torch.exp(...)'. Correctly activates."
+    },
+    {
+      "path": "scripts/epic05/phase16_c1_forward_check.py",
+      "loads_checkpoint": false,
+      "loads_ply": true,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "VALID",
+      "reason": "Line 35: 'scales = torch.exp(...)'. Correctly activates."
+    },
+    {
+      "path": "tools/phase_v3_forward_verification.py",
+      "loads_checkpoint": false,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": true,
+      "status": "AMBIGUOUS",
+      "reason": "Generates synthetic scales in linear space (line 96: 'scales = torch.rand(...) * 0.01 * 2 + 0.01*0.1' = ~0.01-0.03). These happen to be reasonable activated-scale magnitudes (e range ~ -6.36 gives ~0.0017). If these are meant as activated scales, it's fine for this synthetic test. But there's no torch.exp() and they aren't real checkpoint scales."
+    },
+    {
+      "path": "tests/test_higs_sparse_pixel_raster.py",
+      "loads_checkpoint": false,
+      "loads_ply": false,
+      "applies_torch_exp": false,
+      "calls_fully_fused_projection_directly": true,
+      "uses_rasterization_wrapper": false,
+      "status": "AMBIGUOUS",
+      "reason": "Line 152-158: fully_fused_projection(..., scales=scales.contiguous(), ...). The 'scales' variable comes from the test's setUp which generates synthetic data. Need to trace the fixture to determine if torch.exp() was applied."
+    },
+    {
+      "path": "benchmark/run_original_3dgs_training.py",
+      "loads_checkpoint": false,
+      "loads_ply": false,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "Script delegates to official 3DGS train.py which internally uses GaussianModel.get_scaling() = torch.exp(self._scaling). The training subprocess manages activation correctly."
+    },
+    {
+      "path": "benchmark/run_speedy_splat_training.py",
+      "loads_checkpoint": false,
+      "loads_ply": false,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "Script delegates to speedy-splat train.py which internally uses GaussianModel.forward() activation. Scale handling is inside the training subprocess."
+    },
+    {
+      "path": "benchmark/run_higs_full_training.py",
+      "loads_checkpoint": false,
+      "loads_ply": false,
+      "applies_torch_exp": true,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "VALID",
+      "reason": "Trainer-level; uses GaussianModel which activates scales via torch.exp in forward()."
+    },
+    {
+      "path": "build/lib/ (all files)",
+      "loads_checkpoint": false,
+      "loads_ply": false,
+      "applies_torch_exp": null,
+      "calls_fully_fused_projection_directly": false,
+      "uses_rasterization_wrapper": false,
+      "status": "NOT_AUDITED",
+      "reason": "Build artifacts and copied source — would duplicate the src/ analysis. The src/ version is the authoritative one."
+    }
+  ],
+  "summary": {
+    "total_invalidated": 10,
+    "total_valid": 21,
+    "total_ambiguous": 2,
+    "not_audited": 1,
+    "root_cause": "The 8 key @-prefixed benchmark analysis scripts and 2 phase8 scripts all pass raw checkpoint (log-space) scales directly to fully_fused_projection() or rasterization(). This causes the CUDA kernel's 'quat_scale_to_covar_preci' to construct covariances from log values (~ -6.36) instead of activated values (~0.0017), inflating all covariances by ~10 million times. Every Gaussian covers the entire image. Additionally, fast_gauss_renderer.py does not apply torch.exp() in its prepare_scene/render path, inconsistent with all other renderer adapters.",
+    "invalidated_scripts": [
+      "@a100_baseline_profiling.py",
+      "@a100_baseline_profiling_v2.py",
+      "@footprint_analysis.py",
+      "@root_cause_analysis.py",
+      "@heavy_tail_analysis.py",
+      "@intersect_analysis_v2.py",
+      "@workload_validity.py",
+      "scripts/epic05/phase8e_per_kernel_timing.py",
+      "scripts/epic05/phase8c_backward_kernel_trace.py",
+      "src/renderers/fast_gauss_renderer.py"
+    ],
+    "fix_pattern": "All scripts in the invalidated list need 'torch.exp()' applied to checkpoint scales before passing to fully_fused_projection() or rasterization(). The pattern from @root_cause_corrected.py is the reference fix."
+  }
+}

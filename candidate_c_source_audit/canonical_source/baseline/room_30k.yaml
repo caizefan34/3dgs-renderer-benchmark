@@ -1,0 +1,60 @@
+# Reference V1 Baseline — Room 30K Canonical Trajectory
+# 
+# This is the ONLY allowed baseline configuration for all future paper experiments.
+# All parameters match official Graphdeco 3DGS defaults (commit 54c035f).
+# 
+# Semantic label: REFERENCE_BASELINE_V1
+# Historical results remain under CURRENT_PROJECT_SEMANTICS (not comparable).
+
+scene: room
+dataset: mipnerf360
+iterations: 30000
+
+# --- Densification (official OptimizationParams defaults) ---
+# NOTE: gsplat adaptation — absgrad requires 4x higher threshold.
+# Official uses signed gradient with 0.0002. gsplat absgrad (absolute gradient)
+# is always >= signed gradient, so we use 0.0008 as recommended by gsplat docs.
+# See: gsplat/strategy/default.py docstring
+densify_grad_threshold: 0.0008
+percent_dense: 0.01
+densify_from_iter: 500
+densify_until_iter: 15000
+densification_interval: 100
+
+# --- Pruning ---
+min_opacity: 0.005
+max_screen_size: 20
+
+# --- Opacity reset ---
+opacity_reset_interval: 3000
+
+# --- Learning rates (official defaults) ---
+position_lr_init: 0.00016
+position_lr_final: 0.0000016
+position_lr_delay_mult: 0.01
+position_lr_max_steps: 30000
+feature_lr: 0.0025
+opacity_lr: 0.025
+scaling_lr: 0.005
+rotation_lr: 0.001
+
+# --- Loss ---
+lambda_dssim: 0.2
+
+# --- SH ---
+sh_degree: 3
+
+# --- Evaluation ---
+eval_iterations: [500, 1000, 2000, 5000, 10000, 15000, 20000, 25000, 30000]
+
+# --- Instrumentation (C49/C50/C53 recalibration checkpoints) ---
+instrument_iterations: [500, 1000, 2000, 5000, 10000, 15000, 20000, 25000]
+
+# --- gsplat rendering ---
+tile_size: 16
+packed: false
+absgrad: true  # Required for gradient flow in gsplat
+
+# --- Provenance ---
+semantic_label: "REFERENCE_BASELINE_V1"
+allow_dirty: true  # Remove for paper experiments after git commit

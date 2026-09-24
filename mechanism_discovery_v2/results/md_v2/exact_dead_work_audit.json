@@ -1,0 +1,167 @@
+{
+  "meta": {
+    "audit_title": "Exact Dead-Work Audit — gsplat 3DGS Training Pipeline (Reference V1)",
+    "trace": "mechanism_discovery_v2",
+    "pipeline_version": "REFERENCE_V1_ABSGRAD (config.py:72)",
+    "source_1": "baseline/reference_v1/trainer.py",
+    "source_2": "baseline/reference_v1/gaussian_model.py",
+    "source_3": "baseline/reference_v1/config.py",
+    "densify_until_iter": 15000,
+    "training_iterations": 30000,
+    "phase_boundary": "iterations 1–15000 = densification phase; iterations 15001–30000 = post-densification fine-tune phase",
+    "note": "Each candidate is classified relative to the specific training phase where its output becomes provably unreachable or unconsumed by any computation that affects the loss, parameter gradients, or checkpoint correctness."
+  },
+  "candidates": [
+    {
+      "candidate_name": "absgrad computation after densify_until_iter",
+      "classification": "EXACT_DEAD_WORK",
+      "source_evidence": {
+        "computation_site": "trainer.py:125 — rasterization(absgrad=True)",
+        "retain_grad_site": "trainer.py:131 — means2d_full.retain_grad() called unconditionally inside render_with_meta()",
+        "consumption_site": "trainer.py:344 — model.add_densification_stats(means2d, ...) reads means2d.absgrad",
+        "gate": "trainer.py:338 — if iteration < config.densify_until_iter:"
+      },
+      "phase_condition": "Iterations >= 15000 (densify_until_iter). The `absgrad=True` parameter is passed to the gsplat rasterizer at every iteration (trainer.py:125), but `means2d.absgrad` is only consumed inside `add_densification_stats` which is gated by `iteration < config.densify_until_iter` (trainer.py:338).",
+      "explanation": "The rasterizer's backward pass computes `means2d.absgrad = grad_output.abs()` as an extra tensor when `absgrad=True`. This extra computation (element-wise absolute value on the gradient of means2d) is unconditionally performed during `loss.backward()` at every iteration because `render_with_meta` always calls `rasterization(absgrad=True)`. However, `means2d.absgrad` is only ever read in `add_densification_stats` (gaussian_model.py:277), which is guarded by `iteration < densify_until_iter`. After iteration 15000, the entire densification-stats block is skipped, so `means2d.absgrad` is computed but never read. Furthermore, `means2d_full.retain_grad()` (trainer.py:131) forces the autograd engine to retain means2d's gradient every iteration, even though it is never consumed after densification stops. The absolute-value computation inside gsplat's rasterization backward kernel and the gradient retention are both dead work in the post-densification phase.",
+      "dead_work_type": "extra_forward_backward_compute",
+      "estimated_impact": "Small per-iteration: one element-wise abs() on the [1,N,2] means2d gradient tensor. Negligible GPU cost but technically dead."
+    },
+    {
+      "candidate_name": "Densification statistics (xyz_gradient_accum, denom) after densification stops",
+      "classification": "EXACT_DEAD_WORK",
+      "source_evidence": {
+        "write_site": "gaussian_model.py:292-293 — xyz_gradient_accum[visibility_filter] += grad_norm; denom[visibility_filter] += 1",
+        "read_site_topology": "gaussian_model.py:574 — grads = xyz_gradient_accum / denom (inside densify_and_prune)",
+        "read_site_instrumentation": "trainer.py:352,454 — grad_norms_snap = (xyz_gradient_accum / denom.clamp_min(1))",
+        "gate_write": "trainer.py:338 — if iteration < config.densify_until_iter: (controls add_densification_stats call)",
+        "gate_read_topology": "trainer.py:369-371 — densify_and_prune only called when iteration > 500 and iteration < 15000",
+        "maintenance_sites_prune": "gaussian_model.py:450-451 — resized on every prune_points call",
+        "maintenance_sites_postfix": "gaussian_model.py:418-419 — reset to zeros on every densification_postfix call"
+      },
+      "phase_condition": "Iterations >= 15000. The `add_densification_stats` call that writes to these buffers is gated by `iteration < config.densify_until_iter` (trainer.py:338). After 15000, neither write nor read for topology purposes occurs.",
+      "explanation": "`xyz_gradient_accum` and `denom` accumulate view-space gradient norms for densification decisions. Their only consumer that affects training outcome is `densify_and_prune` (gaussian_model.py:574: `grads = self.xyz_gradient_accum / self.denom`), which is itself gated by `iteration < densify_until_iter` (trainer.py:369-371). After iteration 15000: (a) `add_densification_stats` is never called, so no new writes occur; (b) `densify_and_prune` is never called, so the accumulated values are never read for topology decisions. The buffers are still resized/maintained during any `prune_points` or `densification_postfix` calls (gaussian_model.py:418-419, 450-451), but those calls themselves only run during the densification phase. After 15000, the buffers persist in memory (zero-valued from the last reset) and never participate in any computation that affects loss or gradients. The instrumentation code at trainer.py:352/454 reads them for metadata output files (C49), but those reads are not consumed by training — they are saved to disk as diagnostics.",
+      "dead_work_type": "stale_buffers_with_maintenance_overhead",
+      "estimated_impact": "Small per-iteration: ~0 GPU compute (no writes happen). But the buffers occupy GPU memory: N×1 floats each, where N is the final Gaussian count (~100K–200K). ~0.8–1.6 MB total — negligible."
+    },
+    {
+      "candidate_name": "Screen-space radii tracking (max_radii2D) after size-pruning becomes irrelevant",
+      "classification": "EXACT_DEAD_WORK",
+      "source_evidence": {
+        "write_site": "trainer.py:339-341 — model.max_radii2D[visibility_filter] = torch.max(...)",
+        "read_site": "gaussian_model.py:589 — big_points_vs = self.max_radii2D > max_screen_size",
+        "gate_write": "trainer.py:338 — if iteration < config.densify_until_iter:",
+        "gate_read": "trainer.py:369-371 — densify_and_prune is the only caller; gated by iteration < 15000",
+        "reset_site": "gaussian_model.py:420 — reset to zeros in densification_postfix",
+        "prune_site": "gaussian_model.py:452 — resized in prune_points via indexing"
+      },
+      "phase_condition": "Iterations >= 15000. The update to `max_radii2D` is gated by `iteration < densify_until_iter` (trainer.py:338). Screen-size pruning via `max_radii2D > max_screen_size` (gaussian_model.py:589) only runs inside `densify_and_prune`, which is also gated by the same condition.",
+      "explanation": "`max_radii2D` tracks the maximum 2D screen-space radius ever observed for each Gaussian. It is updated every iteration during the densification phase (trainer.py:339-341) and consumed in `densify_and_prune` (gaussian_model.py:589) to prune Gaussians whose screen-space size exceeds `max_screen_size` (default 20 pixels, config.py:55). After iteration 15000, both the update and the read stop entirely. The buffer is still resized in `prune_points` (gaussian_model.py:452) and reset in `densification_postfix` (gaussian_model.py:420), but those topology operations themselves stop after 15000. Post-densification, `max_radii2D` is a dead tensor: it occupies GPU memory, is never written, and is never read by any computation that affects the loss, rendering, or gradients.",
+      "dead_work_type": "stale_buffer_unused_after_topology_freeze",
+      "estimated_impact": "Small: N floats (~0.4–0.8 MB for 100K–200K Gaussians). Short-lived useful but becomes dead for the final 15000 iterations."
+    },
+    {
+      "candidate_name": "Topology-related statistics after topology freezes",
+      "classification": "NOT_DEAD",
+      "source_evidence": {
+        "tracking_variables": "trainer.py:298-300 — total_clones, total_splits, total_prunes = 0",
+        "topology_event_recording": "trainer.py:368-421 — topology_event dict built conditionally",
+        "gate": "trainer.py:369-371 — if iteration > densify_from_iter AND iteration < densify_until_iter AND iteration % densification_interval == 0"
+      },
+      "phase_condition": "Iterations >= 15000 — the entire `if` block at trainer.py:369 is skipped.",
+      "explanation": "The topology-tracking variables (`total_clones`, `total_splits`, `total_prunes`, `topology_events` list) are simple Python integer accumulators and a list of dicts. After iteration 15000, the conditional at trainer.py:369-371 evaluates to `False`, so the entire topology block — including `model.densify_and_prune()`, identity-tracker extension/filter, and topology-event dict creation — is skipped entirely. No GPU or CPU compute is expended on these statistics after the freeze point. The integer variables continue to exist in Python memory as scalars (negligible cost) but are not read or written during iterations. At the end of training they are written to disk (trainer.py:509-511), which is a one-time serialization cost. There is no ongoing dead computation.",
+      "dead_work_type": "not_applicable",
+      "estimated_impact": "None — no computation occurs during the dead phase."
+    },
+    {
+      "candidate_name": "SH-related intermediates at lower active SH degrees",
+      "classification": "NOT_DEAD",
+      "source_evidence": {
+        "storage_site": "gaussian_model.py:52 — self._shs = torch.empty(0)  # [N, K, 3] — fixed max tensor",
+        "selector_site": "gaussian_model.py:93-96 — get_features returns _shs[:, :n_active, :].contiguous()",
+        "degree_progression": "gaussian_model.py:104-107 — oneupSHdegree increments active_sh_degree",
+        "optimizer_group": "gaussian_model.py:221 — self._shs registered as single nn.Parameter in optimizer",
+        "caller": "trainer.py:317 — image, meta, means2d = render_with_meta(model, cam, model.active_sh_degree)"
+      },
+      "phase_condition": "Iterations 1–999 (active_sh_degree=0, 1/16 coeffs used), 1000–1999 (degree=1, 4/16), 2000–2999 (degree=2, 9/16), 3000+ (degree=3, 16/16). The storage tensor holds all 16 coefficient sets from initialization, but only a prefix is passed to the rasterizer.",
+      "explanation": "The `_shs` tensor is initialized as a single `nn.Parameter` of shape `[N, 16, 3]` at startup (gaussian_model.py:161), covering all spherical-harmonic degrees 0 through 3. The `get_features` property selects only `_shs[:, :n_active, :]` where `n_active = (active_sh_degree + 1) ** 2` (gaussian_model.py:95-96). During the forward pass, only the active prefix is passed to the rasterizer (trainer.py:107: `\"shs\": model.get_features`). During `loss.backward()`, autograd traces only through the sliced coefficients, so the unused higher-degree coefficients receive `.grad = None` or zero. The optimizer's Adam step (gaussian_model.py:227) does one fused kernel over all `_shs` parameters: the unused coefficients have zero gradient and near-zero Adam state (never initialized), so the effective update is zero. This is not dead work — it is intentional forward allocation for the degree ramp-up. Storing all degrees in one fixed tensor avoids repeated re-allocation and optimizer-state migration each time `active_sh_degree` increments. The unused memory (~13/16 of K=16 per Gaussian when degree=0) is a memory-vs-simplicity tradeoff, not wasted compute.",
+      "dead_work_type": "not_applicable",
+      "estimated_impact": "Negligible. The fused optimizer kernel runs on the full tensor regardless; the marginal cost of additional zero-gradient columns is tiny. Forward-pass memory overhead: ~13 unused SH coefficients × each of N Gaussians."
+    },
+    {
+      "candidate_name": "Gaussian identity tracking (_gaussian_ids, _next_gaussian_id)",
+      "classification": "EXACT_DEAD_WORK",
+      "source_evidence": {
+        "declaration": "gaussian_model.py:63-66 — '# Does not affect rendering; purely metadata for lineage tracking.'",
+        "initialization": "gaussian_model.py:171-172 — _gaussian_ids = torch.arange(N); _next_gaussian_id = N",
+        "extension": "gaussian_model.py:426-432 — cat new IDs to _gaussian_ids, increment _next_gaussian_id",
+        "pruning": "gaussian_model.py:458 — _gaussian_ids = _gaussian_ids[valid_points_mask]",
+        "instrumentation_read": "trainer.py:354,456 — ids_snap = identity_tracker.get_ids() (reads _gaussian_ids)",
+        "instrumentation_output": "trainer.py:548-549 — saved as lineage_summary.json"
+      },
+      "phase_condition": "Entire training run (iterations 1–30000). The IDs are never consumed by any computation that affects loss, parameter gradients, or rendering.",
+      "explanation": "The `_gaussian_ids` tensor and `_next_gaussian_id` counter are explicitly documented as metadata: 'Does not affect rendering; purely metadata for lineage tracking.' (gaussian_model.py:63-64). These values are maintained through every topology event: extended with new IDs on clone/split (gaussian_model.py:426-432), filtered on prune (gaussian_model.py:458). The reads at trainer.py:354 and 456 feed only into instrumentation snapshots (C50 temporal predictability), which are saved to disk as diagnostics. The ID values never flow back into the loss, parameter gradients, rendering pipeline, or optimizer step. Every CPU/GPU operation maintaining these tensors — `torch.arange`, `torch.cat`, boolean indexing on `_gaussian_ids`, the `_next_gaussian_id` integer increment — produces values whose only consumers are diagnostic JSON files. This is provably dead work for the training objective.",
+      "dead_work_type": "metadata_overhead_unreachable_from_loss",
+      "estimated_impact": "Small per-topology-event: one torch.cat and one torch.arange kernel (~tens of microseconds). Accumulated over 145 topology events (iterations 500–15000 every 100), the total cost is negligible (<10 ms CPU+GPU aggregate)."
+    },
+    {
+      "candidate_name": "The SepSSIM computation which uses separable convolution",
+      "classification": "NOT_DEAD",
+      "source_evidence": {
+        "definition": "trainer.py:61-87 — SepSSIM class with two 1D conv passes (k_h, k_v)",
+        "instantiation": "trainer.py:269 — ssim_fn = SepSSIM(device='cuda')",
+        "loss_usage": "trainer.py:324 — dssim = ssim_fn(image, gt_image)",
+        "loss_combination": "trainer.py:325 — loss = (1.0 - config.lambda_dssim) * L1 + config.lambda_dssim * dssim",
+        "gradient_propagation": "trainer.py:329 — loss.backward()"
+      },
+      "phase_condition": "Every iteration (1–30000).",
+      "explanation": "SepSSIM computes a differentiable SSIM loss using separable convolution (two 1D Gaussian filters instead of one 2D filter). Its output `dssim` is combined with L1 at trainer.py:325 to produce the training loss. `loss.backward()` at trainer.py:329 propagates gradients through both the L1 and SSIM branches back to the rendered `image` and ultimately through the rasterizer to all model parameters (`_xyz`, `_shs`, `_scaling`, `_rotation`, `_opacity`). The separable convolution is an implementation choice that is mathematically equivalent to standard SSIM but more efficient. Its computation is fully consumed in the training objective every iteration with no dead phase. The SepSSIM class is never instantiated or called in any context where its result is discarded.",
+      "dead_work_type": "not_applicable",
+      "estimated_impact": "None — integral part of the loss function, used every iteration."
+    },
+    {
+      "candidate_name": "Gradient computation for parameters that don't need updates",
+      "classification": "NOT_DEAD",
+      "source_evidence": {
+        "optimizer_groups": "gaussian_model.py:219-225 — xyz, shs, opacity, scaling, rotation (5 param groups)",
+        "all_used_in_forward": "trainer.py:102-108 — render_with_meta passes all 5 param types to rasterization",
+        "eval_mode": "trainer.py:141 — evaluate_model uses torch.no_grad()"
+      },
+      "phase_condition": "Entire training run (iterations 1–30000). No parameter ever becomes 'not needing updates.'",
+      "explanation": "All five parameter groups (`_xyz`, `_shs`, `_scaling`, `_rotation`, `_opacity`) participate in the forward rendering pass every iteration (trainer.py:102-108). Each directly affects the rendered image, which enters the loss, so each receives meaningful gradients through `loss.backward()`. There is no dead phase where a parameter is included in the optimizer but excluded from the forward graph. The only parameter-adjacent tensors that become dead are the densification-only buffers (`xyz_gradient_accum`, `denom`, `max_radii2D`, `_gaussian_ids`) — already covered in candidates 2, 3, and 6. No parameter's gradient is ever computed and then discarded without being consumed by `optimizer.step()`.",
+      "dead_work_type": "not_applicable",
+      "estimated_impact": "None — all parameter gradients are essential every iteration."
+    }
+  ],
+  "summary": {
+    "exact_dead_work": {
+      "count": 3,
+      "candidates": [
+        "absgrad computation after densify_until_iter",
+        "Densification statistics (xyz_gradient_accum, denom) after densification stops",
+        "Screen-space radii tracking (max_radii2D) after size-pruning becomes irrelevant"
+      ],
+      "note": "These share the same root cause: the `iteration < config.densify_until_iter` gate at trainer.py:338. All densification infrastructure becomes dead after iteration 15000."
+    },
+    "exact_dead_work_metadata": {
+      "count": 1,
+      "candidates": [
+        "Gaussian identity tracking (_gaussian_ids, _next_gaussian_id)"
+      ],
+      "note": "Explicitly documented as metadata from its declaration; never affects training outcome at any phase."
+    },
+    "not_dead": {
+      "count": 4,
+      "candidates": [
+        "Topology-related statistics after topology freezes",
+        "SH-related intermediates at lower active SH degrees",
+        "The SepSSIM computation which uses separable convolution",
+        "Gradient computation for parameters that don't need updates"
+      ]
+    },
+    "uncertain": {
+      "count": 0,
+      "note": "All 8 candidates were classifiable with available evidence."
+    },
+    "aggregate_impact": "Low. No dead-work candidate consumes >1% of per-iteration GPU time. The densification infrastructure buffers (xyz_gradient_accum, denom, max_radii2D) together occupy ~1–2 MB of GPU memory after the final topology event, and the absgrad extra compute element is a few microseconds per iteration. The main training cost (forward render + backward + optimizer step) is unaffected."
+  }
+}

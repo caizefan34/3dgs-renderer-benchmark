@@ -1,0 +1,86 @@
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherlessProjectedProducer.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherlessProjectedProducer.cu
+index d26e531..c7c82f3 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherlessProjectedProducer.cu
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherlessProjectedProducer.cu
+@@ -103,6 +103,39 @@ __global__ void f9_projected_producer_kernel(
+     sh3_color(dir, coeffs + gid * 16 * 3, colors_eval + idx * 3);
+ }
+ 
++// Exact world-space camera origin for the row-major view matrix [R | t].
++// This avoids a generic matrix inverse in F9's production hot path.
++__global__ void higs_camera_positions_kernel(
++    const int64_t C, const float *__restrict__ viewmats,
++    float *__restrict__ camera_positions) {
++    const int64_t c = blockIdx.x * blockDim.x + threadIdx.x;
++    if(c >= C) return;
++    const float *v = viewmats + c * 16;
++    const float tx = v[3], ty = v[7], tz = v[11];
++    float *out = camera_positions + c * 3;
++    out[0] = -(v[0] * tx + v[4] * ty + v[8] * tz);
++    out[1] = -(v[1] * tx + v[5] * ty + v[9] * tz);
++    out[2] = -(v[2] * tx + v[6] * ty + v[10] * tz);
++}
++
++at::Tensor higs_camera_positions_from_viewmats(const at::Tensor &viewmats) {
++    TORCH_CHECK(viewmats.is_cuda() && viewmats.scalar_type() == at::kFloat
++        && viewmats.is_contiguous() && viewmats.dim() == 3
++        && viewmats.size(1) == 4 && viewmats.size(2) == 4,
++        "viewmats must be contiguous FP32 CUDA [C,4,4]");
++    const int64_t C = viewmats.size(0);
++    auto output = at::empty({C, 3}, viewmats.options());
++    if(C) {
++        constexpr int threads = 64;
++        const int blocks = static_cast<int>((C + threads - 1) / threads);
++        higs_camera_positions_kernel<<<blocks, threads, 0,
++            at::cuda::getCurrentCUDAStream()>>>(
++            C, viewmats.data_ptr<float>(), output.data_ptr<float>());
++        C10_CUDA_KERNEL_LAUNCH_CHECK();
++    }
++    return output;
++}
++
+ std::vector<at::Tensor> higs_gatherless_projected_producer(
+     const at::Tensor &visible_ids, const at::Tensor &means, const at::Tensor &quats,
+     const at::Tensor &scales, const at::Tensor &opacities, const at::Tensor &coeffs,
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherlessProjectedProducer.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherlessProjectedProducer.h
+index aab11b9..3cf38a0 100644
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherlessProjectedProducer.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherlessProjectedProducer.h
+@@ -11,4 +11,5 @@ std::vector<at::Tensor> higs_gatherless_projected_producer(
+     int64_t width, int64_t height, double eps2d, double near_plane,
+     double far_plane, double radius_clip);
+ 
++at::Tensor higs_camera_positions_from_viewmats(const at::Tensor &viewmats);
+ }} // namespace gsplat::gaussian_render_inference_scene
+diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
+index fc51880..8c5456b 100644
+--- a/gsplat/experimental/render/kernels/cuda/ext.cpp
++++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
+@@ -118,6 +118,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+         py::arg("width"), py::arg("height"), py::arg("eps2d"),
+         py::arg("near_plane"), py::arg("far_plane"), py::arg("radius_clip")
+     );
++    m.def(
++        "higs_camera_positions_from_viewmats",
++        &gsplat::gaussian_render_inference_scene::higs_camera_positions_from_viewmats,
++        "Exact FP32 camera origins: -R^T t for [C,4,4] view matrices.",
++        py::arg("viewmats")
++    );
+ 
+     m.def(
+         "higs_union_visible_mask",
+diff --git a/gsplat/experimental/render/functional/gaussian_inference.py b/gsplat/experimental/render/functional/gaussian_inference.py
+index 4cb6a9f..bd83b81 100644
+--- a/gsplat/experimental/render/functional/gaussian_inference.py
++++ b/gsplat/experimental/render/functional/gaussian_inference.py
+@@ -2064,7 +2064,9 @@ class _HigsAutogradFunction(torch.autograd.Function):
+                 # The extension indexes master rows through visible_ids and
+                 # directly writes the state consumed by the unchanged F4/F5.
+                 backend = _inference_backend._C
+-                cam_positions = torch.linalg.inv(viewmats[0])[..., :3, 3].contiguous()
++                cam_positions = backend.higs_camera_positions_from_viewmats(
++                    viewmats[0].contiguous()
++                )
+                 radii, means2d, depths, conics, opacities_bc, colors_eval = (
+                     backend.higs_gatherless_projected_producer(
+                         visible_ids.contiguous(), means_b.contiguous(),

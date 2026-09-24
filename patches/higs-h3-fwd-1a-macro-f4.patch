@@ -1,0 +1,142 @@
+diff --git a/gsplat/experimental/render/kernels/cuda/build.py b/gsplat/experimental/render/kernels/cuda/build.py
+index 7815b38..c3fa90c 100644
+--- a/gsplat/experimental/render/kernels/cuda/build.py
++++ b/gsplat/experimental/render/kernels/cuda/build.py
+@@ -103,6 +103,7 @@ def get_build_parameters():
+             for f in [
+                 "GatherVisible.cu",
+                 "HigsNativeBackward.cu",
++                "HigsTrainMacroF4.cu",
+                 "IntersectCommon.cu",
+                 "IntersectMTFused.cu",
+                 "MacroTileIntersect.cu",
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsTrainMacroF4.cu b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsTrainMacroF4.cu
+new file mode 100644
+index 0000000..3aa76cd
+--- /dev/null
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsTrainMacroF4.cu
+@@ -0,0 +1,81 @@
++#include <ATen/Functions.h>
++#include <ATen/cuda/CUDAContext.h>
++#include <c10/cuda/CUDAGuard.h>
++#include <ATen/ops/zeros.h>
++#include <c10/cuda/CUDAException.h>
++#include <cuda_runtime.h>
++#include "HigsTrainMacroF4.h"
++#include "IntersectMTConfig.h"
++#include "MacroTileIntersect.h"
++
++namespace gsplat::gaussian_render_inference_scene {
++namespace {
++constexpr float kAlphaThreshold = 1.f / 255.f;
++constexpr int kThreads = 256;
++
++__device__ bool hit_rect(float a, float b, float c, float t, float cx, float cy,
++                         float x0, float x1, float y0, float y1) {
++    // Exact minimum of the positive-definite conic quadratic over the rectangle.
++    float qmin = 3.402823e38f;
++    float x = fminf(fmaxf(cx, x0), x1), y = fminf(fmaxf(cy, y0), y1);
++    float dx=x-cx, dy=y-cy; qmin=fminf(qmin,a*dx*dx+2.f*b*dx*dy+c*dy*dy);
++    for (int e=0;e<2;++e) { x=e?x1:x0; y=fminf(fmaxf(cy-b*(x-cx)/c,y0),y1);
++      dx=x-cx; dy=y-cy; qmin=fminf(qmin,a*dx*dx+2.f*b*dx*dy+c*dy*dy); }
++    for (int e=0;e<2;++e) { y=e?y1:y0; x=fminf(fmaxf(cx-b*(y-cy)/a,x0),x1);
++      dx=x-cx; dy=y-cy; qmin=fminf(qmin,a*dx*dx+2.f*b*dx*dy+c*dy*dy); }
++    return qmin <= t;
++}
++__device__ bool bounds(float a,float b,float c,float op,float cx,float cy,
++                       int cols,int rows,float sx,float sy,
++                       int &x0,int &x1,int &y0,int &y1,float &t) {
++    if (!(op >= kAlphaThreshold && a > 0.f && c > 0.f)) return false;
++    t=fminf(4096.f*4096.f,2.f*logf(op/kAlphaThreshold));
++    float det=a*c-b*b; if (!(det>0.f && t>0.f)) return false;
++    float ex=sqrtf(t*c/det), ey=sqrtf(t*a/det);
++    x0=max(0,min(cols,(int)((cx-ex)/sx))); x1=max(0,min(cols,(int)((cx+ex)/sx+1.f)));
++    y0=max(0,min(rows,(int)((cy-ey)/sy))); y1=max(0,min(rows,(int)((cy+ey)/sy+1.f)));
++    return x0<x1 && y0<y1;
++}
++__global__ void count_kernel(int n,const float* m,const float* con,const float* op,const int* r,
++ int mc,int mr,int ts,int* counts) {
++ int g=blockIdx.x*blockDim.x+threadIdx.x;if(g>=n||r[g*2]<=0||r[g*2+1]<=0)return;
++ float t;int x0,x1,y0,y1;float a=con[g*3],b=con[g*3+1],c=con[g*3+2];
++ if(!bounds(a,b,c,op[g],m[g*2],m[g*2+1],mc,mr,ts*8.f,ts*4.f,x0,x1,y0,y1,t))return;
++ for(int y=y0;y<y1;++y)for(int x=x0;x<x1;++x)
++  if(hit_rect(a,b,c,t,m[g*2],m[g*2+1],x*ts*8.f,(x+1)*ts*8.f,y*ts*4.f,(y+1)*ts*4.f)) atomicAdd(counts+y*mc+x,1);
++}
++__global__ void fill_kernel(int n,const float* m,const float* con,const float* dep,const float* op,const int* r,
++ int mc,int mr,int ts,const int* offsets,int* cursors,int* keys,int* ids) {
++ int g=blockIdx.x*blockDim.x+threadIdx.x;if(g>=n||r[g*2]<=0||r[g*2+1]<=0)return;
++ float t;int x0,x1,y0,y1;float a=con[g*3],b=con[g*3+1],c=con[g*3+2];
++ if(!bounds(a,b,c,op[g],m[g*2],m[g*2+1],mc,mr,ts*8.f,ts*4.f,x0,x1,y0,y1,t))return;
++ int key=__float_as_int(dep[g]);
++ for(int y=y0;y<y1;++y)for(int x=x0;x<x1;++x) if(hit_rect(a,b,c,t,m[g*2],m[g*2+1],x*ts*8.f,(x+1)*ts*8.f,y*ts*4.f,(y+1)*ts*4.f)) {
++   int mt=y*mc+x, p=atomicAdd(cursors+mt,1); keys[offsets[mt]+p]=key; ids[offsets[mt]+p]=g;
++ }
++}
++__global__ void batch_kernel(int n,const int* offsets,int* batches){if(blockIdx.x||threadIdx.x)return;batches[0]=0;for(int i=0;i<n;++i)batches[i+1]=batches[i]+(offsets[i+1]-offsets[i]+1023)/1024;}
++__global__ void mask_kernel(int entries,const int* offsets,const int* ids,const float* m,const float* con,const float* op,
++ int mc,int mr,int tw,int th,int ts,unsigned int* masks) {
++ int p=blockIdx.x*blockDim.x+threadIdx.x;if(p>=entries)return; int lo=0,hi=mc*mr;
++ while(lo+1<hi){int mid=(lo+hi)/2;if(offsets[mid]<=p)lo=mid;else hi=mid;} int mt=lo,g=ids[p], mx=mt%mc,my=mt/mc;
++ float a=con[g*3],b=con[g*3+1],c=con[g*3+2],t=fminf(4096.f*4096.f,2.f*logf(op[g]/kAlphaThreshold)); unsigned int out=0;
++ for(int j=0;j<32;++j){int tx=mx*8+j%8,ty=my*4+j/8;if(tx<tw&&ty<th&&hit_rect(a,b,c,t,m[g*2],m[g*2+1],tx*ts,(tx+1)*ts,ty*ts,(ty+1)*ts))out|=1u<<j;} masks[p]=out;
++}
++}
++std::vector<at::Tensor> higs_train_macro_f4(const at::Tensor &means2d,const at::Tensor &conics,const at::Tensor &depths,const at::Tensor &opacities,const at::Tensor &radii,int64_t tw,int64_t th,int64_t ts,bool masks,bool profile_stages) {
++ TORCH_CHECK(means2d.is_cuda()&&means2d.scalar_type()==at::kFloat&&means2d.dim()==2&&means2d.size(1)==2,"means2d must be [N,2] CUDA float");
++ TORCH_CHECK(conics.scalar_type()==at::kFloat&&conics.sizes()==at::IntArrayRef({means2d.size(0),3}),"conics must be [N,3] CUDA float");
++ TORCH_CHECK(depths.scalar_type()==at::kFloat&&opacities.scalar_type()==at::kFloat&&radii.scalar_type()==at::kInt,"FP32 state and int32 radii required");
++ TORCH_CHECK(ts==16,"H3-FWD-1A supports tile_size=16 only");
++ auto guard=c10::cuda::CUDAGuard(means2d.device()); auto oi=at::TensorOptions().device(means2d.device()).dtype(at::kInt);
++ int n=(int)means2d.size(0),mc=((int)tw+7)/8,mr=((int)th+3)/4,nm=mc*mr; cudaEvent_t events[6]; if(profile_stages) for(auto &event:events) cudaEventCreate(&event); if(profile_stages) cudaEventRecord(events[0],at::cuda::getCurrentCUDAStream()); auto counts=at::zeros({nm},oi);
++ count_kernel<<<(n+kThreads-1)/kThreads,kThreads,0,at::cuda::getCurrentCUDAStream()>>>(n,means2d.data_ptr<float>(),conics.data_ptr<float>(),opacities.data_ptr<float>(),radii.data_ptr<int32_t>(),mc,mr,(int)ts,counts.data_ptr<int32_t>()); C10_CUDA_KERNEL_LAUNCH_CHECK(); if(profile_stages) cudaEventRecord(events[1],at::cuda::getCurrentCUDAStream());
++ auto prefix=at::cumsum(counts,0,at::kInt); auto offsets=at::zeros({nm+1},oi); offsets.slice(0,1).copy_(prefix); int entries=offsets[-1].item<int>(); if(profile_stages) cudaEventRecord(events[2],at::cuda::getCurrentCUDAStream());
++ auto cursors=at::zeros({nm},oi),keys=at::empty({entries},oi),ids=at::empty({entries},oi),tmpk=at::empty({entries},oi),tmpi=at::empty({entries},oi);
++ fill_kernel<<<(n+kThreads-1)/kThreads, kThreads,0,at::cuda::getCurrentCUDAStream()>>>(n,means2d.data_ptr<float>(),conics.data_ptr<float>(),depths.data_ptr<float>(),opacities.data_ptr<float>(),radii.data_ptr<int32_t>(),mc,mr,(int)ts,offsets.data_ptr<int32_t>(),cursors.data_ptr<int32_t>(),keys.data_ptr<int32_t>(),ids.data_ptr<int32_t>()); C10_CUDA_KERNEL_LAUNCH_CHECK(); if(profile_stages) cudaEventRecord(events[3],at::cuda::getCurrentCUDAStream());
++ auto sorted=higs::launch_mt_segmented_sort(entries,nm,offsets,keys,ids,tmpk,tmpi); if(profile_stages) cudaEventRecord(events[4],at::cuda::getCurrentCUDAStream()); auto batches=at::empty({nm+1},oi);
++ batch_kernel<<<1,1,0,at::cuda::getCurrentCUDAStream()>>>(nm,offsets.data_ptr<int32_t>(),batches.data_ptr<int32_t>()); C10_CUDA_KERNEL_LAUNCH_CHECK(); if(profile_stages) cudaEventRecord(events[5],at::cuda::getCurrentCUDAStream());
++ auto outm=masks?at::empty({entries},oi):at::empty({0},oi); if(masks) mask_kernel<<<(entries+kThreads-1)/kThreads,kThreads,0,at::cuda::getCurrentCUDAStream()>>>(entries,offsets.data_ptr<int32_t>(),sorted.data_ptr<int32_t>(),means2d.data_ptr<float>(),conics.data_ptr<float>(),opacities.data_ptr<float>(),mc,mr,(int)tw,(int)th,(int)ts,reinterpret_cast<unsigned int*>(outm.data_ptr<int32_t>())); auto stage=at::empty({0},at::TensorOptions().dtype(at::kFloat)); if(profile_stages){cudaEventSynchronize(events[5]); stage=at::empty({5},at::TensorOptions().dtype(at::kFloat)); for(int i=0;i<5;++i){float ms;cudaEventElapsedTime(&ms,events[i],events[i+1]);stage.data_ptr<float>()[i]=ms;cudaEventDestroy(events[i]);}cudaEventDestroy(events[5]);} return {offsets,sorted,batches,outm,stage};
++}
++}
+diff --git a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsTrainMacroF4.h b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsTrainMacroF4.h
+new file mode 100644
+index 0000000..6ed5b78
+--- /dev/null
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsTrainMacroF4.h
+@@ -0,0 +1,11 @@
++#pragma once
++#include <ATen/core/Tensor.h>
++#include <vector>
++namespace gsplat::gaussian_render_inference_scene {
++std::vector<at::Tensor> higs_train_macro_f4(
++    const at::Tensor &means2d, const at::Tensor &conics,
++    const at::Tensor &depths, const at::Tensor &opacities,
++    const at::Tensor &radii, int64_t tile_width, int64_t tile_height,
++    int64_t tile_size, bool materialize_masks, bool profile_stages = false);
++}
++
+diff --git a/gsplat/experimental/render/kernels/cuda/ext.cpp b/gsplat/experimental/render/kernels/cuda/ext.cpp
+index 426d402..1de70e4 100644
+--- a/gsplat/experimental/render/kernels/cuda/ext.cpp
++++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
+@@ -20,6 +20,7 @@
+ #include "csrc/gaussian_inference/GaussianRenderInferenceScene.h"
+ #include "csrc/gaussian_inference/HigsNativeBackward.h"
+ #include "csrc/gaussian_inference/GatherVisible.h"
++#include "csrc/gaussian_inference/HigsTrainMacroF4.h"
+ 
+ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+ {
+@@ -114,6 +115,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+         py::arg("radii")
+     );
+ 
++    m.def("higs_train_macro_f4", &gsplat::gaussian_render_inference_scene::higs_train_macro_f4,
++        "H3-FWD-1A FP32 macro count/offset/fill/segmented-sort validation path.",
++        py::arg("means2d"), py::arg("conics"), py::arg("depths"), py::arg("opacities"),
++        py::arg("radii"), py::arg("tile_width"), py::arg("tile_height"), py::arg("tile_size"),
++        py::arg("materialize_masks") = false, py::arg("profile_stages") = false);
++
+     m.def(
+         "higs_gather_rows",
+         &gsplat::gaussian_render_inference_scene::higs_gather_rows,
+

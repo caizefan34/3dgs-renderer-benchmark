@@ -1,0 +1,76 @@
+{
+  "title": "Current Bottleneck by Stage",
+  "note": "Bottleneck analysis from A100 source-level analysis + existing profiling. Backward timing breakdown requires Nsight Compute profiling which was not available.",
+  "stages": {
+    "room_2K": {
+      "N": 269346,
+      "estimated_breakdown": "At 270K Gaussians (SH degree 0-1), the forward pass is ~4.1ms. Intersect_sort dominates at ~2.6ms (64%). Raster backward is NOT_MEASURED but estimated at ~10ms based on scaling from the 500-step profiler (which used 1.1M Gaussians with 20.6ms raster backward at room tile16).",
+      "bottleneck_#1": {
+        "kernel": "intersect_sort",
+        "pct_of_forward": "64%",
+        "note": "CUB radix sort of ~17M intersections"
+      },
+      "bottleneck_#2": {
+        "kernel": "raster_backward",
+        "pct_of_iter": "~40%",
+        "note": "Estimated from 1.1M G profile scaled down"
+      },
+      "bottleneck_#3": {
+        "kernel": "Adam_optimizer",
+        "pct_of_iter": "~15%",
+        "note": "5 parameter groups x 270K params"
+      }
+    },
+    "room_10K": {
+      "N": 797395,
+      "estimated_breakdown": "Forward ~4.8ms (intersect_sort ~3.1ms, 64%). Raster backward estimated at ~19ms based on scaling. Total iter ~36ms.",
+      "bottleneck_#1": {
+        "kernel": "raster_backward",
+        "pct_of_iter": "~53%",
+        "note": "Dominant as N grows; per-Gaussian-per-tile gradient computation scales with tile intersections"
+      },
+      "bottleneck_#2": {
+        "kernel": "intersect_sort",
+        "pct_of_forward": "64%"
+      },
+      "bottleneck_#3": {
+        "kernel": "Adam_optimizer",
+        "pct_of_iter": "~16%"
+      }
+    },
+    "room_20K": {
+      "N": 952353,
+      "estimated_breakdown": "Forward ~4.9ms (intersect_sort ~3.1ms). Raster backward estimated at ~22ms. Total iter ~40ms. Post-densification: densification overhead (add_stats, densify calls) drops to 0.",
+      "bottleneck_#1": {
+        "kernel": "raster_backward",
+        "pct_of_iter": "~55%"
+      },
+      "bottleneck_#2": {
+        "kernel": "intersect_sort",
+        "pct_of_forward": "64%"
+      },
+      "bottleneck_#3": {
+        "kernel": "Adam_optimizer",
+        "pct_of_iter": "~15%"
+      }
+    },
+    "bicycle_10K_A100profile": {
+      "N": 2589484,
+      "forward_ms": 107.93,
+      "bottleneck_#1": {
+        "kernel": "intersect_sort",
+        "pct_of_forward": "67.5%",
+        "absolute_ms": 72.87
+      },
+      "bottleneck_#2": {
+        "kernel": "intersect_offset",
+        "pct_of_forward": "3.5%"
+      },
+      "bottleneck_#3": {
+        "kernel": "projection",
+        "pct_of_forward": "0.3%"
+      }
+    }
+  },
+  "summary": "The dominant per-iteration bottleneck is raster_backward (estimated ~50-55% of iteration time at peak N) for indoor scenes, and intersect_sort (67% of forward) which is ~35-40% of total iteration since backward is longer. For outdoor scenes with huge Gaussian counts, intersect_sort dominates the forward pass even more (67%). The optimizer is a consistent ~15% of iteration time."
+}

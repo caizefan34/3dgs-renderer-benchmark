@@ -1,0 +1,74 @@
+{
+  "schema_version": 2,
+  "experiment_id": "epic05-optimization-v3",
+  "date": "",
+  "description": "Comprehensive optimization study for 3DGS rendering on EPIC-05",
+  "hardware": {
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "count": 8,
+    "vram_per_gpu": 81920,
+    "nvlink": "NV12"
+  },
+  "baseline": {
+    "id": "M0",
+    "renderer": "gsplat",
+    "tile_size": 16,
+    "packed": true,
+    "sh_degree": 3,
+    "eps2d": 0.1,
+    "radius_clip": 0.0
+  },
+  "scenes": {
+    "50k": {"gaussians": 50000, "file": "scene_50k.ply"},
+    "200k": {"gaussians": 200000, "file": "scene_200k.ply"},
+    "400k": {"gaussians": 400000, "file": "scene_400k.ply"}
+  },
+  "resolutions": ["720p", "1080p", "4k"],
+  "protocol": {
+    "warmup_frames": 30,
+    "measured_frames": 100,
+    "repeats": 3,
+    "timing_method": "torch.cuda.Event"
+  },
+  "ablation_modules": {
+    "M0": {"name": "baseline", "params": {"tile_size": 16, "packed": true, "sh_degree": 3, "eps2d": 0.1}},
+    "M1a": {"name": "tile8", "params": {"tile_size": 8}},
+    "M1b": {"name": "tile16", "params": {"tile_size": 16}},
+    "M1c": {"name": "tile32", "params": {"tile_size": 32}},
+    "M2a": {"name": "packed_true", "params": {"packed": true}},
+    "M2b": {"name": "packed_false", "params": {"packed": false}},
+    "M3a": {"name": "sh0", "params": {"sh_degree": 0}},
+    "M3b": {"name": "sh1", "params": {"sh_degree": 1}},
+    "M3c": {"name": "sh3", "params": {"sh_degree": 3}},
+    "M4a": {"name": "rclip_none", "params": {"radius_clip": 0.0}},
+    "M4b": {"name": "rclip_0_001", "params": {"radius_clip": 0.001}},
+    "M4c": {"name": "rclip_0_01", "params": {"radius_clip": 0.01}},
+    "M5a": {"name": "eps2d_0_01", "params": {"eps2d": 0.01}},
+    "M5b": {"name": "eps2d_0_1", "params": {"eps2d": 0.1}},
+    "M5c": {"name": "eps2d_0_5", "params": {"eps2d": 0.5}}
+  },
+  "interaction_experiments": [
+    {"id": "I1", "modules": ["M0"], "description": "baseline"},
+    {"id": "I2", "modules": ["M1a", "M2b"], "description": "tile8 + dense"},
+    {"id": "I3", "modules": ["M1b", "M2b"], "description": "tile16 + dense"},
+    {"id": "I4", "modules": ["M1c", "M2b"], "description": "tile32 + dense"},
+    {"id": "I5", "modules": ["M1a", "M3a"], "description": "tile8 + SH0"},
+    {"id": "I6", "modules": ["M1b", "M3a"], "description": "tile16 + SH0"},
+    {"id": "I7", "modules": ["M2b", "M3a"], "description": "dense + SH0"},
+    {"id": "I8", "modules": ["M1a", "M2b", "M3a"], "description": "tile8 + dense + SH0"},
+    {"id": "I9", "modules": ["M1b", "M2b", "M3a"], "description": "tile16 + dense + SH0"},
+    {"id": "I10", "modules": ["M1a", "M4b"], "description": "tile8 + rclip"}
+  ],
+  "metrics": [
+    "mean_ms", "median_ms", "std_ms", "min_ms", "max_ms",
+    "p1_ms", "p5_ms", "p95_ms", "p99_ms",
+    "mean_fps", "peak_vram_mb", "avg_vram_mb",
+    "num_gaussians", "resolution"
+  ],
+  "profile_metrics": {
+    "forward_ms": "Forward pass time",
+    "backward_ms": "Backward pass time",
+    "fwd_pct": "Forward % of total",
+    "bwd_pct": "Backward % of total"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "title": "Parameter-Group Backward Cost Estimates",
+  "note": "These are estimates from source-level analysis of gsplat CUDA kernels. Exact decomposition requires microbenchmarking on A100 with modified rasterize_to_pixels_bwd kernels. The raster backward computes means2d, conics, colors, and opacities gradients together in one kernel, making it impossible to isolate cleanly without kernel variants.",
+  "source_basis": "Source analysis of rasterize_to_pixels_bwd.cu and fully_fused_projection_bwd.cu",
+  "full_raster_backward_ms": "NOT_MEASURED_A100",
+  "decomposition": {
+    "geometry_related": {
+      "LOWER_BOUND": "NOT_MEASURED",
+      "UPPER_BOUND": "NOT_MEASURED",
+      "SHARED_COST": "Full raster backward kernel computes means2d.grad, conics.grad, colors.grad, opacities.grad in one fused loop. Geometry involves: means2d (2 values), conics (3 values) = 5/parameter_count of the per-Gaussian backward compute. However these are computed from shared transmittance/tile data, so wall-clock decomposition is nonlinear.",
+      "kernel_hint": "rasterize_to_pixels_bwd_kernel computes v_means2d (2), v_conics (3), v_colors (CDIM), v_opacities (1). Processing v_means2d+v_conics requires ~5/(CDIM+6) of the per-Gaussian compute. CDIM=48 for SH degree 3."
+    },
+    "appearance_related": {
+      "LOWER_BOUND": "NOT_MEASURED",
+      "UPPER_BOUND": "NOT_MEASURED",
+      "SHARED_COST": "Appearance (SH/color) backward involves dL/dcolors (CDIM values), but the SH evaluation backward also has its own kernel (compute_sh_bwd.cu) which is separate from the raster backward. Colors gradient is then consumed by the SH backward.",
+      "kernel_hint": "compute_sh_bwd_kernel processes CDIM gradient values per Gaussian. Separately, raster bwd kernel processes v_colors (CDIM values per Gaussian per tile). Total appearance cost = SH backward kernel + color portion of raster backward."
+    },
+    "opacity_related": {
+      "LOWER_BOUND": "NOT_MEASURED",
+      "UPPER_BOUND": "NOT_MEASURED",
+      "SHARED_COST": "Opacity backward involves v_opacities (1 value per Gaussian per tile) in the raster kernel, plus sigmoid derivative in Python autograd. This is the smallest component."
+    },
+    "projection_backward": {
+      "FullyFusedProjection_bwd": "NOT_MEASURED",
+      "note": "Projection backward is a separate CUDA kernel (fully_fused_projection_bwd.cu) which is NOT decomposed by parameter group. It computes dL/dxyz from dL/dmeans2d."
+    }
+  },
+  "requires_a100_microbenchmark": true,
+  "microbenchmark_design": "Create kernel variants in rasterize_to_pixels_bwd.cu that zero specific gradient components before atomicAdd. Compare runtime vs full backward. A100 only because cross-tile parallelism is critical for timing accuracy."
+}

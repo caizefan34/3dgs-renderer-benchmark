@@ -1,0 +1,74 @@
+{
+  "title": "Computational Phase Transition Analysis",
+  "analysis_basis": "Source analysis of trainer.py + existing A100 profiling data",
+  "phases": [
+    {
+      "phase": "early_densification_2K",
+      "description": "Iterations 0-2000, early Gaussian growth from 112K to 270K",
+      "N_gaussians": 269346,
+      "characteristics": "Low N, low tile intersections, high gradient norms. SH degree=0 (only DC). Densification active every 100 iters. Opacity reset every 3000 (not yet triggered).",
+      "dominant_kernel": "intersect_sort still dominant but total forward <10ms",
+      "what_changes_next": "N grows, tile intersections increase, SH degree progresses, opacity resets begin"
+    },
+    {
+      "phase": "mid_densification_10K",
+      "description": "Iterations 2000-10000, rapid Gaussian growth to 800K",
+      "N_gaussians": 797395,
+      "characteristics": "High N growth rate. SH degree=1-2. Opacity resets every 3000 cause transient N drops. Max tile intersections at ~77M (room, tile16). Forward=~4.8ms dominated by intersect_sort.",
+      "dominant_kernel": "intersect_sort (64-96% of forward time across all scenes)",
+      "what_changes_next": "N stabilizes, densification ends at 15000, gradient norms drop"
+    },
+    {
+      "phase": "peak_densification_14K",
+      "description": "Iterations 10000-15000, approaching peak N=952K",
+      "N_gaussians": 952353,
+      "characteristics": "Peak N. SH degree=3 (max). Opacity reset at 12000 and 15000 cause temporary N drops. Densification stops at iter 14999.",
+      "dominant_kernel": "intersect_sort still dominant, raster backward growing with N",
+      "what_changes_next": "Densification stops, no more clone/split/prune events"
+    },
+    {
+      "phase": "post_densification_20K",
+      "description": "Iterations 15000-30000, fine-tuning with fixed topology",
+      "N_gaussians": 952353,
+      "characteristics": "N frozen at 952K. No topology changes. SH degree=3. Gradient norms decrease by 30-50% vs densification phase. Loss still decreasing (PSNR climbs from 30.88 to 32.30).",
+      "what_work_changes": [
+        "densification stops: no add_densification_stats() calls",
+        "no clone/split/prune ops",
+        "no opacity reset",
+        "means2d.absgrad still computed but never read",
+        "xyz_gradient_accum/denom untouched",
+        "max_radii2D still updated but only read for pruning (which never triggers)"
+      ],
+      "what_work_unchanged": [
+        "Full projection fwd/bwd unchanged",
+        "Full SH fwd/bwd unchanged",
+        "Full raster fwd/bwd unchanged (except absgrad atomicAdd)",
+        "Adam optimizer unchanged",
+        "SSIM loss unchanged"
+      ]
+    },
+    {
+      "phase": "outdoor_scene",
+      "description": "bicycle/garden at 10K with mature densification",
+      "characteristics": "Much higher tile intersections (600M+ for bicycle tile16) due to large screen coverage. Intersect_sort dominates even more (96-99% of forward time). Peak VRAM 21-23GB for outdoor tile16.",
+      "note": "Profiling data available for bicycle and garden at 10K with ~2.6M and 870K Gaussians respectively."
+    }
+  ],
+  "key_transitions": [
+    {
+      "transition": "SH degree progression (500, 1500, 2500, 3500)",
+      "impact": "Minor. SH forward kernel has fixed compute per degree. Higher degree means more CDIM values processed, but the incremental cost of going from deg0 (CDIM=1) to deg3 (CDIM=48) is <0.1ms total for forward.",
+      "kernels_executed_unchanged": "All kernels still launch at every iteration regardless of SH degree. The _shs tensor always stores all 48 coefficients."
+    },
+    {
+      "transition": "Densification end (iter 15000)",
+      "impact": "MAJOR. add_densification_stats() stops, clone/split/prune stop, opacity reset stops. All backward kernels still execute unchanged. The absgrad path in raster backward continues executing (wasted).",
+      "kernels_executed_unchanged": "rasterize_to_pixels_bwd (absgrad branch still active, just memory that is never read), fully_fused_projection_bwd, compute_sh_bwd"
+    },
+    {
+      "transition": "Opacitiy reset events (iter 3000, 6000, 9000, 12000, 15000)",
+      "impact": "Transient. Causes temporary N drop (pruning), then growth catches up within 100-200 iterations. Timing impact is minimal because topology ops are cheap relative to rendering."
+    }
+  ],
+  "conclusion": "The dominant computational phase transition is densification_end (iter 15000). Before: N grows, topology changes, absgrad is consumed. After: N is fixed, topology is frozen, absgrad is dead work, but all other computation proceeds identically. SH degree progression has negligible effect on per-iteration time."
+}

@@ -1,0 +1,80 @@
+{
+  "package_version": "1.0.0",
+  "package_name": "summer_research_final_package",
+  "created_by": "evidence-collection agent",
+  "created_at": "2026-09-18T16:20:00Z",
+  "repository_head": "b562562",
+  "repository": "3dgs-renderer-benchmark (https://github.com/caizefan34/3dgs-renderer-benchmark)",
+  "project_period": "2026-07-11 .. 2026-09-18",
+  "core_artifacts": {
+    "reference_v1_baseline": {
+      "lock_report": "reports/reference-v1-baseline-lock.md",
+      "config": "configs/reference_v1/room_30k.yaml",
+      "seed": 42,
+      "iterations": 30000,
+      "baseline_scene": "mipnerf360/room"
+    },
+    "c42": {
+      "status": "DROP_AS_UNIVERSAL (keep as per-baseline tuning tool)",
+      "definition": "Downsampled-SSIM training acceleration",
+      "evidence": [
+        "reports/c42_discrepancy_analysis.md",
+        "reports/c42-completion-batch.md",
+        "reports/c42-adaptive-feasibility.md"
+      ]
+    },
+    "c49": {
+      "status": "DROP_AS_INDEPENDENT (absorbed into C51 methodology)",
+      "definition": "attribute decoupling (G_dens vs G_opt) + utility formula",
+      "ceiling_e2e": 0.0113,
+      "evidence": [
+        "reports/phase-r2-attribute-decoupled-backward-gate.md",
+        "reports/phase_c49_gaussian_lifecycle_research.md"
+      ]
+    },
+    "c51": {
+      "status": "KEEP as C51_SYSTEMS_COMPONENT",
+      "best_config": "K50-B1",
+      "kernel_speedup_abs": 0.102,
+      "e2e_5k": 0.067,
+      "e2e_30k": 0.078,
+      "evidence": [
+        "reports/phase_c51_sparse_backward.md",
+        "reports/phase_c51r_sparse_backward.md",
+        "reports/phase-c51-stage4a.md",
+        "reports/phase-c51-stage4b.md",
+        "reports/phase-c51-stage5.md",
+        "reports/phase-r0.2-c51-final-mechanism-gate.md"
+      ]
+    },
+    "candidate_c": {
+      "status": "KEEP after R3.1 repair; R4 runtime validation incomplete",
+      "violations_r3": 7494,
+      "violations_r3_1": 0,
+      "measurements_r3_1": 90,
+      "worst_ratio": 0.9998,
+      "margin": 0.0002,
+      "vec_gate": "PASS",
+      "evidence": [
+        "reports/r3_1/candidate-c-r3-1-final.md",
+        "reports/candidate_c_source_audit/",
+        "reports/r4/r4-cuda-insertion-audit.md"
+      ]
+    },
+    "tile_geometry": {
+      "status": "mechanism confirmed: occupancy collapse from block dims; tile_size is runtime param",
+      "best_ops": "tile16 (A100/RTX5070)",
+      "evidence": [
+        "reports/epic05/hardware-aware-tile-study-2026-08-19.md",
+        "reports/epic05/tile-mechanism-training-study-2026-08-19.md",
+        "reports/epic05/gradient-correctness-tile-size-2026-09-01.md"
+      ]
+    }
+  },
+  "hardware_cohorts": {
+    "primary": "A100-SXM4-80GB (EPIC-05, CUDA 12.8, PyTorch 2.9.1+cu128)",
+    "secondary": "A100-PCIE-40GB (mx, CUDA 11.8, PyTorch 2.7.1+cu118)",
+    "historical": "RTX 5070 Laptop 8GB (Windows, CUDA 13.0)",
+    "rule": "absolute wall-clock times never compared across hardware cohorts"
+  }
+}

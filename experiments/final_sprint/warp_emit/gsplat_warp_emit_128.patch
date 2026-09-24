@@ -1,0 +1,12 @@
+--- a/cuda/csrc/IntersectTile.cu
++++ b/cuda/csrc/IntersectTile.cu
+@@ -158,7 +158,8 @@ void launch_intersect_tile_kernel(
+     // check if we have enough bits for them.
+     assert(image_n_bits + tile_n_bits <= 32);
+ 
+-    dim3 threads(256);
++    // Keep count pass's 256-thread launch; W1 selected 128 for WARP_ALL.
++    dim3 threads(cum_tiles_per_gauss.has_value() ? 128 : 256);
+     // Second pass maps one warp to one Gaussian; count pass is unchanged.
+     const int64_t launch_elements = cum_tiles_per_gauss.has_value()
+         ? n_elements * 32 : n_elements;

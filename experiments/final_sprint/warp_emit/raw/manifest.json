@@ -1,0 +1,25 @@
+{
+  "candidate": "Warp-Cooperative Intersection Emit / WARP_ALL",
+  "reference_commit": "02375033388d4348376b6b607ab85f551e498a77",
+  "hardware": "NVIDIA A100-PCIE-40GB",
+  "software": {"torch": "2.4.1+cu124", "cuda_runtime": "12.4", "tile_size": 16},
+  "timing_protocol": {"warmup": 20, "repetitions": 40, "clock": "CUDA events", "primary": "median", "secondary": "mean/std", "synchronize": true},
+  "camera": "camera index 0 from each official Mip-NeRF 360 cameras.json; correctness also uses index 1",
+  "raw": {
+    "isolated_emit": "w1_isolated_emit.json",
+    "full_pipeline_128_clean": "w1_full_pipeline_128_clean.json",
+    "correctness": "correctness_candidate_128_summary.json",
+    "baseline_reference": "../../../p2i/raw/p2i_opportunity_gate.json"
+  },
+  "patches": ["../handoff/warp_emit.patch"],
+  "patch_sha256": "5f16364d00e6ccd10d498414abdf635a510589a8ffdf49387a4716a4fb717b5e",
+  "nondeterminism_control": {
+    "repetitions": 3,
+    "baseline_vs_baseline": "nondeterminism/baseline_a.json",
+    "candidate_vs_candidate": "nondeterminism/candidate_a.json",
+    "candidate_vs_baseline": "nondeterminism/candidate_vs_baseline.json",
+    "matched_jit_baseline_control": "nondeterminism/baseline_jit_vs_baseline.json",
+    "status": "PASS"
+  },
+  "invalid_measurement": "w1_full_pipeline_128.json was discarded because all A100 GPUs were concurrently saturated and sort residual became negative."
+}

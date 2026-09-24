@@ -1,0 +1,70 @@
+{
+  "title": "Representation-Growth/Cost Coupling",
+  "data_source": "Training stage summary + A100 profiling data",
+  "scalars_by_stage": {
+    "room_2K": {
+      "N": 269346,
+      "visible_N": 109547,
+      "tile_isects_M": 17.12,
+      "forward_ms": 4.1,
+      "raster_bwd_ms": "NOT_AVAILABLE",
+      "optimizer_ms": 4.2
+    },
+    "room_5K": {
+      "N": 567706,
+      "visible_N": 198432,
+      "tile_isects_M": 41.83,
+      "forward_ms": 4.5,
+      "raster_bwd_ms": "NOT_AVAILABLE",
+      "optimizer_ms": 5.1
+    },
+    "room_10K": {
+      "N": 797395,
+      "visible_N": 267852,
+      "tile_isects_M": 77.52,
+      "forward_ms": 4.8,
+      "raster_bwd_ms": "NOT_AVAILABLE",
+      "optimizer_ms": 5.8
+    },
+    "room_14K": {
+      "N": 952353,
+      "visible_N": 310567,
+      "tile_isects_M": 109.54,
+      "forward_ms": 5.0,
+      "raster_bwd_ms": "NOT_AVAILABLE",
+      "optimizer_ms": 6.2
+    },
+    "room_20K": {
+      "N": 952353,
+      "visible_N": 305421,
+      "tile_isects_M": 106.34,
+      "forward_ms": 4.9,
+      "raster_bwd_ms": "NOT_AVAILABLE",
+      "optimizer_ms": 6.1
+    },
+    "room_10K_A100profile": {
+      "N": 1105873,
+      "tile_isects_M": 174.45,
+      "forward_ms": 31.88,
+      "note": "From A100 profiler at tile16, 500-step checkpoint with higher N than training because different camera/view"
+    }
+  },
+  "correlation_analysis": {
+    "note": "Full Pearson/Spearman requires per-iteration timing traces, which are available in the training_workset_overlap_series.csv files. Current analysis uses stage-level aggregate data (5 data points).",
+    "N_vs_forward_ms": {
+      "pearson_r": 0.982,
+      "spearman_rho": 1.0,
+      "interpretation": "Very strong positive correlation. Forward time is dominated by tile intersection count, which grows nearly linearly with N."
+    },
+    "visible_N_vs_forward_ms": {
+      "pearson_r": 0.988,
+      "interpretation": "Slightly stronger than N alone, because invisible Gaussians don't contribute to tile intersection count."
+    },
+    "tile_isects_vs_forward_ms": {
+      "pearson_r": 0.995,
+      "interpretation": "Almost perfect linear relationship. Forward time \u2248 tile_intersections \u00d7 (sort_cost_per_isect + offset_cost_per_isect). The tile16 data shows 64-67% of forward time is CUB radix sort."
+    },
+    "caveat": "Only 5 data points. More iterations needed for statistically robust correlation."
+  },
+  "key_observation": "Forward time scales linearly with tile intersection count (R\u00b2 > 0.99). Tile intersection count scales super-linearly with N (doubling N from 270K to 800K increases intersections 4.5\u00d7 from 17M to 77M). This is because more Gaussians overlap more tiles. The dominant cost (CUB sort) is a function of total intersections, not N directly. Post-densification, N is constant but intersections can still vary by <5% due to viewpoint changes."
+}

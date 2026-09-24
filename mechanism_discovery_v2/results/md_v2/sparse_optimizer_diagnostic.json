@@ -1,0 +1,14 @@
+{
+  "title": "Sparse Optimizer Diagnostic",
+  "sparse_adam_availability": {
+    "status": "NOT_INSTALLED",
+    "required_package": "diff-gaussian-rasterization[3dgs_accel]",
+    "current_installation": "diff-gaussian-rasterization 0.0.0 is installed without the accel extras",
+    "note": "gsplat does not natively provide SparseGaussianAdam. The diff-gaussian-rasterization package provides an accelerated rasterizer and sparse Adam optimizer, but requires a separate installation that was not completed for this baseline.",
+    "expected_compatibility": "Sparse Gaussian Adam uses a different parameter layout where each Gaussian has its own learning rate state. It is compatible with gsplat's rendering API but uses different parameter groups and optimizer logic.",
+    "resource_hyperlink": "https://github.com/graphdeco-inria/diff-gaussian-rasterization"
+  },
+  "recommendation": "If SparseGaussianAdam is needed for a baseline comparison, install with: pip install diff-gaussian-rasterization[3dgs_accel]. Then create a separate baseline config using gsplat's DefaultStrategy (which supports per-parameter group LR scheduling). This is distinct from the current REFERENCE_V1 which uses a single persistent Adam.",
+  "effort_estimate": "LOW: 1-2 days for installation + integration + validation.",
+  "exists_gpu_benchmark": false
+}

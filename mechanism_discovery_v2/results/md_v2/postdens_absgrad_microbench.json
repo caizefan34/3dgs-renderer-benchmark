@@ -1,0 +1,12 @@
+{
+  "title": "Post-Densification AbsGrad Microbenchmark",
+  "note": "NOT_RUN. This requires a checkpoint at 20K+ iterations from the locked A100 baseline run. No such checkpoint is available locally. All evidence for this question is source-level, not empirical.",
+  "hypothesis": {
+    "classification": "EXACT_DEAD_WORK",
+    "source_evidence": "trainer.py:125 unconditionally passes absgrad=True to rasterization(). The absgrad tensor (means2d.absgrad) is consumed ONLY in add_densification_stats() at gaussian_model.py:277, which is gated by `iteration < densify_until_iter` (trainer.py:338). After iter 15000 (densify_end), the tensor is never read.",
+    "verification_needed": "A100 checkpoint comparison: run rasterization with absgrad=True vs absgrad=False at 20K+ with densification disabled. Measure raster backward timing difference. Verify all trainable gradients (xyz, scale, rotation, opacity, SH) equal within FP32 tolerance.",
+    "estimated_savings": "~0.8 MB GPU memory (means2d.absgrad buffer) + atomic-add cycles in rasterize_to_pixels_bwd kernel. The absgrad atomicAdd path executes in the per-Gaussian-per-tile backward loop, adding ~5-15% to raster backward time for visible Gaussians.",
+    "implementation_ease": "Trivial: change `absgrad=True` to `absgrad=False` in trainer.py:125 after densification ends."
+  },
+  "requires_a100_experiment": true
+}
