@@ -1,0 +1,11 @@
+# 模板不是结果
+
+DSH driver先在各stage输出目录写E1/E2/E3.json并用真实测量填写，空字段不得替换为PASS。E0.json与E0_DETAILS.json由MX参考脚本生成。stage原JSON的raw_files相对stage目录。使用collect_review.py汇总时自动改为相对review的路径，并复制原始GUARD/RUN_STATUS；driver仍须提供measurements/sourcepatch，不能伪造。
+
+生产check名字不可随意改变，见reduce_verdict.py。E1/E2开发的原始配置表保留，最终selected_config由其导出、冻结后，stage的selected_config_sha256指向该最终文件；注明这是最终汇总字段，不改动开发raw日志。
+
+正式E1/E2/E3必须同一生产implementation hash。调试修改代码则先重跑受影响的正确性和性能阶段；预算不足INCONCLUSIVE。E0绑定独立reference hash，生产增加代码不要求重复该数学参考，但不能把它当生产实现正确性证书。
+
+report模板只是写作骨架；归档必须同时含VERDICT.json。若早停，没有后续stage可如实创建BLOCKED/NOT_RUN记录并描述缺项，裁决器输出阻断/证据不足，不要求继续烧预算。
+
+metrics字段的方向：loss/increase是baseline endpoint减candidate或candidate减baseline的实际有符号差值，不能绝对值、不能截零掩盖退化。时间必须原始累计墙钟，不能由FPS反算。
