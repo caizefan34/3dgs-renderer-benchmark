@@ -124,10 +124,18 @@ much larger *fraction* of the remaining work. Full 3-scene x 12-camera sweep at 
 | **AGG** | 5807.2 | 3334.4 | **1.742x** | 505.8 | 8.7%  | — |
 
 Vs the TS=16 production-style staged baseline (aggregate 5341 ms), the TS=32 rejected walk
-(3334 ms) is **1.60x faster** and bit-identical (both are faithful renders with the same
-depth-sort order, so the per-pixel blend is tile-size-independent). TS=32 also removes the garden
-cam-68 float32 boundary residual (`max|diff|_tile = 0` on all 36 cameras), because the 32px grid
-has no tile boundary at that pixel.
+(3334 ms) is **1.60x faster**. TS=32 also removes the garden cam-68 float32 boundary residual
+(`max|diff|_tile = 0` on all 36 cameras), because the 32px grid has no tile boundary at that pixel.
+
+**Cross-tile-size determinism (measured caveat).** The per-tile reject is bit-exact *within* each
+tile size (`max|diff|_tile = 0` at both TS=16 and TS=32). But the tiled baseline itself is **not
+bit-reproducible across tile sizes**: rendering room cam 1 at TS=16 vs TS=32 (mode 0, no reject)
+differs by mean 4.3e-5, with 99.7% of pixels < 1e-3 and localized clusters in high-density regions
+reaching 1.157 at a few pixels (0.22% > 1e-3). This is FP non-associativity of the sequential
+front-to-back blend (`T *= (1-alpha)` is order-dependent) combined with tile-size-dependent list
+ordering — a property of the gsplat-style rasterizer, not of the reject. So the TS=32 reject is
+exact relative to the TS=32 baseline; the 1.60x-vs-TS=16-baseline figure is a timing comparison of
+two valid (FP-close) renders, not a bit-identical cross-tile claim.
 
 **Caveat (why the TS=32 *baseline* is slower but the *rejected* walk is faster).** At TS=32 the
 thread block is 32x32 = 1024 threads (the CUDA max); the shared-memory staging (CHUNK=512) is
