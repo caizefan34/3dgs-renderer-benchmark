@@ -138,13 +138,20 @@ exact relative to the TS=32 baseline; the 1.60x-vs-TS=16-baseline figure is a ti
 two valid (FP-close) renders, not a bit-identical cross-tile claim.
 
 **Caveat (why the TS=32 *baseline* is slower but the *rejected* walk is faster).** At TS=32 the
-thread block is 32x32 = 1024 threads (the CUDA max); the shared-memory staging (CHUNK=512) is
-then half-utilized and per-occurrence efficiency drops, so the TS=32 *baseline* (5807 ms) is
-actually *slower* than the TS=16 baseline (5341 ms) despite 3x fewer occurrences. But the
-*rejected* walk benefits twice: the floor is tiny (8.7%) and culling removes a larger share, so
-TS=32 rejected (3334 ms) beats TS=16 rejected (3938 ms). **TS=32 is the better operating point for
-the exact reject** — lower floor, faster rejected walk, higher speedup. (TS=64 is unreachable with
-a square 1024-thread block; a 16x64 / multi-pass block would be needed.)
+per-occurrence *compute* cost is ~3.4-4.8x higher than at TS=16 (room cam1: 4.14 vs 1.21 ns/occ),
+so the TS=32 *baseline* (5807 ms) is actually *slower* than the TS=16 baseline (5341 ms) despite
+3.1x fewer occurrences. This is **not** register pressure or occupancy (ptxas: 32 registers, 0
+spill stores/loads, 100% occupancy at 1024 threads) and **not** fixed by thread coarsening (a
+16x16 block with a 2x2 micro-tile per thread — restoring 6-8 blocks/SM and sharing smem reads
+across 4 pixels — made the baseline *worse*, 95 vs 59 ms, and the tile time no faster). The likely
+cause is the **longer serial front-to-back blend dependency chain per pixel**: the blend
+`T*=(1-alpha)` is a serial prefix product, and a 32px tile's list is ~4x longer, so each pixel's
+chain is ~4x longer, starving the expf pipeline. Regardless of cause, the *rejected* walk benefits
+twice — the floor is tiny (8.7%) and culling removes a larger share — so TS=32 rejected (3334 ms)
+beats TS=16 rejected (3938 ms), and TS=32 rejected (3334 ms) is 1.60x faster than the TS=16
+production-style baseline (5341 ms). **TS=32 is the better operating point for the exact reject.**
+(TS=64 is unreachable with a square 1024-thread block; a 16x64 or multi-pass block — or shortening
+the blend chain — would be needed to recover the per-occurrence penalty).
 
 **Implication.** The staging-floor ceiling is an artifact of the 16px tile, not a fundamental
 limit. Coarser tiles amortize the per-tile floor and let exact culling approach 2x. The open
