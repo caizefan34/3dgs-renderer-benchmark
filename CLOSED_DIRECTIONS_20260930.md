@@ -51,7 +51,12 @@
 - 代表：BES0（Bounded-Event Gaussian Splatting）逐出现界路由 FALSIFIED。
 - 新方向 pre-screen：任何以「逐出现/逐高斯的 alpha 或协方差界路由」为 3DGS 训练加速主 lever 的方案，先证明 rho_R >= 0.5（即 >=half 出现满足 hi/lo<=gamma 且 lo>0）；当前实测 ~1e-9，不启动。质量感知阈值的逐像素早停是唯一可操作正向（捕获相机相关尾部）。
 
-> 任何新方向必须先通过上述 7 条 law 的 pre-screen，否则不启动。
+### LAW-ALPHAWALK — 前向 alpha-walk 成本由 q-检验+staging 主导，no-op culling 上限 ~1.2x
+- 结论：真实 3DGS 前向 alpha-compositing walk 中 98.4% 的 (pixel,gaussian) 出现是 no-op（alpha<1/255，census），但**精确** no-op culling（跳过 no-op 的 exp+blend）实测仅 **1.17-1.23x**（room 1.233x / bicycle 1.183x / garden 1.173x，3 场景 x12 dev 相机，MX GPU7，bit-identical maxdiff=0、det=0）。远低于 census 的 59-70x ideal 与「several-x」期望。根因：识别 no-op 必须计算二次型 q=a*dx^2+2b*dx*dy+c*dy^2（culling 无法跳过 q），且 per-tile shared-memory staging + 逐 tile 循环 floor 占 baseline 23-37%；只有 exp+blend 被移除（~20-27% of compute）。ideal 63x = n_total/n_sig 假设 culling 免费（跳过整个 per-occurrence 成本），但 q-检验+staging floor 不可省。
+- 代表：BES0 no-op culling 实测（reports/bes0_noop_culling_measured.md，bes_cull_probe/）。
+- 新方向 pre-screen：任何以「跳过 no-op / alpha<cutoff 出现」为 3DGS 前向加速主 lever 的方案，先证明其作用对象是 exp+blend（可 culling 移除）而非 q-检验+staging（不可移除）；当前实测上限 ~1.2x，不启动。强 lever 须减少 q-检验/staging 成本（分层 per-pixel significant-only 列表、更便宜 culling 检验、稀疏性），而非跳过 no-op。
+
+> 任何新方向必须先通过上述 8 条 law 的 pre-screen，否则不启动。
 
 ---
 
@@ -85,6 +90,7 @@
 | 24 | VTS0 (Visibility-Topology Scheduler) | VTS0_DROP | extra_safe_skip_headroom=0.0 (<10%) 两场景(room/bicycle)；topology_forced 0.048/0.094、lineage 0.064/0.143、settle 0.061/0.101 均为加成耦本非跳过 | visibility 为唯一 exact skip 信号(zero-grad→延载 replay)；topology events 仅加强读取/复制/定算，从不让 visible row 真实梯度跳过、VOS 区间(15K-30K) topology 冻结、动态区只减 headroom | “topology-aware 调度器计 optimizer 跳过 headroom 超越 visibility”类推理；要求可证明 visible row 的 optimizer step 可证为冗余(会破坏 exactness) | vts0/{VTS0_VERDICT.md,VTS0_VERDICT.json} ; EPIC-05 A100 zero-diff trace 1..4000 | 2026-10-01 |
 | 25 | AMPS0 (属性感知混合精度优化器状态 BF16 m/v) | AMPS0_DROP | f_opt=5.94%-14% << 0.20 门；流量模型 C4(全 BF16,28.6% 流量砍) E2E 天花板 1.017-1.042x < 1.05x；BF16 矩存 rel-L2 ~2% > 5e-3 门(保向 cos 0.99998) | 优化器状态精度/稀疏/延迟作为主收益；BF16 矩存储 | 任何以优化器状态精度/稀疏/延迟为主 lever 的路线；BF16 矩存储作精度优化 | amps_gs/AMPS0/ ; 2026-10-05 |
 | 26 | BES0 (bounded-event 逐出现界 alpha 路由) | BES0_REALSCENE_FALSIFIED | rho_R=1.04e-9（room/bicycle/garden×12 dev，~958M 出现，ts=16px 仅 1 次 R；ts<=2px 亦 <=1.1e-7；gamma 上扫 100 仍 0）；逐像素早停余量 0.8-1.9%（<=30% 少数视图） | 真实高斯各向异性薄片、短轴亚像素 → 每 tile alpha 下界=0 → 路由全 D（LAW-BEVT）；逐像素透过率界=gsplat 既有 early-stop | 任何逐出现/逐高斯 alpha 或协方差界路由作训练加速主 lever；gamma-正则 cheap-path 近似（需先证 rho_R>=0.5） | reports/bes0_realscene_opportunity.md ; bes_opp_probe/out/ ; commit 65a0b41 | 2026-10-05 |
+| 27 | BES0 no-op culling（逐像素跳过 alpha<1/255 的 exp+blend） | CULL_CEILING_1.2x | 精确 culling 实测 1.17-1.23x（room 1.233/bicycle 1.183/garden 1.173，3 场景 x12 dev，bit-identical maxdiff=0、det=0）；floor(staging) 占 baseline 23-37%、q-检验不可省；远低于 census 59-70x ideal（ideal 假设 culling 跳过整个 per-occurrence 成本） | no-op 的 98.4% 是真的，但精确移除其 exp+blend 只省 ~20-27% compute；q-检验+staging floor 主导前向 walk（LAW-ALPHAWALK） | 任何以「跳过 no-op / alpha<cutoff 出现」为前向加速主 lever；gamma-正则 cheap-path（需先证 rho_R>=0.5，见 LAW-BEVT） | reports/bes0_noop_culling_measured.md ; bes_cull_probe/ ; 2026-10-05 |
 ---
 
 ## 2. 当前活跃方向（非 CLOSED，勿误列入上表）
