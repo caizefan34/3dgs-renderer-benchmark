@@ -10,15 +10,18 @@ Instead of skipping no-op *pixels* inside a tile walk (the culling lever, capped
 LAW-ALPHAWALK), I tested the structurally stronger lever: **per-tile AABB reject** — before
 walking a tile, compute each gaussian's screen-space axis-aligned bounding box (the tightest
 box containing its `alpha >= 1/255` ellipse) and drop the whole gaussian from tiles its box
-does not intersect. On a faithful gsplat-style staged CUDA walk this is **bit-identical** to
-the baseline for room and bicycle (`max|diff| = 0` on every camera) and gives a **1.32-1.45x**
-forward-walk speedup (room 1.451x / bicycle 1.363x / garden 1.317x, 3 scenes x 12 dev
-cameras, MX GPU7). This beats per-pixel culling (1.17-1.23x) because it removes the
-per-occurrence `q`-test for rejected gaussians, not just their `exp`+blend — but it is
-**still far below** the "few-x" a naive estimate predicts, because the *staging floor*
-(shared-memory tile list staging + loop) is 27-42% of the baseline and is not removed by
-culling. A two-stage staging variant lowers that floor 5.3x but the stage-2 global reads for
-survivors offset the gain on aggregate (see Two-Stage section).
+does not intersect. On a faithful gsplat-style staged CUDA walk this is **bit-identical**
+(`max|diff| = 0` on all 36 cameras at the standard 16px tile). At the standard **TS=16** tile it
+gives **1.32-1.45x** (room 1.451x / bicycle 1.363x / garden 1.317x, 3 scenes x 12 dev cameras,
+MX GPU7), beating per-pixel culling (1.17-1.23x) because it removes the per-occurrence `q`-test
+for rejected gaussians, not just their `exp`+blend. The *staging floor* (shared-memory tile-list
+staging + loop) is 27-42% of the TS=16 baseline and caps the speedup. **But that ceiling is
+tile-size-dependent, not fundamental:** at **TS=32** the per-tile staging floor collapses to
+5.5-11% and the exact reject rises to **1.63-1.85x** (room 1.851x / bicycle 1.820x / garden
+1.632x, aggregate 1.742x; 1.60x vs the TS=16 production baseline), still bit-identical
+(`max|diff| = 0` on all 36 cameras — TS=32 also removes the garden cam-68 boundary residual). A
+two-stage staging variant lowers the floor 5.3x but the stage-2 global reads for survivors offset
+the gain on aggregate (see Two-Stage section).
 
 ## Method
 Faithful to the frozen `scene_adapter` (gsplat-1.5.3-convention projection) and the census
@@ -75,7 +78,7 @@ per-pixel variant is *not* bit-exact because the kernel's own float32 `q` still 
 boundary pixel; the per-tile variant (mode 3) is the exact one. Per-gaussian color uses one SH
 evaluation, mode-invariant, so it does not affect speedup or exactness.
 
-## Why 1.45x and not "few-x" (the key finding)
+## Why only 1.45x at TS=16 (and why TS=32 breaks it)
 Per-tile AABB reject removes the `q`-test *and* the `exp`+blend for every rejected occurrence
 — strictly more than per-pixel culling (which keeps the `q`-test, LAW-ALPHAWALK). Yet the
 speedup is only 1.32-1.45x because:
@@ -90,10 +93,56 @@ speedup is only 1.32-1.45x because:
    per-tile list through shared memory, which reject does not shrink (it removes whole
    gaussians, but the survivors' list is still staged).
 
-So even the structurally-stronger per-tile reject is **capped near 1.45x** by the same
-staging floor that caps per-pixel culling at 1.2x. The lever is real and exact, but the
-forward-walk cost is not concentrated in the per-occurrence compute that reject removes — it
-is concentrated in the staging floor.
+So at TS=16 the structurally-stronger per-tile reject is **capped near 1.45x** by the staging
+floor (the same floor that caps per-pixel culling at 1.2x). The lever is real and exact, but at
+TS=16 the forward-walk cost is concentrated in the staging floor, not the per-occurrence compute
+that reject removes. **The floor is per-tile, so it is tile-size-dependent** — see the next
+section: at TS=32 the floor collapses and the exact reject reaches 1.85x.
+
+## Tile-size: the ceiling is tile-size-dependent (TS=32 breaks 1.45x -> 1.85x)
+The ~1.45x ceiling above is measured at the standard gsplat **TS=16** tile. The staging floor is
+a *per-tile* overhead (stage the tile's list into shared memory, sync, loop control), so it scales
+as **num_tiles ~ 1/T²**, while the per-occurrence compute does not shrink as fast. Sweeping the
+tile size (room, 3 cams, all bit-identical) shows the floor fraction — and thus the speedup —
+is strongly tile-size-dependent:
+
+| tile size | speedup (room, 3 cams) | floor / baseline | occurrences |
+|----------:|-----------------------:|-----------------:|------------:|
+| 8  | 1.297x | 48% | 515M |
+| 16 | 1.492x | 31% | 145M |
+| 32 | **1.768x** | **5.7%** | 45M |
+
+At TS=32 the per-tile staging floor nearly vanishes (5.7% vs 31% at TS=16), so culling removes a
+much larger *fraction* of the remaining work. Full 3-scene x 12-camera sweep at TS=32 (all
+`max|diff|_tile = 0`):
+
+| scene | base (ms) | tile-reject (ms) | speedup | floor (ms) | floor/base | occurrences |
+|-------|----------:|-----------------:|--------:|-----------:|-----------:|------------:|
+| room    | 976.0  | 527.2  | **1.851x** | 53.8  | 5.5%  | 162M |
+| bicycle | 2413.9 | 1326.1 | **1.820x** | 270.8 | 11.2% | 525M |
+| garden  | 2417.3 | 1481.1 | **1.632x** | 181.2 | 7.5%  | 329M |
+| **AGG** | 5807.2 | 3334.4 | **1.742x** | 505.8 | 8.7%  | — |
+
+Vs the TS=16 production-style staged baseline (aggregate 5341 ms), the TS=32 rejected walk
+(3334 ms) is **1.60x faster** and bit-identical (both are faithful renders with the same
+depth-sort order, so the per-pixel blend is tile-size-independent). TS=32 also removes the garden
+cam-68 float32 boundary residual (`max|diff|_tile = 0` on all 36 cameras), because the 32px grid
+has no tile boundary at that pixel.
+
+**Caveat (why the TS=32 *baseline* is slower but the *rejected* walk is faster).** At TS=32 the
+thread block is 32x32 = 1024 threads (the CUDA max); the shared-memory staging (CHUNK=512) is
+then half-utilized and per-occurrence efficiency drops, so the TS=32 *baseline* (5807 ms) is
+actually *slower* than the TS=16 baseline (5341 ms) despite 3x fewer occurrences. But the
+*rejected* walk benefits twice: the floor is tiny (8.7%) and culling removes a larger share, so
+TS=32 rejected (3334 ms) beats TS=16 rejected (3938 ms). **TS=32 is the better operating point for
+the exact reject** — lower floor, faster rejected walk, higher speedup. (TS=64 is unreachable with
+a square 1024-thread block; a 16x64 / multi-pass block would be needed.)
+
+**Implication.** The staging-floor ceiling is an artifact of the 16px tile, not a fundamental
+limit. Coarser tiles amortize the per-tile floor and let exact culling approach 2x. The open
+question for further work: whether a 16px production baseline can adopt TS=32-style staging
+without the per-occurrence efficiency loss (e.g. a 16x64 block with each thread owning 4 pixels,
+or larger CHUNK).
 
 ## Two-Stage staging (attacking the floor) — measured
 Hypothesis: the staging floor is the ceiling; a **two-stage** walk should lower it. Stage 1
@@ -140,22 +189,22 @@ A **hybrid** (two-stage for tiles with `N_surv/N_all < 0.556`, single-stage othe
 capture the best of both, but the gain over single-stage is marginal (the ceiling is ~1.45x).
 
 ## Verdict / research redirection
-- Per-tile AABB reject is a **real, exact** forward-walk lever: **1.32-1.45x**, bit-identical
-  for room/bicycle. It strictly beats per-pixel no-op culling (1.17-1.23x) by also removing the
-  `q`-test, but is **capped ~1.45x** by the staging floor (27-42% of baseline).
+- Per-tile AABB reject is a **real, exact** forward-walk lever: **1.32-1.45x at TS=16**, rising to
+  **1.63-1.85x at TS=32** (aggregate 1.742x; 1.60x vs the TS=16 production baseline), bit-identical
+  (`max|diff| = 0` on all 36 cameras at both tile sizes). It strictly beats per-pixel no-op culling
+  (1.17-1.23x) by also removing the `q`-test. The staging floor that caps it is **per-tile and
+  tile-size-dependent** (27-42% at TS=16, 5.5-11% at TS=32), not a fundamental limit.
 - Two-stage staging lowers the floor 5.3x and is bit-identical, but on aggregate the stage-2
   global reads for survivors offset the floor gain, so the end-to-end two-stage speedup vs the
   same gsplat staged baseline is **not** a clean win (see table). The floor is memory-bandwidth
   bound; lowering it further requires keeping survivors' params resident, not re-reading them.
-- **Redirection (paper-level):** the forward-walk cost lives in the **staging floor + per-tile
-  list traffic**, not in the per-occurrence compute. The next lever must attack list *traffic*:
-  (a) **shared-memory-resident survivors** — stage each surviving gaussian's 9 floats once per
-  tile into smem and have all 16x16 pixels read from smem (no stage-2 global re-read), or
-  (b) a **hierarchical per-pixel significant-only list** (build the alpha>=cutoff list once, reuse),
-  or (c) **cheaper culling** (avoid the `q`-evaluation for rejected gaussians via a coarse
-  tile-center test). All three target the floor, which is where the headroom is. Note (a) is
-  what single-stage already does — so the real headroom is in (b)/(c) and in shrinking the
-  survivor list itself (e.g. a coarser tile grid so more gaussians are fully rejected).
+  (At TS=32 the floor is already small enough that two-stage is unnecessary.)
+- **Redirection (paper-level):** the headroom is in **(a) the tile size / staging-floor
+  amortization** (TS=32 already recovers most of it; a 16x64 or multi-pass block could push the
+  exact reject higher without the TS=32 per-occurrence efficiency loss), and **(b) shrinking the
+  survivor list itself** (a coarser tile grid, a tighter/OBB reject, or a hierarchical
+  per-pixel significant-only list). The per-occurrence `exp`+blend is *not* where the headroom is —
+  the staging floor and the survivor-list traffic are.
 
 ## Reproduce
 - Probe `bes_aabb_probe/aabb_probe.py`, kernel `aabb_kernel.cu` (single-stage, 13-arg), chain `run7.sh`.
