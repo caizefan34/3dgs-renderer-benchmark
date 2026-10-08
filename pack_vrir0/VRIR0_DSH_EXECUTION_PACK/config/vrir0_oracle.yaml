@@ -1,0 +1,39 @@
+candidate: VRIR0
+mode: structural_coherence_oracle_only
+freeze_date: 2026-10-01
+baseline:
+  harness: baseline/reference_v1
+  gsplat_expected: "1.5.3"
+  packed: false
+  tile_size: 16
+  accutile: false
+  radius_clip: 0.0
+  eps2d: 0.1
+  batch_images: 1
+scenes: [room, bicycle, garden]
+primary_window: [15001, 30000]
+report_windows:
+  - [15001, 20000]
+  - [20001, 25000]
+  - [25001, 30000]
+tracked_views:
+  smoke: 2
+  main: 8
+  policy: deterministic_index_quantiles
+cache:
+  location: cpu
+  replacement: previous_same_view
+  max_oracle_bytes_per_scene: 8589934592   # 8 GiB hard cap for evidence collection
+future_implementation_budget:
+  max_fraction_baseline_peak_vram: 0.10
+gates:
+  max_false_accepts: 0
+  min_full_view_cert_hit_each_scene: 0.60
+  min_tile_local_truth_same_for_vrir1: 0.90
+  min_optimistic_e2e_speedup_upper_bound: 1.05
+forbidden_globs:
+  - "**/*.cu"
+  - "**/*.cuh"
+  - "**/*.cpp"
+  - "**/*.cc"
+  - "**/*.cxx"

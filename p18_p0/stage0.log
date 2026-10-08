@@ -1,0 +1,149 @@
+[P18-P0 Stage-0] Mapping Audit — Log
+======================================
+
+[1/6] Source Identity Verification
+--------------------------------------
+[CHECK] trainer sha256 = 675b0267f3a1a6a0fa63fadb37c8536481c1c7a6de37a4b7f6ffa98a449050c5
+  [REF] P16_RB_bundle_extracted/BASELINE_PINS.json:6       → MATCH
+  [REF] p15_p0_return/artifacts/P15_SOURCE_IDENTITY.json:9 → MATCH
+  [REF] P13X_bundle_extracted/p14_artifacts/artifacts/P14_SOURCE_IDENTITY.json:30 → MATCH
+  [REF] p13_transition/return_package/p13x_room_pilot/P13X_SOURCE_IDENTITY_room_pilot.json:6 → MATCH
+  STATUS: cross_verified (4+ independent references)
+
+[CHECK] c0_extension sha256 = d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11
+  [REF] P16_RB_bundle_extracted/BASELINE_PINS.json:7       → MATCH
+  [REF] p15_p0_return/artifacts/P15_SOURCE_IDENTITY.json:17 → MATCH
+  [REF] P13X_bundle_extracted/p14_artifacts/artifacts/P14_SOURCE_IDENTITY.json:9 → MATCH
+  STATUS: cross_verified
+
+[CHECK] c0_core sha256 = 935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e
+  [REF] P16_RB_bundle_extracted/BASELINE_PINS.json:8       → MATCH
+  [REF] p15_p0_return/artifacts/P15_SOURCE_IDENTITY.json:17 → MATCH
+  [REF] P13X_bundle_extracted/p14_artifacts/artifacts/P14_SOURCE_IDENTITY.json:16 → MATCH
+  STATUS: cross_verified
+
+[CHECK] fused_ssim sha256 = dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb
+  [REF] grc3d_dsh/remote_src/publication_trainer_p12.py:455 (P11_FUSED_SO_SHA256) → MATCH
+  [REF] grc3d_dsh/remote_outputs/replay_garden_14000/results.json:84 → MATCH
+  [REF] grc3d_dsh/remote_outputs/replay_bicycle_14000/results.json:84 → MATCH
+  [REF] grc3d_dsh/remote_outputs/m0_bicycle_30k.json:43 → MATCH
+  STATUS: cross_verified
+
+[RESULT] Source identity: PASS (all 4/4 hashes match)
+
+[2/6] Forward Raster Inner Loop Audit
+--------------------------------------
+[KERNEL] macro_tile_rasterize_kernel<16> @ MacroTileRasterize.cu:192
+[CONFIG] TILE_SIZE=16, GAUSS_PER_WARP=1, N_PAIRS=4, CTA=320, 10 warps/CTA
+
+[GAUSS_EVAL] rasterizeGaussian lambda @ lines 287-330
+  sigma = hfma2(u1,u1, hfma2(u0,u0, neg_log_opac))   // fp16 FMA
+  u0 = l00*dx + l10*dy
+  u1 = l11*dy
+  dx = __hsub2(__low2half2(xy_mt_j), offset_x)       // half2, 2px
+  dy = __hsub2(mean_y, offset_y[pp])                 // half2, 2px
+  EXP: __h2exp2_approx(__hneg2(sigma))               // half2 MUFU.EX2 (NOT expf/__expf/PTX)
+  CONIC: smem_conic_raw[idx] = {l00,l10,l11,-log2(opac)} * CHOL_SCALE(=13.589)
+  FUSION: alpha = exp2(-sigma) = opac * exp2(-(u0^2+u1^2))  // opac folded in
+
+[ALPHA]
+  threshold: sigma < log2(255)=7.9943534  (ALPHA_THRESHOLD=1/255)
+  reject:    ok_mask → alpha=0 if sub-threshold
+  clamp:     NONE in forward (MAX_ALPHA=0.99 only in backward)
+  T_update:  acc[pp][3] = __hsub2_sat(acc[pp][3], alpha*T)
+  terminate: MIN_TRANSPARENCY=1e-4, warp ballot on tile_done==DONE_MASK
+
+[THREAD_MAP] lane l → (x=l&15, y=l>>4)
+  lane 0-15  → y=0, x=0..15
+  lane 16-31 → y=1, x=0..15
+  N_PAIRS=4: pair pp → rows (thread_y+2pp, thread_y+2pp+1)
+  Total: 32 lanes × 8 px = 256 = 16×16 ✓
+
+[RASTER_LOOP]
+  fill:  per mini-batch (32 gauss), per-lane popc → warp_queue (contiguous list)
+  drain: uint4 LDS → 8× rasterizeGaussian (UNROLL=8), tail for <8
+  exit:  tile_done==DONE_MASK for ALL lanes → ballot==~0u → break
+
+[3/6] Thread/Pixel Mapping Verification
+--------------------------------------
+[CONFIRMED] lane 0-15 → row y=0, x=0..15   (line 273: thread_x = lane_in_half & 15)
+[CONFIRMED] lane 16-31 → row y=1, x=0..15  (line 274: thread_y = lane_in_half >> 4)
+[CONFIRMED] 8 pixels per lane via 4 row-pairs (line 484: ROW_STRIDE=2, line 490: offset_y)
+[PROOF] Source lines 269-282 (mapping), 484-491 (pair offsets). No ambiguity.
+
+[4/6] Gaussian Lockstep Analysis (CRITICAL)
+--------------------------------------
+[FORWARD] GAUSS_PER_WARP=1
+  PROOF: MacroTileRasterize.cu:554-559
+    b_idx[UNROLL_FACTOR] loaded via uint4 LDS from warp_queue[base+q]
+    → UNIFORM across warp (same address, same values for all 32 lanes)
+    → rasterizeGaussian(b_idx[i], ...) called with same i for ALL lanes
+    → NO per-lane branch on gaussian selection
+    → NO __shfl for index exchange
+    → early exit is warp-uniform (ballot)
+  f_lockstep(W4)  = 1.0
+  f_lockstep(W8)  = 1.0
+  f_lockstep(W16) = 1.0
+  DIVERGENCE SOURCES: NONE
+
+[BACKWARD] PX=2, CTA=128
+  PROOF: HigsNativeBackward.cu:468
+    for(t=...; t<batch_size; ++t): t is IDENTICAL for all 128 threads
+    conic_batch[t], xy_opacity_batch[t] → uniform smem index
+    → ALL threads evaluate gaussian t at their own pixel
+    → NO per-lane branch on gaussian index
+    → warp.any(valid)==false → continue (warp-uniform skip)
+  f_lockstep(W4)  = 1.0
+  f_lockstep(W8)  = 1.0
+  f_lockstep(W16) = 1.0
+  DIVERGENCE SOURCES: NONE
+
+[COMPATIBILITY]
+  forward pixel map:  lane l → (x=l%16, y=l/16), 8 px
+  backward pixel map: warp w, lane l → (x=l, y=2w+q*8), 2 px
+  → mappings DIFFER but lockstep property is IDENTICAL
+  → QSCAN reusable: YES (operates on per-gaussian, not per-pixel)
+
+[PROBE NOTE] No GPU execution probe performed.
+  Local GPU: RTX 5070 Laptop (sm_120) — C0 built for sm_80
+  Remote GPU: A100 (sm_80) — not accessible from this session
+  Source-level proof is sufficient: lockstep is a structural property of
+  the loop code (uniform index, no per-lane branching), not an empirical one.
+
+[5/6] Shared Gaussian Load Audit
+--------------------------------------
+[FORWARD] smem per CTA (batch=1024):
+  smem_xy_mt:     1024 × 4B  =  4096B  (half2 position)
+  smem_conic_raw: 1024 × 8B  =  8192B  (uint2 Cholesky+log_opac)
+  smem_color:     1024 × 8B  =  8192B  (ushort4 RGB)
+  smem_masks:     32×32 × 4B =  4096B  (overlap masks)
+  TOTAL: ~24.6 KB
+
+  ADD k=exp(dd): +2B/gauss (one half) → +2048B → ~26.6 KB
+  GLOBAL TRAFFIC: +0 (dd already in registers during Phase 1 conic computation)
+  FEASIBLE: YES (26.6 KB << 100 KB smem limit)
+
+[BACKWARD] smem per CTA (batch=128):
+  id_batch:         128 × 4B  =   512B
+  xy_opacity_batch: 128 × 12B =  1536B
+  conic_batch:      128 × 12B =  1536B
+  rgbs_batch:       128 × 12B =  1536B
+  TOTAL: 5120B
+
+  ADD k=exp(dd): +4B/gauss (float) → +512B → 5632B
+  GLOBAL TRAFFIC: +0 (dd from depth buffer, already loaded or computable)
+  FEASIBLE: YES (5.6 KB << 100 KB)
+
+[6/6] Stage-0 Gate
+--------------------------------------
+  forward  f_lockstep: W4=1.0, W8=1.0, W16=1.0  (all ≥ 0.95 ✓)
+  backward f_lockstep: W4=1.0, W8=1.0, W16=1.0  (all ≥ 0.95 ✓)
+  common W with both ≥ 0.95: W ∈ {4, 8, 16}
+  maximum W: 16
+
+  VERDICT: P18_MAPPING_PASS
+  MAX W:   16
+  STATUS:  STOP — do not proceed to Stage 1 (QSCAN implementation)
+
+======================================
+[END] P18-P0 Stage-0 complete. All 6 output files written to p18_p0/.

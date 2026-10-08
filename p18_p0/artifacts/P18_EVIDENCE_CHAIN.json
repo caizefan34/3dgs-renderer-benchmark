@@ -1,0 +1,179 @@
+{
+  "phase": "P18-P0",
+  "artifact": "P18_EVIDENCE_CHAIN",
+  "created_utc": "2026-09-28T16:30:00Z",
+  "verdict": "P18_P0_HARD_DROP",
+  "closed": "FQ-GS (warp-quotient fused rasterizer oracle) — permanently closed. NO P18-P1.",
+  "scope": {
+    "applies_to": "the frozen C0 rasterizer on the EPIC-05 A100 (GPU 3, A100-SXM4-80GB, driver 592.01, CUDA 13.1, torch 2.9.1+cu128) under the real room/bicycle 16K workload, measured by the isolated inner-loop evaluator (S_eval) protocol cell = (room|bicycle) x (exp2 forward | exp backward).",
+    "explicitly_NOT_generalized_to": "other GPUs / architectures (Hopper/Ada/Blackwell, or different MUFU:HBM ratios), other 3DGS backends or tile sizes, or other workloads (higher live-lane population, different memory bandwidth, half-precision paths). This is a frozen-C0/A100 workload conclusion only.",
+    "reason_for_scope_limit": "the performance kill mechanism (memory-bandwidth-bound proxy, exp fully hidden) and the numerical kill mechanism (leader-anchored chain under/overflow on footprint-edge rows) are both specific to this backend + GPU + workload; a different backend that fuses exp with a memory op, a higher-population workload, or a GPU with a different MUFU:HBM ratio is out of scope for this campaign."
+  },
+
+  "final_evidence": [
+    {
+      "id": "R1-1",
+      "name": "corrected contiguous trace",
+      "artifact": "P18_R1_TRACE_MANIFEST.json + P18_R1_TRACE_{room,bicycle}.npz (r1/)",
+      "sha256": {
+        "P18_R1_TRACE_MANIFEST.json": "d9d1a604b251c4cc7977aa3742fb52d6931f62f286265cae201ee6cfd7bf08cc",
+        "P18_R1_TRACE_room.npz": "54582d8e185ed45a32d74387179ef91ccabf6e74d1fc1dd8e6d8ad211dc84826",
+        "P18_R1_TRACE_bicycle.npz": "a0f13b70d6e3bf196a0f4069f4efb25aa98ee813f594afda903bace8f68041f1"
+      },
+      "why_valid": "Real 16-px contiguous row segments emitted by the frozen macro_tile_rasterize_kernel phase-2 inner loop (x[j+1]-x[j]==1 asserted host-side), with the kernel's own ok_mask ballot; NO footprint sampling. Records: room 1,081,568 / bicycle 1,871,872 (>=8192 requirement exceeded 132x/228x). Record integrity bit-exact (0 mismatches of 2,952,440 records)."
+    },
+    {
+      "id": "R1-2",
+      "name": "R1 SASS audit (gate, PASS)",
+      "artifact": "P18_R1_SASS_AUDIT.json (r1/)",
+      "sha256": "17bdc4940d9d59af25c2c6237c0448210eff9ae2c131f453f579494fa3140bbf",
+      "verdict": "PASS (checks A-F)",
+      "why_valid": "cuobjdump -sass of a clean build (frozen flags + sm_80). Proves the benchmark is measuring a legal QSCAN: DIRECT keeps 1 MUFU.EX2/px; QSCAN4/8/16 all have exactly 3 MUFU (constant in SUB, leader-only); the forbidden control (per-lane exp(k*pos)) shows 4 MUFU statically and 1+3/SUB dynamically (detection is sensitive); the exp-free control is certified 0 MUFU / 0 dynamic exps."
+    },
+    {
+      "id": "R1-3",
+      "name": "DIRECT dynamic exp count",
+      "source": "P18_R1_SASS_AUDIT.json dynamic_counter (rebuild with -DP18_EXP_COUNTER over 4,194,304 fixed record-aligned items)",
+      "values": {"direct_exp2": 1.0, "direct_expf": 1.0, "per_item": "1.0", "per_subgroup16": 16.0},
+      "why_valid": "Confirms the baseline does one exact exp per pixel (16 per 16-subgroup)."
+    },
+    {
+      "id": "R1-4",
+      "name": "QSCAN4/8/16 dynamic exp count",
+      "source": "P18_R1_SASS_AUDIT.json dynamic_counter",
+      "values": {"qscan4": 0.75, "qscan8": 0.375, "qscan16": 0.1875, "per_item": "3/SUB", "strictly_decreasing_in_SUB": true, "qscan16_position_dependent_mufu": false},
+      "why_valid": "Confirms QSCAN genuinely eliminates the per-pixel exp: 3 leader exps per 16-subgroup (G0/r0/k, MUFU.EX2 only), k^j is pure FMUL, the scan is SHFL+FMUL only. So the timing is not measuring a disguised per-pixel exp."
+    },
+    {
+      "id": "R1-5",
+      "name": "exp-free control (upper bound)",
+      "source": "P18_R1_EVAL_MICROBENCH.json timing_*/S_eval_noexp_bound; kernel eval_noexp_kernel (identical loads/store, 0 exps, SASS-audited 0 MUFU/0 dynamic)",
+      "values": {"S_eval_noexp_bound_median": 1.0016656374245065, "per_cell_range": [1.0016, 1.0023]},
+      "why_valid": "An exp-FREE inner loop times the same as baseline DIRECT. This is the upper bound on ANY exp-elimination speedup in this proxy: it proves the proxy is memory-bandwidth-bound (~85% of A100 HBM peak; 1.38 GB in 0.80 ms) and the per-pixel exp is fully hidden."
+    },
+    {
+      "id": "R1-6",
+      "name": "valid evaluator timings (S_eval)",
+      "artifact": "P18_R1_EVAL_MICROBENCH.json timing_tiled + timing_raw_1x (r1/)",
+      "sha256": "1fd16f5c76b69b601bd0e7a4751cc523592092480c85e93cbabd2a0a5e986419",
+      "method": "CUDA graphs + events, 7 reps x 10 iters, per-replay median; same harness as P18-P0; T_* keys are true ms (the P18-P0 artifact's _us keys held ms-scale numbers, mislabeled).",
+      "values": {
+        "S_eval_median_over_4_cells": {"QSCAN4": 0.988211523205021, "QSCAN8": 0.9852811923617564, "QSCAN16": 0.9831116780261506},
+        "S_eval_expfree_bound_median": 1.0016656374245065,
+        "per_cell": {
+          "room/exp2_forward":   {"q4": 0.989, "q8": 0.986, "q16": 0.983, "noexp": 1.002},
+          "room/exp_backward":   {"q4": 0.988, "q8": 0.985, "q16": 0.983, "noexp": 1.002},
+          "bicycle/exp2_forward":{"q4": 0.988, "q8": 0.985, "q16": 0.983, "noexp": 1.002},
+          "bicycle/exp_backward":{"q4": 0.988, "q8": 0.985, "q16": 0.983, "noexp": 1.002}
+        },
+        "raw_1x_agreement": "raw 1x-trace medians agree to within +/-0.001 of the tiled numbers"
+      },
+      "why_valid": "Measured on the corrected contiguous trace with a SASS-certified QSCAN. Every variant is at/below 1.0 (slightly slower than DIRECT) — the scan/shuffle overhead on top of an unchanging memory roof."
+    },
+    {
+      "id": "R1-7",
+      "name": "raw no-guard numerical failure",
+      "source": "P18_R1_EVAL_MICROBENCH.json validation_raw_no_guard (r1/)",
+      "values": {
+        "inf_count": 0,
+        "room/exp2_forward":   {"nan_sub4": 6917, "nan_sub8": 96647, "nan_sub16": 401452, "branch_mm_sub16": 377623, "max_abs_finite": 0.7384},
+        "room/exp_backward":   {"nan_sub4": 29588, "nan_sub8": 197595, "nan_sub16": 634216, "branch_mm_sub16": 619713, "max_abs_finite": 0.7316},
+        "bicycle/exp2_forward":{"nan_sub4": 30300, "nan_sub8": 334017, "nan_sub16": 1307539, "branch_mm_sub16": 1243543, "max_abs_finite": 0.5694},
+        "bicycle/exp_backward":{"nan_sub4": 110489, "nan_sub8": 659681, "nan_sub16": 2025012, "branch_mm_sub16": 1983708, "max_abs_finite": 0.8825},
+        "nan_frac_range": "0.02% (room exp2 sub4) to 6.8% (bicycle exp sub16)",
+        "branch_flips_sub16_range": "2.2% (room exp2) to 6.6% (bicycle exp)"
+      },
+      "mechanism": "leader-anchored recurrence on real footprint-edge rows: when a 16-px row clips the footprint, q(xs) and q(xs+15) differ by thousands; the leader anchor G0=exp(-q(xs)) underflows to 0 while r0=exp(-d0) overflows to inf within the same subgroup -> 0*inf = NaN; FTZ-ed intermediate prefixes give finite-but-wrong values. Repair requires the per-lane direct value = exactly the P18-P0 defect mode (per-lane recompute) that invalidated the original run. The partially-live records (pop<16: 67%/79% of records) are precisely the affected class."
+    }
+  ],
+
+  "invalid_superseded_by_r1": [
+    {
+      "id": "PRE-R1-1",
+      "artifact": "P18_EVAL_MICROBENCH.json (pre-R1, artifacts/)",
+      "status": "INVALID_SUPERSEDED_BY_R1",
+      "reported_medians": {"QSCAN4": 0.966, "QSCAN8": 0.972, "QSCAN16": 0.969},
+      "defects": [
+        "evaluator used a position-dependent per-lane exp (the forbidden defect mode), so it could not show speedup even if the idea worked",
+        "per-lane gd=direct_G(...) recompute for the guard + guard fallback gq=gd = DIRECT work hidden in the QSCAN path",
+        "wrong first-difference formula d0=b+2a*x0 (correct a(2x0+1)+b) on a synthetic x=lane layout",
+        "trace was Gaussian-footprint uniform sampling, not real contiguous subgroups",
+        "T_*_us keys held ms-scale numbers (mislabeled)"
+      ],
+      "why_superseded": "R1 rebuilt the trace (real contiguous), the evaluator (allowed exps only, no guard/recompute), added the mandatory SASS audit gate, and re-ran with unchanged thresholds. The final S_eval medians are the R1 values (0.9831/0.9853/0.9882)."
+    },
+    {
+      "id": "PRE-R1-2",
+      "artifact": "P18_REFERENCE_VALIDATION.json (pre-R1, artifacts/)",
+      "status": "INVALID_SUPERSEDED_BY_R1",
+      "reported": "max_abs ~2e-6, branch_mm=0, no NaN",
+      "defects": [
+        "ran on a synthetic x=lane layout + Gaussian-footprint uniform-sampled rows (not the real contiguous inner-loop population)",
+        "the γ-guard masked the finite-but-wrong lanes; only the non-finite lanes triggered the fallback",
+        "the near-zero live-population capture (median 0) meant the tested rows were not the footprint-edge class where the chain breaks"
+      ],
+      "why_superseded": "R1's raw no-guard validation on the real trace is the authoritative numerical result (R1-7): NaN on 0.02%-6.8% of items, |error| up to 0.88, cull-branch flips up to 4.2%. The pre-R1 'branch_mm=0' was a guard artifact, not a property of the QSCAN chain."
+    },
+    {
+      "id": "PRE-R1-3",
+      "artifact": "P18_TRACE_MANIFEST.json + P18_TRACE_{room,bicycle}.npz (pre-R1, artifacts/ + artifacts/traces/)",
+      "status": "INVALID_SUPERSEDED_BY_R1",
+      "reported": "pop median 0.0, room mean 0.043, bicycle mean 0.006 (tile-local x=0..31)",
+      "defects": ["tile-local x=0..31 layout mis-represented the on-tile footprint; the real on-tile live population (popcount of the kernel ok_mask) is room median 5 / bicycle median 1, with 33%/21% fully-live (pop16) records"],
+      "why_superseded": "R1-A/B captured the kernel's real contiguous 16-px rows + ok_mask ballot (R1-1)."
+    },
+    {
+      "id": "PRE-R1-4",
+      "artifact": "P18_REPORT.md + P18_VARIANT_TABLE.json + P18_VERDICT.json (pre-R1 draft, artifacts/)",
+      "status": "INVALID_SUPERSEDED_BY_R1",
+      "note": "The pre-R1 report's narrative (S_eval ~0.95-0.98, 'QSCAN's leader exps are on the critical path') is directionally consistent but was produced from the defective evaluator/trace and is superseded by P18_FINAL_CLOSEOUT.md + the R1 artifacts. Kept only as historical record."
+    }
+  ],
+
+  "kill_mechanisms": [
+    {
+      "id": "KILL-A",
+      "name": "Performance: no exp-elimination headroom in the frozen C0/A100 proxy",
+      "evidence_ids": ["R1-2", "R1-4", "R1-5", "R1-6"],
+      "statement": "The exp-free, SASS-certified control kernel (identical loads/store, 0 exps) runs at 1.0017x the DIRECT time (median over 4 cells). The proxy is memory-bandwidth-bound (~85% of A100 HBM peak; 1.38 GB in 0.80 ms); the per-pixel exp is ~28 us of MUFU work against an 800 us kernel and is fully hidden. No exp-elimination technique of any kind can exceed ~1.0x in this proxy. QSCAN's measured 0.9831/0.9853/0.9882 medians are simply its scan/shuffle overhead on top of an unchanging memory roof."
+    },
+    {
+      "id": "KILL-B",
+      "name": "Numerical: leader-anchored recurrence is unusable on real footprint-edge rows",
+      "evidence_ids": ["R1-1", "R1-7"],
+      "statement": "On the real contiguous trace, the legal QSCAN chain (allowed exps only, pure-multiply k^j, multiplicative scan, no guard) produces NaN on 0.02%-6.8% of items, finite-but-wrong values up to |error|=0.88, and cull-branch flips on up to 4.2% of items (sub16), all far from the 1/255 threshold. Root cause: when a 16-px row clips the footprint edge, q spans thousands within the subgroup, so G0 underflows to 0 while r0 overflows to inf -> 0*inf = NaN; FTZ prefixes give finite-but-wrong values. Repairing it requires the per-lane direct value = exactly the P18-P0 defect mode (per-lane recompute) that invalidated the original run."
+    }
+  ],
+
+  "provenance": {
+    "gpu": "GPU 3 (GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72), A100-SXM4-80GB; all 8 GPUs verified idle before each launch",
+    "run_window_utc": "2026-09-28 ~13:00-14:10 (R1); campaign start ~10:04",
+    "remote": "/root/epic05_p18_r1/ (evaluator, SASS audit, trace capture, logs)",
+    "evaluator_so_sha256": "8b15a79dae7b9b2313bced5f72d45bc0ec92ab25493302119789984f6483ce49",
+    "build_flags": "-O3 -DNDEBUG -use_fast_math --expt-relaxed-constexpr -gencode=arch=compute_80,code=sm_80 -std=c++20 -diag-suppress 20012,186",
+    "code_sha1": {
+      "p18_r1_eval.cu": "adfbdc60989c91ac620dca1760b62f0f11647aa6",
+      "p18_r1_sass_audit.py": "41ab02b6c01bcfc3468104db4a3ccf9deb30045f",
+      "p18_r1_eval_run.py": "97c6239ed3a91313ebcf970fce3021f55cb25012",
+      "p18_r1_eval_common.py": "58725d290f20610da3106a54aa27cb013aa7ed8c"
+    },
+    "logs": ["r1/logs/sass_audit_r3.log", "r1/logs/eval_run_r2.log"],
+    "frozen_baseline_hashes": {
+      "trainer": "675b026711b1938b28949c261c4f8e9e04d4a0a2846e2226c11d086b7999d28f50c5",
+      "c0_ext": "d26cccf45868386e214650958838c6b6d654f1a55e6003c6a8007409554e637e",
+      "core": "935ea6c099355e824d62b2a38b3d57580e578c140e47c48f533a0c6b1c880c7e",
+      "fused_ssim": "dd6a4c79a0735d4c43a13b289d08e234270528b29a2b207827d0f0728e250ebb",
+      "ckpt_room": "17c1f590110a803f9e594d5671179d4e9f19c4c822c9a57638490219062a0e80",
+      "ckpt_bicycle": "0c36f5c7f42997174283d4e378b239875412509f23865e4a455605a761702995"
+    }
+  },
+
+  "constraints_honored": [
+    "all original P18 gates unchanged (thresholds 4.0/2.5, gamma, cells, method)",
+    "no threshold/gamma/tile/camera/quality change to rescue (protocol 16)",
+    "no git commit (protocol 21)",
+    "no full training (protocol 21)",
+    "no other DSH's GPUs touched (GPU 3 only)",
+    "no auto-entry into P18-P1 (FQ-GS closed)"
+  ]
+}

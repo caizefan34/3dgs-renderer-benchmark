@@ -1,0 +1,73 @@
+{
+  "stage": "CGT-PAPER13 METHOD FREEZE",
+  "ts": "2026-10-04",
+  "source_of_truth": "Read from authoritative F0/G1/G2 artifacts (cgt_f0_fused_cuda/results/, cgt_realscene/final/SCRIPTS/). NOT inferred from the prompt.",
+  "method_identity": "CGT-F0 fused CUDA mixed-path renderer (frozen).",
+  "frozen_config": {
+    "rank_R": 4,
+    "rank_frozen_rationale": "R4 chosen from upstream evidence (best q_weighted, highest intrinsic gamma median ~26-79x, highest rigorous pass rate); frozen before timing; NOT tuned per scene.",
+    "certificate_threshold_GATE_max_abs": 0.02,
+    "interval_semantics": "interval-arithmetic branch-and-bound (g2_rigorous_certificate.certify_tile / certify_box); computed OFFLINE on CPU during prepare; pass = rigorous worst-case max-abs <= GATE=0.02.",
+    "safe_path_semantics": "per-BLOCK UNIFORM branch on safe_label[t]; safe -> student (fused fast path); whole block takes one path; NO warp divergence.",
+    "fallback_semantics": "unsafe tiles -> teacher (canonical) path in-kernel; exact canonical fallback; single fused launch.",
+    "teacher_canonical_reference": "g1_compressibility.tile_teacher (front-to-back M-Gaussian alpha composite over 16x16); centered-px (subtract tile pixel mean) + global-means2d; uses BOTH px and py (corrected teacher).",
+    "student": "g1_compressibility.predict_and_vjp (rank-R CGT Gaussian-transfer mixture, R=4).",
+    "fused_cuda_kernel": "f0_kernels.cu (CUDA 11.8, sm_80); 3 templated kernels f0_teacher_kernel / f0_student_kernel / f0_fused_kernel; single grid over all tiles; one block per tile; 256 threads = one per 16x16 pixel; entrypoints f0_teacher_f32 / f0_fused_f32.",
+    "precision": "float32 fast path + float64 correctness cross-check; correctness gate max_abs_RGB <= 2e-5 (preregistered).",
+    "tile_work_unit": "one gsplat tile (16x16 = 256 px); per-tile gaussian data flattened (means2d/conics/opac/colors) with tile_off offsets; per-tile coeffs p[R,10] and safe_label compact arrays; CHUNK=512 shared-mem (18 KB) depth-ordered.",
+    "dispatch_logic": "certificate DECISION precomputed offline (CPU); in-kernel dispatch = per-block uniform branch on safe_label[t] + one int read; NO warp divergence; single fused launch.",
+    "preprocessing_semantics": "centered pixel coords px[256,2] identical for every tile (one shared array serves all blocks); Gaussians cached in shared memory in contiguous depth-ordered chunks (CHUNK=512, front-to-back T carries over, bit-faithful); softmax max-subtraction (numerically stable); alpha clip [0,0.999]; POWER_CLIP=-4.5."
+  },
+  "correctness": {
+    "threshold_max_abs_RGB": 2e-05,
+    "float64": {"teacher_max_abs": 9.99e-16, "student_max_abs": 5.55e-16, "fused_mixed_max_abs": 9.99e-16, "passed": true},
+    "float32": {"teacher_max_abs": 7.15e-07, "student_max_abs": 1.31e-06, "fused_mixed_max_abs": 7.15e-07, "passed": true},
+    "all_passed": true
+  },
+  "certificate_fallback_stats_F0": {
+    "n_safe_tiles": 124, "n_unsafe_tiles": 26, "raw_fallback_fraction": 0.1733, "weighted_fallback_fraction": 0.175,
+    "chosen_design": "in-kernel single-launch fused kernel (simpler, one launch, no divergence)"
+  },
+  "timing_F0_workload_150tiles": {
+    "T_teacher_all_ms_median": 0.3614720106124878,
+    "T_student_all_ms_median": 0.013311999849975109,
+    "T_fused_mixed_ms_median": 0.12083200365304947,
+    "S_mixed_pooled": 2.9915,
+    "note": "medians over 400 reps on the 150-tile F0 workload (5 views x 10 tiles x 3 scenes). S_mixed = T_teacher_all / T_fused_mixed."
+  },
+  "speedups_F0": {"pooled_mixed_forward": 2.9915, "bicycle": 1.5431033677082597, "garden": 3.2804879931613096, "room": 3.008695465117162, "min_scene": 1.5431033677082597},
+  "workload_definition_F0": {
+    "n_tiles": 150, "Mt_total_gaussian_intersections": 61052, "M_median": 316, "M_mean": 407.0133333333333,
+    "tiles_per_scene": 50, "views_per_scene": 5, "tiles_per_view": 10,
+    "selection": "deterministic work-decile stratified, fixed seed 20261004, no cherry-picking",
+    "fit": {"iterations": 200, "min_size": 1.0, "max_depth": 10, "validate": true, "seed": 20261004}
+  },
+  "upstream_math_hashes": {
+    "g1_compressibility.py": "6ab224db112b5996ab6092d29471c15f20040e9f151b1f655ec98bd452a4dd73",
+    "g2_rigorous_certificate.py": "38a9152d142be548c2390355e11631ae7e2b91407f8917d566e75550acca1a4d",
+    "verification": "CURRENT sha256 on MX MATCHES recorded F0_SOURCE_AUDIT hashes exactly (verified 2026-10-04). Method intact."
+  },
+  "f0_kernel_build_hashes": {
+    "f0_kernels.cu": "efed6a349aa9b49706624064dc64f571fccc360693ec5fab947272ffaeef775d",
+    "f0_kernels.so": "aff09a102746297f2dfdc520b612f39487e45985ebf9bad63efbab06db39dafe",
+    "f0_prepare.py": "ea98be6664746efb20dd52071af815f4b56f3e4727be1512215f619acb642fd2",
+    "f0_harness.py": "6718824c12ea1d39db08cc884c949f9df5857029988fa34952b3385123dd6e40",
+    "build_f0.sh": "78b07ba4b925c266adac9fd6bd2d6940947d23fd8f3ca866fbb15a7f547cc3d6",
+    "workload.npz": "dfe18b8bb45db59a56973d51ccdd446683c3ca67b380e9319c57817cd0ffdb12",
+    "workload_summary.json": "9e8320f61715722da1fa5afdc459f55a948336d7467e70ee7974755f7235fc54",
+    "verification": "f0_kernels.so + f0_kernels.cu CURRENT sha256 MATCH recorded (verified 2026-10-04)."
+  },
+  "build_env": {
+    "nvcc": "/mnt/storage_pool/liaoyuanjun_mx0qual_cuda118/bin/nvcc (CUDA 11.8.89)",
+    "gcc_gpp": "11.4.0", "driver": "595.71.05", "gpu": "NVIDIA A100-PCIE-40GB (sm_80)",
+    "python_torch": "2.7.1+cu118", "gsplat": "1.5.3", "numpy_scipy": "2.2.6 / 1.15.3",
+    "build_flags": "nvcc -std=c++17 -O3 -arch=sm_80 -Xcompiler -fPIC -Xptxas -v --shared"
+  },
+  "frozen_checkpoints_F0": {
+    "room": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_15000.pt",
+    "garden": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_garden_30k/checkpoints/iter_30000.pt",
+    "bicycle": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_bicycle_30k/checkpoints/iter_30000.pt"
+  },
+  "integrity": "fail-closed: correctness gate 2e-5 not relaxed; ranks/thresholds/difficult-tiles not changed; Amdahl/intrinsic-gamma not reported as speedup; buggy-teacher archive unused. For PAPER13 the EXACT SAME frozen method runs on all 13 scenes; no per-scene retuning; no kernel change after seeing scene results.",
+  "ambiguity_check": "No scientifically material ambiguity found. All freeze fields read from authoritative artifacts and hash-verified."
+}

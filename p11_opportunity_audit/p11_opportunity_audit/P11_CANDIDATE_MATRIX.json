@@ -1,0 +1,97 @@
+{
+  "date": "2026-09-26",
+  "baseline": {
+    "renderer": "gsplat main",
+    "commit": "512d366b67073d77ca099ede742683c165dfc23b",
+    "training_recipe": "DSH-A/P8 strict eps2d=0.3, absgrad=True until densify stop, SepSSIM+L1",
+    "fresh_base_mean_phase_ms": {
+      "forward": 4.553,
+      "loss_forward": 7.326,
+      "loss_backward_plus_renderer_backward": 19.057,
+      "densify_and_grad_stats": 0.78,
+      "optimizer": 4.226,
+      "other": 0.132,
+      "iter": 36.074
+    },
+    "phase_fraction_pct": {
+      "forward": 12.62,
+      "loss_forward": 20.31,
+      "backward_total": 52.83,
+      "densify_and_grad_stats": 2.16,
+      "optimizer": 11.71,
+      "other": 0.36
+    }
+  },
+  "candidates": [
+    {
+      "id": "P11-L",
+      "name": "Exact loss-adjoint / raster-backward boundary fusion",
+      "status": "GO_PROFILE_PRIMARY",
+      "exactness": "Potentially exact; must match frozen L1 + 11x11 Gaussian SSIM semantics and dL/dimage.",
+      "headroom": "UNKNOWN_AFTER_STRONG_BASELINE; loss forward currently 20.31% E2E, but existing fused-ssim must be applied first.",
+      "prior_art": "Existing fused-ssim and FaCT-GS fuse loss operators, but no audited public CUDA 3DGS path yet found that directly feeds the exact photometric adjoint into raster backward without materializing the image-gradient boundary.",
+      "kill_gate": "Remaining physically removable cross-operator work <2.0% E2E after same-semantics fused-ssim baseline.",
+      "implementation": "PROHIBITED until profiler gate passes."
+    },
+    {
+      "id": "P11-D",
+      "name": "Densification-stat sink / auxiliary-adjoint fusion",
+      "status": "GO_PROFILE_BACKUP",
+      "exactness": "Exact if it reproduces absgrad component accumulation, pixel-space scaling, L2 norm, visibility filtering, and running accum/count.",
+      "headroom": "Likely modest. Densify+stats phase averages 2.16% E2E; absgrad generation also lives inside backward.",
+      "prior_art": "AbsGS/current gsplat compute and expose absgrad; current DefaultStrategy then clones/scales/masks/norms/index_adds it. Direct persistent-state sink not yet established as a paper novelty.",
+      "kill_gate": "Combined absgrad-generation + post-backward statistics cost <2.0% E2E in pre-15K windows.",
+      "implementation": "PROHIBITED until profiler gate passes."
+    },
+    {
+      "id": "P11-T",
+      "name": "Exact active-interaction / sparse-tail compaction",
+      "status": "DROP_REOPEN_ONLY_IF_NEW_CURRENT_MAIN_EVIDENCE",
+      "exactness": "Possible in principle.",
+      "headroom": "Historical C25 looked large, but C28 found last_ids/warp termination already explain most tail behavior.",
+      "prior_art": "Current gsplat has last_ids, active-tile sparse paths and contribution-index utilities; Taming has max-contributor/bucket skipping.",
+      "kill_gate": "Historical research already closed this mechanism unless current-main profiling falsifies C28.",
+      "implementation": "NO."
+    },
+    {
+      "id": "P11-Z",
+      "name": "Persistent/touched-only gradient zero-init",
+      "status": "DROP",
+      "exactness": "Exact implementation possible.",
+      "headroom": "Direct CUDA-event recalibration showed only 0.14-0.36% of backward; <0.2% E2E.",
+      "prior_art": "Irrelevant after headroom failure.",
+      "kill_gate": "Already failed.",
+      "implementation": "NO."
+    },
+    {
+      "id": "P11-A",
+      "name": "Block-level atomic aggregation",
+      "status": "DROP_AS_PRIMARY",
+      "exactness": "Real-arithmetic exact, floating reduction reassociation.",
+      "headroom": "Corrected direct-counter model: median ~1.38% E2E, best ~2.57%; not enough as primary.",
+      "prior_art": "DISTWAR/Taming/current gsplat already heavily occupy reduction/ownership design space.",
+      "kill_gate": "Low corrected headroom + high prior-art crowding.",
+      "implementation": "NO as primary contribution."
+    },
+    {
+      "id": "P11-C",
+      "name": "Backward-optimizer gradient traffic fusion",
+      "status": "DEFER",
+      "exactness": "Potentially exact but complex.",
+      "headroom": "Repaired R6-C oracle only ~0.48-2.21% E2E.",
+      "prior_art": "Fused Adam, SparseGaussianAdam, Faster-GS fused optimizer, and fully fused engines crowd this space.",
+      "kill_gate": "Do not implement unless new current-main direct measurement exceeds 2% removable E2E.",
+      "implementation": "NO in first P11 pass."
+    },
+    {
+      "id": "P11-J",
+      "name": "Async optimizer/renderer overlap",
+      "status": "NO_GO_EXACTNESS_PENDING",
+      "exactness": "Cross-iteration double-buffer overlap normally exposes stale parameters to the next forward; not accepted as exact without a dependency proof.",
+      "headroom": "Historical estimate ~5.6%, but based on overlap model rather than an exact dependency-preserving implementation.",
+      "prior_art": "Generic multistream/double-buffer overlap is established systems technique.",
+      "kill_gate": "Reject unless a same-iteration last-use schedule proves next forward observes exactly the standard Adam-updated parameters.",
+      "implementation": "NO."
+    }
+  ]
+}

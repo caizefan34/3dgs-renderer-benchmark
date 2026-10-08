@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caizefan34.github.io/3dgs-renderer-benchmark/benchmark_external/result.schema.json",
+  "title": "External Training Comparison Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "result_id", "evidence_tier", "status", "baseline", "recipe", "environment", "metrics", "correctness", "provenance"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "result_id": {"type": "string", "minLength": 1},
+    "evidence_tier": {"enum": ["measured", "reproduced", "paper_reported"]},
+    "status": {"enum": ["complete", "failed", "oom", "unsupported", "incomplete"]},
+    "baseline": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "class", "role", "evidence_tier_target"],
+      "properties": {
+        "id": {"type": "string"}, "name": {"type": "string"}, "class": {"type": "string"},
+        "role": {"type": "string"}, "repository": {"type": "string"}, "commit": {"type": "string"},
+        "evidence_tier_target": {"type": "string"}
+      }
+    },
+    "recipe": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scene", "dataset", "iterations", "seed", "sh_degree", "holdout"],
+      "properties": {
+        "scene": {"type": "string"}, "dataset": {"type": "string"}, "iterations": {"type": "integer", "minimum": 1},
+        "seed": {"type": "integer"}, "sh_degree": {"type": "integer", "minimum": 0},
+        "holdout": {"type": "string"}, "protocol_id": {"type": "string"}, "protocol_sha256": {"type": "string"}
+      }
+    },
+    "environment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["gpu", "gpu_uuid", "cuda", "python", "pytorch", "benchmark_commit"],
+      "properties": {
+        "gpu": {"type": "string"}, "gpu_uuid": {"type": ["string", "null"]}, "cuda": {"type": "string"},
+        "python": {"type": "string"}, "pytorch": {"type": "string"}, "benchmark_commit": {"type": "string"}
+      }
+    },
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["efficiency", "quality"],
+      "properties": {
+        "efficiency": {
+          "type": "object", "additionalProperties": false,
+          "required": ["training_time_s", "iteration_time_ms_mean", "optimizer_time_ms", "peak_vram_mb", "gaussian_count_final"],
+          "properties": {
+            "training_time_s": {"type": "number"}, "iteration_time_ms_mean": {"type": "number"},
+            "iteration_time_ms_p50": {"type": "number"}, "iteration_time_ms_p90": {"type": "number"},
+            "optimizer_time_ms": {"type": "number"}, "peak_vram_mb": {"type": "number"},
+            "gaussian_count_final": {"type": "integer", "minimum": 1}
+          }
+        },
+        "quality": {
+          "type": "object", "additionalProperties": false,
+          "required": ["psnr_db", "ssim", "lpips"],
+          "properties": {
+            "psnr_db": {"type": "number"}, "ssim": {"type": "number"}, "lpips": {"type": "number"},
+            "holdout_psnr_db": {"type": "number"}, "holdout_ssim": {"type": "number"}, "holdout_lpips": {"type": "number"}
+          }
+        },
+        "raw_samples": {"type": "object"}
+      }
+    },
+    "correctness": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["exactness_verdict", "state_hash", "topology_hash", "lineage_consistency"],
+      "properties": {
+        "exactness_verdict": {"enum": ["PASS", "EXACTNESS_FAIL", "NOT_APPLICABLE"]},
+        "state_hash": {"type": ["string", "null"]},
+        "topology_hash": {"type": ["string", "null"]},
+        "lineage_consistency": {"type": ["object", "null"]},
+        "reference_state_hash": {"type": ["string", "null"]},
+        "reference_topology_hash": {"type": ["string", "null"]}
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_type", "measured_at", "raw_samples_uri"],
+      "properties": {
+        "source_type": {"enum": ["repository_run", "official_implementation_run", "paper"]},
+        "measured_at": {"type": "string"}, "raw_samples_uri": {"type": ["string", "null"]},
+        "raw_samples_sha256": {"type": ["string", "null"]}, "citation": {"type": "string"},
+        "deviations": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

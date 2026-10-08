@@ -1,0 +1,77 @@
+{
+  "gate": "G3_gpu_local_microbench",
+  "host": "MX bms-39468022-001, A100 (CUDA_VISIBLE_DEVICES=5), torch 2.7.1+cu118",
+  "method": "Reuse G1 gsplat packed tile extraction; port teacher (M-Gaussian alpha composite) and student (rank-R CGT mixture) to torch GPU; CUDA-event timing, warmup+median. Two regimes: per-tile (256px, launch-bound) and intrinsic (65536px single call, launch-free math ratio). Params created once; no H2D in timing loops.",
+  "scenes_run": [
+    "g3_room_r15k.json",
+    "g3_garden_r30k.json"
+  ],
+  "scenes_pending_gpu_available": [
+    "g3_bicycle_r30k",
+    "g3_room_r5k",
+    "g3_room_r30k"
+  ],
+  "pending_reason": "GPUs 5/6/7 were idle at start but became occupied by other users mid-run; respecting the idle-only constraint, did not run on occupied GPUs.",
+  "per_scene": {
+    "g3_room_r15k.json": {
+      "scene": "room",
+      "n_tiles": 180,
+      "M_median": 60.0,
+      "M_min": 1,
+      "M_max": 680,
+      "dispatch_overhead_ms": 0.04710400104522705,
+      "intrinsic_gamma_R4": 6.3504817900333705,
+      "intrinsic_gamma_R8": 6.309903912726445,
+      "intrinsic_gamma_R16": 6.370967370944933,
+      "per_tile_gamma_R4": 1.3545558661669104,
+      "per_tile_gamma_R16": 1.35589222593423,
+      "h_overhead_per_tile": 0.10926365927088338,
+      "S_measured_with_h_R4": 1.1799228783258031,
+      "S_measured_with_h_R16": 1.1809367466590797,
+      "student_fb_ms_R4": 1.5505920052528381
+    },
+    "g3_garden_r30k.json": {
+      "scene": "garden",
+      "n_tiles": 240,
+      "M_median": 267.0,
+      "M_min": 31,
+      "M_max": 2253,
+      "dispatch_overhead_ms": 0.04505600035190582,
+      "intrinsic_gamma_R4": 10.463816278232631,
+      "intrinsic_gamma_R8": 10.42950842198074,
+      "intrinsic_gamma_R16": 10.498349582331228,
+      "per_tile_gamma_R4": 1.3730686718013279,
+      "per_tile_gamma_R16": 1.368011912302323,
+      "h_overhead_per_tile": 0.10679611890525516,
+      "S_measured_with_h_R4": 1.1974731228674902,
+      "S_measured_with_h_R16": 1.1936252215738605,
+      "student_fb_ms_R4": 1.4673919677734375
+    }
+  },
+  "findings": {
+    "intrinsic_math_gamma_R4_range": [
+      6.35,
+      10.46
+    ],
+    "per_tile_gamma_R4_range": [
+      1.355,
+      1.373
+    ],
+    "S_measured_with_h_R4_range": [
+      1.18,
+      1.197
+    ],
+    "h_overhead_per_tile_range": [
+      0.1068,
+      0.1093
+    ],
+    "M_median_range": [
+      60.0,
+      267.0
+    ],
+    "headline": "Raw-math per-component advantage is REAL and LARGER than the G1/G2 assumed gamma=2-4: measured intrinsic gamma = 6.3x (M_med=60) to 10.5x (M_med=267), growing with M (teacher cost ~ M, student cost ~ R fixed). BUT at 256px/tile granularity the GPU is launch/dispatch-bound, so operational per-tile gamma is only ~1.35 and end-to-end S ~ 1.18-1.20x. The 6-10x math headroom is locked behind per-tile launch overhead (~11% floor + many small kernels).",
+    "implication_for_G4": "A fused/batched CGT CUDA kernel that amortizes launch across many tiles/components is the critical path to realize the 6-10x math headroom. Measured h (~11%) is BELOW the G2 budget (26.6%), so overhead alone does not kill 3x; the binding constraint is per-tile launch granularity, which a fused kernel (G4) must remove.",
+    "contrast_with_G1_G2": "G1/G2 Amdahl bound used ASSUMED gamma=2-4 (zero-overhead). Measured gamma is 6-10x (better), so the zero-overhead bound was pessimistic on gamma; but the zero-overhead assumption ignored launch overhead, which is the real killer. Net: operational S ~1.2x << the 15-44x zero-overhead bound."
+  },
+  "verdict": "PARTIAL_MEASURED"
+}

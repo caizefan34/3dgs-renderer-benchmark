@@ -1,0 +1,86 @@
+# OGC: Observation-Gram Compaction of View-Dependent Appearance in 3D Gaussian Splatting
+
+Training-free compaction of the spherical-harmonic (SH) appearance of pretrained 3D Gaussian
+Splatting models. Only the trained model and its camera poses are needed: no training images,
+no gradients, no fine-tuning.
+
+For every Gaussian we accumulate an **observation Gram matrix**
+
+    A_i = sum_j w_ij Y(d_ij) Y(d_ij)^T          (16 x 16)
+
+from the directions `d_ij` and blending-weight statistics `w_ij` with which the Gaussian contributed
+to the training views. `A_i` is the first-order metric that maps a change of the SH coefficients to
+squared image error. Under this metric:
+
+* **Degree reduction** is a closed-form regularised least-squares solve (`shfit.py`); plain truncation
+  is the special case that assumes uniform observation over the sphere.
+* **Per-Gaussian degree allocation** is a Lagrangian rate-distortion optimisation of the predicted
+  residuals (`rd.py`).
+* **Vector quantisation** of the coefficients uses generalised Lloyd iterations with the per-point
+  matrix metric (`vq.py`).
+* A complete pipeline (contribution pruning, allocation, Gram-metric VQ, fp16 storage) is in
+  `pipeline.py`.
+
+## Layout
+
+| file | purpose |
+|---|---|
+| `gsrender.py` | PyTorch re-implementation of the reference 3DGS forward rasteriser (tile loop) |
+| `fastrender.py` | batched-tile version of the same rasteriser with per-Gaussian weight accumulation |
+| `gram.py` | pass 1: render every training view, store per-Gaussian blending-weight statistics |
+| `shfit.py` | Gram accumulation, closed-form SH degree reduction, residuals |
+| `rd.py` | rate-distortion degree allocation, baselines, coefficient assembly |
+| `vq.py` | Gram-metric vector quantisation |
+| `pipeline.py` | full compaction pipeline with size accounting |
+| `geo.py` | training-free geometry stage on top (16-bit positions, 8-bit attributes) with two entropy coders: rANS (`entropy.py`, default) and byte-planed zlib; both sizes are stored |
+| `entropy.py` | rANS coding of the geometry streams (constriction) with per-stream models; exact round trip |
+| `plugin.py` | the metric as a drop-in for other pipelines: `observation_gram`, `project_degree`, `degree_residual`, `allocate`, `gram_vq` from a `.ply` + COLMAP dir, CPU-capable |
+| `hosts/c3dgs_run.py` | host-pipeline experiment: Compressed3D (Niedermayr et al.) with its colour VQ metric replaced by ours, nothing else changed |
+| `sweep.py`, `rd_metrics.py`, `make_rd.py` | rate-distortion sweep of the stack, Bjontegaard BD-rate / BD-PSNR, Pareto fronts and the RD figure |
+| `make_claims.py` | turns validation artifacts and results into the LaTeX macros the paper's prose quotes (`paper/tables/{validation,claims}.tex`) |
+| `compact.py` | one-command compaction of a standard PLY; `--holdout 8` skips the 3DGS test split (every 8th sorted camera), `--holdout 0` uses all cameras |
+| `evaluate.py` | PSNR / SSIM / LPIPS on the test split (3DGS protocol) |
+| `run_exps.py` | experiment driver (core, allocation, VQ, ablations), results cached as JSON |
+| `make_tables.py`, `make_figs.py`, `fig_teaser.py` | paper tables and figures from the JSON results |
+| `tests/` | pytest suite for the maths (projection, bound, allocation, VQ) and the renderer |
+
+## Data
+
+Set `OGC_DATA` to a directory with
+
+    m360/<scene>/{images_2,images_4,sparse/0}           Mip-NeRF 360 (garden, bicycle, ...)
+    tandt_db/tandt/<scene>/{images,sparse/0}            Tanks & Temples (train, truck)
+    tandt_db/db/<scene>/{images,sparse/0}               Deep Blending (drjohnson, playroom)
+    pretrained/<scene>/{cfg_args,point_cloud/iteration_30000/point_cloud.ply}
+
+The pretrained models are the official 3DGS release (`models.zip`); `data/dl_all.py` shows how the
+subsets used in the paper were fetched. Results go to `OGC_RESULTS` (default `../results`).
+
+## Usage
+
+```bash
+pip install torch numpy plyfile imageio scikit-image lpips matplotlib scipy pytest
+python -m pytest tests -q                       # unit tests (CPU, ~10 s)
+python gram.py garden                           # statistics pass (one render per training view)
+python shfit.py garden --weighting S2 --lams 1e-3
+python run_exps.py garden --stage core,allocfull,vq
+python pipeline.py garden
+python make_tables.py && python make_figs.py
+python geo.py garden --prune 0.5 --coder rans       # geometry stage + entropy coder (both coder sizes stored)
+python sweep.py garden && python make_rd.py         # RD sweep, BD-rate against published anchors
+```
+
+Pruning thresholds are exact (`common.prune_mask`, k-th value), so every run is reproducible bit for bit. `evaluate.py`
+refuses to score a stale frame: a view whose render fails four times raises, and a frame accepted below the plausibility
+threshold is flagged `suspect` in the per-view record. `check_results.py` is the second net.
+
+`--device mps|cuda|cpu` selects the PyTorch device. The rasteriser follows the reference CUDA
+implementation step by step (frustum culling, EWA projection, 0.3 px dilation, 16x16 tiles, depth
+sort, front-to-back compositing with the 1/255 alpha cut-off and T < 1e-4 termination) so that
+renders of the official models match the reference to floating-point precision.
+
+## Licence
+
+[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0): free for research and
+other non-commercial use. Commercial use requires a separate licence from Moholo Inc., the licensee
+(founders@moholo.co). See `LICENSE`.

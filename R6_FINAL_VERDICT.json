@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-10-08T10:30:00Z",
+  "status": "IMPLEMENTATION_BLOCKED",
+  "campaign": "TRAINABLE-HIGS-MEMFIX-IMPLEMENT-R6-MX",
+  "reason": "R5 root cause hypothesis incorrect - HiGS already uses exact two-pass allocation in IntersectTile.cu",
+  "source_analysis": {
+    "file": "gsplat/cuda/csrc/IntersectTile.cu",
+    "lines": "720-850",
+    "finding": "Already implements two-pass exact allocation",
+    "pass1": "Count intersections with temporary buffer",
+    "pass2": "Allocate exact capacity: at::empty({n_isects}, ...)",
+    "over_allocation": "NONE"
+  },
+  "answers": {
+    "q1_binary_compiled": "BUILD_NOT_EXECUTED - no fix needed",
+    "q2_intersections_capacity": "NOT_MEASUREED - already exact allocation",
+    "q3_correctness": "NOT_TESTED - no changes made",
+    "q4_4p4m_gate": "NOT_VALIDATED - original HiGS OOMs",
+    "q5_peak_vram": "NOT_TESTED - no fix applied",
+    "q6_latencies": "NOT_MEASURED - no benchmark run",
+    "q7_speedup": "NOT_APPLICABLE - no improvement",
+    "q8_research_value": "INVESTIGATE - true bottleneck unknown"
+  },
+  "memory_estimate": {
+    "intersection_buffers_4.4m_mb": 533,
+    "temporary_counts_4.4m_mb": 53,
+    "total_intersection_related_mb": 586,
+    "oom_allocation_gb": 37.74,
+    "conclusion": "OOM NOT from intersection buffers"
+  },
+  "r5_revision": {
+    "r5_hypothesis": "H5 Over-allocation via MAX_INTERSECTIONS_PER_GAUSSIAN",
+    "reality": "Exact two-pass allocation already implemented",
+    "r5_status": "INCORRECT"
+  },
+  "recommendation": "Profile full HiGS memory breakdown to identify true bottleneck. Likely candidates: hierarchy structures, sorting workspace, or other rendering buffers."
+}

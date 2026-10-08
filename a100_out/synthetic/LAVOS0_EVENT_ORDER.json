@@ -1,0 +1,85 @@
+{
+  "notes": "topology_events=10 opacity_resets=0 invariants_ok=True",
+  "ordering": [
+    {
+      "kind": "lr",
+      "name": "update_learning_rate",
+      "reads_sh": false,
+      "seq": 1,
+      "source": "publication_trainer.py:465"
+    },
+    {
+      "kind": "sh_degree",
+      "name": "oneup_sh_degree",
+      "reads_sh": false,
+      "seq": 2,
+      "source": "publication_trainer.py:466-467"
+    },
+    {
+      "kind": "forward",
+      "name": "render_and_loss",
+      "reads_sh": true,
+      "seq": 3,
+      "source": "publication_trainer.py:474-480"
+    },
+    {
+      "kind": "backward",
+      "name": "backward",
+      "reads_sh": true,
+      "seq": 4,
+      "source": "publication_trainer.py:482"
+    },
+    {
+      "kind": "radii",
+      "name": "update_max_radii2D",
+      "phase_a": true,
+      "reads_sh": false,
+      "seq": 5,
+      "source": "publication_trainer.py:498-501"
+    },
+    {
+      "kind": "stats",
+      "name": "add_densification_stats",
+      "phase_a": true,
+      "reads_sh": false,
+      "seq": 6,
+      "source": "publication_trainer.py:505-507"
+    },
+    {
+      "kind": "topology",
+      "name": "densify_and_prune",
+      "phase_a": true,
+      "reads_sh": true,
+      "seq": 7,
+      "source": "gaussian_model.py:452-481",
+      "sub_order": [
+        "densify_and_clone",
+        "densify_and_split",
+        "prune_points"
+      ]
+    },
+    {
+      "kind": "opacity_reset",
+      "name": "reset_opacity",
+      "phase_a": true,
+      "reads_sh": false,
+      "seq": 8,
+      "source": "gaussian_model.py:258-262 ; publication_trainer.py:553-555"
+    },
+    {
+      "kind": "optimizer",
+      "name": "optimizer_step",
+      "reads_sh": true,
+      "seq": 9,
+      "source": "publication_trainer.py:561"
+    },
+    {
+      "kind": "optimizer",
+      "name": "zero_grad",
+      "reads_sh": false,
+      "seq": 10,
+      "source": "publication_trainer.py:562"
+    }
+  ],
+  "resolved": true
+}

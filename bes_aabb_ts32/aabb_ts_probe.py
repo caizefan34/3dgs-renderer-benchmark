@@ -133,9 +133,9 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     print("[kernel] compiling (CPU)...", flush=True)
     mod = load_inline(
-        name="aabb_walk_kernel_ts",
+        name=os.environ.get("AABB_MODULE", "aabb_walk_kernel_ts"),
         cpp_sources=CPP_SOURCES,
-        cuda_sources=open(os.path.join(here, "aabb_kernel_ts.cu")).read(),
+        cuda_sources=open(os.path.join(here, os.environ.get("AABB_KERNEL_CU", "aabb_kernel_ts.cu"))).read(),
         extra_cuda_cflags=["-O3"],
         verbose=False,
     )

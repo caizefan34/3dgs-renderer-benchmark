@@ -1,0 +1,148 @@
+{
+  "task": "SB0-FGS",
+  "deliverable": "SB0_FASTERGS_REFERENCE",
+  "title": "Faster-GS 2026 strong external baseline — reference setup + protocol diff",
+  "audit_date": "2026-09-29",
+  "status": "PARTIAL — setup + protocol-difference analysis complete; training/quality/wall-clock PENDING (require NeRFICG framework + 30K x3 training, not available in this environment).",
+  "evidence_class": "OBSERVED (repo/config/source) + PENDING (training metrics)",
+  "reference": {
+    "repo": "https://github.com/nerficg-project/faster-gaussian-splatting",
+    "paper": "https://arxiv.org/abs/2602.09999 (CVPR 2026)",
+    "local_path": "public_baselines/faster-gs",
+    "branches_audited": [
+      "main",
+      "FasterGSTestbed",
+      "FasterGSFused"
+    ],
+    "pinned_commit": "117bdba (Make Mip-Splatting 3D filter compatible with MCMC densification)",
+    "backend": "FasterGSCudaBackend (standalone CMake/pyproject extension; plugs into NeRFICG framework)"
+  },
+  "protocol_differences": {
+    "basis": "Faster-GS fastergs_garden.yaml + Trainer.py + Model.py (OBSERVED) vs C0 publication_trainer_p12.py + provenance (OBSERVED)",
+    "rows": [
+      {
+        "aspect": "iterations",
+        "faster_gs": 30000,
+        "c0": 30000,
+        "same": true
+      },
+      {
+        "aspect": "loss",
+        "faster_gs": "0.8*L1 + 0.2*(1-DSSIM)",
+        "c0": "0.8*L1 + 0.2*(1-SSIM)",
+        "same": true,
+        "note": "identical weights; DSSIM vs SSIM implementation detail"
+      },
+      {
+        "aspect": "SH_degree",
+        "faster_gs": 3,
+        "c0": 3,
+        "same": true
+      },
+      {
+        "aspect": "background",
+        "faster_gs": "black (0,0,0)",
+        "c0": "black",
+        "same": true
+      },
+      {
+        "aspect": "densification_method",
+        "faster_gs": "adaptive_density_control (USE_MCMC=false), grad_threshold 0.0002, min_opacity 0.005",
+        "c0": "adaptive density control, signed 2D-grad L2 >= 0.0002, absgrad (HIGS_BWD_ABSGRAD=1)",
+        "same": true,
+        "note": "same family; both adaptive (non-MCMC) for garden"
+      },
+      {
+        "aspect": "densification_window",
+        "faster_gs": "600..14900 (DENSIFICATION_START/END)",
+        "c0": "500..15000 (task spec; config.densify_from/until_iter)",
+        "same": false,
+        "note": "~400-iter offset; both 30K cadence"
+      },
+      {
+        "aspect": "opacity_reset",
+        "faster_gs": "every 3000 (+ extra at 500)",
+        "c0": "opacity_reset_interval",
+        "same": true
+      },
+      {
+        "aspect": "morton_zorder",
+        "faster_gs": "YES — apply_morton_ordering every 5000 until 15000 (reorders params + optimizer states)",
+        "c0": "NO",
+        "same": false,
+        "note": "C8 component; framework-layer (CudaUtils.MortonEncoding)"
+      },
+      {
+        "aspect": "eval_SSIM_metric",
+        "faster_gs": "Faster-GS SSIM",
+        "c0": "SepSSIM (frozen eval procedure)",
+        "same": false,
+        "note": "eval metric differs; must align protocol before quality comparison"
+      },
+      {
+        "aspect": "lr_schedule_means",
+        "faster_gs": "1.6e-4 -> 1.6e-6 over 30000",
+        "c0": "reference_v1 schedule (matched by construction)",
+        "same": true
+      },
+      {
+        "aspect": "optional_features",
+        "faster_gs": "Speedy-Splat pruning / PPISP / MCMC / random-init carving available (disabled in garden config)",
+        "c0": "n/a",
+        "same": false,
+        "note": "all disabled in the garden reference config"
+      }
+    ]
+  },
+  "step4_pending_items": [
+    {
+      "item": "independent Faster-GS reference worktree build",
+      "status": "BLOCKED",
+      "reason": "No NeRFICG framework locally (Faster-GS training pipeline depends on it); no nerficg conda env. Backend build also fails on toolchain mismatch (torch 2.13 needs C++20; setup.py hardcodes c++17) - see backend_build_attempt."
+    },
+    {
+      "item": "room full training runnable",
+      "status": "PENDING",
+      "reason": "requires NeRFICG env + 30K training"
+    },
+    {
+      "item": "unseen-view PSNR/SSIM/LPIPS",
+      "status": "PENDING",
+      "reason": "requires trained model + eval protocol alignment (eval SSIM metric differs: Faster-GS vs SepSSIM)"
+    },
+    {
+      "item": "wall-clock",
+      "status": "PENDING",
+      "reason": "requires training run on a clean GPU"
+    },
+    {
+      "item": "final Gaussian count",
+      "status": "PENDING",
+      "reason": "requires training run"
+    },
+    {
+      "item": "garden + bicycle reproduction",
+      "status": "PENDING",
+      "reason": "depends on room step"
+    }
+  ],
+  "success_criteria": {
+    "A_c0_plus": "PENDING — C7 is the sole implementation candidate (see SB0_OPPORTUNITY_ORACLES.json)",
+    "B_stronger_external_baseLINE": "UNLIKELY_FROM_THESE_COMPONENTS — protocol diff shows Faster-GS garden config is CLOSE to C0 (same loss/SH/bg/densification family); the main structural difference is Morton ordering (C8, hold). A large quality/speed gap is not expected from the audited components. Confirm only via full reference reproduction (PENDING)."
+  },
+  "note": "No Faster-GS wall-clock or quality number is claimed. Upstream paper speedups are NOT used as C0 O_net (task prohibition). All training metrics remain PENDING pending NeRFICG + 30K x3 runs.",
+  "backend_build_attempt": {
+    "attempted": "2026-09-29",
+    "method": "copied FasterGSCudaBackend to short path C:\\fgb\\FasterGSCudaBackend (to dodge Windows MAX_PATH 260), ran python setup.py build_ext --inplace",
+    "result": "FAILED",
+    "stage_reached": "ninja invoked; .cu compilation started (past path issue); failed on host C++ compile",
+    "root_cause": "toolchain mismatch: local torch 2.13.0+cu130 + MSVC 14.44 + CUDA 13.3 require C++20 (/std:c++20) and conforming preprocessor; Faster-GS setup.py hardcodes -std=c++17. Errors: C1189 (traditional preprocessor), C7555/C7582 (need /std:c++20), C2666 (torch-2.13 API drift: HeaderOnlyArrayRef operator== overload ambiguity).",
+    "is_faster_gs_defect": false,
+    "is_environment_incompatibility": true,
+    "fix_options": [
+      "patch setup.py to -std=c++20 + /Zc:preprocessor (build-config only; may still hit C2666 torch-2.13 API drift requiring source changes)",
+      "build in a torch<=2.7 cu118/cu121 env matching the reference's intended toolchain (the C0 A100 env used torch 2.9.1+cu128)"
+    ],
+    "note": "A successful backend build alone would NOT unblock step 4: the full trainer requires the NeRFICG framework, which is absent locally."
+  }
+}

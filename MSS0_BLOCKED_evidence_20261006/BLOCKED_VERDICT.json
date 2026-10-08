@@ -1,0 +1,39 @@
+{
+  "schema": "mss0.blocked_report.v1",
+  "task": "MSS0 / MSS-GS",
+  "generated_local_date": "2026-10-06",
+  "mx_hostname": "bms-39468022-001",
+  "ssh_profile": "Host mx (reused trusted profile; no endpoint/key changes)",
+  "scientific_status": "BLOCKED",
+  "ran_stages": [],
+  "gates": {
+    "package_static_integrity": "PASS",
+    "mx_identity": "PASS",
+    "python_torch_env": "PASS",
+    "checkpoint_sha256": "PASS",
+    "mx_guard_inspect": "PASS",
+    "allowed_gpu_idle": "FAIL",
+    "root_fs_space": "FAIL",
+    "native_renderer_importable": "FAIL"
+  },
+  "blockers": [
+    "BLOCKED_ENV_NO_IDLE_ALLOWED_GPU: allowed GPUs 1/2/3/4 all occupied by other users; idle 0/6 are protected. Protocol forbids killing/evicting, using protected GPUs, or expanding GPU set.",
+    "BLOCKED_ENV_ROOT_FS_FULL: / and /tmp are 100% full (0 avail); gsplat/torch.distributed cannot import; cannot create TMPDIR/TORCH_EXTENSIONS_DIR or compile-verify. Protocol forbids deleting others' data."
+  ],
+  "violations_avoided": [
+    "did not kill/reset other tasks' GPU processes",
+    "did not use protected GPUs 0/6",
+    "did not delete any data to free disk",
+    "did not modify checkpoint or machine config",
+    "did not bypass fail-closed guard",
+    "did not fabricate E0-E3 results or a PASS verdict"
+  ],
+  "unblock_requirements": [
+    "A site-reserved idle A100 in allowed set {1,2,3,4} for the whole authorized window (guard requires <=2% util, <=512MiB, no resident process for a 20s window).",
+    "Root / /tmp freed (or a writable TMPDIR + TORCH_EXTENSIONS_DIR on a filesystem with tens of GB free) so gsplat/torch.distributed import and CUDA extension compilation succeed.",
+    "Re-run mx_guard.py --inspect on MX with the specified nerficg Python; then re-checkpoint gate (already PASS) before E0."
+  ],
+  "next_action_owner": "DSH / site ops (GPU reservation + root filesystem remediation)",
+  "guard_evidence": "guard_inspect.json (EXIT=0) via nerficg python on MX; checkpoint sha re-verified via guard code path",
+  "notes": "mx_guard_inspect now DONE (GPU-independent); E0-E3 still blocked on external GPU reservation + root fs."
+}

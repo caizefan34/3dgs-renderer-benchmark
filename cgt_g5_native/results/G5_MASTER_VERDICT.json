@@ -1,0 +1,52 @@
+{
+  "stage": "G5_MASTER_VERDICT",
+  "ts": "2026-10-04 16:18:38",
+  "lane": "cgt_g5_native",
+  "final_verdict": "DROP_NATIVE_OPTIMIZATION",
+  "one_line": "Native per-tile CGT optimization on GPU is ~15x SLOWER than the CPU L-BFGS-B production fit (route_A) and fails the quality-match gate; native training does not yield a GPU acceleration for this workload.",
+  "stage_results": {
+    "P0": "CONSISTENT_WITH_F0",
+    "G5_A": "PASS_NATIVE_CAPACITY_ORACLE",
+    "G5_B": "PASS_GRADIENT_CORRECTNESS",
+    "G5_C": "DROP_NATIVE_OPTIMIZATION",
+    "G5_D": "NOT_REACHED",
+    "G5_E": "NOT_REACHED"
+  },
+  "gate_summary": {
+    "quality_dPSNR_vs_routeA": 3.9309374588446104,
+    "quality_pass": false,
+    "total_wall_speedup": 0.0649647617929647,
+    "ttq_max_speedup": 0.5269898736933798,
+    "speedup_pass": false,
+    "speedup_threshold": 1.25
+  },
+  "key_numbers": {
+    "route_A_wall_ms_per_tile": 213.9,
+    "native_teacher_wall_ms_per_tile": 3292.3,
+    "native_GT_wall_ms_per_tile": 840.0,
+    "route_A_psnr_vs_teacher": 77.38,
+    "native_teacher_psnr_vs_teacher": 81.31,
+    "native_GT_psnr_vs_GT": 50.06,
+    "canonical_teacher_psnr_vs_GT": 47.46
+  },
+  "reasoning": [
+    "G5-A and G5-B prove native CGT coefficients CAN represent the scene and the native renderer gradients are correct \u2014 capacity and correctness are NOT the blocker.",
+    "G5-C is the first stage that measures native TRAINING speed (forward+backward+optimizer) vs the production fit path. It fails decisively on the SPEED gate alone: native_teacher 3292 ms/tile vs route_A 214 ms/tile = 0.065x (15.4x slower); time-to-quality 0.53x (also slower).",
+    "The quality gate also fails as literally written (|dPSNR|=3.93 dB > 0.15), though native_teacher actually fits the teacher field MORE tightly (81.31 vs 77.38 dB held-out) \u2014 the binding failure is speed, not quality.",
+    "native_GT (the real G5 candidate: pure recon to GT, NO derivative-matching, 1 render+1 backward/iter) is ALSO slower than route_A: 840 vs 214 ms/tile = 3.9x slower. So the failure is NOT solely the FD-Jacobian overhead; it is structural (GPU underutilization on tiny per-tile problems + Adam's slow convergence vs quasi-Newton L-BFGS-B).",
+    "Per fail-closed protocol (goal sec.1 'close the lane at the first failed gate'; sec.28 'do not rescue failed G5 with a large new change'), the lane terminates at G5-C. G5-D/G5-E are NOT_REACHED."
+  ],
+  "caveats": [
+    "G5-C tests SEQUENTIAL per-tile optimization (one tile at a time on GPU), matching how route_A fits tiles. A batched all-tiles-simultaneous native optimizer could amortize kernel-launch overhead \u2014 this is HYPOTHESIS/NOT_MEASURED and is explicitly OUT of scope (would be a large new change to rescue a failed gate, prohibited by sec.28).",
+    "The result is for the room scene, rank R=4, 256-px tiles, ~1.2k gaussians/tile. Larger tiles or multi-view joint optimization might shift the GPU-utilization balance \u2014 NOT_MEASURED here.",
+    "This DROP is about the per-tile optimization STEP, not the F0 forward kernel (which already gave PASS_STRONG_GPU_TRANSLATION). F0 forward speed is a separate, still-valid result."
+  ],
+  "report_separation": {
+    "OBSERVED": "native_teacher 3292 ms/tile, route_A 214 ms/tile, native_GT 840 ms/tile; Amdahl backward 68% / render 26%; native_teacher PSNR 81.31 vs route_A 77.38 (teacher field), native_GT 50.06 vs GT.",
+    "EVIDENCE": "preregistered full run, room, 50 tiles, R=4, 400 iters, 3 repeats, GPU0 clean-exclusive; slice self-check max_abs=0.0; JSON parses; reproducible from g5c_controlled_optimization.py.",
+    "INFERENCE": "per-tile CGT optimization is GPU-launch-overhead-bound and optimizer-inefficient (Adam vs L-BFGS-B) at this workload size.",
+    "HYPOTHESIS": "batched/joint native optimization or CUDA-graph capture might recover GPU efficiency \u2014 untested, out of scope.",
+    "NOT_MEASURED": "batched native training; garden/bicycle native training; memory/VRAM accounting for native path.",
+    "CONCLUSION": "CGT native training does not produce a meaningful, robust GPU acceleration over the existing production fit for per-tile optimization; the lane is closed DROP_NATIVE_OPTIMIZATION."
+  }
+}

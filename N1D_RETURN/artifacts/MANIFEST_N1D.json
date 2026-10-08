@@ -1,0 +1,161 @@
+{
+  "campaign": "N1D_ReBudgetGS_Mechanism_Disambiguation",
+  "execution_only": true,
+  "verdict_computed": false,
+  "analyzer": "n1d_analyze.py (frozen in the bundle; run by the downstream analyst on N1D_ACTION_RESULTS.parquet; suggested --noise from N1 sigma_replica: room 8.6e-10, bicycle 1.4e-9 \u2014 analyst's choice)",
+  "required_artifacts": [
+    {
+      "file": "N1D_SOURCE_IDENTITY.json",
+      "bytes": 4418,
+      "sha256": "05c89b0c0a7662853c6e487884d7cef9c8bf112ab62ac7bb7da202f8b099c8a9",
+      "description": "N1 identity re-verification + N1D seed/LR-scaling semantics."
+    },
+    {
+      "file": "N1D_PARTNER_LIST.json",
+      "bytes": 156531,
+      "sha256": "a68b0dfe2218342ecd3a3a6812dab812f29faa6da0565123e8f39eb3ba1c05f0",
+      "description": "Three deterministic frozen random partners per anchor (new seed 20260929), written before any N1D action."
+    },
+    {
+      "file": "N1D_ACTION_RESULTS.parquet",
+      "bytes": 243356,
+      "sha256": "389fc1d81ae61d8919fd122cd4fd9f8f895c32540af3eb6f5400d88c70a892bc",
+      "description": "Raw counterfactual rows: A0, A1-1.00/0.75/0.50/0.25, A2-r1/r2/r3 x 192 anchors x 2 scenes."
+    },
+    {
+      "file": "N1D_ACTION_TIMING.json",
+      "bytes": 34915,
+      "sha256": "c121a024f34075d52613ae7194419404ca5c72faed24e4d912f9769df0252fab",
+      "description": "Representative timings: 10 warm-ups + 30 repeats, CUDA events + host wall."
+    },
+    {
+      "file": "N1D_CONTAMINATION.json",
+      "bytes": 7634,
+      "sha256": "0a64a124418fc3e36f6e65af0d3acc7cc66602a1c82d73a95edd501623c4fea4",
+      "description": "GPU/uptime/process snapshots; contamination audit."
+    },
+    {
+      "file": "MANIFEST_N1D.json",
+      "sha256": "self-referential",
+      "description": "This file."
+    }
+  ],
+  "supporting_evidence": [
+    {
+      "file": "N1D_ACTION_RESULTS_room.json",
+      "bytes": 1169184,
+      "sha256": "2f020d50f039983ca699747c39eae99e41a9726cf503049a9083463f6b6cb099",
+      "description": "Raw rows, room (JSON)."
+    },
+    {
+      "file": "N1D_ACTION_RESULTS_bicycle.json",
+      "bytes": 1169963,
+      "sha256": "0f8a388ab46bbc52d6ade8c60bd58a527dc1e7e8451180994c750edb7904769f",
+      "description": "Raw rows, bicycle (JSON)."
+    },
+    {
+      "file": "N1D_ACTION_TIMING_room.json",
+      "bytes": 14941,
+      "sha256": "413012d3442560dce4aa1c59aa229aad5ac57d8e05a09a8c28a63a7c552b6b73",
+      "description": "Per-scene timing, room."
+    },
+    {
+      "file": "N1D_ACTION_TIMING_bicycle.json",
+      "bytes": 14931,
+      "sha256": "294847e1b8ee995ff2b7439808c1a438875b6513a04ccb78d68225576449dea1",
+      "description": "Per-scene timing, bicycle."
+    },
+    {
+      "file": "N1D_EXECUTION_SANITY_VS_N1.json",
+      "bytes": 647,
+      "sha256": "868d92923151d3e410e930935a6db9f8cea097fc1ab0e39c6ff73e9dfb0b8dc3",
+      "description": "A1-1.00 vs N1 A1 replica agreement (execution verification, not a verdict)."
+    },
+    {
+      "file": "n1d_analyze.py",
+      "bytes": 9135,
+      "sha256": "b3fd97be55ca69aaf41d3d6b02e6f01c5795d6de90003963663b40bd82ea9217",
+      "description": "FROZEN analyzer from the N1D bundle (downstream analyst runs it; N1D does not)."
+    },
+    {
+      "file": "N1D_PREREG.md",
+      "bytes": 3334,
+      "sha256": "2fc51fca6925933e2deb8770ae18eb270c92f797f2576ff6f1c479ffbf2ae5ec",
+      "description": "Frozen N1D preregistration from the bundle."
+    },
+    {
+      "file": "N1D_SPEC_EXECUTION.json",
+      "bytes": 687,
+      "sha256": "1dfe2e3ffb300c59647a8705d14eaa899b9a674e8381ce7642c09f92747f3511",
+      "description": "N1D execution notes (seed, draw rule, LR semantics, analyzer contract)."
+    }
+  ],
+  "contamination_csvs": [
+    {
+      "file": "cont_gpu_start.csv",
+      "bytes": 312,
+      "sha256": "952221372ae28b08473cfbf2313a05488ccfb60fcc756c5c87d8a41639941a31",
+      "description": "GPU snapshot at N1D campaign start."
+    },
+    {
+      "file": "cont_campaign_end.csv",
+      "bytes": 312,
+      "sha256": "b930cbb2036d8771e6ba27191b26b6c8cdbc822809e8848e9da72f1148e95928",
+      "description": "GPU snapshot at N1D campaign end."
+    },
+    {
+      "file": "cont_timing_room_start.csv",
+      "bytes": 316,
+      "sha256": "ee4787ac9c37399e21910abe85deb99b45a456a6fcdc60e4b8b68673e437ac82",
+      "description": "GPU snapshot at room timing start."
+    },
+    {
+      "file": "cont_timing_room_end.csv",
+      "bytes": 320,
+      "sha256": "cd79fbd19343e3852f132f18850653158b1940eb4952f997b0931af13d466120",
+      "description": "GPU snapshot at room timing end."
+    },
+    {
+      "file": "cont_timing_bicycle_start.csv",
+      "bytes": 312,
+      "sha256": "4602e1ef0b552b8d7ff8ac6765b52917254a7232aec6fd2edd7285902f613c98",
+      "description": "GPU snapshot at bicycle timing start."
+    },
+    {
+      "file": "cont_timing_bicycle_end.csv",
+      "bytes": 315,
+      "sha256": "4e1ec531afa307d7c220fb98d031f566582d8dc846ef99df975239edbfb954c0",
+      "description": "GPU snapshot at bicycle timing end."
+    }
+  ],
+  "scripts": [
+    {
+      "file": "n1d_freeze_partners.py",
+      "bytes": 7463,
+      "sha256": "329571f19454837d39c6c58cd3d9e93fa59bf1d3375cd0b15e91b98980915130",
+      "description": "Identity verification + partner freeze (before any action)."
+    },
+    {
+      "file": "n1d_pass_actions.py",
+      "bytes": 7251,
+      "sha256": "0d86b9f9dd2011e9196b7e40e329af66739005c519c9b7d5824a209058fe1146",
+      "description": "Counterfactual action pass."
+    },
+    {
+      "file": "n1d_timing.py",
+      "bytes": 5938,
+      "sha256": "6cec279cbf783e06130862a069d98e2a2a4d59a8e2d00a657f189636120688de",
+      "description": "Timing pass."
+    },
+    {
+      "file": "n1d_finalize.py",
+      "bytes": 13589,
+      "sha256": "1de747ec1ed936fa5ed18a10833c523b1c284cfb6f159a6c0ac92cc9bdb67232",
+      "description": "Parquet + contamination + manifest."
+    }
+  ],
+  "reused_n1_artifacts_sha256": {
+    "N1_PROBE_LIST.json": "fa375270f7d9d69e33399d3415e46a31e76547daf2c50710f85c54beca90ed27",
+    "note": "anchors + held-out sets reused exactly; N1 artifacts read-only"
+  }
+}

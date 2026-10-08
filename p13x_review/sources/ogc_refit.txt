@@ -1,0 +1,194 @@
+"""
+Linear appearance refit.  For fixed geometry the rendered image is linear in the SH coefficients (compositing is
+linear in the Gaussian colours), so the least-squares appearance problem
+        min_K  sum_views || R_j(K) - I_j ||^2
+is a linear least-squares problem.  We solve its normal equations by preconditioned conjugate gradients where
+every iteration costs one forward and one backward pass over the training views, and the preconditioner is the
+block-diagonal Gram matrix (2/P) A_i of the observation Gram (the exact diagonal block of J^T J).
+
+    python refit.py -s
+-m
+[--iters 10] [--ply other.ply] [--out_suffix _refit]
+
+Loads the model at
+(or the PLY given by --ply into it), runs the refit and evaluates the test views
+before and after.  Writes
+/refit
+.json and the refitted PLY (point_cloud/iteration_refit/).
+The clamp of the SH colour at zero is handled by an active set: colours that are clamped in the current model are
+excluded from the Jacobian (they contribute a constant), recomputed after every restart.
+"""
+import os, sys, json, time, math
+import numpy as np, torch
+GS = os.environ.get("GS_ROOT", os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, GS); os.chdir(GS)
+from argparse import ArgumentParser
+from arguments import ModelParams, PipelineParams, get_combined_args
+from scene import Scene, GaussianModel
+from gaussian_renderer import render
+from utils.image_utils import psnr
+from utils.loss_utils import ssim
+from ogc_train import install_arc_split, GramState, sh_basis, unpack, TRIU
+import diff_gaussian_rasterization as dgr
+
+
+def view_dirs(gaussians, cam):
+    d = gaussians.get_xyz - cam.camera_center; return d / d.norm(dim=1, keepdim=True).clamp_min(1e-9)
+
+
+def colors_from(K, Y):
+    """K [N,16,3], Y [N,16] -> colours [N,3] (+0.5 offset, no clamp: the caller handles the active set)."""
+    return torch.einsum("nkc,nk->nc", K, Y) + 0.5
+
+
+from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+
+
+def render_colors(gaussians, cam, pipe, bg, col):
+    """Rasterise with precomputed colours WITHOUT the [0,1] clamp of the official render(): the image is then exactly
+    linear in the colours, which the conjugate-gradient operator requires."""
+    settings = GaussianRasterizationSettings(image_height=int(cam.image_height), image_width=int(cam.image_width),
+        tanfovx=math.tan(cam.FoVx * 0.5), tanfovy=math.tan(cam.FoVy * 0.5), bg=bg, scale_modifier=1.0,
+        viewmatrix=cam.world_view_transform, projmatrix=cam.full_proj_transform, sh_degree=gaussians.active_sh_degree,
+        campos=cam.camera_center, prefiltered=False, debug=False, antialiasing=pipe.antialiasing)
+    rast = GaussianRasterizer(raster_settings=settings)
+    screen = torch.zeros_like(gaussians.get_xyz)
+    out = rast(means3D=gaussians.get_xyz, means2D=screen, shs=None, colors_precomp=col, opacities=gaussians.get_opacity,
+               scales=gaussians.get_scaling, rotations=gaussians.get_rotation, cov3D_precomp=None)
+    return out[0]
+
+
+def evaluate(gaussians, cams, pipe, bg, K, Ys=None):
+    ps, ss = [], []
+    with torch.no_grad():
+        for cam in cams:
+            Y = sh_basis(view_dirs(gaussians, cam)); col = colors_from(K, Y).clamp_min(0)
+            im = render_colors(gaussians, cam, pipe, bg, col).clamp(0, 1); gt = cam.original_image[0:3].cuda()
+            ps.append(float(psnr(im[None], gt[None]).mean())); ss.append(float(ssim(im, gt)))
+    return float(np.mean(ps)), float(np.mean(ss))
+
+
+def refit(gaussians, train_cams, pipe, bg, K0, iters, lam, log, restarts=2, damp_rel=0.1):
+    """PCG on the normal equations of the (unclamped) linear least-squares appearance problem, restarted with an
+    updated active set (Gaussians whose colour is clamped at 0 in some channel are frozen for that channel)."""
+    N = K0.shape[0]; K = K0.clone(); dev = K.device
+    # observation Gram (S2 weights) = block-diagonal part of J^T J up to the factor 2/P; one pass
+    gram = GramState(N, device=dev)
+    P = 0
+    with torch.no_grad():
+        for cam in train_cams:
+            Y = sh_basis(view_dirs(gaussians, cam)); col = colors_from(K, Y).clamp_min(0)
+            render_colors(gaussians, cam, pipe, bg, col); gram.accumulate(gaussians.get_xyz, cam.camera_center, dgr.LAST_ACCUM[1])
+            P += cam.image_height * cam.image_width
+    A = gram.full_acc(0, N)                                                   # [N,16,16]
+    trA = A.diagonal(dim1=1, dim2=2).sum(1) / 16
+    damp = lam * trA + 1e-8
+    # Levenberg damping relative to each Gaussian's own curvature: directions observed less than damp_rel times the
+    # Gaussian's mean eigenvalue are barely updated, which stops the solve from exploiting weakly observed directions
+    lm = (damp_rel * trA)[:, None, None]
+    # block-Jacobi preconditioner, inverted in chunks: one batched 16x16 inverse over ~3M matrices exceeds what the
+    # batched solver accepts on a 24 GB card ("CUDA driver error: unknown error" on an RTX 4090; fine on an A100)
+    Minv = torch.empty_like(A); eye = torch.eye(16, device=dev)
+    for s0 in range(0, N, 500000):
+        Minv[s0:s0 + 500000] = torch.linalg.inv(A[s0:s0 + 500000] + (damp[s0:s0 + 500000, None, None] + lm[s0:s0 + 500000]) * eye)
+    del A
+
+    def op(v, mask):
+        """(J^T J) v via autograd: J v = d/dt R(K + t v) = R_lin(v) (linear map with zero offset), J^T (J v) by backward."""
+        v = v.detach().requires_grad_(True); out = torch.zeros_like(v)
+        for cam in train_cams:
+            Y = sh_basis(view_dirs(gaussians, cam))
+            col = torch.einsum("nkc,nk->nc", v, Y) * mask                    # linear part only (no offset), frozen channels masked
+            im = render_colors(gaussians, cam, pipe, bg, col)                 # bg contributes T*bg (constant) -> use bg=0 for the linear op
+            (im * im).sum().backward(retain_graph=False)
+            out += v.grad; v.grad = None
+        return 0.5 * out + lm * v.detach()                                      # (J^T J + LM damping) v
+
+    def rhs(K, mask):
+        """-J^T (R(K) - I): gradient of 0.5||R(K)-I||^2 at K, negated."""
+        v = K.detach().clone().requires_grad_(True); out = torch.zeros_like(v)
+        for cam in train_cams:
+            Y = sh_basis(view_dirs(gaussians, cam))
+            col = (torch.einsum("nkc,nk->nc", v, Y) + 0.5) * mask + (torch.einsum("nkc,nk->nc", v.detach(), Y) + 0.5).clamp_min(0) * (1 - mask)
+            im = render_colors(gaussians, cam, pipe, bg, col); gt = cam.original_image[0:3].cuda()
+            (0.5 * ((im - gt) ** 2).sum()).backward(); out += v.grad; v.grad = None
+        return -out
+
+    zero_bg = torch.zeros(3, device=dev)
+    for restart in range(restarts):
+        with torch.no_grad():   # active set: channels not clamped in any training view (approximation: use the mean direction)
+            mask = torch.ones(N, 3, device=dev)
+            for cam in train_cams[::max(1, len(train_cams) // 16)]:
+                Y = sh_basis(view_dirs(gaussians, cam)); mask *= (colors_from(K, Y) > 0).float()
+        r = rhs(K, mask); z = torch.einsum("nkl,nlc->nkc", Minv, r); p = z.clone(); rz = (r * z).sum()
+        for it in range(iters):
+            Ap = op(p, mask)
+            alpha = rz / (p * Ap).sum().clamp_min(1e-30)
+            K = K + alpha * p; r = r - alpha * Ap
+            z = torch.einsum("nkl,nlc->nkc", Minv, r); rz_new = (r * z).sum()
+            log(f"restart {restart} it {it}: |r| {float(r.norm()):.4e} alpha {float(alpha):.3e}")
+            beta = rz_new / rz.clamp_min(1e-30); p = z + beta * p; rz = rz_new
+    return K
+
+
+if __name__ == "__main__":
+    parser = ArgumentParser(); lp = ModelParams(parser, sentinel=True); pp = PipelineParams(parser)
+    parser.add_argument("--iteration", type=int, default=-1); parser.add_argument("--split", default="standard"); parser.add_argument("--arc_deg", type=float, default=90.0)
+    parser.add_argument("--iters", type=int, default=8); parser.add_argument("--restarts", type=int, default=2); parser.add_argument("--lam", type=float, default=1e-3)
+    parser.add_argument("--damp", type=float, default=1.0, help="Levenberg damping relative to tr(A_i)/16")
+    parser.add_argument("--ply", default="", help="load this PLY (e.g. a pruned/compacted model) instead of the model's own")
+    parser.add_argument("--out_suffix", default="_refit")
+    parser.add_argument("--prune", type=float, default=0.0, help="remove this fraction of Gaussians with the lowest total blending weight before refitting")
+    parser.add_argument("--adam_iters", type=int, default=0, help="baseline: instead of PCG, fine-tune the SH with Adam for N iterations (official lrs)")
+    parser.add_argument("--adam_lr", type=float, default=0.0025); parser.add_argument("--adam_loss", default="l1ssim", choices=["l1ssim", "mse"])
+    args = get_combined_args(parser)
+    p2 = ArgumentParser(); ModelParams(p2); PipelineParams(p2)  # real defaults (the sentinel parser above leaves unset values as None)
+    for k, v in vars(p2.parse_args([])).items():                # cfg_args of older releases lack newer parameters (depths, train_test_exp, ...)
+        if getattr(args, k, None) is None: setattr(args, k, v)
+    if args.split == "arc": install_arc_split(args.arc_deg)
+    dataset = lp.extract(args); pipe = pp.extract(args)
+    import shutil, glob as _glob
+    for d in _glob.glob(os.path.join(dataset.model_path, "point_cloud", "iteration_refit*")): shutil.rmtree(d, ignore_errors=True)   # never confuse the iteration loader
+    gaussians = GaussianModel(dataset.sh_degree)
+    scene = Scene(dataset, gaussians, load_iteration=args.iteration, shuffle=False)
+    if args.ply: gaussians.load_ply(args.ply)
+    bg = torch.zeros(3, device="cuda")                       # the linear operator needs a black background; metrics use the same
+    train_cams, test_cams = scene.getTrainCameras(), scene.getTestCameras()
+    for prm in (gaussians._xyz, gaussians._scaling, gaussians._rotation, gaussians._opacity, gaussians._features_dc, gaussians._features_rest): prm.requires_grad_(False)
+    logf = open(os.path.join(dataset.model_path, f"refit{args.out_suffix}.log"), "w")
+    def log(m): print(m, flush=True); logf.write(m + "\n"); logf.flush()
+    with torch.no_grad():
+        K0 = gaussians.get_features.detach().clone(); pfull, sfull = evaluate(gaussians, test_cams, pipe, bg, K0); log(f"full model: test PSNR {pfull:.3f} SSIM {sfull:.4f} (N={K0.shape[0]})")
+        if args.prune > 0:                                   # contribution pruning (total blending weight over the training views)
+            tot = torch.zeros(K0.shape[0], device="cuda")
+            for cam in train_cams:
+                Y = sh_basis(view_dirs(gaussians, cam)); render_colors(gaussians, cam, pipe, bg, colors_from(K0, Y).clamp_min(0)); tot += dgr.LAST_ACCUM[0]
+            keep = tot > torch.quantile(tot[torch.randperm(tot.numel(), device="cuda")[:2000000]], args.prune)
+            gaussians.prune_points(~keep) if False else None
+            for name in ("_xyz", "_features_dc", "_features_rest", "_opacity", "_scaling", "_rotation"):
+                setattr(gaussians, name, torch.nn.Parameter(getattr(gaussians, name).data[keep].contiguous(), requires_grad=False))
+            gaussians.max_radii2D = gaussians.max_radii2D[keep] if gaussians.max_radii2D.numel() else gaussians.max_radii2D
+            K0 = gaussians.get_features.detach().clone(); log(f"pruned {args.prune:.0%}: N={K0.shape[0]}")
+    t0 = time.time(); p0, s0 = evaluate(gaussians, test_cams, pipe, bg, K0); log(f"before: test PSNR {p0:.3f} SSIM {s0:.4f}  (N={K0.shape[0]})")
+    if args.adam_iters > 0:                                  # baseline: SH-only Adam fine-tuning on the training views (L1 + D-SSIM as in training)
+        from utils.loss_utils import l1_loss
+        dc = torch.nn.Parameter(K0[:, :1].clone()); rest = torch.nn.Parameter(K0[:, 1:].clone())
+        optim = torch.optim.Adam([{"params": [dc], "lr": args.adam_lr}, {"params": [rest], "lr": args.adam_lr / 20}], eps=1e-15)
+        for it in range(args.adam_iters):
+            cam = train_cams[np.random.randint(len(train_cams))]
+            Y = sh_basis(view_dirs(gaussians, cam)); K = torch.cat([dc, rest], 1); col = colors_from(K, Y).clamp_min(0)
+            im = render_colors(gaussians, cam, pipe, bg, col).clamp(0, 1); gt = cam.original_image[0:3].cuda()
+            loss = ((im - gt) ** 2).mean() if args.adam_loss == "mse" else 0.8 * l1_loss(im, gt) + 0.2 * (1 - ssim(im, gt)); optim.zero_grad(); loss.backward(); optim.step()
+            if (it + 1) % 200 == 0: log(f"adam it {it+1}: loss {loss.item():.5f} t {time.time()-t0:.0f}s")
+        K = torch.cat([dc, rest], 1).detach()
+    else:
+        K = refit(gaussians, train_cams, pipe, bg, K0, args.iters, args.lam, log, args.restarts, args.damp)
+    t_refit = time.time() - t0
+    p1, s1 = evaluate(gaussians, test_cams, pipe, bg, K); log(f"after : test PSNR {p1:.3f} SSIM {s1:.4f}  refit time {t_refit:.0f}s")
+    with torch.no_grad():
+        gaussians._features_dc.data = K[:, :1].contiguous(); gaussians._features_rest.data = K[:, 1:].contiguous()
+        out = os.path.join(dataset.model_path, f"refit_ply{args.out_suffix}"); os.makedirs(out, exist_ok=True); gaussians.save_ply(os.path.join(out, "point_cloud.ply"))
+    json.dump({"full": {"psnr": pfull, "ssim": sfull}, "prune": args.prune, "damp": args.damp, "before": {"psnr": p0, "ssim": s0}, "after": {"psnr": p1, "ssim": s1}, "iters": args.iters, "restarts": args.restarts, "lam": args.lam,
+               "adam_iters": args.adam_iters, "time_s": t_refit, "N": int(K.shape[0]), "ply": args.ply},
+              open(os.path.join(dataset.model_path, f"refit{args.out_suffix}.json"), "w"), indent=1)
+    log("REFIT DONE")

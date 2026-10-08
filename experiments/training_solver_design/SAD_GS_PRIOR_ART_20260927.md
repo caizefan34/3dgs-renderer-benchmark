@@ -1,0 +1,37 @@
+# SAD-GS structure-aware densification: prior-art and protocol boundary
+
+Checked 2026-09-27. Source: [Faster 3D Gaussian Splatting Convergence via Structure-Aware Densification](https://arxiv.org/html/2604.28016), arXiv 2604.28016 / SIGGRAPH 2026, local HTML `topology_sources/structure_aware_densification_2604_28016.html` SHA256 `a1b0c64605cf86faa7f7c36076455047024aea83f762832ed749241185581570`. The author [project page](https://vcai.mpi-inf.mpg.de/projects/SAD-GS/) links [code](https://github.com/LinjieLyu/SADGS); GitHub head checked at `029814fb5ed773e4a794cec5115951a64f610ab8`. This is a bounded source check, not a local reproduction.
+
+## Mechanism already occupied
+
+SAD-GS explicitly distinguishes geometric displacement from frequency under-resolution. It precomputes multiscale structure tensors/Laplacian frequency information in each training image, compares local frequency with each visible Gaussian's projected axis extent, aggregates multiview frequency violation, and chooses per-axis anisotropic split counts. It also uses AbsGS births for empty coverage and bounding-box-face initialization. Therefore “split when projected footprint cannot resolve local image frequency,” multiview frequency consistency, and one-shot anisotropic high-frequency subdivision cannot be presented as a new core in this project.
+
+The paper's §4.4 identifies a narrower limitation: its per-Gaussian metric ignores collective frequency support from overlapping primitives and may over-densify. This is an **author-stated open problem**, not proof that a collective criterion is novel or beneficial. The paper says its first progressive edge-count splitting exploration was computationally costly; no independent original-loss quality/work opportunity has been established here.
+
+For a frozen compositing state, image perturbations obey `δI = Σ_i J_i δθ_i`. Their Fourier energy includes `2 Re[(FFT J_iδθ_i) conj(FFT J_jδθ_j)]` cross terms. Thus overlapping primitives can support or cancel a frequency depending on transmittance, color, phase and allowed parameter motion. A simple sum of footprint overlap or per-primitive frequency capacity is not a valid collective-support measurement. A causal screen would have to show at actual split events that legal joint updates to existing primitives improve original loss on independently selected training views while avoiding a material amount of later accepted work. Even that necessary evidence would not itself establish a cheap, original intervention or unseen-view triple-quality benefit; existing block second-order/topology methods are close alternatives.
+
+## Author-reported strong comparison and its limit
+
+Paper Table 1 reports the following H100 dataset averages (time in seconds; then PSNR / SSIM / LPIPS / Gaussian count / iterations):
+
+| Dataset | FastGS-Big | SAD-GS |
+| --- | --- | --- |
+| Mip-NeRF 360 | 208.9 / 27.96 / .820 / .216 / 1.16M / 30K | 52.96 / 27.25 / .821 / .197 / 4.05M / 3K |
+| Deep Blending | 141.5 / 30.17 / .907 / .243 / .65M / 30K | 41.22 / 29.89 / .910 / .238 / 1.81M / 3K |
+| Tanks & Temples | 156.0 / 24.41 / .855 / .175 / .54M / 30K | 84.44 / 23.60 / .857 / .147 / 1.86M / 7K |
+
+SAD-GS is faster and has higher SSIM/lower LPIPS on these three author aggregates, but PSNR is lower by .71/.28/.81 dB respectively. Thus it does not meet our strict three-quality target against FastGS-Big, even before protocol reconciliation. Its much larger point count also makes per-step native backward cost a material concern. Table 2's leave-one-out ablations are mixed; main Table 1 suffices for this decision. The supplement's Mip-NeRF extended 15K/30K SAD-GS rows reach 27.55/27.48 PSNR, still below the paper's 27.96 FastGS-Big row, with 194.4/295.3 s reported optimization time.
+
+The method uses 3K indoor/7K Tanks & Temples iterations, indoor batch size 2, an **additional L2 image loss**, and H100 timing. In pinned author `arguments/__init__.py`, default `lambda_l2 = 2.0`; `train.py` lines 255–259 adds `lambda_l2 * L2` to L1+SSIM. This violates our original-loss constraint. The pinned `train.py` initializes `total_time=0` after scene setup and sums CUDA-event `iter_time + optim_time` each iteration (lines 55–68, 283–304, 436–444). Bounding-box-face sampling and structure-tensor precomputation happen before the loop; the save call at lines 307–309 is outside these event intervals. Accordingly Table 1 calls its number **optimization time**, not audited complete process wall time. The paper reports its own FastGS-Big comparison, but no project A100 common-protocol reproduction or multiple-seed uncertainty has been checked. Author code is available, which makes a future controlled comparison more feasible than ACE-GS; faithful author's reported result and a modified original-loss arm must be labeled separately.
+
+## Decision
+
+Add SAD-GS to the strong-method frontier to be compared under the eventual common protocol. Do not ask Luna to implement generic frequency-aware splitting: the core is occupied, the reported PSNR misses FastGS-Big on all three aggregates, and the loss/timing boundaries differ from our goal. A collective-overlap hypothesis would first need a distinct, explicit intervention and a frozen test showing that avoidable over-densification accounts for material full-image accepted work **and** that its removal improves original-loss unseen-view quality; no such mechanism or evidence exists yet.
+
+## 2026-09-28 supplement: bounding-box initialization is not a fresh quality/cost lever
+
+The paper's [Effect of Initialization appendix](https://arxiv.org/html/2604.28016#as1_Sx7), reproduced in the pinned local HTML at lines 1733–1740, already omits bbox-face initialization while holding its other components fixed. The authors report nearly identical quality metrics (LPIPS difference .002), a slight qualitative peripheral benefit from bbox points, and *consistently fewer final Gaussians* with bbox initialization. This is their protocol, not our original-loss local result, but it directly occupies a no-bbox ablation and contradicts the simple assumption that removing the 1,536 starting points reduces eventual model size.
+
+The pinned `train.py:82–150` appends six 16×16 face grids with grey RGB .5, opacity .05 and equal initial scales. `scene/gaussian_model.py:379–413` writes only xyz, SH, opacity, scale, rotation and filter to PLY, with no persistent origin/parent ID. Later split/clone/prune append, move or compact rows; `densify_count` is neither an origin label nor serialized in the PLY. Consequently the existing 3K/5K final PLYs cannot identify bbox descendants exactly by row index, location, color or size. A clean no-bbox from-zero arm would estimate a configuration's total effect, not attribute the held-out veil or prove an original mechanism. Do not launch it as the next quality-and-cost candidate.
+
+The subsequent isolated preparation is documented in `SAD_GS_BASELINE_PREP_20260927.md`: Luna pinned a clean author checkout on EPIC-05 and compiled/imported all three native extensions in a separate prefix, with Torch read-only from an existing environment. The source environment was briefly affected by pip's `simple_knn` uninstall and restored from an exact cached wheel; native import was reverified. Room/garden benchmark images are present, but native CUDA execution, all-image resolution/split parity, author-result reproduction, original-loss common-protocol training and complete wall timing remain untested. No GPU training or rendering was launched.

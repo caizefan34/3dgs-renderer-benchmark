@@ -1,0 +1,47 @@
+{
+  "protocol_id": "external-training-comparison-v0",
+  "schema_version": "1.0",
+  "date": "2026-10-01",
+  "track": "native_training",
+  "description": "External comparison protocol for 3DGS training-time systems. Compares the frozen C0 trainer and its exactness-preserving variants against public baselines (INRIA 3DGS, FastGS, Sparse Adam, gsplat) on a common training recipe. DISTINCT from benchmark/ (the rendering/inference suite); this protocol measures TRAINING cost, quality, and exactness, and never shares a ranking with the rendering track.",
+  "common_recipe": {
+    "scenes": ["room", "garden", "bicycle"],
+    "dataset": "mipnerf360",
+    "iterations": 30000,
+    "seed": 42,
+    "optimizer": "torch.optim.Adam, betas=(0.9,0.999), eps=1e-15, weight_decay=0, amsgrad=False, DENSE over all rows",
+    "loss": "0.8*L1 + 0.2*(1 - fused_ssim), fused = rahul-goel/fused-ssim a7c48d6d padding=same train=True",
+    "sh_degree": 3,
+    "sfm_init": "identical per scene (official COLMAP point_cloud.ply)",
+    "holdout": "true-holdout i % 8 == 0 excluded from training; used ONLY for the holdout quality metric",
+    "correctness_reference": "frozen C0 dense single-tensor Adam (A_s, foreach=False)"
+  },
+  "baselines_path": "benchmark_external/baselines.json",
+  "correctness_path": "benchmark_external/correctness.json",
+  "result_schema_path": "benchmark_external/result.schema.json",
+  "measurement_boundaries": {
+    "training_time": "process_start .. final_checkpoint_saved; fresh process per run; cold start included",
+    "iteration_time": "CUDA-event mean over the measured window; warmup 100 iters excluded",
+    "optimizer_time": "CUDA-event time inside optimizer.step() only (excludes forward/backward/densify)",
+    "vram": "NVML process peak MiB over the whole run",
+    "gaussian_count": "final alive N at iteration 30000",
+    "quality": "PSNR/SSIM/LPIPS on the 100 ordered canonical cameras; holdout metrics on the i%8==0 split",
+    "correctness": "state/topology hashes vs the frozen C0 dense reference at iteration 30000"
+  },
+  "evidence_tiers": {
+    "measured": "produced by this protocol on EPIC-05 A100, raw samples retained",
+    "reproduced": "re-run of a public baseline's official recipe, hash-verified",
+    "paper_reported": "number taken from the baseline's paper; NOT comparable to measured without reproduction"
+  },
+  "ranking_rules": {
+    "never_mix_evidence_tiers": true,
+    "external_and_internal_may_be_separately_ranked": true,
+    "exactness_gates_are_separate_from_speed": "a baseline that fails the correctness gates is marked EXACTNESS_FAIL regardless of speed; it is not ranked against exact methods on speed alone",
+    "no_threshold_relaxation": "gates are fixed at protocol authoring time; changing a gate requires a new protocol version"
+  },
+  "promotion_gates": {
+    "LAVOS": "included as a baseline ONLY if LAVOS0 verdict is LAVOS0_HEADROOM_PROMOTE or LAVOS0_STRONG_HEADROOM_PROMOTE; otherwise listed as NOT_PROMOTED and excluded from ranking",
+    "VTS0": "CLOSED (VTS0_DROP, extra_safe_skip_headroom=0.0 < 10%); NOT a baseline; recorded as a closed direction",
+    "DetGS0": "positioning only (NO_PUBLIC_COLLISION vs public, occupied by LAVOS0 internally); not a runnable baseline"
+  }
+}

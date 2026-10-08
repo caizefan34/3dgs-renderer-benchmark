@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""G2 RIGOROUS continuous-domain certificate via INTERVAL ARITHMETIC (plan sec.5.5).
+
+Upgrades the empirical dense-coverage certificate (g2_certificate.py) to a GUARANTEED
+interval-arithmetic enclosure of the teacher-vs-student error over each tile CONTINUOUS
+2D ray domain [x0,x1]x[y0,y1]. Plan sec.5.5: random ray tests cannot give a unified
+certificate over the whole continuous ray domain; to claim guaranteed you need interval
+bounds / domain coverage. This implements interval bounds via branch-and-bound.
+
+METHOD: treat pixel (px,py) as intervals over sub-boxes of the tile extent;
+interval-evaluate teacher (front-to-back alpha composite) and student (CGT transfer);
+bound per-box max error; subdivide until box error bound <= GATE or box < min_size. Leaf
+bounds give a RIGOROUS upper bound on the continuous-domain max error.
+
+VALIDITY: all ops use interval extensions that enclose the true range; a runtime check
+samples random points per leaf box and asserts point error lies within the box interval
+(fail-closed abort on any violation).
+
+SCOPE: certifies per-tile transfer-response compressibility CONTINUOUSLY over the 2D pixel
+(ray) domain for a fixed view. NOT a camera/view-variation bound, NOT a 3D-scene bound, and
+NOT a GPU throughput bound. This is the rigorous per-tile fidelity envelope sec.5.5 asks for.
+
+GPU: only tile EXTRACTION (gsplat rasterization) needs CUDA; interval math + B&B are CPU.
+"""
+from __future__ import annotations
+import argparse, json, os, sys
+import numpy as np
+from scipy.special import expit
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from g1_compressibility import (read_cameras_bin, read_images_bin, q2R, tile_teacher,
+                                fit_cgt, TILE, POWER_CLIP, GATE_MAX_ABS, predict_and_vjp)
+
+GATE = GATE_MAX_ABS
+
+# interval = (lo, hi) numpy arrays
+def iadd(x, y): return (x[0] + y[0], x[1] + y[1])
+def isub(x, y): return (x[0] - y[1], x[1] - y[0])
+def imul(x, y):
+    a, b, c, d = x[0]*y[0], x[0]*y[1], x[1]*y[0], x[1]*y[1]
+    return (np.minimum(np.minimum(a, b), np.minimum(c, d)),
+            np.maximum(np.maximum(a, b), np.maximum(c, d)))
+def isqrt(x):
+    l, h = x
+    lo = np.where((l <= 0) & (h >= 0), 0.0, np.minimum(l*l, h*h))
+    return (lo, np.maximum(l*l, h*h))
+def iexp(x): return (np.exp(x[0]), np.exp(x[1]))
+def neg_half(x): return (-0.5*x[1], -0.5*x[0])
+
+def teacher_interval(pxbox, pybox, gids, means2d, conics, opac, cl):
+    pxlo, pxhi = pxbox; pylo, pyhi = pybox
+    mu = means2d[gids]; co = conics[gids]; op = opac[gids]; c = cl[gids]
+    a, b, cc = co[:, 0], co[:, 1], co[:, 2]
+    dx = (pxlo - mu[:, 0], pxhi - mu[:, 0])
+    dy = (pylo - mu[:, 1], pyhi - mu[:, 1])
+    s = iadd(iadd(imul((a, a), isqrt(dx)), imul((2*b, 2*b), imul(dx, dy))), imul((cc, cc), isqrt(dy)))
+    power = neg_half(s)
+    active = (np.clip(op*np.exp(np.minimum(power[0], 0.0)), 0.0, 0.999),
+              np.clip(op*np.exp(np.minimum(power[1], 0.0)), 0.0, 0.999))
+    ahi = np.where(power[1] <= POWER_CLIP, 0.0, active[1])
+    alo = np.where(power[1] <= POWER_CLIP, 0.0, np.where(power[0] > POWER_CLIP, active[0], 0.0))
+    one_minus = (1.0 - ahi, 1.0 - alo)
+    onelo, onehi = one_minus
+    Tbefore_lo = np.concatenate([[1.0], np.cumprod(onelo)[:-1]])
+    Tbefore_hi = np.concatenate([[1.0], np.cumprod(onehi)[:-1]])
+    Elo = np.einsum('k,k,kc->c', Tbefore_lo, alo, c)
+    Ehi = np.einsum('k,k,kc->c', Tbefore_hi, ahi, c)
+    Tlo = np.prod(onelo); Thi = np.prod(onehi)
+    return (np.concatenate([Elo, [Tlo]]), np.concatenate([Ehi, [Thi]]))
+
+def student_interval(pxbox, pybox, p):
+    pxlo, pxhi = pxbox; pylo, pyhi = pybox
+    dx = (pxlo - p[:, 0], pxhi - p[:, 0])
+    dy = (pylo - p[:, 1], pyhi - p[:, 1])
+    l00 = np.exp(p[:, 2]); l10 = p[:, 3]; l11 = np.exp(p[:, 4])
+    z0 = iadd(imul((l00, l00), dx), imul((l10, l10), dy))
+    z1 = imul((l11, l11), dy)
+    s = iadd(isqrt(z0), isqrt(z1))
+    expo = (p[:, 5] - 0.5*s[1], p[:, 5] - 0.5*s[0])
+    # numerically-stable shifted softmax interval: M=max expo_hi avoids denominator underflow
+    M = np.max(expo[1])
+    numlo = np.exp(expo[0] - M); numhi = np.exp(expo[1] - M)
+    denlo = np.sum(numlo); denhi = np.sum(numhi)
+    wlo = np.clip(numlo/denhi, 0.0, 1.0); whi = np.clip(numhi/denlo, 0.0, 1.0)
+    t = expit(p[:, 6:7]); color = expit(p[:, 7:10])
+    expert = np.concatenate([(1-t)*color, t], axis=1)
+    slo = np.einsum('k,kc->c', wlo, expert)
+    shi = np.einsum('k,kc->c', whi, expert)
+    return (slo, shi)
+
+def box_error_bound(pxbox, pybox, ctx):
+    tl = teacher_interval(pxbox, pybox, *ctx[:5])
+    sl = student_interval(pxbox, pybox, ctx[-1])
+    lo = sl[0] - tl[1]; hi = sl[1] - tl[0]
+    return float(np.max(np.maximum(np.abs(lo), np.abs(hi)))), (lo, hi)
+
+def point_error(px, py, ctx):
+    gids, means2d, conics, opac, cl = ctx[:5]; p = ctx[5]
+    E, T = tile_teacher(np.array([[px]]), np.array([[py]]), gids, means2d, conics, opac, cl)
+    y = np.concatenate([E, T], axis=1)
+    pred = predict_and_vjp(p, np.array([[px, py]], dtype=np.float64))
+    return float(np.max(np.abs(pred - y[0])))
+
+def certify_box(px0, px1, py0, py1, ctx, min_size, max_depth, depth, leaves, rng, validate):
+    bound, (lo, hi) = box_error_bound((px0, px1), (py0, py1), ctx)
+    w = px1 - px0; h = py1 - py0
+    if bound <= GATE or w <= min_size or h <= min_size or depth >= max_depth:
+        leaves.append(dict(box=[px0, px1, py0, py1], bound=bound, certified=bool(bound <= GATE)))
+        if validate:
+            bnd = max(float(np.max(np.abs(lo))), float(np.max(np.abs(hi))))
+            for _ in range(8):
+                sx = rng.uniform(px0, px1); sy = rng.uniform(py0, py1)
+                if point_error(sx, sy, ctx) > bnd + 1e-9:
+                    tl = teacher_interval((px0, px1), (py0, py1), *ctx[:5])
+                    sl = student_interval((px0, px1), (py0, py1), ctx[-1])
+                    E, T = tile_teacher(np.array([[sx]]), np.array([[sy]]), *ctx[:5])
+                    ypt = np.concatenate([E, T], axis=1)[0]
+                    pred = predict_and_vjp(ctx[5], np.array([[sx, sy]], dtype=np.float64))[0]
+                    import sys as _sys
+                    print("INVALID LEAF box", [px0, px1, py0, py1], "bnd", bnd, "pt_err", point_error(sx, sy, ctx), file=_sys.stderr)
+                    print("  PIXEL", sx, sy, "in_box", (px0<=sx<=px1) and (py0<=sy<=py1), file=_sys.stderr)
+                    _g, _m, _co, _op, _cl = ctx[:5]
+                    _mu=_m[_g]; _c=_co[_g]; _a,_b,_cc=_c[:,0],_c[:,1],_c[:,2]
+                    _dx=sx-_mu[:,0]; _dy=sy-_mu[:,1]; _pw=-0.5*(_a*_dx*_dx+2*_b*_dx*_dy+_cc*_dy*_dy)
+                    _pa=np.where(_pw>POWER_CLIP,_op*np.exp(np.clip(_pw,None,0)),0.0); _pa=np.clip(_pa,0,0.999)
+                    print("  per-g pt_alpha", _pa, file=_sys.stderr)
+                    # point T vs interval T
+                    _E,_T=tile_teacher(np.array([[sx]]),np.array([[sy]]),*ctx[:5])
+                    print("  point T", _T[0,0], "interval T", tl[0][3], tl[1][3], file=_sys.stderr)
+                    print("  teacher lo", tl[0], "hi", tl[1], "pt", ypt, file=_sys.stderr)
+                    print("  student lo", sl[0], "hi", sl[1], "pt", pred, file=_sys.stderr)
+                    for _c in range(4):
+                        print(f"   comp{_c}: tin {tl[0][_c]:.5f}<= {ypt[_c]:.5f} <={tl[1][_c]:.5f}? {tl[0][_c]<=ypt[_c]<=tl[1][_c]} | sin {sl[0][_c]:.5f}<= {pred[_c]:.5f}<={sl[1][_c]:.5f}? {sl[0][_c]<=pred[_c]<=sl[1][_c]}", file=_sys.stderr)
+                    raise RuntimeError("INTERVAL INVALIDATION at "
+                                       f"[{px0:.3f},{px1:.3f},{py0:.3f},{py1:.3f}]")
+        return bound
+    mx = 0.5*(px0+px1); my = 0.5*(py0+py1)
+    return max(certify_box(px0, mx, py0, my, ctx, min_size, max_depth, depth+1, leaves, rng, validate),
+               certify_box(mx, px1, py0, my, ctx, min_size, max_depth, depth+1, leaves, rng, validate),
+               certify_box(px0, mx, my, py1, ctx, min_size, max_depth, depth+1, leaves, rng, validate),
+               certify_box(mx, px1, my, py1, ctx, min_size, max_depth, depth+1, leaves, rng, validate))
+
+def certify_tile(t, p, min_size, max_depth, rng, validate):
+    px = t["px"]; x0, x1 = float(px[:, 0].min()), float(px[:, 0].max())
+    y0, y1 = float(px[:, 1].min()), float(px[:, 1].max())
+    ctx = (t["gids"], t["means2d"], t["conics"], t["opac"], t["colors"], p)
+    leaves = []
+    worst = certify_box(x0, x1, y0, y1, ctx, min_size, max_depth, 0, leaves, rng, validate)
+    n_cert = sum(1 for lf in leaves if lf["certified"])
+    return dict(rigorous_max_abs=worst, n_leaves=len(leaves), n_certified=n_cert,
+                cert_frac=n_cert/max(len(leaves), 1), passed=bool(worst <= GATE))
+
+def extract_tiles(scene, ckpt, data, view_idx, max_tiles, seed):
+    import torch, gsplat
+    cams = read_cameras_bin(f"{data}/datasets/mipnerf360/{scene}/sparse/0/cameras.bin")
+    imgs = read_images_bin(f"{data}/datasets/mipnerf360/{scene}/sparse/0/images.bin")
+    ck = torch.load(ckpt, map_location="cpu", weights_only=False)
+    means = ck["xyz"].cuda().float(); scales = torch.exp(ck["scaling"].cuda().float())
+    quats = ck["rotation"].cuda().float(); opacities = torch.sigmoid(ck["opacity"].cuda().float()); shs = ck["shs"].cuda().float()
+    deg = int(ck["active_sh_degree"]); rng = np.random.default_rng(seed)
+    iid, name, cam, qv, tv = imgs[view_idx]; mid, W, H, par = cams[cam]; fx, fy, cx, cy = par
+    R_w2c = q2R(qv); t_w2c = np.array(tv); t_c2w = -R_w2c.T @ t_w2c
+    viewmat = torch.eye(4, dtype=torch.float32, device="cuda")[None]
+    viewmat[0, :3, :3] = torch.as_tensor(R_w2c, dtype=torch.float32, device="cuda")
+    viewmat[0, :3, 3] = torch.as_tensor(t_w2c, dtype=torch.float32, device="cuda")
+    K = torch.as_tensor([[[fx, 0, cx], [0, fy, cy], [0, 0, 1]]], dtype=torch.float32, device="cuda")
+    campos = torch.as_tensor(t_c2w, dtype=torch.float32, device="cuda")[None]
+    rc, ra, meta = gsplat.rasterization(means, quats, scales, opacities, shs, viewmat, K, width=W, height=H,
+                                        sh_degree=deg, render_mode="RGB", packed=True, tile_size=TILE)
+    dirs = torch.nn.functional.normalize(means - campos, dim=-1)
+    colors = (gsplat.spherical_harmonics(deg, dirs, shs) + 0.5).clamp(0, 1).detach().cpu().numpy()[meta["gaussian_ids"].detach().cpu().numpy()]
+    def flat2(x):
+        x = meta[x].detach().cpu().numpy(); return x[0] if x.ndim == 3 else x
+    means2d = flat2("means2d"); conics = flat2("conics"); opac = flat2("opacities")
+    io = meta["isect_offsets"].detach().cpu().numpy().reshape(-1); fi = meta["flatten_ids"].detach().cpu().numpy()
+    th, tw = int(meta["tile_height"]), int(meta["tile_width"]); total = len(fi)
+    starts = io.astype(np.int64)
+    def end_of(ti, tj):
+        if tj + 1 < tw: return int(starts[ti*tw + tj + 1])
+        if ti + 1 < th: return int(starts[(ti + 1)*tw + 0])
+        return total
+    tiles = []
+    for ti in range(th):
+        for tj in range(tw):
+            s = int(starts[ti*tw + tj]); e = end_of(ti, tj)
+            if e - s > 0: tiles.append((ti, tj, s, e))
+    counts = np.array([e - s for (_, _, s, e) in tiles])
+    order = np.argsort(counts); ranks_sel = np.empty(len(tiles), dtype=np.int64); ranks_sel[order] = np.arange(len(tiles))
+    decile = np.minimum((ranks_sel*10)//max(len(tiles), 1), 9)
+    sel = []
+    for dec in range(10):
+        pool = np.where(decile == dec)[0]
+        if len(pool) == 0: continue
+        sel.append(rng.choice(pool, size=max(1, max_tiles//10), replace=False))
+    sel = np.concatenate(sel) if sel else np.array([], dtype=np.int64)
+    out = []
+    for idx in sel:
+        ti, tj, s, e = tiles[idx]; gids = fi[s:e]
+        if len(gids) < 1: continue
+        ox = tj*TILE; oy = ti*TILE
+        xs = ox + np.arange(TILE) + 0.5; ys = oy + np.arange(TILE) + 0.5
+        gx, gy = np.meshgrid(xs, ys, indexing="xy")
+        px = np.stack([gx.ravel(), gy.ravel()], axis=1).astype(np.float64)
+        cx0, cy0 = px.mean(0); px[:, 0] -= cx0; px[:, 1] -= cy0
+        out.append(dict(px=px, gids=gids, means2d=means2d, conics=conics, opac=opac, colors=colors, M=int(e - s)))
+    return out
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--scene", required=True); ap.add_argument("--ckpt", required=True); ap.add_argument("--data", required=True)
+    ap.add_argument("--views", type=int, default=2); ap.add_argument("--max-tiles-per-view", type=int, default=12)
+    ap.add_argument("--ranks", type=str, default="4,8,16"); ap.add_argument("--iterations", type=int, default=200)
+    ap.add_argument("--min-size", type=float, default=1.0); ap.add_argument("--max-depth", type=int, default=10)
+    ap.add_argument("--no-validate", action="store_true")
+    ap.add_argument("--out", required=True); ap.add_argument("--seed", type=int, default=20261004)
+    args = ap.parse_args()
+    ranks = [int(x) for x in args.ranks.split(",")]
+    rng = np.random.default_rng(args.seed)
+    validate = not args.no_validate
+    tiles = []
+    for vi in range(min(args.views, 6)):
+        try:
+            tiles += extract_tiles(args.scene, args.ckpt, args.data, vi, args.max_tiles_per_view, args.seed + vi)
+        except Exception as ex:
+            import traceback; traceback.print_exc(); print(f"[view {vi}] extract failed: {ex}", flush=True)
+    if not tiles:
+        print("NO_TILES", flush=True); return
+    print(f"extracted {len(tiles)} tiles; M median={int(np.median([t['M'] for t in tiles]))}", flush=True)
+    recs = []
+    for ti, t in enumerate(tiles):
+        px, gids = t["px"], t["gids"]
+        m2d, con, op, cl = t["means2d"], t["conics"], t["opac"], t["colors"]
+        E, T = tile_teacher(px[:, 0:1], px[:, 1:2], gids, m2d, con, op, cl)
+        y = np.concatenate([E, T], axis=1); P = y.shape[0]
+        tr = np.arange(0, P, 2); yt = y[tr]
+        qt = np.column_stack([px[tr, 0], px[tr, 1]])
+        for rank in ranks:
+            p = fit_cgt(qt, yt, rank, args.seed + ti*1000 + rank, args.iterations)
+            res = certify_tile(t, p, args.min_size, args.max_depth, rng, validate)
+            recs.append(dict(scene=args.scene, tile_idx=ti, M=int(t["M"]), rank=int(rank), **res))
+        if (ti+1) % 3 == 0:
+            print(f"tile {ti+1}/{len(tiles)} done", flush=True)
+    agg = {}
+    for rank in ranks:
+        rs = [r for r in recs if r["rank"] == rank]
+        rm = np.array([r["rigorous_max_abs"] for r in rs]); pf = np.array([r["passed"] for r in rs])
+        agg[str(rank)] = dict(n=len(rs),
+            rigorous_max_abs_median=float(np.median(rm)), rigorous_max_abs_p95=float(np.percentile(rm, 95)),
+            rigorous_max_abs_max=float(rm.max()), pass_rate=float(np.mean(pf)),
+            median_leaves=float(np.median([r["n_leaves"] for r in rs])),
+            M_median=int(np.median([r["M"] for r in rs])))
+    out = dict(gate="G2_rigorous_continuous_domain_certificate_interval_arithmetic",
+               scene=args.scene, n_tiles=len(tiles), value_gate_max_abs=GATE,
+               method="branch-and-bound interval arithmetic over tile 2D ray domain",
+               min_size=args.min_size, max_depth=args.max_depth, validated=validate,
+               scope=("RIGOROUS interval-arithmetic enclosure (guaranteed upper bound on max error over the "
+                      "continuous tile ray domain), NOT empirical sampling. Still per-tile fixed-view; NOT a "
+                      "camera/view-variation bound and NOT a GPU throughput bound."),
+               per_rank=agg, records=recs)
+    from pathlib import Path
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    json.dump(out, open(args.out, "w"), indent=1)
+    print("WROTE", args.out, flush=True); print(json.dumps(agg, indent=2), flush=True)
+
+if __name__ == "__main__":
+    main()

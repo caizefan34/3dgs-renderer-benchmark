@@ -1,0 +1,321 @@
+{
+  "gpu": 2,
+  "1_sh_bwd_shapes": {
+    "error": "Traceback (most recent call last):\n  File \"/root/epic05_prism/scripts/diag_m0_v5.py\", line 93, in <module>\n    g_B = sh_grad(params[\"means\"][None], cam[\"viewmat\"][None, None], m1, up_1)               # [1,N,3] + [1,1,4,4]\n  File \"/root/epic05_prism/scripts/diag_m0_v5.py\", line 88, in sh_grad\n    c = (SH(degree, means, vm, s, masks=masks) + .5).clamp_min(0)\n  File \"/root/miniforge3/envs/gsplat/lib/python3.10/contextlib.py\", line 79, in inner\n    return func(*args, **kwds)\n  File \"/root/epic05_p8/gsplat-main-512d366b/gsplat/cuda/_wrapper.py\", line 479, in spherical_harmonics\n    return _make_lazy_cuda_func(\"spherical_harmonics\")(\n  File \"/root/epic05_p8/gsplat-main-512d366b/gsplat/cuda/_wrapper.py\", line 60, in call_cuda\n    return getattr(torch.ops.gsplat, name)(*args, **kwargs)\n  File \"/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/_ops.py\", line 1255, in __call__\n    return self._op(*args, **kwargs)\n  File \"/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/_library/autograd.py\", line 109, in autograd_impl\n    result = Generated.apply(*args, Metadata(keyset, keyword_only_args))  # type: ignore[attr-defined]\n  File \"/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/autograd/function.py\", line 581, in apply\n    return super().apply(*args, **kwargs)  # type: ignore[misc]\n  File \"/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/_library/autograd.py\", line 50, in forward\n    result = op.redispatch(keyset & _C._after_autograd_keyset, *args, **kwargs)\n  File \"/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/_ops.py\", line 848, in redispatch\n    return self._handle.redispatch_boxed(keyset, *args, **kwargs)  # type: ignore[return-value]\nRuntimeError: dense masks must have shape [..., C, N]\n"
+  },
+  "2_ratio": {
+    "loss_internal": 0.11102078855037689,
+    "loss_rgb": 0.11102078855037689,
+    "img_maxabs": 0.0,
+    "groups": {
+      "means": {
+        "rel_l2": 6.404351303765089e-07,
+        "maxabs": 1.0011717677116394e-08,
+        "norm": 0.05542429576576189
+      },
+      "quats": {
+        "rel_l2": 0.00010045738416029443,
+        "maxabs": 1.6504782252013683e-07,
+        "norm": 0.005450100638078365
+      },
+      "log_scales": {
+        "rel_l2": 2.764286669659317e-05,
+        "maxabs": 4.165485734120011e-09,
+        "norm": 0.0004020593210745742
+      },
+      "opacity_logits": {
+        "rel_l2": 2.7860310135087365e-07,
+        "maxabs": 1.4551915228366852e-11,
+        "norm": 0.00031822445102768377
+      },
+      "sh0": {
+        "rel_l2": 0.3451644168723246,
+        "maxabs": 2.6084324417752214e-05,
+        "norm": 0.00034066827158937347,
+        "ratio_top2000": {
+          "median": 0.9999999349159349,
+          "mean": 0.9049999818092151,
+          "std": 0.29328826356786775,
+          "q05": -0.0,
+          "q95": 1.0000005664186176,
+          "cos_angle_all": 0.9452748143898699,
+          "n_nonzero_rgb": 478829
+        },
+        "top5_coords": [
+          {
+            "flat": 57162,
+            "internal": -3.436937549849972e-05,
+            "rgb": -3.436936822254211e-05,
+            "ratio": 1.0000002116989049
+          },
+          {
+            "flat": 60309,
+            "internal": -3.37679848598782e-05,
+            "rgb": -3.376798122189939e-05,
+            "ratio": 1.0000001077345662
+          },
+          {
+            "flat": 60310,
+            "internal": -2.9648179406649433e-05,
+            "rgb": -2.9648173949681222e-05,
+            "ratio": 1.0000001840574808
+          },
+          {
+            "flat": 54249,
+            "internal": -2.684136234165635e-05,
+            "rgb": -2.684134233277291e-05,
+            "ratio": 1.0000007454501787
+          },
+          {
+            "flat": 1208138,
+            "internal": 0.0,
+            "rgb": -2.6084324417752214e-05,
+            "ratio": -0.0
+          }
+        ]
+      },
+      "shN": {
+        "rel_l2": 0.34516441872819303,
+        "maxabs": 4.785288547282107e-05,
+        "norm": 0.0013194024877468855,
+        "ratio_top2000": {
+          "median": 1.0,
+          "mean": 0.9110000034855581,
+          "std": 0.28481495817598895,
+          "q05": 0.0,
+          "q95": 1.0000007440030345,
+          "cos_angle_all": 0.9452748139430158,
+          "n_nonzero_rgb": 7182435
+        },
+        "top5_coords": [
+          {
+            "flat": 857469,
+            "internal": -6.672004383290187e-05,
+            "rgb": -6.672002928098664e-05,
+            "ratio": 1.0000002181041494
+          },
+          {
+            "flat": 857442,
+            "internal": -6.124289211584255e-05,
+            "rgb": -6.124287756392732e-05,
+            "ratio": 1.0000002376099197
+          },
+          {
+            "flat": 904662,
+            "internal": -5.7144010497722775e-05,
+            "rgb": -5.714400685974397e-05,
+            "ratio": 1.0000000636633481
+          },
+          {
+            "flat": 813765,
+            "internal": 5.094670632388443e-05,
+            "rgb": 5.094666630611755e-05,
+            "ratio": 1.0000007854835218
+          },
+          {
+            "flat": 904663,
+            "internal": -5.0172253395430744e-05,
+            "rgb": -5.017224611947313e-05,
+            "ratio": 1.000000145019571
+          }
+        ]
+      }
+    }
+  },
+  "3_conics": {
+    "valid_rows": 243298,
+    "rel_median": 1.5482385151699418e-06,
+    "rel_q99": 4.507607809500769e-05,
+    "rel_max": 0.028899434953927994,
+    "abs_median": 7.152557373046875e-07,
+    "abs_max": 0.0005385875701904297,
+    "rows_rel_gt_1e-3": 25,
+    "rows_rel_gt_1e-5": 33923,
+    "worst": [
+      {
+        "row_valid_idx": 122300,
+        "rel": 0.028899434953927994,
+        "abs_conic": 4.960341470905405e-09,
+        "conic_quat": [
+          0.0015335703501477838,
+          -1.7164147436687927e-07,
+          0.044199731200933456
+        ],
+        "conic_cov": [
+          0.001533570233732462,
+          -1.6668113289597386e-07,
+          0.044199731200933456
+        ],
+        "scale": [
+          0.04198571294546127,
+          0.006423363462090492,
+          0.0811673104763031
+        ],
+        "opacity": 0.14540261030197144,
+        "radii_quat": [
+          69,
+          13
+        ],
+        "radii_cov": [
+          69,
+          13
+        ]
+      },
+      {
+        "row_valid_idx": 175714,
+        "rel": 0.011290293186903,
+        "abs_conic": 2.9802322387695312e-08,
+        "conic_quat": [
+          0.04261171817779541,
+          1.4026618373463862e-06,
+          0.011194304563105106
+        ],
+        "conic_cov": [
+          0.04261168837547302,
+          1.3868253745386028e-06,
+          0.011194305494427681
+        ],
+        "scale": [
+          0.061043426394462585,
+          0.005082045216113329,
+          0.013494227081537247
+        ],
+        "opacity": 0.22588008642196655,
+        "radii_quat": [
+          14,
+          27
+        ],
+        "radii_cov": [
+          14,
+          27
+        ]
+      },
+      {
+        "row_valid_idx": 20764,
+        "rel": 0.011025647632777691,
+        "abs_conic": 8.195638656616211e-08,
+        "conic_quat": [
+          0.06056014820933342,
+          -8.861794071890472e-07,
+          0.12304498255252838
+        ],
+        "conic_cov": [
+          0.06056014448404312,
+          -8.764087056079006e-07,
+          0.12304506450891495
+        ],
+        "scale": [
+          0.009000317193567753,
+          0.0024782216642051935,
+          0.032818298786878586
+        ],
+        "opacity": 0.14296168088912964,
+        "radii_quat": [
+          11,
+          8
+        ],
+        "radii_cov": [
+          11,
+          8
+        ]
+      },
+      {
+        "row_valid_idx": 11780,
+        "rel": 0.006838295143097639,
+        "abs_conic": 9.313225746154785e-10,
+        "conic_quat": [
+          0.002629767404869199,
+          -1.1138143918287824e-07,
+          0.006409521214663982
+        ],
+        "conic_cov": [
+          0.002629767404869199,
+          -1.1061978000270756e-07,
+          0.006409520283341408
+        ],
+        "scale": [
+          0.07068555802106857,
+          0.05503826215863228,
+          0.07122302055358887
+        ],
+        "opacity": 0.034363243728876114,
+        "radii_quat": [
+          41,
+          27
+        ],
+        "radii_cov": [
+          41,
+          27
+        ]
+      },
+      {
+        "row_valid_idx": 8259,
+        "rel": 0.006223876960575581,
+        "abs_conic": 2.9103830456733704e-11,
+        "conic_quat": [
+          0.00010310155630577356,
+          -2.152098499408339e-09,
+          0.00026606558822095394
+        ],
+        "conic_cov": [
+          0.00010310155630577356,
+          -2.1387041027054465e-09,
+          0.0002660656173247844
+        ],
+        "scale": [
+          0.2852415144443512,
+          0.10952658951282501,
+          0.2084818333387375
+        ],
+        "opacity": 0.008201695047318935,
+        "radii_quat": [
+          120,
+          75
+        ],
+        "radii_cov": [
+          120,
+          75
+        ]
+      },
+      {
+        "row_valid_idx": 126886,
+        "rel": 0.005595807917416096,
+        "abs_conic": 2.9802322387695312e-08,
+        "conic_quat": [
+          0.001920941285789013,
+          -1.220509489030519e-06,
+          0.08433536440134048
+        ],
+        "conic_cov": [
+          0.0019209410529583693,
+          -1.213679752254393e-06,
+          0.0843353345990181
+        ],
+        "scale": [
+          0.006455087568610907,
+          0.010473405010998249,
+          0.059870462864637375
+        ],
+        "opacity": 0.042557504028081894,
+        "radii_quat": [
+          50,
+          8
+        ],
+        "radii_cov": [
+          50,
+          8
+        ]
+      }
+    ]
+  },
+  "4_causality": {
+    "flip_rows": 2,
+    "sanity_rebuildQ_vs_imgQ": 0.0,
+    "sanity_rebuildC_vs_imgC": 0.0,
+    "rebuildC_patched_vs_imgQ": 0.006204158067703247,
+    "rebuildC_unpatched_vs_imgQ": 0.006204158067703247
+  },
+  "5_zero_override": {
+    "error": "Traceback (most recent call last):\n  File \"/root/epic05_prism/scripts/diag_m0_v5.py\", line 207, in <module>\n    zfull = screen_pack(meta[\"means2d\"][0], cov2d)\n  File \"/root/epic05_prism/prism_gs/prism/geometry.py\", line 37, in screen_pack\n    l = torch.linalg.cholesky(cov2)\ntorch._C._LinAlgError: linalg.cholesky: (Batch element 3): The factorization could not be completed because the input is not positive-definite (the leading minor of order 1 is not positive-definite).\n"
+  }
+}

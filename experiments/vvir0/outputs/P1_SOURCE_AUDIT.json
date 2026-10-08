@@ -1,0 +1,52 @@
+{
+  "gate": "G1_semantics",
+  "installed_gsplat_version": "1.4.0",
+  "pack_assumed_version": "1.5.3_fork",
+  "version_deviation": true,
+  "version_deviation_note": "Pack/CERTIFICATION assumes a gsplat 1.5.3 fork with per-axis radii [C,N,2]. Installed is stock gsplat 1.4.0 with radii [C,N]. The AABB membership semantics are IDENTICAL (single radius = 3*sigma used for both axes); only the baseline densification visibility_filter shape differs, which is OFF in the 15001-30000 oracle window. VRIR0-AABB certification remains valid on 1.4.0.",
+  "checks": {
+    "accutile_false_aabb": {
+      "result": "VERIFIED",
+      "evidence": "isect_tiles.cu: use_accutile = (conics != nullptr && opacities != nullptr). With accutile=False, rendering.py passes conics=None, opacities=None (lines 509-510), so use_accutile=false. Tile bounds: tile_min=floor((mean2d +/- radius)/tile_size) clamped to [0,tile_dim]; tile_max=ceil(...). tiles_per_gauss=(tile_max.y-tile_min.y)*(tile_max.x-tile_min.x). This is EXACTLY the AABB in CERTIFICATION.md section A with r_i = radius (single 3-sigma radius, same for x and y).",
+      "file": "cuda/csrc/isect_tiles.cu"
+    },
+    "membership_aabb_from_means2d_radii": {
+      "result": "VERIFIED",
+      "evidence": "Gaussian contributes no tiles iff radius<=0 (isect_tiles.cu: if (radius <= 0) { tiles_per_gauss[idx]=0; return; }). Otherwise membership = rectangle [b-_x,b+_x) x [b-_y,b+_y) with b-=clamp(floor((m-r)/T),0,dim), b+=clamp(ceil((m+r)/T),0,dim). Matches CERTIFICATION B exactly.",
+      "file": "cuda/csrc/isect_tiles.cu"
+    },
+    "depth_key_bits_and_sort_range": {
+      "result": "VERIFIED",
+      "evidence": "isect_tiles.cu: depth_id_enc = (int64_t)*(int32_t*)&depths[idx] (low 32 bits = float32 bit pattern of view-space z). Key = cid_enc | (tile_id<<32) | depth_id_enc, where cid_enc = cid<<(32+tile_n_bits). Sort range = 0..(32+tile_n_bits+cam_n_bits) bits via cub::DeviceRadixSort::SortPairs. For positive finite depth, float32 bit patterns are monotone with numeric depth (IEEE-754), so ascending key sort == ascending depth sort. Matches CERTIFICATION C.",
+      "file": "cuda/csrc/isect_tiles.cu"
+    },
+    "sort_stability_and_emission_order": {
+      "result": "VERIFIED_WITH_CAVEAT",
+      "evidence": "cub::DeviceRadixSort::SortPairs is a stable LSD radix sort: equal keys retain input order. flatten_ids[cur]=idx (dense Gaussian index) emitted in nested tile loop (i over tile_min.y..tile_max.y, j over tile_min.x..tile_max.x) with cur=cum_tiles_per_gauss[idx-1]+local. For single-camera packed=false, cid=idx/N=0 and the emission order is by increasing idx (dense index). Thus for equal-depth ties within a tile, stable sort preserves increasing dense index = emit_rank. CAVEAT: the caveat in CERTIFICATION C (verify emit_rank maps monotonically to dense index) is SATISFIED for the frozen single-image dense path: idx IS the dense index and emission is idx-ordered. Tie cases therefore fail closed only if two distinct Gaussians in the same tile have bit-identical depth keys; the slack certificate rejects any such unresolved equal-key adjacency (CERTIFICATION D).",
+      "file": "cuda/csrc/isect_tiles.cu"
+    },
+    "flatten_ids_equals_dense_index": {
+      "result": "VERIFIED",
+      "evidence": "isect_tiles.cu: for packed=false, cid = idx / N and flatten_ids[cur_idx]=idx. Single camera (C=1) => cid=0 and flatten_ids value = idx = dense Gaussian/flatten index. Confirmed empirically: meta['flatten_ids'] shape [n_isects], int32; rasterize_to_indices_in_range.cu consumes flatten_ids[isect_range_start + batch_offset] as the Gaussian id g (= idx % N). So flatten_ids ARE dense indices in the tested single-camera dense mode.",
+      "file": "cuda/csrc/isect_tiles.cu"
+    },
+    "raster_consumes_offsets_and_flatten_ids": {
+      "result": "VERIFIED",
+      "evidence": "rasterize_to_indices_in_range.cu: block per tile; isect_range_start=tile_offsets[tile_id], isect_range_end=tile_offsets[tile_id+1]; iterates flatten_ids[isect_range_start + block_size*b + ...] as Gaussian ids. Discrete traversal consumes ONLY isect_offsets (per-tile range) + flatten_ids (ordered Gaussian ids). Depth/means2d/conics are fetched per-Gaussian by id for rendering but do not affect the discrete traversal STRUCTURE. Matches CERTIFICATION assumption 6.",
+      "file": "cuda/csrc/rasterize_to_indices_in_range.cu"
+    }
+  },
+  "overall": "PASS",
+  "overall_note": "All 6 CERTIFICATION special checks verified on installed gsplat 1.4.0. accutile=False selects exact AABB membership; key=camera|tile|depth(32-bit); flatten_ids=dense index; rasterizer consumes offsets+flatten_ids for discrete traversal; sort is stable with emit_rank=index. VRIR0-AABB certification is VALID on the installed fork. No BLOCKED_SEMANTICS.",
+  "source_hashes": {
+    "isect_tiles.cu": "f50b9963a93b091e60f69f532448d0b185ae4f24a12867e1c33f1989392f33cf",
+    "rasterize_to_indices_in_range.cu": "da0b0b9d0aeafbdd0331423238615f002f930f2c34d217fbcb2312df21aab164",
+    "fully_fused_projection_fwd.cu": "8217e7897f1bc128088cb9b2b3abc496a7bc4af29d683a5d258ee4a877617607",
+    "rendering.py": "bae7a73d0cd8bd2ddc44ae95bb9bcd293b4e0f5d2628b1a8f9a2e9873e88f1f3"
+  },
+  "depth_definition": "depths[idx] = mean_c.z (view-space z) from fully_fused_projection_fwd.cu line 187. Positive for in-front-of-camera Gaussians; radius=3*sigma, radii<=0 => culled (no tiles).",
+  "additional_findings": [
+    "Baseline deviation (does NOT affect oracle window): baseline/reference_v1/gaussian_model.py add_densification_stats expects means2d.absgrad and densify_and_prune uses radii.max(dim=-1), assuming radii shape [C,N,2]. Installed gsplat 1.4.0 returns radii [C,N] (single radius). This breaks the densification path (iters<15000) but is irrelevant to VRIR0 because (a) the oracle window 15001-30000 has densification OFF, and (b) continuation starts from a post-15k trained checkpoint. Recorded as a provenance deviation.",
+    "Toolchain note: building the gsplat CUDA extension on this Windows/cp936 host requires vcvars64.bat + VSLANG=1033 and a runtime monkeypatch of torch.utils.cpp_extension.SUBPROCESS_DECODE_ARGS to ('cp936','replace') because torch decodes cl.exe output with the OEM codec while cl.exe emits cp936 Chinese. Build-tooling only; does not touch renderer kernels or training semantics."
+  ]
+}

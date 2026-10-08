@@ -1,0 +1,133 @@
+{
+  "experiment": "VRIR1-P0",
+  "verdict": "INCREMENTAL_HEADROOM_CERTIFIED",
+  "question": "incremental raster update headroom",
+  "gates": {
+    "G0_remote_only": "PASS",
+    "G1_source_lock": "PASS",
+    "G2_prior_art": "PASS",
+    "G3_state_drift": "PASS",
+    "G4_structure_delta": "PASS",
+    "G5_economic_ceiling": "PASS"
+  },
+  "g5": {
+    "threshold": 0.7,
+    "pass": true,
+    "per_gap": {
+      "room": 0.9345670259924079,
+      "bicycle": 0.9446108206230228,
+      "garden": 0.9588138555047319
+    },
+    "cumulative": {
+      "room": 0.769785718172594,
+      "bicycle": 0.7656076270901794,
+      "garden": 0.7976868562660399
+    }
+  },
+  "key_findings": {
+    "per_gap_unaffected_aggregate": {
+      "room": 0.9345670259924079,
+      "bicycle": 0.9446108206230228,
+      "garden": 0.9588138555047319
+    },
+    "full_window_unaffected_aggregate": {
+      "room": 0.769785718172594,
+      "bicycle": 0.7656076270901794,
+      "garden": 0.7976868562660399
+    },
+    "membership_model_ok_rate": {
+      "room": 1.0,
+      "bicycle": 1.0,
+      "garden": 1.0
+    }
+  },
+  "caveats": [
+    "Measurement/certification only; no CUDA incremental kernel implemented (prereg).",
+    "Per-gap basis is the 500-iteration refresh cadence; full-window cumulative also reported.",
+    "At the longest single gaps (~15000 iters) room/bicycle per-snapshot minima dip toward 0.70.",
+    "Drift percentiles pooled over 8 tracked cameras; xyz is camera-independent."
+  ],
+  "provenance": {
+    "room": {
+      "git_commit": "abfa6c3",
+      "gsplat_version": "1.5.3 (frozen fork b1-clean-v153)",
+      "gpu": "NVIDIA A100-SXM4-80GB (EPIC-05, 8x)",
+      "seed": 42,
+      "window": [
+        15001,
+        30000
+      ],
+      "n_gaussians": 1593376,
+      "n_cameras": 311,
+      "tracked_views": [
+        0,
+        44,
+        89,
+        133,
+        177,
+        221,
+        266,
+        310
+      ],
+      "snapshots": 31,
+      "gap_iters": 500,
+      "t_iter_mean_ms": 30.126986952209474,
+      "t_fwd_mean_ms": 3.7614223371982574,
+      "t_bwd_mean_ms": 14.343911818059285
+    },
+    "bicycle": {
+      "git_commit": "abfa6c3",
+      "gsplat_version": "1.5.3 (frozen fork b1-clean-v153)",
+      "gpu": "NVIDIA A100-SXM4-80GB (EPIC-05, 8x)",
+      "seed": 42,
+      "window": [
+        15001,
+        30000
+      ],
+      "n_gaussians": 6131954,
+      "n_cameras": 194,
+      "tracked_views": [
+        0,
+        28,
+        55,
+        83,
+        110,
+        138,
+        165,
+        193
+      ],
+      "snapshots": 31,
+      "gap_iters": 500,
+      "t_iter_mean_ms": 51.28899826304118,
+      "t_fwd_mean_ms": 6.326282486152649,
+      "t_bwd_mean_ms": 20.461818704477945
+    },
+    "garden": {
+      "git_commit": "abfa6c3",
+      "gsplat_version": "1.5.3 (frozen fork b1-clean-v153)",
+      "gpu": "NVIDIA A100-SXM4-80GB (EPIC-05, 8x)",
+      "seed": 42,
+      "window": [
+        15001,
+        30000
+      ],
+      "n_gaussians": 5834784,
+      "n_cameras": 185,
+      "tracked_views": [
+        0,
+        26,
+        53,
+        79,
+        105,
+        131,
+        158,
+        184
+      ],
+      "snapshots": 31,
+      "gap_iters": 500,
+      "t_iter_mean_ms": 51.10413203684489,
+      "t_fwd_mean_ms": 6.43569743680954,
+      "t_bwd_mean_ms": 21.22453254330953
+    }
+  }
+}

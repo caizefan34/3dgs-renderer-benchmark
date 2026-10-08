@@ -1,0 +1,56 @@
+{
+  "_timestamp_utc": "2026-10-01T11:27:00Z",
+  "gate": "Gate 0/2 — freeze exact FasterGSFused bucket/checkpoint/replay equations",
+  "remote_identity": {
+    "host": "EPIC-05",
+    "hostname": "dsw-933622-64cc845c7d-lqswc",
+    "gpu": "NVIDIA A100-SXM4-80GB (x8)",
+    "user": "root",
+    "repo_cwd": "/root/3dgs-renderer-benchmark",
+    "git_sha": "abfa6c3e4b23caf5a927bf3722a65cba37b6fab3",
+    "repo_branch": "HEAD (detached)",
+    "remote_net": "arxiv HTTPS reachable; google/duckduckgo blocked"
+  },
+  "frozen_source": {
+    "harness": "nerficg @ e458ac6e41810ad6d9405687c1e698fadd28dac5 (origin github.com/nerficg-project/nerficg)",
+    "harness_note": "recipe note in P16_RUN.json: 'nerficg harness e458ac6e (v2.2); upstream fused branch'",
+    "method": "FasterGSFused",
+    "backend_path": "src/Methods/FasterGSFused/FasterGSFusedCudaBackend/FasterGSFusedCudaBackend/rasterization",
+    "files": {
+      "backward": "src/backward.cu",
+      "forward": "src/forward.cu",
+      "kernels_backward": "include/kernels_backward.cuh",
+      "buffer_utils": "include/buffer_utils.h",
+      "config": "include/rasterization_config.h"
+    }
+  },
+  "frozen_constants": {
+    "tile_width": 16,
+    "tile_height": 16,
+    "block_size_blend": 256,
+    "bucket_size": 32,
+    "min_alpha_threshold": 0.00392156862,
+    "one_minus_alpha_eps": 0.000001,
+    "n_sh_bases_rest": 15
+  },
+  "native_state_model": {
+    "forward_blend_cu": "walks splats front-to-back per pixel; writes bucket_buffers.color_transmittance = float4[nbuckets*256] = (color_after.rgb, T) at each 32-splat bucket boundary; also final_transmittance[nbuckets*256], n_processed[nbuckets*256], max_n_processed[nbuckets]",
+    "backward_blend_backward_cu": "one block per bucket (32 threads=lanes); each lane owns one splat; for each pixel warp-shuffles the running (transmittance, color_pixel_after, grad_color_pixel, grad_alpha_common) from lane i-1 to i (shfl_up), reconstructing per-splat state by REPLAYING the compositing recurrence within the 32-splat bucket from the checkpoint; leader (lane0) loads checkpoint from shared memory",
+    "per_splat_backward_state_recovered": [
+      "transmittance T_k (entering splat k)",
+      "color_pixel_after (color from k onward, excl k)",
+      "grad_color_pixel (downstream)",
+      "grad_alpha_common (downstream)"
+    ],
+    "gradient_formulas": {
+      "dL_dcolor_k": "blending_weight * grad_color_pixel * color_grad_factor, blending_weight = T_k * alpha_k",
+      "dL_dalpha_from_color": "dot(T_k*color_k - color_pixel_after_excl/(1-alpha_k), grad_color_pixel)",
+      "dL_dalpha_from_alpha": "grad_alpha_common / (1-alpha_k)",
+      "dL_dopacity": "gaussian * dL_dalpha",
+      "dL_dconic": "0.5 * (-alpha_k*dL_dalpha) * (dx^2, dx*dy, dy^2)",
+      "dL_dmean2d": "(-alpha_k*dL_dalpha) * (conic.x*dx+conic.y*dy, conic.y*dx+conic.z*dy)"
+    }
+  },
+  "local_copy": "frozen_src/{backward.cu,forward.cu,kernels_backward.cuh,buffer_utils.h,rasterization_config.h}",
+  "verdict": "LOCKED"
+}

@@ -1,0 +1,47 @@
+{
+  "schema_version": "AB0-v1",
+  "artifact": "AB0_CHECKPOINT_INVENTORY.json",
+  "generated_utc": "2026-09-29T17:08:44.953506+00:00",
+  "authoritative_host": "EPIC-05",
+  "required_cells": [
+    "room@5000",
+    "room@15000",
+    "bicycle@5000",
+    "bicycle@15000"
+  ],
+  "prereg_rule": "AB0_PREREG.md section 1: 'If an exact checkpoint does not exist: AB0_CHECKPOINT_BLOCKER. STOP. Do not substitute.' + 'Recover all checkpoint / camera hashes from frozen manifests.'",
+  "frozen_c0_publication_arm": {
+    "location": "/root/3dgs-publication-epic05/full30k/c0_s4{2,3,4}_{room,bicycle}",
+    "seeds": [
+      42,
+      43,
+      44
+    ],
+    "checkpoints_saved": [
+      "ckpt_30000.pt (final only)"
+    ],
+    "reason": "publication_trainer.py --checkpoints saves only config.iterations (line 658-664: torch.save ckpt_{config.iterations}.pt). No intermediate 5K/15K optimizer states saved.",
+    "training_curve_5k_15k_rows": "eval-metric rows only (PSNR/SSIM/LPIPS), NOT saved optimizer states.",
+    "has_5k": false,
+    "has_15k": false
+  },
+  "non_qualifying_checkpoints_found": [
+    {
+      "path": "/root/epic05_d0/runs/TRACE_{room,bicycle}/d0_ckpt_{5000,15000}.pt",
+      "arm": "D0 / ReBudgetGS TRACE",
+      "reason_disqualified": "already-densified state (d0_birth_records.npz, 1503506 birth records); camera_sequence differs from c0_s43 (57 12 142... vs 19 147 74...). Not frozen C0."
+    },
+    {
+      "path": "/root/epic05_n1/runs/n1snap_c0f_s42_{room,bicycle}/ckpt_15000.pt",
+      "arm": "c0 (seed 42, 25000 iters)",
+      "reason_disqualified": "different seed/iters/camera-order than frozen publication arm; only has 15K, NO 5K (room@5K and bicycle@5K still missing)."
+    },
+    {
+      "path": "/root/epic05_grc3d/inputs/snapshots/snap_{bicycle,garden}_005000.pt",
+      "arm": "gmain",
+      "reason_disqualified": "arm=gmain, not C0."
+    }
+  ],
+  "global_search_result": "No pristine frozen-C0 5K or 15K checkpoint exists anywhere on EPIC-05 for room or bicycle.",
+  "checkpoint_gate": "FAIL"
+}

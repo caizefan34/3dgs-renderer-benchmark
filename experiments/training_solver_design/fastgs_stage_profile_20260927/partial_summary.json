@@ -1,0 +1,994 @@
+[
+  {
+    "scene": "room",
+    "windows": [
+      {
+        "first_iteration": 4096,
+        "last_iteration": 4223,
+        "steps": 128,
+        "gaussians_start": 648312,
+        "gaussians_end": 654634,
+        "optimizer_calls": {
+          "xyz,f_dc,opacity,scaling,rotation": 128,
+          "f_rest": 8
+        },
+        "cuda_ms_per_step": 7.561497218749983,
+        "profiled_wall_ms_per_step": 10.235347695925157,
+        "profiled_wall_median_ms": 8.848902420140803,
+        "phases": {
+          "forward": {
+            "calls": 168,
+            "cuda_ms": 234.25338599999637,
+            "fraction_active_cuda": 0.24202939248419278
+          },
+          "loss_l1": {
+            "calls": 148,
+            "cuda_ms": 14.711772000000902,
+            "fraction_active_cuda": 0.015200127094539549
+          },
+          "loss_ssim": {
+            "calls": 148,
+            "cuda_ms": 41.70274599999952,
+            "fraction_active_cuda": 0.04308706248242935
+          },
+          "raster_backward": {
+            "calls": 128,
+            "cuda_ms": 374.84759700000325,
+            "fraction_active_cuda": 0.38729060751365924
+          },
+          "ssim_backward": {
+            "calls": 128,
+            "cuda_ms": 42.439033000001174,
+            "fraction_active_cuda": 0.043847790420442644
+          },
+          "optimizer": {
+            "calls": 128,
+            "cuda_ms": 152.86430799999945,
+            "fraction_active_cuda": 0.15793861608368373
+          },
+          "topology": {
+            "calls": 2,
+            "cuda_ms": 17.40133099999766,
+            "fraction_active_cuda": 0.017978965607548785
+          },
+          "density_stats": {
+            "calls": 128,
+            "cuda_ms": 10.760322999997404,
+            "fraction_active_cuda": 0.01111751032970383
+          }
+        },
+        "unassigned_cuda_fraction": 0.08150992798380008,
+        "top_kernels": [
+          {
+            "name": "void PerGaussianRenderCUDA<3u>(uint2 const*, unsigned int const*, int, int, int, unsigned int const*, unsigned int const*, float const*, float const*, float const*, float2 const*, float4 const*, float const*, float const*, unsigned int const*, unsigned int const*, float const*, float const*, float4*, float4*, float*, float*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 328962.3060000006,
+            "device_total_us": 328962.3060000006,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void renderCUDA<3u>(uint2 const*, unsigned int const*, unsigned int const*, unsigned int*, float*, float*, int, int, float2 const*, float const*, float4 const*, float*, unsigned int*, unsigned int*, float*, float const*, float*, int*, int const*, bool, int*)",
+            "count": 168,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 137488.61299999984,
+            "device_total_us": 137488.61299999984,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 3>, at::native::(anonymous namespace)::PointwiseOpScalarListFunctor<float, 3, 3, 0>, std::divides<float> >(at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 3>, at::native::(anonymous namespace)::PointwiseOpScalarListFunctor<float, 3, 3, 0>, std::divides<float>)",
+            "count": 646,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 49136.64799999776,
+            "device_total_us": 49136.64799999776,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "fusedssim_backwardCUDA(int, int, int, float, float, float const*, float const*, float const*, float*, float const*, float const*, float const*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 34932.47100000037,
+            "device_total_us": 34932.47100000037,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>)",
+            "count": 846,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 30564.429000001808,
+            "device_total_us": 30564.429000001808,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",
+            "count": 2666,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 26383.9390000003,
+            "device_total_us": 26383.9390000003,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void preprocessCUDA<3>(int, int, int, float3 const*, int const*, float const*, float const*, bool const*, glm::vec<3, float, (glm::qualifier)0> const*, glm::vec<4, float, (glm::qualifier)0> const*, float, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float4 const*, glm::vec<3, float, (glm::qualifier)0>*, float*, float*, float*, float*, glm::vec<3, float, (glm::qualifier)0>*, glm::vec<4, float, (glm::qualifier)0>*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 26310.57599999959,
+            "device_total_us": 26310.57599999959,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "fusedssimCUDA(int, int, int, float, float, float const*, float const*, float*, float*, float*, float*)",
+            "count": 148,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 24570.741999999955,
+            "device_total_us": 24570.741999999955,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "duplicateWithKeys(int, float, float2 const*, float const*, unsigned int const*, unsigned long*, unsigned int*, float4*, unsigned int*, dim3)",
+            "count": 168,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 23885.21100000029,
+            "device_total_us": 23885.21100000029,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void cub::CUB_200700_800_NS::DeviceRadixSortOnesweepKernel<cub::CUB_200700_800_NS::DeviceRadixSortPolicy<unsigned long, unsigned int, unsigned int>::Policy900, false, unsigned long, unsigned int, unsigned int, int, int, cub::CUB_200700_800_NS::detail::identity_decomposer_t>(int*, int*, unsigned int*, unsigned int const*, unsigned long*, unsigned long const*, unsigned int*, unsigned int const*, int, int, int, cub::CUB_200700_800_NS::detail::identity_decomposer_t)",
+            "count": 1008,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 23831.54900000057,
+            "device_total_us": 23831.54900000057,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::TernaryOpScalarFunctor<float, 2, 2, 0>, at::native::LerpFunctor<float>, float>(at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::TernaryOpScalarFunctor<float, 2, 2, 0>, at::native::LerpFunctor<float>, float)",
+            "count": 646,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 23248.441000000792,
+            "device_total_us": 23248.441000000792,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 1>, at::native::(anonymous namespace)::BinaryOpScalarListFunctor<float, 1, 1, 0>, std::divides<float> >(at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 1>, at::native::(anonymous namespace)::BinaryOpScalarListFunctor<float, 1, 1, 0>, std::divides<float>)",
+            "count": 646,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 20152.475000002458,
+            "device_total_us": 20152.475000002458,
+            "device_type": "DeviceType.CUDA"
+          }
+        ]
+      },
+      {
+        "first_iteration": 10048,
+        "last_iteration": 10175,
+        "steps": 128,
+        "gaussians_start": 701272,
+        "gaussians_end": 699311,
+        "optimizer_calls": {
+          "xyz,f_dc,opacity,scaling,rotation": 128,
+          "f_rest": 8
+        },
+        "cuda_ms_per_step": 7.344793273437442,
+        "profiled_wall_ms_per_step": 9.49405056417163,
+        "profiled_wall_median_ms": 8.949516457505524,
+        "phases": {
+          "forward": {
+            "calls": 148,
+            "cuda_ms": 202.54593299999718,
+            "fraction_active_cuda": 0.21544379026775554
+          },
+          "loss_l1": {
+            "calls": 138,
+            "cuda_ms": 13.676314999998615,
+            "fraction_active_cuda": 0.01454720466046337
+          },
+          "loss_ssim": {
+            "calls": 138,
+            "cuda_ms": 38.84348800000165,
+            "fraction_active_cuda": 0.041316989968594196
+          },
+          "raster_backward": {
+            "calls": 128,
+            "cuda_ms": 394.7645890000007,
+            "fraction_active_cuda": 0.41990267618779614
+          },
+          "ssim_backward": {
+            "calls": 128,
+            "cuda_ms": 42.404156999998705,
+            "fraction_active_cuda": 0.04510439766365897
+          },
+          "optimizer": {
+            "calls": 128,
+            "cuda_ms": 148.03086799999397,
+            "fraction_active_cuda": 0.1574572779920738
+          },
+          "topology": {
+            "calls": 1,
+            "cuda_ms": 9.034005999999529,
+            "fraction_active_cuda": 0.009609279560017484
+          },
+          "density_stats": {
+            "calls": 128,
+            "cuda_ms": 10.921886000003386,
+            "fraction_active_cuda": 0.011617377262831033
+          }
+        },
+        "unassigned_cuda_fraction": 0.08500100643680952,
+        "top_kernels": [
+          {
+            "name": "void PerGaussianRenderCUDA<3u>(uint2 const*, unsigned int const*, int, int, int, unsigned int const*, unsigned int const*, float const*, float const*, float const*, float2 const*, float4 const*, float const*, float const*, unsigned int const*, unsigned int const*, float const*, float const*, float4*, float4*, float*, float*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 347454.9669999997,
+            "device_total_us": 347454.9669999997,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void renderCUDA<3u>(uint2 const*, unsigned int const*, unsigned int const*, unsigned int*, float*, float*, int, int, float2 const*, float const*, float4 const*, float*, unsigned int*, unsigned int*, float*, float const*, float*, int*, int const*, bool, int*)",
+            "count": 148,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 123116.46500000017,
+            "device_total_us": 123116.46500000017,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 3>, at::native::(anonymous namespace)::PointwiseOpScalarListFunctor<float, 3, 3, 0>, std::divides<float> >(at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 3>, at::native::(anonymous namespace)::PointwiseOpScalarListFunctor<float, 3, 3, 0>, std::divides<float>)",
+            "count": 651,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 48329.026999998445,
+            "device_total_us": 48329.026999998445,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "fusedssim_backwardCUDA(int, int, int, float, float, float const*, float const*, float const*, float*, float const*, float const*, float const*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 34900.32699999926,
+            "device_total_us": 34900.32699999926,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>)",
+            "count": 803,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 32589.847000000736,
+            "device_total_us": 32589.847000000736,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void preprocessCUDA<3>(int, int, int, float3 const*, int const*, float const*, float const*, bool const*, glm::vec<3, float, (glm::qualifier)0> const*, glm::vec<4, float, (glm::qualifier)0> const*, float, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float4 const*, glm::vec<3, float, (glm::qualifier)0>*, float*, float*, float*, float*, glm::vec<3, float, (glm::qualifier)0>*, glm::vec<4, float, (glm::qualifier)0>*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 26590.078000000492,
+            "device_total_us": 26590.078000000492,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",
+            "count": 2548,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 26491.992000005193,
+            "device_total_us": 26491.992000005193,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "fusedssimCUDA(int, int, int, float, float, float const*, float const*, float*, float*, float*, float*)",
+            "count": 138,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 22912.715000000266,
+            "device_total_us": 22912.715000000266,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::TernaryOpScalarFunctor<float, 2, 2, 0>, at::native::LerpFunctor<float>, float>(at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::TernaryOpScalarFunctor<float, 2, 2, 0>, at::native::LerpFunctor<float>, float)",
+            "count": 651,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 22557.840000000477,
+            "device_total_us": 22557.840000000477,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void cub::CUB_200700_800_NS::DeviceRadixSortOnesweepKernel<cub::CUB_200700_800_NS::DeviceRadixSortPolicy<unsigned long, unsigned int, unsigned int>::Policy900, false, unsigned long, unsigned int, unsigned int, int, int, cub::CUB_200700_800_NS::detail::identity_decomposer_t>(int*, int*, unsigned int*, unsigned int const*, unsigned long*, unsigned long const*, unsigned int*, unsigned int const*, int, int, int, cub::CUB_200700_800_NS::detail::identity_decomposer_t)",
+            "count": 888,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 21693.196000000957,
+            "device_total_us": 21693.196000000957,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListMetadata<1>, at::native::(anonymous namespace)::BinaryOpScalarFunctor<float, 1, 1, 0>, std::multiplies<float>, float>(at::native::(anonymous namespace)::TensorListMetadata<1>, at::native::(anonymous namespace)::BinaryOpScalarFunctor<float, 1, 1, 0>, std::multiplies<float>, float)",
+            "count": 651,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 18585.268000000608,
+            "device_total_us": 18585.268000000608,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 1>, at::native::(anonymous namespace)::BinaryOpScalarListFunctor<float, 1, 1, 0>, std::divides<float> >(at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 1>, at::native::(anonymous namespace)::BinaryOpScalarListFunctor<float, 1, 1, 0>, std::divides<float>)",
+            "count": 651,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 18450.13599999846,
+            "device_total_us": 18450.13599999846,
+            "device_type": "DeviceType.CUDA"
+          }
+        ]
+      },
+      {
+        "first_iteration": 16000,
+        "last_iteration": 16127,
+        "steps": 128,
+        "gaussians_start": 691500,
+        "gaussians_end": 691500,
+        "optimizer_calls": {
+          "xyz,f_dc,opacity,scaling,rotation": 4,
+          "f_rest": 4
+        },
+        "cuda_ms_per_step": 5.914997726562496,
+        "profiled_wall_ms_per_step": 7.1367125055985525,
+        "profiled_wall_median_ms": 7.324341568164527,
+        "phases": {
+          "forward": {
+            "calls": 128,
+            "cuda_ms": 174.35525099999737,
+            "fraction_active_cuda": 0.23028756077461654
+          },
+          "loss_l1": {
+            "calls": 128,
+            "cuda_ms": 12.666439000002352,
+            "fraction_active_cuda": 0.01672977053619715
+          },
+          "loss_ssim": {
+            "calls": 128,
+            "cuda_ms": 35.99508799999975,
+            "fraction_active_cuda": 0.04754213577076459
+          },
+          "raster_backward": {
+            "calls": 128,
+            "cuda_ms": 399.19751200000184,
+            "fraction_active_cuda": 0.5272581168534898
+          },
+          "ssim_backward": {
+            "calls": 128,
+            "cuda_ms": 42.36803900000069,
+            "fraction_active_cuda": 0.05595949820928612
+          },
+          "optimizer": {
+            "calls": 128,
+            "cuda_ms": 9.817386000000425,
+            "fraction_active_cuda": 0.012966755300779566
+          }
+        },
+        "unassigned_cuda_fraction": 0.10925616255486637,
+        "top_kernels": [
+          {
+            "name": "void PerGaussianRenderCUDA<3u>(uint2 const*, unsigned int const*, int, int, int, unsigned int const*, unsigned int const*, float const*, float const*, float const*, float2 const*, float4 const*, float const*, float const*, unsigned int const*, unsigned int const*, float const*, float const*, float4*, float4*, float*, float*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 349192.76600000035,
+            "device_total_us": 349192.76600000035,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void renderCUDA<3u>(uint2 const*, unsigned int const*, unsigned int const*, unsigned int*, float*, float*, int, int, float2 const*, float const*, float4 const*, float*, unsigned int*, unsigned int*, float*, float const*, float*, int*, int const*, bool, int*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 105518.03800000003,
+            "device_total_us": 105518.03800000003,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>)",
+            "count": 1128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 40640.14299999864,
+            "device_total_us": 40640.14299999864,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "fusedssim_backwardCUDA(int, int, int, float, float, float const*, float const*, float const*, float*, float const*, float const*, float const*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 34854.00100000023,
+            "device_total_us": 34854.00100000023,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void preprocessCUDA<3>(int, int, int, float3 const*, int const*, float const*, float const*, bool const*, glm::vec<3, float, (glm::qualifier)0> const*, glm::vec<4, float, (glm::qualifier)0> const*, float, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float4 const*, glm::vec<3, float, (glm::qualifier)0>*, float*, float*, float*, float*, glm::vec<3, float, (glm::qualifier)0>*, glm::vec<4, float, (glm::qualifier)0>*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 29411.591000000062,
+            "device_total_us": 29411.591000000062,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",
+            "count": 2430,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 25367.46699999932,
+            "device_total_us": 25367.46699999932,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "fusedssimCUDA(int, int, int, float, float, float const*, float const*, float*, float*, float*, float*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 21247.306000000128,
+            "device_total_us": 21247.306000000128,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void cub::CUB_200700_800_NS::DeviceRadixSortOnesweepKernel<cub::CUB_200700_800_NS::DeviceRadixSortPolicy<unsigned long, unsigned int, unsigned int>::Policy900, false, unsigned long, unsigned int, unsigned int, int, int, cub::CUB_200700_800_NS::detail::identity_decomposer_t>(int*, int*, unsigned int*, unsigned int const*, unsigned long*, unsigned long const*, unsigned int*, unsigned int const*, int, int, int, cub::CUB_200700_800_NS::detail::identity_decomposer_t)",
+            "count": 768,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 19254.89200000018,
+            "device_total_us": 19254.89200000018,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void preprocessCUDA<3>(int, int, int, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float, glm::vec<4, float, (glm::qualifier)0> const*, float const*, float const*, float const*, bool*, float const*, float const*, float const*, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float, int, int, float, float, float, float, int*, float2*, float*, float*, float*, float4*, dim3, unsigned int*, bool)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 14454.359999999837,
+            "device_total_us": 14454.359999999837,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1})",
+            "count": 768,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 13182.337000000483,
+            "device_total_us": 13182.337000000483,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1})",
+            "count": 639,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 11957.603999999355,
+            "device_total_us": 11957.603999999355,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "duplicateWithKeys(int, float, float2 const*, float const*, unsigned int const*, unsigned long*, unsigned int*, float4*, unsigned int*, dim3)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 9627.845999999827,
+            "device_total_us": 9627.845999999827,
+            "device_type": "DeviceType.CUDA"
+          }
+        ]
+      },
+      {
+        "first_iteration": 24064,
+        "last_iteration": 24191,
+        "steps": 128,
+        "gaussians_start": 573873,
+        "gaussians_end": 573873,
+        "optimizer_calls": {
+          "xyz,f_dc,opacity,scaling,rotation": 2,
+          "f_rest": 2
+        },
+        "cuda_ms_per_step": 5.490856382812472,
+        "profiled_wall_ms_per_step": 6.854086543171434,
+        "profiled_wall_median_ms": 7.0331464521586895,
+        "phases": {
+          "forward": {
+            "calls": 128,
+            "cuda_ms": 161.22962500000224,
+            "fraction_active_cuda": 0.22940072686208818
+          },
+          "loss_l1": {
+            "calls": 128,
+            "cuda_ms": 12.679459000000897,
+            "fraction_active_cuda": 0.01804058721105511
+          },
+          "loss_ssim": {
+            "calls": 128,
+            "cuda_ms": 36.00282199999993,
+            "fraction_active_cuda": 0.051225533371340705
+          },
+          "raster_backward": {
+            "calls": 128,
+            "cuda_ms": 371.75660599999816,
+            "fraction_active_cuda": 0.5289427152868545
+          },
+          "ssim_backward": {
+            "calls": 128,
+            "cuda_ms": 42.39538699999948,
+            "fraction_active_cuda": 0.06032100238029624
+          },
+          "optimizer": {
+            "calls": 128,
+            "cuda_ms": 4.3936300000000665,
+            "fraction_active_cuda": 0.006251344413677559
+          }
+        },
+        "unassigned_cuda_fraction": 0.1058180904746876,
+        "top_kernels": [
+          {
+            "name": "void PerGaussianRenderCUDA<3u>(uint2 const*, unsigned int const*, int, int, int, unsigned int const*, unsigned int const*, float const*, float const*, float const*, float2 const*, float4 const*, float const*, float const*, unsigned int const*, unsigned int const*, float const*, float const*, float4*, float4*, float*, float*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 327409.498,
+            "device_total_us": 327409.498,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void renderCUDA<3u>(uint2 const*, unsigned int const*, unsigned int const*, unsigned int*, float*, float*, int, int, float2 const*, float const*, float4 const*, float*, unsigned int*, unsigned int*, float*, float const*, float*, int*, int const*, bool, int*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 98732.81999999979,
+            "device_total_us": 98732.81999999979,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>)",
+            "count": 1140,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 35369.13199999724,
+            "device_total_us": 35369.13199999724,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "fusedssim_backwardCUDA(int, int, int, float, float, float const*, float const*, float const*, float*, float const*, float const*, float const*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 34892.11299999997,
+            "device_total_us": 34892.11299999997,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void preprocessCUDA<3>(int, int, int, float3 const*, int const*, float const*, float const*, bool const*, glm::vec<3, float, (glm::qualifier)0> const*, glm::vec<4, float, (glm::qualifier)0> const*, float, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float4 const*, glm::vec<3, float, (glm::qualifier)0>*, float*, float*, float*, float*, glm::vec<3, float, (glm::qualifier)0>*, glm::vec<4, float, (glm::qualifier)0>*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 26729.18900000016,
+            "device_total_us": 26729.18900000016,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",
+            "count": 2430,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 22922.653999999136,
+            "device_total_us": 22922.653999999136,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "fusedssimCUDA(int, int, int, float, float, float const*, float const*, float*, float*, float*, float*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 21251.276999999794,
+            "device_total_us": 21251.276999999794,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void cub::CUB_200700_800_NS::DeviceRadixSortOnesweepKernel<cub::CUB_200700_800_NS::DeviceRadixSortPolicy<unsigned long, unsigned int, unsigned int>::Policy900, false, unsigned long, unsigned int, unsigned int, int, int, cub::CUB_200700_800_NS::detail::identity_decomposer_t>(int*, int*, unsigned int*, unsigned int const*, unsigned long*, unsigned long const*, unsigned int*, unsigned int const*, int, int, int, cub::CUB_200700_800_NS::detail::identity_decomposer_t)",
+            "count": 768,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 18477.6170000014,
+            "device_total_us": 18477.6170000014,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1})",
+            "count": 766,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 13185.34600000014,
+            "device_total_us": 13185.34600000014,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void preprocessCUDA<3>(int, int, int, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float, glm::vec<4, float, (glm::qualifier)0> const*, float const*, float const*, float const*, bool*, float const*, float const*, float const*, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float, int, int, float, float, float, float, int*, float2*, float*, float*, float*, float4*, dim3, unsigned int*, bool)",
+            "count": 127,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 11986.348000000908,
+            "device_total_us": 11986.348000000908,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1})",
+            "count": 639,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 10147.162000000215,
+            "device_total_us": 10147.162000000215,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "duplicateWithKeys(int, float, float2 const*, float const*, unsigned int const*, unsigned long*, unsigned int*, float4*, unsigned int*, dim3)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 9624.850000000513,
+            "device_total_us": 9624.850000000513,
+            "device_type": "DeviceType.CUDA"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "scene": "garden",
+    "windows": [
+      {
+        "first_iteration": 4096,
+        "last_iteration": 4223,
+        "steps": 128,
+        "gaussians_start": 4165136,
+        "gaussians_end": 4329021,
+        "optimizer_calls": {
+          "xyz,f_dc,opacity,scaling,rotation": 128,
+          "f_rest": 8
+        },
+        "cuda_ms_per_step": 17.833073234375266,
+        "profiled_wall_ms_per_step": 22.379035110134282,
+        "profiled_wall_median_ms": 16.499677090905607,
+        "phases": {
+          "forward": {
+            "calls": 168,
+            "cuda_ms": 485.79113800001016,
+            "fraction_active_cuda": 0.21282048336510603
+          },
+          "loss_l1": {
+            "calls": 148,
+            "cuda_ms": 13.79959799999946,
+            "fraction_active_cuda": 0.0060454728110004635
+          },
+          "loss_ssim": {
+            "calls": 148,
+            "cuda_ms": 40.83716800000034,
+            "fraction_active_cuda": 0.017890375416897645
+          },
+          "raster_backward": {
+            "calls": 128,
+            "cuda_ms": 760.6497470000008,
+            "fraction_active_cuda": 0.3332334292769301
+          },
+          "ssim_backward": {
+            "calls": 128,
+            "cuda_ms": 41.34086599999972,
+            "fraction_active_cuda": 0.018111040726419825
+          },
+          "optimizer": {
+            "calls": 128,
+            "cuda_ms": 459.6135489999966,
+            "fraction_active_cuda": 0.20135233026694094
+          },
+          "topology": {
+            "calls": 2,
+            "cuda_ms": 96.72327100000685,
+            "fraction_active_cuda": 0.04237354631791403
+          },
+          "density_stats": {
+            "calls": 128,
+            "cuda_ms": 24.1639930000027,
+            "fraction_active_cuda": 0.01058601581631056
+          }
+        },
+        "unassigned_cuda_fraction": 0.1575873060024804,
+        "top_kernels": [
+          {
+            "name": "void PerGaussianRenderCUDA<3u>(uint2 const*, unsigned int const*, int, int, int, unsigned int const*, unsigned int const*, float const*, float const*, float const*, float2 const*, float4 const*, float const*, float const*, unsigned int const*, unsigned int const*, float const*, float const*, float4*, float4*, float*, float*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 568829.0659999994,
+            "device_total_us": 568829.0659999994,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void renderCUDA<3u>(uint2 const*, unsigned int const*, unsigned int const*, unsigned int*, float*, float*, int, int, float2 const*, float const*, float4 const*, float*, unsigned int*, unsigned int*, float*, float const*, float*, int*, int const*, bool, int*)",
+            "count": 168,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 240145.60800000007,
+            "device_total_us": 240145.60800000007,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>)",
+            "count": 846,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 172162.9780000045,
+            "device_total_us": 172162.9780000045,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",
+            "count": 2666,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 107421.23100000294,
+            "device_total_us": 107421.23100000294,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 3>, at::native::(anonymous namespace)::PointwiseOpScalarListFunctor<float, 3, 3, 0>, std::divides<float> >(at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 3>, at::native::(anonymous namespace)::PointwiseOpScalarListFunctor<float, 3, 3, 0>, std::divides<float>)",
+            "count": 709,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 105149.16099999932,
+            "device_total_us": 105149.16099999932,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void preprocessCUDA<3>(int, int, int, float3 const*, int const*, float const*, float const*, bool const*, glm::vec<3, float, (glm::qualifier)0> const*, glm::vec<4, float, (glm::qualifier)0> const*, float, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float4 const*, glm::vec<3, float, (glm::qualifier)0>*, float*, float*, float*, float*, glm::vec<3, float, (glm::qualifier)0>*, glm::vec<4, float, (glm::qualifier)0>*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 82169.67199999973,
+            "device_total_us": 82169.67199999973,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void preprocessCUDA<3>(int, int, int, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float, glm::vec<4, float, (glm::qualifier)0> const*, float const*, float const*, float const*, bool*, float const*, float const*, float const*, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float, int, int, float, float, float, float, int*, float2*, float*, float*, float*, float4*, dim3, unsigned int*, bool)",
+            "count": 168,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 77652.97499999899,
+            "device_total_us": 77652.97499999899,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1})",
+            "count": 704,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 76062.14100000364,
+            "device_total_us": 76062.14100000364,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListMetadata<3>, at::native::(anonymous namespace)::PointwiseOpScalarFunctor<float, 3, 3, 0>, std::multiplies<float>, float>(at::native::(anonymous namespace)::TensorListMetadata<3>, at::native::(anonymous namespace)::PointwiseOpScalarFunctor<float, 3, 3, 0>, std::multiplies<float>, float)",
+            "count": 709,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 73378.80700000608,
+            "device_total_us": 73378.80700000608,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::TernaryOpScalarFunctor<float, 2, 2, 0>, at::native::LerpFunctor<float>, float>(at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::TernaryOpScalarFunctor<float, 2, 2, 0>, at::native::LerpFunctor<float>, float)",
+            "count": 709,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 69779.20799999614,
+            "device_total_us": 69779.20799999614,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 1>, at::native::(anonymous namespace)::BinaryOpScalarListFunctor<float, 1, 1, 0>, std::divides<float> >(at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 1>, at::native::(anonymous namespace)::BinaryOpScalarListFunctor<float, 1, 1, 0>, std::divides<float>)",
+            "count": 709,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 57203.049000001745,
+            "device_total_us": 57203.049000001745,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::UnaryOpFunctor<float, 2, 1, 1>, at::native::Sqrt<float> >(at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::UnaryOpFunctor<float, 2, 1, 1>, at::native::Sqrt<float>)",
+            "count": 709,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 54252.872999995445,
+            "device_total_us": 54252.872999995445,
+            "device_type": "DeviceType.CUDA"
+          }
+        ]
+      },
+      {
+        "first_iteration": 10048,
+        "last_iteration": 10175,
+        "steps": 128,
+        "gaussians_start": 7578936,
+        "gaussians_end": 7600888,
+        "optimizer_calls": {
+          "xyz,f_dc,opacity,scaling,rotation": 128,
+          "f_rest": 8
+        },
+        "cuda_ms_per_step": 27.78141317968726,
+        "profiled_wall_ms_per_step": 31.78354240117187,
+        "profiled_wall_median_ms": 26.58726496156305,
+        "phases": {
+          "forward": {
+            "calls": 148,
+            "cuda_ms": 688.5765259999924,
+            "fraction_active_cuda": 0.19363680582340695
+          },
+          "loss_l1": {
+            "calls": 138,
+            "cuda_ms": 13.087453999999427,
+            "fraction_active_cuda": 0.003680364771715566
+          },
+          "loss_ssim": {
+            "calls": 138,
+            "cuda_ms": 38.13327799999557,
+            "fraction_active_cuda": 0.010723580994533088
+          },
+          "raster_backward": {
+            "calls": 128,
+            "cuda_ms": 1227.1160030000055,
+            "fraction_active_cuda": 0.3450812135232591
+          },
+          "ssim_backward": {
+            "calls": 128,
+            "cuda_ms": 41.29587399999367,
+            "fraction_active_cuda": 0.011612944724526873
+          },
+          "optimizer": {
+            "calls": 128,
+            "cuda_ms": 813.8062329999889,
+            "fraction_active_cuda": 0.22885305200964526
+          },
+          "topology": {
+            "calls": 1,
+            "cuda_ms": 83.3367760000031,
+            "fraction_active_cuda": 0.023435401154325058
+          },
+          "density_stats": {
+            "calls": 128,
+            "cuda_ms": 43.49799100000273,
+            "fraction_active_cuda": 0.01223220908488525
+          }
+        },
+        "unassigned_cuda_fraction": 0.17074442791370292,
+        "top_kernels": [
+          {
+            "name": "void PerGaussianRenderCUDA<3u>(uint2 const*, unsigned int const*, int, int, int, unsigned int const*, unsigned int const*, float const*, float const*, float const*, float2 const*, float4 const*, float const*, float const*, unsigned int const*, unsigned int const*, float const*, float const*, float4*, float4*, float*, float*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 880928.9169999997,
+            "device_total_us": 880928.9169999997,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void renderCUDA<3u>(uint2 const*, unsigned int const*, unsigned int const*, unsigned int*, float*, float*, int, int, float2 const*, float const*, float4 const*, float*, unsigned int*, unsigned int*, float*, float const*, float*, int*, int const*, bool, int*)",
+            "count": 148,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 309712.14000000106,
+            "device_total_us": 309712.14000000106,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>)",
+            "count": 803,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 303742.75700000464,
+            "device_total_us": 303742.75700000464,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 3>, at::native::(anonymous namespace)::PointwiseOpScalarListFunctor<float, 3, 3, 0>, std::divides<float> >(at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 3>, at::native::(anonymous namespace)::PointwiseOpScalarListFunctor<float, 3, 3, 0>, std::divides<float>)",
+            "count": 1279,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 180014.45399999197,
+            "device_total_us": 180014.45399999197,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",
+            "count": 2547,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 177179.1539999904,
+            "device_total_us": 177179.1539999904,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void preprocessCUDA<3>(int, int, int, float3 const*, int const*, float const*, float const*, bool const*, glm::vec<3, float, (glm::qualifier)0> const*, glm::vec<4, float, (glm::qualifier)0> const*, float, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float4 const*, glm::vec<3, float, (glm::qualifier)0>*, float*, float*, float*, float*, glm::vec<3, float, (glm::qualifier)0>*, glm::vec<4, float, (glm::qualifier)0>*)",
+            "count": 128,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 151535.7200000048,
+            "device_total_us": 151535.7200000048,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void preprocessCUDA<3>(int, int, int, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float, glm::vec<4, float, (glm::qualifier)0> const*, float const*, float const*, float const*, bool*, float const*, float const*, float const*, float const*, glm::vec<3, float, (glm::qualifier)0> const*, float, int, int, float, float, float, float, int*, float2*, float*, float*, float*, float4*, dim3, unsigned int*, bool)",
+            "count": 147,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 129206.98700000026,
+            "device_total_us": 129206.98700000026,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListMetadata<3>, at::native::(anonymous namespace)::PointwiseOpScalarFunctor<float, 3, 3, 0>, std::multiplies<float>, float>(at::native::(anonymous namespace)::TensorListMetadata<3>, at::native::(anonymous namespace)::PointwiseOpScalarFunctor<float, 3, 3, 0>, std::multiplies<float>, float)",
+            "count": 1279,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 129195.70800000393,
+            "device_total_us": 129195.70800000393,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1})",
+            "count": 671,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 125742.56799999357,
+            "device_total_us": 125742.56799999357,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::TernaryOpScalarFunctor<float, 2, 2, 0>, at::native::LerpFunctor<float>, float>(at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::TernaryOpScalarFunctor<float, 2, 2, 0>, at::native::LerpFunctor<float>, float)",
+            "count": 1279,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 124010.9310000022,
+            "device_total_us": 124010.9310000022,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 1>, at::native::(anonymous namespace)::BinaryOpScalarListFunctor<float, 1, 1, 0>, std::divides<float> >(at::native::(anonymous namespace)::TensorListScalarListMetadata<float, 1>, at::native::(anonymous namespace)::BinaryOpScalarListFunctor<float, 1, 1, 0>, std::divides<float>)",
+            "count": 1279,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 102674.43299999897,
+            "device_total_us": 102674.43299999897,
+            "device_type": "DeviceType.CUDA"
+          },
+          {
+            "name": "void at::native::(anonymous namespace)::multi_tensor_apply_kernel<at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::UnaryOpFunctor<float, 2, 1, 1>, at::native::Sqrt<float> >(at::native::(anonymous namespace)::TensorListMetadata<2>, at::native::(anonymous namespace)::UnaryOpFunctor<float, 2, 1, 1>, at::native::Sqrt<float>)",
+            "count": 1279,
+            "self_cpu_us": 0,
+            "cpu_total_us": 0,
+            "self_device_us": 97651.02000000111,
+            "device_total_us": 97651.02000000111,
+            "device_type": "DeviceType.CUDA"
+          }
+        ]
+      }
+    ]
+  }
+]

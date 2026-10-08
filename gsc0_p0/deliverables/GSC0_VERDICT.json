@@ -1,0 +1,53 @@
+{
+  "prereg": {
+    "TAU": 0.01,
+    "STABLE_FRAC_MIN": 0.5,
+    "SCENE_FRAC_MIN": 0.6666666666666666,
+    "ECON_FRAC_MIN": 0.4,
+    "ECON_COUNT_MIN": 10000,
+    "stable_rule": "composite: Gaussian stable iff max-over-5-attrs rel_change <= TAU",
+    "primary_stability_window": "densify_complete(15000) -> mature(30000), frozen topology",
+    "gate_B_rule": "stable subset: exists p in {fp16,bf16} s.t. median p attr rep-error <= TAU AND median p optimizer-state moment rep-error <= TAU (all attrs/groups)",
+    "gate_C_rule": "stable_fraction >= ECON_FRAC_MIN (>=20% mem reduction) AND stable_count >= ECON_COUNT_MIN",
+    "note_thresholds_fixed_before_aggregation": true
+  },
+  "scenes_with_data": [
+    "room",
+    "garden",
+    "bicycle"
+  ],
+  "gateA_stability": {
+    "rule": ">= 0.67 of scenes with stable_fraction >= 0.5",
+    "scene_pass": {
+      "room": false,
+      "garden": false,
+      "bicycle": false
+    },
+    "n_pass": 0,
+    "n_data": 3,
+    "pass": false
+  },
+  "gateB_error": {
+    "rule": "stable subset: exists p in {fp16,bf16} s.t. median bf16 attr rep-error <= 0.01 AND median bf16 optimizer-state moment rep-error <= 0.01 (all attrs/groups)",
+    "scene_pass": {
+      "room": true,
+      "garden": true,
+      "bicycle": true
+    },
+    "n_pass": 3,
+    "n_data": 3,
+    "pass": true
+  },
+  "gateC_economics": {
+    "rule": "stable_fraction >= 0.4 (>=20% mem reduction) AND stable_count >= 10000",
+    "scene_pass": {
+      "room": false,
+      "garden": false,
+      "bicycle": false
+    },
+    "n_pass": 0,
+    "n_data": 3,
+    "pass": false
+  },
+  "verdict": "DROP_NO_STABLE_STATE"
+}

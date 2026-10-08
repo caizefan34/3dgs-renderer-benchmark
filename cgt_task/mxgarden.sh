@@ -1,0 +1,2 @@
+cd /home/liaoyuanjun/cgt_realscene/src
+/mnt/storage_pool/liaoyuanjun_mx0qual/bin/python analyze_g1.py --inputs "/home/liaoyuanjun/cgt_realscene/logs/g1/g1_garden_garden.json" --out /tmp/g1_garden_only.json 2>&1

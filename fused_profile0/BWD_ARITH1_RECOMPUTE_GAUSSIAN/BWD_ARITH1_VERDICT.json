@@ -1,0 +1,25 @@
+{
+  "schema": "BWD_ARITH1_VERDICT",
+  "terminal_verdict": "DROP_REUSE_TRAFFIC_OVERHEAD",
+  "one_line": "Exact FP32 forward-Gaussian-response caching (R1) is correct but SLOWER than recompute on all 3 MX A100 scenes; materializing/replaying G costs more HBM traffic than the expf it saves.",
+  "gates": {
+    "forward_correctness_pass": true,
+    "gradient_correctness_pass": true,
+    "backward_reduction_ge_8pct_geomean": false,
+    "S_backward_geomean_3scene": 0.7908,
+    "renderer_gate_S_R_ge_1.05_on_2of3": false,
+    "geomean_S_renderer": 0.8319,
+    "memory_feasible": true,
+    "e2e_gate_passed": false
+  },
+  "why_not_PASS": "R1 is a net REGRESSION: S_backward geomean=0.790 (R1 21% slower backward), S_renderer geomean=0.835 (R1 16.5% slower renderer). The backward gate requires T_B_R1<=0.92*T_B_R0 (S>=1.087); measured S=0.790. Fails by a wide margin on all 3 scenes.",
+  "physical_bound": "Traffic oracle: cache LOAD alone at peak HBM (1.555 TB/s) = 1.45-1.59x the O20 expf savings on all 3 scenes; store+load = 2.9-3.2x. R1 cannot pass even at idealized bandwidth. L2 (40MB) << cache (0.9-3.0GB).",
+  "mechanism": "delta_T_bwd scales NEGATIVELY with N_valid_G (more cache => more load traffic => larger backward regression). Confirms memory-traffic-bound, not compute-bound.",
+  "cross_scene": "Direction consistent: R1 slower on room (S_R 0.887), bicycle (0.780), garden (0.841). Reproducible: room run2 S_R 0.888, bicycle run2 0.762.",
+  "no_rescue_rule": "Per \u00a739, exact FP32 reuse failed on traffic; STOP. Did NOT try FP16/BF16/quant/selective/compressed/approximate.",
+  "scientific_value": "Confirms the generic recompute-vs-materialize principle: on A100 HBM, recomputing one expf is cheaper than round-tripping 4 bytes/interaction. Useful negative result for Gaussian-splatting systems.",
+  "caveats": [
+    "GPU contaminated by foreign jobs (~6.6GB/GPU, 26-40% util) at measurement; paired same-session R0/R1 ratio used (cancels systematic load); direction consistent across 3 scenes + 2 runs + matches physical bound.",
+    "Production forward is run-to-run nondeterministic (~1e-3 relL2); correctness gates are floor-relative; directly-affected gradient families bitwise-identical proves exact cache reuse."
+  ]
+}

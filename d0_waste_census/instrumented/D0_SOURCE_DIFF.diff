@@ -1,0 +1,328 @@
+--- frozen/gaussian_model.py
++++ d0/gaussian_model.py
+@@ -65,6 +65,10 @@
+         self._gaussian_ids = torch.empty(0, dtype=torch.long, device="cuda")
+         self._next_gaussian_id = 0
+ 
++        # D0 metadata-only tracer handle (None in every non-D0 run).
++        self.d0 = None
++        self.d0_iter = 0
++
+         # Config (set in training_setup)
+         self.optimizer = None
+         self.percent_dense = 0.01
+@@ -172,6 +176,8 @@
+         self._next_gaussian_id = N
+ 
+         print(f"Number of points at initialisation : {N}")
++        if self.d0 is not None:
++            self.d0.register_init(int(N))
+ 
+     @staticmethod
+     def _compute_knn_dist(points: torch.Tensor, k: int = 3) -> torch.Tensor:
+@@ -433,11 +439,22 @@
+ 
+     # ---- Prune (official L349-364) ------------------------------------------
+ 
+-    def prune_points(self, mask: torch.Tensor):
++    def prune_points(self, mask: torch.Tensor, d0_reason=0):
+         """Remove Gaussians where mask=True. Preserve survivor optimizer state.
+ 
+-        Official L349-364.
+-        """
++        Official L349-364.  d0_reason is metadata-only (int or per-row tensor).
++        """
++        if self.d0 is not None:
++            died_uids = self._gaussian_ids[mask].detach()
++            if d0_reason is None:
++                # densify_and_prune passes None only while max_screen_size is
++                # inactive (iteration <= opacity_reset_interval): the prune
++                # mask then contains opacity prunes only (reason 1).
++                reasons = 1
++            else:
++                reasons = (d0_reason[mask] if torch.is_tensor(d0_reason)
++                           else int(d0_reason))
++            self.d0.register_deaths(died_uids, reasons, self.d0_iter)
+         valid_points_mask = ~mask
+         optimizable_tensors = self._prune_optimizer(valid_points_mask)
+ 
+@@ -480,9 +497,20 @@
+         new_rotation = self._rotation[selected_pts_mask]
+         new_tmp_radii = self.tmp_radii[selected_pts_mask] if self.tmp_radii is not None else None
+ 
++        d0_feat = None
++        d0_parent_uids = None
++        if self.d0 is not None:
++            rows = selected_pts_mask.nonzero(as_tuple=True)[0]
++            d0_feat = self.d0.capture_birth_features(rows, 1, self.d0_iter)
++            d0_parent_uids = self._gaussian_ids[rows].detach()
++
+         n_cloned = selected_pts_mask.sum().item()
+         self.densification_postfix(new_xyz, new_shs, new_opacities,
+                                     new_scaling, new_rotation, new_tmp_radii)
++        if self.d0 is not None and int(n_cloned) > 0:
++            self.d0.register_births(
++                self._gaussian_ids[-int(n_cloned):].detach(),
++                d0_parent_uids, 1, self.d0_iter, d0_feat)
+         return n_cloned
+ 
+     # ---- Split (official L409-433) ------------------------------------------
+@@ -534,15 +562,29 @@
+         new_opacity = self._opacity[selected_pts_mask].repeat(N)  # 1D
+         new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N) if self.tmp_radii is not None else None
+ 
++        d0_feat = None
++        d0_parent_uids = None
++        if self.d0 is not None:
++            rows = selected_pts_mask.nonzero(as_tuple=True)[0]
++            # children are appended as N consecutive blocks over the parents;
++            # child block b, slot j <-> parent j  (feat [F, m] -> [F, N*m])
++            d0_feat = self.d0.capture_birth_features(
++                rows, 2, self.d0_iter).repeat(1, N)
++            d0_parent_uids = self._gaussian_ids[rows].repeat(N).detach()
++
+         self.densification_postfix(new_xyz, new_shs, new_opacity,
+                                     new_scaling, new_rotation, new_tmp_radii)
++        if self.d0 is not None and int(n_split) > 0:
++            self.d0.register_births(
++                self._gaussian_ids[-N * int(n_split):].detach(),
++                d0_parent_uids, 2, self.d0_iter, d0_feat)
+ 
+         # Remove split parents (official L432-433)
+         prune_filter = torch.cat((
+             selected_pts_mask,
+             torch.zeros(N * n_split, device="cuda", dtype=bool)
+         ))
+-        self.prune_points(prune_filter)
++        self.prune_points(prune_filter, d0_reason=4)
+ 
+         return n_split
+ 
+@@ -585,18 +627,26 @@
+ 
+         pruned_screen = 0
+         pruned_world = 0
++        d0_reason_codes = None
+         if max_screen_size:
+             big_points_vs = self.max_radii2D > max_screen_size
+             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+             pruned_screen = (big_points_vs & ~prune_mask).sum().item()
+             pruned_world = (big_points_ws & ~(prune_mask | big_points_vs)).sum().item()
++            if self.d0 is not None:
++                # priority opacity > screen > world, matching the reported
++                # pruned_opacity / pruned_screen / pruned_world counts above
++                d0_reason_codes = torch.zeros_like(prune_mask, dtype=torch.uint8)
++                d0_reason_codes[big_points_ws] = 3
++                d0_reason_codes[big_points_vs] = 2
++                d0_reason_codes[prune_mask] = 1
+             prune_mask = torch.logical_or(
+                 torch.logical_or(prune_mask, big_points_vs), big_points_ws
+             )
+ 
+         total_pruned = prune_mask.sum().item()
+         if total_pruned > 0:
+-            self.prune_points(prune_mask)
++            self.prune_points(prune_mask, d0_reason=d0_reason_codes)
+ 
+         torch.cuda.empty_cache()
+ 
+@@ -618,6 +668,8 @@
+             opacities_new = inverse_sigmoid(min(get_opacity, 0.01))
+             replace_tensor_to_optimizer(opacities_new, "opacity")
+         """
++        if self.d0 is not None:
++            self.d0.register_opacity_reset(self.d0_iter)
+         opacities_new = torch.logit(
+             torch.min(self.get_opacity, torch.ones_like(self.get_opacity) * 0.01)
+         )  # 1D
+--- frozen/publication_trainer_p12.py
++++ d0/publication_trainer_p12.py
+@@ -69,7 +69,10 @@
+ 
+ ACCUTILE_TREE = "/root/epic05_frozen/gsplat-true-accutile-v153"
+ B1A_SO = "/root/epic05_build_cache/b1a_ext/gsplat_cuda_final30k/gsplat_cuda_final30k.so"
+-C0_WT = "/root/epic05_frozen/higs_c0_final30k_worktree"
++# D0: traced runs import the metadata-patched worktree copy; the frozen
++# worktree remains the binary source for every other run.
++C0_WT = ("/root/epic05_d0/c0_worktree_d0" if "--d0-trace" in sys.argv
++         else "/root/epic05_frozen/higs_c0_final30k_worktree")
+ C0_SO = "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so"
+ CORE_SO = "/root/epic05_build_cache/core/gsplat_cuda/gsplat_cuda.so"
+ SCENE_CUDA_DIR = "/root/epic05_build_cache/scene/gsplat_scene_cuda"
+@@ -253,6 +256,8 @@
+                          "byte-identical recipe); fused = P11-validated fused-ssim "
+                          "padding='same' (P12 strong baseline). The evaluation SSIM "
+                          "metric is SepSSIM in both cases (frozen eval procedure).")
++    ap.add_argument("--d0-trace", action="store_true",
++                    help="D0 waste-census metadata tracing (D0_INSTRUMENTATION_SPEC.md)")
+     args = ap.parse_args()
+ 
+     os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(args.gpu))
+@@ -280,7 +285,11 @@
+         (0.3 if args.arm in ("c0", "a0", "a1", "a2", "gmain") else None))
+ 
+     # shared recipe imports (after bootstrap)
+-    from gaussian_model import GaussianModel
++    if args.d0_trace:
++        from d0_gaussian_model import GaussianModel
++        from d0_trace import D0Tracer
++    else:
++        from gaussian_model import GaussianModel
+     from config import ReferenceV1Config
+     from colmap_reader import read_points3D_binary, sfm_to_pcd_data
+     from dataset import GTDataset
+@@ -366,7 +375,7 @@
+             # generic (radii > 0).any(dim=-1) yields a proper [N] mask (a 1-D
+             # radii would collapse any() to a 0-D bool and break downstream
+             # boolean indexing)
+-            return frame.clamp(0, 1), radii.reshape(1, -1, 1), means2d
++            return frame.clamp(0, 1), radii.reshape(1, -1, 1), means2d, None
+         if args.arm in ("b1a", "b1", "gmain"):
+             # accutile exists ONLY in the B1A patched tree; the pristine v1.5.3
+             # signature has no such kwarg, so it must be omitted entirely for b1
+@@ -383,7 +392,7 @@
+             means2d = meta["means2d"]
+             if means2d.requires_grad:
+                 means2d.retain_grad()
+-            return r[0].clamp(0, 1), meta["radii"], means2d
++            return r[0].clamp(0, 1), meta["radii"], means2d, None
+         else:
+             out = rasterize_gaussian_higs_dynamic(
+                 model.get_xyz, model.get_rotation, model.get_scaling,
+@@ -398,7 +407,25 @@
+             info = out["densification_info"]
+             means2d = info["means2d"]
+             frame = out["frame"].reshape(cam.image_height, cam.image_width, 3)
+-            return frame.clamp(0, 1), info["radii"], means2d
++            d0cap = None
++            if args.d0_trace:
++                _md = out.get("metadata", {})
++                d0cap = {
++                    "visible_ids": info["visible_gaussian_ids"],
++                    "isect_row_space": "visible",
++                    "tiles_per_gauss": _md.get("d0_tiles_per_gauss"),
++                    "depths_vis": _md.get("d0_depths_vis"),
++                    "means2d_px_visible": _md.get("d0_means2d_px"),
++                    "radii_full": info["radii"][0],
++                    "means2d_proxy": means2d,
++                    "n_isects": int(_md.get("n_isects") or 0),
++                    "n_isects_full": int(_md.get("n_isects_full") or 0),
++                    "f9_enabled": bool(_md.get("d0_f9_enabled")),
++                    "width": float(info["width"]),
++                    "height": float(info["height"]),
++                    "cam_center": cam.camera_center.detach().clone(),
++                }
++            return frame.clamp(0, 1), info["radii"], means2d, d0cap
+ 
+     # ---------------- setup ------------------------------------------------
+     os.makedirs(args.outdir, exist_ok=True)
+@@ -423,6 +450,15 @@
+     pcd_data = sfm_to_pcd_data(points3d, sh_degree=config.sh_degree)
+ 
+     model = GaussianModel(max_sh_degree=config.sh_degree)
++    d0 = None
++    if args.d0_trace:
++        # offset from the scene name only (never from the training RNG)
++        _d0_off = 1 + int(hashlib.sha256(
++            ("D0:" + args.scene).encode()).hexdigest(), 16) % 20
++        d0 = D0Tracer(model, args.scene, args.outdir, n_cameras,
++                      config.densify_grad_threshold, _d0_off)
++        model.d0 = d0
++        print(f"  [D0] trace enabled: sample_offset={_d0_off}", flush=True)
+     model.create_from_pcd(pcd_data, spatial_lr_scale=scene_extent)
+     initial_N = model._xyz.shape[0]
+     model.training_setup({
+@@ -556,7 +592,7 @@
+         for ci in cam_indices:
+             cam, gt = dataset.get_item(ci)
+             with torch.no_grad():
+-                img, _, _ = render_with_meta(model, cam, model.active_sh_degree)
++                img, _, _, _ = render_with_meta(model, cam, model.active_sh_degree)
+             psnrs.append(compute_psnr(img, gt))
+             ssims.append(1.0 - ssim_fn(img, gt).item())
+             l1s.append(float(F.l1_loss(img, gt).item()))
+@@ -596,7 +632,7 @@
+ 
+         t0 = time.perf_counter()
+         pev[0].record()
+-        image, radii_full, means2d = render_with_meta(model, cam, model.active_sh_degree)
++        image, radii_full, means2d, d0cap = render_with_meta(model, cam, model.active_sh_degree)
+         pev[1].record()
+ 
+         if args.loss == "fused":
+@@ -620,6 +656,10 @@
+         radii = radii_full[0]
+         visibility_filter = (radii > 0).any(dim=-1)
+         n_visible = int(visibility_filter.sum())
++
++        if args.d0_trace:
++            model.d0_iter = iteration
++            d0.note_render(iteration, cam_idx, d0cap, image, gt_image)
+ 
+         if iteration < config.densify_until_iter:
+             model.max_radii2D[visibility_filter] = torch.max(
+@@ -643,6 +683,8 @@
+                 iteration % config.densification_interval == 0):
+             size_threshold = config.max_screen_size if iteration > config.opacity_reset_interval else None
+             n_before = int(model._xyz.shape[0])
++            if args.d0_trace:
++                d0.begin_event(iteration)
+ 
+             # pre-event record: the per-gaussian absgrad norm distribution
+             with torch.no_grad():
+@@ -697,6 +739,9 @@
+         phase_ms["densify"].append(pev[3].elapsed_time(pev[4]))
+         phase_ms["optimizer"].append(pev[4].elapsed_time(pev[5]))
+         iter_times.append((time.perf_counter() - t0) * 1000)
++        if args.d0_trace:
++            d0.note_iteration(iteration, float(loss.item()), phase_ms,
++                              iter_times[-1])
+         vram = torch.cuda.max_memory_allocated() / (1024 ** 3)
+         peak_vram = max(peak_vram, vram)
+ 
+@@ -708,6 +753,12 @@
+ 
+         if iteration in eval_iterations:
+             evaluate(eval_indices, "eval", iteration)
++
++        if args.d0_trace and iteration in (5000, 10000, 15000, 20000, 25000,
++                                           30000):
++            evaluate(list(range(n_cameras)), "d0_ckpt", iteration)
++            torch.save(model.capture(),
++                       os.path.join(args.outdir, f"d0_ckpt_{iteration}.pt"))
+ 
+         if iteration % 500 == 0:
+             print(f"  [{args.arm}/{args.scene} iter {iteration}] loss={float(loss.item()):.4f} "
+@@ -729,6 +780,12 @@
+         final_eval = evaluate(list(range(n_cameras)), "final", config.iterations)
+     else:
+         final_eval = evaluate(eval_indices, "final", config.iterations)
++
++    if args.d0_trace:
++        # D0 Stage 5 (descriptive audit, metadata only): render the 16
++        # deterministic audit cameras on the final state, after all training
++        # and timing work; no recorded training quantity is affected.
++        d0.run_final_audit(dataset, render_with_meta, model, config.iterations)
+ 
+     iter_arr = np.array(iter_times)
+     results = {
+@@ -792,6 +849,19 @@
+         ckpt["arm"] = args.arm
+         torch.save(ckpt, os.path.join(args.outdir, f"ckpt_{config.iterations}.pt"))
+ 
++    if args.d0_trace:
++        d0_meta = d0.finalize({
++            "arm": args.arm, "scene": args.scene, "seed": config.seed,
++            "iterations": config.iterations, "n_cameras": n_cameras,
++            "outdir": args.outdir, "loss": args.loss,
++            "grad_threshold": config.densify_grad_threshold,
++            "timing_grade": args.timing_grade,
++        })
++        results["d0_trace"] = d0_meta
++        print(f"  [D0] trace finalized: uids={d0_meta['n_uids']:,} "
++              f"births={d0_meta['n_births_post_init']:,} "
++              f"samples={d0_meta['n_samples']}", flush=True)
++
+     # ---- harness-format artifacts (frozen FINAL-30K schema) ----
+     all_finite = all(math.isfinite(r["loss"]) for r in per_iter) and \
+         all(math.isfinite(r["psnr"]) and math.isfinite(r["ssim"]) for r in eval_rows)

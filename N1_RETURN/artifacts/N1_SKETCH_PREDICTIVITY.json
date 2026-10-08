@@ -1,0 +1,79 @@
+{
+  "definition": {
+    "projection": "dense Rademacher, 256 rows per group, groups (xyz; opacity; scale+rotation; SH), signs from per-(group, chunk) seeded CUDA generators (seed stream frozen globally, N1_SEED=20260928); group sketches L2-normalized then concatenated (1024-dim). No learned projection. Sketch of a view = projection of that view's true fused-loss gradient at the given state.",
+    "stale": "sketches from checkpoint C-5000 (SKETCH_SRC map; the 10000 source for 15000 anchors spans the last densification events \u2014 reported per checkpoint). fresh control = sketches at C itself.",
+    "predictivity": "predicted disagreement = 1 - cos(sketch_v1, sketch_partner) (concatenated unit-normalized); actual = 1 - global-normalized cosine of the current true gradients (Stage 7 ground truth). Primary: Spearman over all (anchor, partner) pairs per scene (7 pairs/anchor); also per overlap tier and per checkpoint; fresh-sketch control reported. scipy.stats.spearmanr."
+  },
+  "scenes": {
+    "room": {
+      "n_pairs": 1344,
+      "spearman_stale_vs_true": 0.7579398109611246,
+      "spearman_fresh_vs_true": 0.7976870456616739,
+      "pearson_stale_vs_true": 0.890550424076337,
+      "pearson_fresh_vs_true": 0.925998505199117,
+      "per_checkpoint": {
+        "15000": {
+          "spearman_stale": 0.766706875226335,
+          "spearman_fresh": 0.8342654427376831
+        },
+        "20000": {
+          "spearman_stale": 0.7628789205302261,
+          "spearman_fresh": 0.7918115694142289
+        },
+        "25000": {
+          "spearman_stale": 0.7451800605873493,
+          "spearman_fresh": 0.7763948528035185
+        }
+      },
+      "per_tier": {
+        "high": {
+          "spearman_stale": 0.7226797199099712,
+          "spearman_fresh": 0.8203793591308763
+        },
+        "medium": {
+          "spearman_stale": 0.255475611203418,
+          "spearman_fresh": 0.4114592163710963
+        },
+        "low": {
+          "spearman_stale": -0.037529363490281326,
+          "spearman_fresh": 0.04997514790267382
+        }
+      }
+    },
+    "bicycle": {
+      "n_pairs": 1344,
+      "spearman_stale_vs_true": 0.46336777919365985,
+      "spearman_fresh_vs_true": 0.4294411143450075,
+      "pearson_stale_vs_true": 0.6155853650687004,
+      "pearson_fresh_vs_true": 0.6103581502320841,
+      "per_checkpoint": {
+        "15000": {
+          "spearman_stale": 0.5895704318906643,
+          "spearman_fresh": 0.60985842771606
+        },
+        "20000": {
+          "spearman_stale": 0.4751778482684456,
+          "spearman_fresh": 0.4382216828084106
+        },
+        "25000": {
+          "spearman_stale": 0.305391490775078,
+          "spearman_fresh": 0.24170178384529378
+        }
+      },
+      "per_tier": {
+        "high": {
+          "spearman_stale": 0.5849637222983509,
+          "spearman_fresh": 0.5544789076811293
+        },
+        "medium": {
+          "spearman_stale": 0.12008353401264722,
+          "spearman_fresh": 0.07867680733751337
+        },
+        "low": {
+          "spearman_stale": 0.05510315085120462,
+          "spearman_fresh": 0.0884392357358146
+        }
+      }
+    }
+  }
+}

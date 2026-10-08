@@ -1,0 +1,44 @@
+{
+  "schema": "BWD_DEPREG0_GRADIENT_RESOURCE_PROBES",
+  "date": "2026-10-07",
+  "label": "ORACLE_ONLY / INVALID_FOR_TRAINING (gradient families disabled; not semantically valid)",
+  "purpose": "Detect a nonlinear register/latency cliff when a gradient family is removed.",
+  "R0_registers": 67,
+  "R0_spill_bytes": 0,
+  "probes": [
+    {
+      "tag": "nocolor",
+      "macro": "BWD_DEPREG_NOCOLOR",
+      "registers": 61,
+      "spill_bytes": 0,
+      "S_backward_paired_median": 1.0009,
+      "delta_T_bwd_ms_median": 0.0005,
+      "timing_scene": "room",
+      "note": ""
+    },
+    {
+      "tag": "noopacity",
+      "macro": "BWD_DEPREG_NOOPACITY",
+      "registers": 64,
+      "spill_bytes": 0,
+      "S_backward_paired_median": null,
+      "timing_scene": null,
+      "note": "register-only probe; paired timing not captured (see note)"
+    },
+    {
+      "tag": "noconic",
+      "macro": "BWD_DEPREG_NOCONIC",
+      "registers": 59,
+      "spill_bytes": 0,
+      "S_backward_paired_median": 1.0011,
+      "delta_T_bwd_ms_median": -0.0225,
+      "timing_scene": "room",
+      "note": ""
+    }
+  ],
+  "findings": {
+    "register_cliff": "NONE. Removing color (-6), conic (-8), opacity (-3) registers reduces counts monotonically but shows NO cliff and NO spill.",
+    "latency_effect": "ALL paired medians ~1.000 (room nocolor 1.0009, noconic 1.0011). No family removal changes backward latency materially.",
+    "interpretation": "No single gradient family dominates; backward is not family-compute-bound in a way that DEPREG levers can exploit."
+  }
+}

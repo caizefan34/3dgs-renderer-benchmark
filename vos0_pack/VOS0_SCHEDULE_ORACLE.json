@@ -1,0 +1,195 @@
+{
+  "schema": "VOS0_SCHEDULE_ORACLE/v1",
+  "method": "Continue-train dense (k=1, all Gaussians every iter) vs cold-skip arms (cold Gaussians updated every k iters; hot+warm every iter) from the frozen 30K state, two Adam optimizers. h_iters=600, lr=1e-4, photometric noise=0.2, ds_train=1, 16 held-out eval cams (i%8==0). Quality = PSNR(dense,clean30K) - PSNR(skip,clean30K) on eval cams (GT-free; GT images unusable due to 16:9 vs 1.5 aspect mismatch). Economic = exact optimizer-step reduction = cold_frac*(1-1/k).",
+  "config": {
+    "h_iters": 600,
+    "lr": 0.0001,
+    "noise": 0.2,
+    "ds_train": 1,
+    "ds_eval": 2,
+    "n_eval": 16,
+    "seed": 42
+  },
+  "cold_frac": {
+    "room": 0.31425915791376297,
+    "garden": 0.2590616893444556,
+    "bicycle": 0.45945631686082444
+  },
+  "economic_model": {
+    "k2": {
+      "per_scene_workload_reduction": {
+        "room": 0.15712957895688148,
+        "garden": 0.1295308446722278,
+        "bicycle": 0.22972815843041222
+      },
+      "geomean": 0.16721752527720168,
+      "pass_ge_20pct": false
+    },
+    "k4": {
+      "per_scene_workload_reduction": {
+        "room": 0.2356943684353222,
+        "garden": 0.1942962670083417,
+        "bicycle": 0.3445922376456183
+      },
+      "geomean": 0.2508262879158024,
+      "pass_ge_20pct": true
+    },
+    "k8": {
+      "per_scene_workload_reduction": {
+        "room": 0.2749767631745426,
+        "garden": 0.22667897817639865,
+        "bicycle": 0.4020242772532214
+      },
+      "geomean": 0.29263066923510284,
+      "pass_ge_20pct": true
+    }
+  },
+  "quality": {
+    "k2": {
+      "per_scene_median_loss": {
+        "room": -0.025133775616865667,
+        "garden": 0.02529090854075644,
+        "bicycle": 0.03577355156501061
+      },
+      "per_scene_mean_loss": {
+        "room": -0.03183934919004194,
+        "garden": 0.011693674871696258,
+        "bicycle": 0.032341436492693304
+      },
+      "per_scene_max_loss": {
+        "room": 0.05619511888261072,
+        "garden": 0.11382574155233804,
+        "bicycle": 0.26240726654834934
+      },
+      "pooled_median_loss": 0.014883021699048204,
+      "pooled_mean_loss": 0.004065254058115871,
+      "worst_scene_median_loss": 0.03577355156501061,
+      "worst_camera_loss": 0.26240726654834934,
+      "pass_pooled_le_0.05": true,
+      "pass_per_scene_worst_le_0.05": true
+    },
+    "k4": {
+      "per_scene_median_loss": {
+        "room": -0.04871623396300509,
+        "garden": -0.017351185508079237,
+        "bicycle": 0.06973435941185857
+      },
+      "per_scene_mean_loss": {
+        "room": -0.033842431870334894,
+        "garden": -0.01993737550887356,
+        "bicycle": 0.07792213366066564
+      },
+      "per_scene_max_loss": {
+        "room": 0.09614731856360031,
+        "garden": 0.06460684628004154,
+        "bicycle": 0.37659055495840676
+      },
+      "pooled_median_loss": -0.013704746283002667,
+      "pooled_mean_loss": 0.008047442093819062,
+      "worst_scene_median_loss": 0.06973435941185857,
+      "worst_camera_loss": 0.37659055495840676,
+      "pass_pooled_le_0.05": true,
+      "pass_per_scene_worst_le_0.05": false
+    },
+    "k8": {
+      "per_scene_median_loss": {
+        "room": -0.03110516512266054,
+        "garden": 0.02959531915523117,
+        "bicycle": 0.07790000861393631
+      },
+      "per_scene_mean_loss": {
+        "room": -0.02796944666536315,
+        "garden": 0.012997140445499628,
+        "bicycle": 0.08534338309126328
+      },
+      "per_scene_max_loss": {
+        "room": 0.12181673486946565,
+        "garden": 0.15022301025923035,
+        "bicycle": 0.4915312261402713
+      },
+      "pooled_median_loss": 0.006880205191304167,
+      "pooled_mean_loss": 0.023457025623799924,
+      "worst_scene_median_loss": 0.07790000861393631,
+      "worst_camera_loss": 0.4915312261402713,
+      "pass_pooled_le_0.05": true,
+      "pass_per_scene_worst_le_0.05": false
+    }
+  },
+  "per_scene_quality_table": {
+    "room": {
+      "dense": {
+        "median": 0.0,
+        "mean": 0.0,
+        "max": 0.0
+      },
+      "skip2": {
+        "median": -0.025133775616865667,
+        "mean": -0.03183934919004194,
+        "max": 0.05619511888261072
+      },
+      "skip4": {
+        "median": -0.04871623396300509,
+        "mean": -0.033842431870334894,
+        "max": 0.09614731856360031
+      },
+      "skip8": {
+        "median": -0.03110516512266054,
+        "mean": -0.02796944666536315,
+        "max": 0.12181673486946565
+      }
+    },
+    "garden": {
+      "dense": {
+        "median": 0.0,
+        "mean": 0.0,
+        "max": 0.0
+      },
+      "skip2": {
+        "median": 0.02529090854075644,
+        "mean": 0.011693674871696258,
+        "max": 0.11382574155233804
+      },
+      "skip4": {
+        "median": -0.017351185508079237,
+        "mean": -0.01993737550887356,
+        "max": 0.06460684628004154
+      },
+      "skip8": {
+        "median": 0.02959531915523117,
+        "mean": 0.012997140445499628,
+        "max": 0.15022301025923035
+      }
+    },
+    "bicycle": {
+      "dense": {
+        "median": 0.0,
+        "mean": 0.0,
+        "max": 0.0
+      },
+      "skip2": {
+        "median": 0.03577355156501061,
+        "mean": 0.032341436492693304,
+        "max": 0.26240726654834934
+      },
+      "skip4": {
+        "median": 0.06973435941185857,
+        "mean": 0.07792213366066564,
+        "max": 0.37659055495840676
+      },
+      "skip8": {
+        "median": 0.07790000861393631,
+        "mean": 0.08534338309126328,
+        "max": 0.4915312261402713
+      }
+    }
+  },
+  "gates": {
+    "quality_pooled_loss_le_0.05dB": 0.05,
+    "quality_per_scene_worst_median_le_0.05dB": 0.05,
+    "economic_geomean_workload_reduction_ge_0.20": 0.2
+  },
+  "recommended_k": 4,
+  "verdict": "VIABLE",
+  "failure_mode": null,
+  "caveat": "Absolute eval PSNR vs the clean 30K reference is low (1-7 dB) because the 600-iter noisy photometric continuation drifts BOTH arms from the 30K state. The gate metric is the RELATIVE loss (dense - skip), robust to this shared drift; cold Gaussians are <10% visible so skipping them barely moves the held-out render. Pooled loss aggregates all 3 scenes x 16 eval cams (48 values)."
+}

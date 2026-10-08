@@ -1,0 +1,133 @@
+{
+  "schema": "AMPS0_TRAFFIC_MODEL",
+  "generated": "2026-10-05",
+  "host": "RTX 5070 Laptop (local); analytical model host-independent",
+  "attribute_taxonomy": [
+    {
+      "name": "means",
+      "group": "geometry",
+      "n": 3
+    },
+    {
+      "name": "scales",
+      "group": "geometry",
+      "n": 3
+    },
+    {
+      "name": "quats",
+      "group": "geometry",
+      "n": 4
+    },
+    {
+      "name": "opacity",
+      "group": "geometry",
+      "n": 1
+    },
+    {
+      "name": "sh0",
+      "group": "appearance",
+      "n": 3,
+      "subtype": "sh0"
+    },
+    {
+      "name": "sh_rest",
+      "group": "appearance",
+      "n": 45,
+      "subtype": "sh_rest"
+    }
+  ],
+  "total_scalars": 59,
+  "adam_bytes_per_scalar_fp32": 28,
+  "adam_bytes_per_scalar_bf16_mv": 20,
+  "adam_access_pattern": "R param(4) R grad(4) R m R v W param(4) W m W v",
+  "assumption_memory_bound_optimizer": true,
+  "assumption_note": "Adam streaming kernel; AI ~0.36 FLOP/byte << A100 ridge ~20; optimizer time scales with HBM bytes for large N. BF16<->FP32 convert = 1 instr on A100 (negligible vs ~10 FLOP Adam math).",
+  "e2e_formula": "T_new/T_old=(1-p)+p*(1-s); speedup=1/that; p=optimizer fraction; s=opt traffic reduction",
+  "candidates": [
+    {
+      "cand": "C0",
+      "label": "reference (all FP32 m/v)",
+      "opt_bytes_per_gauss": 1652,
+      "opt_bytes_fp32": 1652,
+      "opt_traffic_reduction": 0.0,
+      "mv_only_traffic_reduction": 0.5,
+      "e2e_at_p": {
+        "0.0594": 1.0,
+        "0.14": 1.0,
+        "0.2": 1.0,
+        "0.3": 1.0,
+        "0.4": 1.0
+      }
+    },
+    {
+      "cand": "C1",
+      "label": "conservative: sh_rest m=FP32 v=BF16",
+      "opt_bytes_per_gauss": 1292,
+      "opt_bytes_fp32": 1652,
+      "opt_traffic_reduction": 0.2179,
+      "mv_only_traffic_reduction": 0.6907,
+      "e2e_at_p": {
+        "0.0594": 1.0131,
+        "0.14": 1.0315,
+        "0.2": 1.0456,
+        "0.3": 1.0699,
+        "0.4": 1.0955
+      }
+    },
+    {
+      "cand": "C2",
+      "label": "PRIMARY: sh_rest m/v BF16",
+      "opt_bytes_per_gauss": 1292,
+      "opt_bytes_fp32": 1652,
+      "opt_traffic_reduction": 0.2179,
+      "mv_only_traffic_reduction": 0.6907,
+      "e2e_at_p": {
+        "0.0594": 1.0131,
+        "0.14": 1.0315,
+        "0.2": 1.0456,
+        "0.3": 1.0699,
+        "0.4": 1.0955
+      }
+    },
+    {
+      "cand": "C3",
+      "label": "expanded: sh_rest+sh0+opacity BF16",
+      "opt_bytes_per_gauss": 1260,
+      "opt_bytes_fp32": 1652,
+      "opt_traffic_reduction": 0.2373,
+      "mv_only_traffic_reduction": 0.7076,
+      "e2e_at_p": {
+        "0.0594": 1.0143,
+        "0.14": 1.0344,
+        "0.2": 1.0498,
+        "0.3": 1.0766,
+        "0.4": 1.1049
+      }
+    },
+    {
+      "cand": "C4",
+      "label": "ceiling: ALL m/v BF16",
+      "opt_bytes_per_gauss": 1180,
+      "opt_bytes_fp32": 1652,
+      "opt_traffic_reduction": 0.2857,
+      "mv_only_traffic_reduction": 0.75,
+      "e2e_at_p": {
+        "0.0594": 1.0173,
+        "0.14": 1.0417,
+        "0.2": 1.0606,
+        "0.3": 1.0938,
+        "0.4": 1.129
+      }
+    }
+  ],
+  "gates": {
+    "traffic_gate_e2e_min": 1.05,
+    "e2e_promote_min": 1.08,
+    "e2e_strong_min": 1.15,
+    "measured_p": {
+      "full_adam_M0_room15k": 0.0594,
+      "sh_adam_LAVOS0_all_scenes": 0.14
+    },
+    "note": "At measured p (0.059-0.14), even C4(all BF16) yields E2E<1.05x. DROP_TRAFFIC_HEADROOM triggered."
+  }
+}

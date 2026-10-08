@@ -1,0 +1,394 @@
+{
+  "task": "SB0-FGS",
+  "deliverable": "SB0_COMPONENT_MATRIX",
+  "title": "C0 vs Faster-GS component matrix (pre-CUDA-modification gate)",
+  "audit_date": "2026-09-29",
+  "baseline": {
+    "id": "C0",
+    "definition": "F9 + SCALAR_ADJOINT + H8_MR, PX=2",
+    "loss": "0.8*L1 + 0.2*(1-SSIM), full-resolution fused SSIM, tile16, seed=42, 30K iters, densification 500..15000, black background",
+    "trainer": "publication_trainer_p12.py",
+    "source_tree_local": "C:\\Users\\36570\\3dgs-renderer-benchmark\\_mx_h8\\pack\\h8\\gsplat (gsplat H8 pack) + p18_p0/c0_source (HigsNativeBackward)",
+    "env_vars": {
+      "HIGS_PX_RUNTIME": "2",
+      "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+      "HIGS_BWD_H8_MR": "1",
+      "HIGS_BWD_ABSGRAD": "1"
+    },
+    "flags": {
+      "f9": true,
+      "scalar_adjoint": true,
+      "h8_mr": true,
+      "px_runtime": 2
+    },
+    "provenance_sha256": {
+      "task_pinned_core_gsplat_cuda_so": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+      "task_pinned_c0_extension": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaff6dacf3197258a513f11",
+      "local_C0_V3_FINAL30K_so_sha256": "9baf8655f859f3e0f456e99a2d8e5b3ddfe414fe17a1a3e9d8072e0afed95b91",
+      "local_C0_V3_FINAL30K_core_sha256": "361b216bcc11609a0ebb8fb44ad2e0c6170948112b6294e85123df45541c8c98",
+      "match": false,
+      "note": "Local C0_V3_FINAL30K .so/core hashes do NOT match the task-pinned hashes. Likely build-path/toolchain embedding (CUDA extensions embed the build dir path; local build_dir differs from /root/epic05_frozen/...). Provenance gap: authoritative C0 binary/source must be reconciled before any implementation. Does NOT block audit/oracle."
+    }
+  },
+  "reference": {
+    "name": "Faster-GS: Analyzing and Improving Gaussian Splatting Optimization (CVPR 2026)",
+    "repo": "https://github.com/nerficg-project/faster-gaussian-splatting",
+    "paper": "https://arxiv.org/abs/2602.09999",
+    "branches_audited": [
+      "main",
+      "FasterGSTestbed",
+      "FasterGSFused"
+    ],
+    "backend_root": "public_baselines/faster-gs/FasterGSCudaBackend/FasterGSCudaBackend",
+    "key_files": {
+      "main_forward": "rasterization/include/kernels_forward.cuh",
+      "main_backward": "rasterization/include/kernels_backward.cuh",
+      "main_adam": "adam/src/adam.cu (FasterGSTestbed branch)",
+      "main_densification": "densification/src/mcmc.cu + densification/include/kernels_mcmc.cuh",
+      "main_config": "rasterization/include/rasterization_config.h",
+      "fused_backward": "FasterGSFused branch rasterization/include/kernels_backward.cuh (fuses adam_step_helper into backward)",
+      "separate_sorting": "FasterGSTestbed branch rasterization/include/kernels_forward_separate_sorting.cuh (two-stage sort ablation toggle)"
+    }
+  },
+  "classification_legend": {
+    "ALREADY_IN_C0": "C0 already implements an equivalent (exact or superset) mechanism; no port needed.",
+    "DISTINCT_AND_EXACT": "Faster-GS mechanism is different from C0 but produces identical results (bitwise or algebraically exact); portable in principle.",
+    "DISTINCT_BUT_APPROXIMATE": "Faster-GS mechanism changes numerics/quality; not an exact systems win under the task's prohibitions.",
+    "INCOMPATIBLE_WITH_C0": "Cannot be combined with frozen C0 without breaking the research problem.",
+    "UNKNOWN": "Insufficient evidence to classify."
+  },
+  "components": [
+    {
+      "id": "C1_two_stage_sorting",
+      "name": "Two-stage (depth-based instance/bucket) sorting",
+      "faster_gs_evidence": {
+        "files": [
+          "rasterization/include/kernels_forward.cuh",
+          "rasterization/include/buffer_utils.h",
+          "rasterization/include/rasterization_config.h",
+          "FasterGSTestbed/rasterization/include/kernels_forward_separate_sorting.cuh"
+        ],
+        "markers": [
+          "primitive_depth_keys",
+          "primitive_n_touched_tiles",
+          "create_instances",
+          "extract_instance_ranges",
+          "block_size_apply_depth_ordering=256",
+          "cub::DeviceRadixSort(14)",
+          "instance(302)",
+          "bucket(79)"
+        ],
+        "summary": "Stage 1: depth-key + touched-tile count per primitive; radix-sort depth keys. Stage 2: create per-tile instance lists + extract instance ranges. Produces depth-correct back-to-front order via instance/bucket buffers."
+      },
+      "c0_evidence": {
+        "files": [
+          "cuda/csrc/IntersectTile.cu",
+          "cuda/csrc/SparseTileLayout.cu",
+          "cuda/csrc/RasterizeToPixels3DGSSerialBatchFwd.cu"
+        ],
+        "markers": [
+          "DeviceRadixSort(3)",
+          "cub::Device",
+          "isect_offsets",
+          "flatten_ids",
+          "single-pass tile intersect->scan->fill"
+        ],
+        "summary": "gsplat single-pass tile sort: count intersections per tile, exclusive scan, fill flatten_ids. NO instance/bucket structure. Depth-correct back-to-front within each tile."
+      },
+      "classification": "DISTINCT_AND_EXACT",
+      "rationale": "Both produce identical depth-correct back-to-front rendering; the sort strategy differs (single-pass tile vs two-stage depth-instance). Result-equivalent (exact), not approximate.",
+      "portability": "HIGH-RISK / HIGH-OVERHEAD: requires replacing the entire rasterizer addressing (instance/bucket buffers) and the per-Gaussian backward. Essentially a rasterizer swap.",
+      "prohibited_shortcut_risk": "None inherent, but the coupling to instance/bucket buffers makes surgical porting impractical; a full swap risks changing the research problem."
+    },
+    {
+      "id": "C2_per_gaussian_backward",
+      "name": "Per-Gaussian backward",
+      "faster_gs_evidence": {
+        "files": [
+          "rasterization/include/kernels_backward.cuh",
+          "rasterization/include/backward.h"
+        ],
+        "markers": [
+          "diff_rasterize",
+          "n_visible_primitives",
+          "n_instances",
+          "grad_mean2d_helper",
+          "grad_conic_helper",
+          "densification_info"
+        ],
+        "summary": "Per-Gaussian gradient accumulation over visible instances via bucket structure."
+      },
+      "c0_evidence": {
+        "files": [
+          "cuda/csrc/RasterizeToPixels3DGSSerialBatchBwd.cu",
+          "cuda/csrc/RasterizeToPixels3DGSDevice.cuh",
+          "cuda/csrc/ProjectionEWA3DGSFused.cu"
+        ],
+        "markers": [
+          "H8_MR template",
+          "h8_mr_enabled()",
+          "v_xy_abs_local",
+          "absgrad",
+          "per-gaussian(19)",
+          "mean2D(66)"
+        ],
+        "summary": "C0 already computes per-Gaussian gradients (grad_means2D, grad_conic, etc.) with H8_MR + absgrad moments in the backward kernel."
+      },
+      "classification": "ALREADY_IN_C0",
+      "rationale": "C0's H8_MR backward is already a per-Gaussian backward with absgrad. Faster-GS's bucket-based per-Gaussian backward is a different implementation of the same capability; marginal value is restructuring, not a new capability.",
+      "portability": "N/A (already present). Porting the bucket-based variant would be a rewrite with no exact-win guarantee.",
+      "prohibited_shortcut_risk": "None."
+    },
+    {
+      "id": "C3_opacity_aware_tighter_bounds",
+      "name": "Opacity-aware / tighter Gaussian bounds (truncation)",
+      "faster_gs_evidence": {
+        "files": [
+          "rasterization/include/rasterization_config.h",
+          "rasterization/include/kernels_forward.cuh"
+        ],
+        "markers": [
+          "TRUNCATION_MODE (0:3.33sigma,1:1sigma,2:2sigma,3:3sigma,4:4sigma)",
+          "original_opacity_interpretation",
+          "min_alpha_threshold",
+          "max_power_threshold",
+          "1.15x clip EWA",
+          "z culling (near/far)"
+        ],
+        "summary": "Configurable opacity-interpretation + tighter truncation (1/2/3/4-sigma) with alpha-threshold culling; 1.15x EWA clip."
+      },
+      "c0_evidence": {
+        "files": [
+          "cuda/csrc/ProjectionEWA3DGSFused.cu",
+          "cuda/csrc/RasterizeToPixels3DGSSerialBatchFwd.cu"
+        ],
+        "markers": [
+          "eps2d=0.3",
+          "3-sigma (gsplat default)",
+          "no opacity-based culling beyond alpha threshold"
+        ],
+        "summary": "C0 uses standard 3-sigma gsplat bounds (eps2d=0.3); no aggressive opacity culling."
+      },
+      "classification": "DISTINCT_BUT_APPROXIMATE",
+      "rationale": "With original_opacity_interpretation=true and TRUNCATION_MODE=0 (3.33-sigma) it is ~equivalent to 3DGS. The tighter modes (1/2-sigma) cull more Gaussians and CHANGE rendering/quality. Task prohibits quality-changing truncation as an exact systems improvement.",
+      "portability": "Only the default (3.33-sigma) mode is exact-equivalent, and that is ALREADY_IN_C0-equivalent. The tighter modes are prohibited.",
+      "prohibited_shortcut_risk": "HIGH: tighter-bounds culling changes the research problem (quality); explicitly prohibited."
+    },
+    {
+      "id": "C4_activation_fusion",
+      "name": "Activation fusion (covariance/conic/opacity/color in one kernel)",
+      "faster_gs_evidence": {
+        "files": [
+          "rasterization/include/kernels_forward.cuh"
+        ],
+        "markers": [
+          "preprocess_cu fuses expf(scale)->cov3d->conic->opacity->color"
+        ],
+        "summary": "Fused preprocess kernel computes covariance, conic, opacity, and color in a single pass."
+      },
+      "c0_evidence": {
+        "files": [
+          "cuda/csrc/ProjectionEWA3DGSFused.cu",
+          "cuda/csrc/ProjectionEWA3DGSPacked.cu"
+        ],
+        "markers": [
+          "Fused projection variants present",
+          "fused(128 hits across csrc)"
+        ],
+        "summary": "C0 already ships fused projection kernels (ProjectionEWA3DGSFused.cu)."
+      },
+      "classification": "ALREADY_IN_C0",
+      "rationale": "C0 already has fused activation/projection. No port needed.",
+      "portability": "N/A.",
+      "prohibited_shortcut_risk": "None."
+    },
+    {
+      "id": "C5_sh_buffer_sh_eval_fusion",
+      "name": "SH buffer / SH evaluation fusion",
+      "faster_gs_evidence": {
+        "files": [
+          "rasterization/include/sh_utils.cuh",
+          "rasterization/include/kernels_forward.cuh"
+        ],
+        "markers": [
+          "sh_coefficients_0 + sh_coefficients_rest",
+          "active_sh_bases",
+          "total_sh_bases",
+          "convert_sh_to_color"
+        ],
+        "summary": "Separate DC (sh_coefficients_0) + rest buffers; fused SH-to-color evaluation with active/total base counts."
+      },
+      "c0_evidence": {
+        "files": [
+          "cuda/csrc/SphericalHarmonicsCUDA.cu",
+          "cuda/csrc/SphericalHarmonicsL1PlusCUDA.cu",
+          "cuda/csrc/SphericalHarmonicsViewDirectionCUDA.cu"
+        ],
+        "markers": [
+          "sh_coeffs_to_color_fast",
+          "SH eval fused"
+        ],
+        "summary": "C0 already fuses SH evaluation (sh_coeffs_to_color_fast) with L1+ and view-direction variants."
+      },
+      "classification": "ALREADY_IN_C0",
+      "rationale": "Both fuse SH evaluation. The DC+rest buffer layout is a memory-layout choice; C0's [N,D] coeff layout is functionally equivalent. No exact-win port.",
+      "portability": "N/A.",
+      "prohibited_shortcut_risk": "None."
+    },
+    {
+      "id": "C6_custom_fused_adam",
+      "name": "Custom fused Adam",
+      "faster_gs_evidence": {
+        "files": [
+          "adam/src/adam.cu (FasterGSTestbed/main)",
+          "adam/include/adam_config.h"
+        ],
+        "markers": [
+          "adam_step_cu processes ALL elements unconditionally",
+          "bias_correction1_rcp/bias_correction2_sqrt_rcp",
+          "no zero-grad skip",
+          "no visibility mask"
+        ],
+        "summary": "Element-wise fused Adam with bias correction; processes every element; no skipping."
+      },
+      "c0_evidence": {
+        "files": [
+          "cuda/csrc/AdamCUDA.cu",
+          "cuda/csrc/Adam.h"
+        ],
+        "markers": [
+          "adam_kernel processes all elements (optional per-Gaussian valid mask)",
+          "NO bias correction (sqrtf(m2)+eps)",
+          "no zero-grad skip"
+        ],
+        "summary": "C0 gsplat fused Adam: all elements, optional valid mask, NO bias correction."
+      },
+      "classification": "ALREADY_IN_C0",
+      "rationale": "Both are fused Adam over all elements. The delta is bias correction (Faster-GS includes it; C0 omits it). Bias correction is a SEMANTIC optimizer change, not a performance fusion. Task prohibits changing Adam semantics.",
+      "portability": "N/A for the fusion. The bias-correction delta is DISTINCT_BUT_APPROXIMATE/semantics (prohibited to change).",
+      "prohibited_shortcut_risk": "HIGH: adding bias correction changes Adam semantics (prohibited #2). The fusion itself is already in C0."
+    },
+    {
+      "id": "C7_backward_optimizer_fusion",
+      "name": "Backward -> optimizer fusion (fused bwd+Adam)",
+      "faster_gs_evidence": {
+        "files": [
+          "FasterGSFused/rasterization/include/kernels_backward.cuh",
+          "FasterGSFused/rasterization/include/backward.h"
+        ],
+        "markers": [
+          "adam_step_helper called INSIDE preprocess_backward_cu",
+          "moments_* passed into backward kernel",
+          "current_mean_lr + adam_step_count"
+        ],
+        "summary": "FasterGSFused inlines the Adam update into the per-Gaussian backward kernel, eliminating the separate optimizer kernel and the gradient write/read round-trip."
+      },
+      "c0_evidence": {
+        "files": [
+          "cuda/csrc/RasterizeToPixels3DGSSerialBatchBwd.cu",
+          "cuda/csrc/AdamCUDA.cu"
+        ],
+        "markers": [
+          "separate Adam kernel launch (AdamCUDA.cu)",
+          "backward writes grad_* then Adam reads grad_*"
+        ],
+        "summary": "C0 runs backward and Adam as two separate kernels with a gradient tensor round-trip."
+      },
+      "classification": "DISTINCT_AND_EXACT",
+      "rationale": "Fusing the identical Adam math into the backward kernel is algebraically exact (same update, fused execution) IF the invisible-Gaussian skip is stripped. The shipped FasterGSFused has 'if(primitive_n_touched_tiles==0) return;' (invisible-Gaussian optimizer skipping) which is PROHIBITED; the fusion structure without that skip is the legitimate, exact component.",
+      "portability": "MEDIUM: rewrite the H8_MR backward kernel to inline the Adam update (moments already computed for absgrad), strip the n_touched==0 skip, and re-validate Adam m/v state parity + zero-gradient row parity.",
+      "prohibited_shortcut_risk": "HIGH if shipped as-is: must strip invisible-Gaussian skipping (prohibited #1) and must NOT change zero-gradient Adam semantics (prohibited #2). The fusion must keep bias-correction status identical to C0 (C0 has none)."
+    },
+    {
+      "id": "C8_locality_preserving_zorder_densification",
+      "name": "Locality-preserving / Morton(Z-order) ordering of Gaussians + optimizer states",
+      "faster_gs_evidence": {
+        "files": [
+          "Model.py",
+          "Trainer.py",
+          "fastergs_garden.yaml"
+        ],
+        "markers": [
+          "apply_morton_ordering() (Model.py L472)",
+          "morton_encode(means)->argsort->sort(order)",
+          "MORTON_ORDERING_INTERVAL=5000",
+          "MORTON_ORDERING_END_ITERATION=15000",
+          "morton_ordering training_callback (Trainer.py L141-145)",
+          "from CudaUtils.MortonEncoding import morton_encode"
+        ],
+        "summary": "Framework-layer (NeRFICG CudaUtils, NOT the CUDA backend) re-sort of ALL Gaussian params + their optimizer Adam states by Morton code of the means, every 5000 iters until iter 15000. Improves memory locality for subsequent kernels."
+      },
+      "c0_evidence": {
+        "files": [
+          "cuda/csrc/Rendering.cpp",
+          "cuda/csrc/Projection.h"
+        ],
+        "markers": [
+          "global_z_order = distributed-RENDERING option only",
+          "no morton/z-order re-sort of params+optimizer states in the training loop"
+        ],
+        "summary": "C0 has NO Morton/Z-order reordering in its densification/training path. The z_order hits in C0 are the gsplat distributed-rendering option, unrelated to training-time locality."
+      },
+      "classification": "DISTINCT_AND_EXACT",
+      "rationale": "Morton re-sort permutes (param, Adam m, Adam v) rows together by a deterministic key of the means; the multiset of (param,moment) pairs is unchanged, so the training trajectory and result are identical (exact, result-preserving). It is a pure memory-locality optimization.",
+      "portability": "FRAMEWORK-LAYER port (Python/torch): implement morton_encode + a stable argsort + a joint sort of params and optimizer states, mirroring apply_morton_ordering. No CUDA kernel change strictly required, but the optimizer-state migration must be exact.",
+      "prohibited_shortcut_risk": "Must permute param AND exp_avg AND exp_avg_sq rows together (else it changes Adam semantics / breaks zero-gradient rows). Must NOT drop or reorder differently across param groups. Pure permutation => no quality change."
+    },
+    {
+      "id": "C9_frontend_allocation_densification_memory",
+      "name": "Frontend allocation / densification memory handling",
+      "faster_gs_evidence": {
+        "files": [
+          "rasterization/include/buffer_utils.h",
+          "rasterization/include/rasterization_api.h"
+        ],
+        "markers": [
+          "resize_primitive_buffers/resize_tile_buffers/resize_instance_buffers/resize_bucket_buffers",
+          "PrimitiveBuffers/TileBuffers/InstanceBuffers/BucketBuffers blobs"
+        ],
+        "summary": "Blob-based frontend buffer allocation (single allocation per buffer class) tied to the instance/bucket structure."
+      },
+      "c0_evidence": {
+        "files": [
+          "cuda/csrc/Rasterization.cpp",
+          "cuda/csrc/Rendering.cpp"
+        ],
+        "markers": [
+          "per-tensor AT_DISPATCH allocation (gsplat style)"
+        ],
+        "summary": "C0 allocates separate tensors per quantity (gsplat style)."
+      },
+      "classification": "DISTINCT_AND_EXACT",
+      "rationale": "Blob-based allocation reduces launch overhead and fragmentation; same data, different allocation strategy (exact). HOWEVER it is tightly coupled to the instance/bucket buffer structure (C1); without C1 there is little to allocate.",
+      "portability": "LOW standalone: benefit is mostly realized alongside C1 (two-stage sort). Per-iteration allocation overhead is small (~0.1-0.3ms).",
+      "prohibited_shortcut_risk": "None inherent."
+    }
+  ],
+  "summary_counts": {
+    "ALREADY_IN_C0": [
+      "C2_per_gaussian_backward",
+      "C4_activation_fusion",
+      "C5_sh_buffer_sh_eval_fusion",
+      "C6_custom_fused_adam"
+    ],
+    "DISTINCT_AND_EXACT": [
+      "C1_two_stage_sorting",
+      "C7_backward_optimizer_fusion",
+      "C8_locality_preserving_zorder_densification",
+      "C9_frontend_allocation_densification_memory"
+    ],
+    "DISTINCT_BUT_APPROXIMATE": [
+      "C3_opacity_aware_tighter_bounds"
+    ],
+    "INCOMPATIBLE_WITH_C0": [],
+    "UNKNOWN": []
+  },
+  "audit_corrections": [
+    {
+      "id": "C8_locality_preserving_zorder_densification",
+      "was": "UNKNOWN (assumed absent from reference)",
+      "now": "DISTINCT_AND_EXACT",
+      "reason": "Initial grep only scanned the FasterGSCudaBackend/ CUDA sources, where Morton is absent. Full-repo grep found morton_encode/apply_morton_ordering in Model.py + Trainer.py (NeRFICG framework layer, configured by fastergs_garden.yaml MORTON_ORDERING_*)."
+    }
+  ]
+}

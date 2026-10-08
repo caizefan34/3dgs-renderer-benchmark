@@ -1,0 +1,116 @@
+{
+  "artifact": "CAUSAL_PROTOCOL_IDENTITY",
+  "gate": "PROTOCOL_IDENTITY",
+  "eps2d_audit": {
+    "A0": 0.3,
+    "A1": 0.3,
+    "A2": 0.3,
+    "A3": 0.3
+  },
+  "eps2d_invariant": "eps2d_A0 == eps2d_A1 == eps2d_A2 == eps2d_A3 == 0.3",
+  "shared_recipe": {
+    "scene": "room",
+    "resolution": "1080p",
+    "repo_root": "C:\\Users\\36570\\3dgs-renderer-benchmark",
+    "iterations": 30000,
+    "seed": 42,
+    "position_lr_init": 0.00016,
+    "position_lr_final": 1.6e-06,
+    "position_lr_delay_mult": 0.01,
+    "position_lr_max_steps": 30000,
+    "feature_lr": 0.0025,
+    "opacity_lr": 0.025,
+    "scaling_lr": 0.005,
+    "rotation_lr": 0.001,
+    "densify_from_iter": 500,
+    "densify_until_iter": 15000,
+    "densification_interval": 100,
+    "densify_grad_threshold": 0.0008,
+    "percent_dense": 0.01,
+    "min_opacity": 0.005,
+    "max_screen_size": 20,
+    "opacity_reset_interval": 3000,
+    "sh_degree": 3,
+    "sh_progress_interval": 1000,
+    "lambda_dssim": 0.2,
+    "renderer": "gsplat",
+    "gsplat_version": "1.5.3",
+    "tile_size": 16,
+    "packed": false,
+    "semantic_label": "REFERENCE_V1_ABSGRAD",
+    "eval_iterations": [
+      500,
+      1000,
+      2000,
+      5000,
+      10000,
+      15000,
+      20000,
+      25000,
+      30000
+    ],
+    "instrument_iterations": [
+      500,
+      1000,
+      2000,
+      5000,
+      10000,
+      15000,
+      20000,
+      25000
+    ],
+    "checkpoint_iterations": []
+  },
+  "per_arm_delta": {
+    "A0": {
+      "env_switch": {
+        "HIGS_DISABLE_F9": "1",
+        "HIGS_BWD_SCALAR_ADJOINT": null,
+        "HIGS_BWD_H8_MR": null
+      },
+      "modules": {
+        "F9": false,
+        "SCALAR_ADJOINT": false,
+        "H8_MR": false
+      }
+    },
+    "A1": {
+      "env_switch": {
+        "HIGS_DISABLE_F9": null,
+        "HIGS_BWD_SCALAR_ADJOINT": null,
+        "HIGS_BWD_H8_MR": null
+      },
+      "modules": {
+        "F9": true,
+        "SCALAR_ADJOINT": false,
+        "H8_MR": false
+      }
+    },
+    "A2": {
+      "env_switch": {
+        "HIGS_DISABLE_F9": null,
+        "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+        "HIGS_BWD_H8_MR": null
+      },
+      "modules": {
+        "F9": true,
+        "SCALAR_ADJOINT": true,
+        "H8_MR": false
+      }
+    },
+    "A3": {
+      "env_switch": {
+        "HIGS_DISABLE_F9": null,
+        "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+        "HIGS_BWD_H8_MR": "1"
+      },
+      "modules": {
+        "F9": true,
+        "SCALAR_ADJOINT": true,
+        "H8_MR": true
+      }
+    }
+  },
+  "recipe_fields_identical_across_arms": true,
+  "protocol_identity_verdict": "PASS"
+}

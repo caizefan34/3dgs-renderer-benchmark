@@ -571,6 +571,34 @@ def eval_sh(shs, dirs, active_degree):
     return result
 
 
+def eval_sh_batch(shs, dirs, active_degree):
+    """Vectorized real-SH over gaussians. shs:[g,K,3], dirs:[P,3] normalized.
+    Returns rgb:[g,P,3]. Mathematically identical to per-gaussian eval_sh
+    (eval_sh(shs[gg], dirs) == eval_sh_batch(shs, dirs)[gg]); removes the Python
+    per-gaussian loop that made bes_sample CPU-bound on full scenes."""
+    x = dirs[:, 0:1]; y = dirs[:, 1:2]; z = dirs[:, 2:3]           # [P,1]
+    cols = [torch.full_like(x, _SH0)]                              # basis m=0 = _SH0
+    if active_degree >= 1:
+        cols += [-0.4886025119029199 * y, 0.4886025119029199 * z, -0.4886025119029199 * x]
+    if active_degree >= 2:
+        xx, yy, zz = x * x, y * y, z * z
+        xy, yz, xz = x * y, y * z, x * z
+        cols += [1.0925484305920792 * xy, 1.0925484305920792 * yz,
+                 0.31539156525252005 * (2.0 * zz - xx - yy), 1.0925484305920792 * xz,
+                 0.5462232306749479 * (xx - yy)]
+    if active_degree >= 3:
+        xx, yy, zz = x * x, y * y, z * z
+        xy, yz, xz = x * y, y * z, x * z
+        cols += [0.5900435899266435 * y * (3.0 * xx - yy), 2.890611442640554 * xy * z,
+                 0.4570457994644658 * y * (4.0 * zz - xx - yy),
+                 0.3731763325901154 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy),
+                 0.4570457994644658 * x * (4.0 * zz - xx - yy),
+                 1.445305721320277 * xz * y, 0.5900435899266435 * x * (xx - 3.0 * yy)]
+    basis = torch.cat(cols, dim=1)                                 # [P,K_active]
+    k = basis.shape[1]
+    return torch.einsum('gmc,pm->gpc', shs[:, :k, :], basis) + 0.5   # [g,P,3]
+
+
 def _jump(alphas_R, u_Rvals, prefix_t, start, r, P, gen):
     """Vectorized per-pixel R next-hit jump. alphas_R:[r,P], u_Rvals:[r],
     prefix_t:[r+1], start:[P] int. Returns H_ridx:[P] (-1=background)."""
@@ -583,7 +611,7 @@ def _jump(alphas_R, u_Rvals, prefix_t, start, r, P, gen):
         active = ~done
         if not bool(active.any()):
             break
-        u1 = torch.rand(P, generator=gen)
+        u1 = torch.rand(P, generator=gen, device=alphas_R.device)
         u1 = torch.clamp(u1, 1e-12, 1.0 - 1e-12)
         z = prefix_t[cur] - torch.log(u1)
         cand = torch.searchsorted(prefix_t, z, right=True) - 1
@@ -591,7 +619,7 @@ def _jump(alphas_R, u_Rvals, prefix_t, start, r, P, gen):
         cand_c = torch.clamp(cand, 0, r - 1)
         alpha_c = alphas_R[cand_c, ar]
         u_c = u_Rvals[cand_c]
-        u2 = torch.rand(P, generator=gen)
+        u2 = torch.rand(P, generator=gen, device=alphas_R.device)
         accept = (u2 < alpha_c / u_c) & (~bg) & active
         H = torch.where(accept, cand_c, H)
         done = done | accept | bg
@@ -609,16 +637,13 @@ def _F_from_hit(alphas, is_R, colors, h_depth, bg):
     h_depth = torch.clamp(h_depth, 0, g)
     is_bg = h_depth >= g
     h_clamped = torch.clamp(h_depth, 0, g - 1)
-    T = torch.ones(P, device=device)
-    acc = torch.zeros(P, 3, device=device)
-    for j in range(g):
-        before_H = h_depth > j
-        active = before_H & (~is_R[j])
-        alpha_j = alphas[j]                      # [P]
-        c_j = colors[j]                          # [P,3]
-        w = (active.to(alpha_j.dtype) * T * alpha_j)
-        acc = acc + w.unsqueeze(-1) * c_j
-        T = T * (1.0 - active.to(alpha_j.dtype) * alpha_j)
+    j_idx = torch.arange(g, device=device).unsqueeze(1)                 # [g,1]
+    active = (h_depth.unsqueeze(0) > j_idx) & (~is_R.bool().view(g, 1))  # [g,P]
+    af = active.to(alphas.dtype) * alphas                               # [g,P]
+    T_incl = torch.cumprod(1.0 - af, dim=0)                             # [g,P] inclusive
+    T_excl = torch.cat([torch.ones(1, P, device=device), T_incl[:-1]], dim=0)  # [g,P] exclusive
+    acc = ((T_excl * af).unsqueeze(-1) * colors).sum(dim=0)            # [P,3]
+    T = T_incl[-1]                                                      # [P]
     colors_at_h = colors[h_clamped, ar]           # [P,3]
     hit_c = torch.where(is_bg.unsqueeze(-1), bg.unsqueeze(0).expand(P, 3), colors_at_h)
     F = acc + T.unsqueeze(-1) * hit_c
@@ -685,12 +710,9 @@ def bes_sample(scene: Scene, camera: Camera, routing: BoundsAndRouting,
             torch.ones(P, device=device)], dim=1).T
         dirs = dirs / dirs.norm(dim=0, keepdim=True)
         dirs = dirs.T                                          # [P,3]
-        colors_gp = torch.zeros(g, P, 3, device=device)
-        for gg in range(g):
-            c = eval_sh(scene.shs[g_t[gg]].unsqueeze(0), dirs, scene.active_sh_degree)
-            if c.shape[0] == 1:
-                c = c.expand(P, 3)
-            colors_gp[gg] = c.detach() if detach else c
+        colors_gp = eval_sh_batch(scene.shs[g_t], dirs, scene.active_sh_degree)  # [g,P,3]
+        if detach:
+            colors_gp = colors_gp.detach()
         # R subset in depth order
         rpos = np.where(r_t)[0]
         r = int(rpos.shape[0])

@@ -1,0 +1,24 @@
+{
+  "schema": "BWD_DEPREG0_OCCUPANCY_SWEEP",
+  "date": "2026-10-07",
+  "sweep": {
+    "occ64": {
+      "registers": 64,
+      "spill_bytes": 0,
+      "S_backward_paired_median_geomean": 1.000566565609455,
+      "per_scene": {
+        "room": 1.0011,
+        "bicycle": 1.0006,
+        "garden": 1.0
+      }
+    },
+    "occ32": {
+      "registers": 32,
+      "spill_bytes": 692,
+      "note": "maxrregcount=32 forces 284B store + 408B load spill; occupancy rises but spills appear. Not a production point."
+    }
+  },
+  "interpretation": "occ64 (regs 67->64, no spill) gives geomean S=1.0006 (no help). occ32 (regs 32) forces heavy spilling and is not timed as a candidate. Per spec rules: raising occupancy does NOT lower latency -> occupancy is not causal; at occ64 occupancy is essentially unchanged and performance is flat.",
+  "H4_verdict": "REJECTED",
+  "spec_rule_applied": "higher occupancy + same/slower -> occupancy not causal"
+}

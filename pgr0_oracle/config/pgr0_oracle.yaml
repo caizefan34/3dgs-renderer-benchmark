@@ -1,0 +1,43 @@
+# PGR0 Projection Gradient Redundancy Oracle — frozen config (EPIC-05)
+candidate: PGR0
+mode: projection_gradient_redundancy_oracle_only
+freeze_date: 2026-10-01
+cuda_in_p0: false            # HARD RULE: no CUDA / no .cu / no kernel runs in P0
+baseline:
+  harness: public_baselines/gsplat
+  gsplat_expected: "1.5.3"
+  kernel: projection_ewa_3dgs_fused
+  packed: false
+  tile_size: 16
+  accutile: false
+  radius_clip: 0.0
+  eps2d: 0.3
+  near_plane: 0.01
+  far_plane: 1.0e10
+  camera_model: pinhole
+  calc_compensations: [false, true]   # both branches exercised
+scenes: [room, bicycle, garden]        # scene-agnostic projection math; deterministic synthetic populations
+dtype: [float64, float32]              # float32 emulates CUDA precision
+measures:
+  R1_projected_mean: cosine_and_rel_l2   # backward-recomputed mean2d vs forward mean2d
+  R2_covariance: cosine_and_rel_l2       # backward-recomputed covar2d vs forward covar2d
+  R3_jacobian: cosine_and_rel_l2         # backward-recomputed J vs forward J
+  R4_gradient: cosine_and_rel_l2         # reuse/recompute grad vs autograd ground truth
+gates:
+  sim_threshold: 0.999
+  rel_l2_threshold: 1.0e-4
+  min_redundancy_rate: 0.90
+  min_compute_amdahl_ub: 1.05
+  min_memory_aware_net_speedup: 1.05
+verdict_policy:
+  fail_closed: true
+  outputs: [KEEP_FOR_FUTURE_CACHING_IMPLEMENTATION,
+            DROP_REDUNDANCY_CONFIRMED_NOT_EXPLOITABLE,
+            DROP_NO_GRADIENT_REDUNDANCY,
+            BLOCKED]
+forbidden_globs:
+  - "**/*.cu"
+  - "**/*.cuh"
+  - "**/*.cpp"
+  - "**/*.cc"
+  - "**/*.cxx"

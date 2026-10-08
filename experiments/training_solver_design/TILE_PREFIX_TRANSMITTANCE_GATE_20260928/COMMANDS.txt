@@ -1,0 +1,9 @@
+Manifest freeze (reads COLMAP names and selected training camera poses; no images):
+
+ssh EPIC-05 'cd /root/codex_fastgs_audit_20260927 && CUDA_VISIBLE_DEVICES=3 PYTHONPATH=/root/codex_fastgs_audit_20260927 .venv/bin/python /tmp/tile_prefix_gate_20260928.py --checkout /root/codex_fastgs_audit_20260927 --dataset /root/3dgs-renderer-benchmark/data/datasets/mipnerf360/room --model /root/codex_fastgs_audit_20260927/output/room_big_30k/point_cloud/iteration_30000/point_cloud.ply --outdir /tmp/tile_prefix_gate_20260928 --manifest-only'
+
+Ideal-oracle gate (runs only after the manifest was copied back, frozen, then copied to the host):
+
+ssh EPIC-05 'nvidia-smi -i 3 --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader; cd /root/codex_fastgs_audit_20260927 && CUDA_VISIBLE_DEVICES=3 PYTHONPATH=/root/codex_fastgs_audit_20260927 .venv/bin/python /tmp/tile_prefix_gate_20260928.py --checkout /root/codex_fastgs_audit_20260927 --dataset /root/3dgs-renderer-benchmark/data/datasets/mipnerf360/room --model /root/codex_fastgs_audit_20260927/output/room_big_30k/point_cloud/iteration_30000/point_cloud.ply --outdir /tmp/tile_prefix_gate_20260928 --manifest /tmp/tile_prefix_gate_20260928/camera_tile_manifest.json --execute-ideal --parity-tiles 1'
+
+The report contains source, checkpoint, manifest, and script SHA256 values. No `--certify` command was run because the pooled ideal fraction and per-camera count failed the frozen stop gate.

@@ -1,0 +1,69 @@
+{
+  "schema": "AMPS0_MEMORY",
+  "generated": "2026-10-05",
+  "scope": "THEORETICAL optimizer-state byte accounting (objective section 24). NOT measured peak VRAM.",
+  "measured_peak_vram_available": false,
+  "measured_peak_vram_reason": "Requires A100 + Faster-GS fused backend; local host is RTX 5070 8GB and cannot build the fused CUDA backend. The FGS fused runs (fgs_strong_baseline_final) report peak VRAM 8.96-11.12 GiB but do NOT break out optimizer-state bytes separately.",
+  "per_attribute_state_bytes_per_gauss": [
+    {
+      "attribute": "means",
+      "n_scalars": 3,
+      "param_bytes_per_gauss": 12,
+      "m_v_fp32_bytes_per_gauss": 24,
+      "m_v_bf16_bytes_per_gauss": 12
+    },
+    {
+      "attribute": "scales",
+      "n_scalars": 3,
+      "param_bytes_per_gauss": 12,
+      "m_v_fp32_bytes_per_gauss": 24,
+      "m_v_bf16_bytes_per_gauss": 12
+    },
+    {
+      "attribute": "quats",
+      "n_scalars": 4,
+      "param_bytes_per_gauss": 16,
+      "m_v_fp32_bytes_per_gauss": 32,
+      "m_v_bf16_bytes_per_gauss": 16
+    },
+    {
+      "attribute": "opacity",
+      "n_scalars": 1,
+      "param_bytes_per_gauss": 4,
+      "m_v_fp32_bytes_per_gauss": 8,
+      "m_v_bf16_bytes_per_gauss": 4
+    },
+    {
+      "attribute": "sh0",
+      "n_scalars": 3,
+      "param_bytes_per_gauss": 12,
+      "m_v_fp32_bytes_per_gauss": 24,
+      "m_v_bf16_bytes_per_gauss": 12
+    },
+    {
+      "attribute": "sh_rest",
+      "n_scalars": 45,
+      "param_bytes_per_gauss": 180,
+      "m_v_fp32_bytes_per_gauss": 360,
+      "m_v_bf16_bytes_per_gauss": 180
+    }
+  ],
+  "total_scalars": 59,
+  "total_m_v_fp32_bytes_per_gauss": 472,
+  "candidate_m_v_bytes_per_gauss": {
+    "C0(all fp32)": 472,
+    "C1": 382,
+    "C2": 292,
+    "C3": 276,
+    "C4": 236
+  },
+  "candidate_m_v_reduction_vs_C0": {
+    "C0(all fp32)": 0.0,
+    "C1": 0.1907,
+    "C2": 0.3814,
+    "C3": 0.4153,
+    "C4": 0.5
+  },
+  "note": "m+v = 2 moments x 4 bytes (fp32) = 8 bytes/scalar baseline; bf16 = 4 bytes/scalar. C1 (v only bf16) = 6 bytes/scalar for sh_rest. These are state-byte ONLY; they exclude params, grads, conversion buffers, densification workspace, and peak VRAM. Per section 24, memory-reduction claims MUST be measured, not theoretical. No memory-reduction claim is made by AMPS0.",
+  "claim_policy": "No memory reduction claimed from theoretical state bytes (objective section 24)."
+}

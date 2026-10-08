@@ -1,0 +1,30 @@
+--- a/src/Methods/Base/Trainer.py
++++ b/src/Methods/Base/Trainer.py
+@@ -26,6 +26,12 @@
+ from Methods.Base.Renderer import BaseRenderer
+ from Methods.Base.utils import CallbackTimer, pre_training_callback, training_callback, post_training_callback
+ from Optim.Losses.Base import BaseLoss
++
++# P16-RB curve-replay patch: optional explicit intermediate-checkpoint iteration list
++# (env P16_BACKUP_ITERS, comma-separated). When set, intermediate saves fire exactly at
++# those loop iterations (stride 1 + membership guard) instead of every BACKUP.INTERVAL
++# steps, so curve points can sit just before the periodic opacity resets. Inert when unset.
++_P16_BACKUP_ITERS = [int(x) for x in os.environ.get('P16_BACKUP_ITERS', '').split(',') if x.strip()]
+ 
+ 
+ @Framework.Configurable.configure(
+@@ -160,9 +166,13 @@
+                 Logger.log_info('precomputing rays for validation views')
+                 dataset.precompute_rays('val', not self.DATA.RAYS_TO_DEVICE)
+ 
+-    @training_callback(priority=1, start_iteration='BACKUP.INTERVAL', iteration_stride='BACKUP.INTERVAL')
++    @training_callback(priority=1,
++                       start_iteration=min(_P16_BACKUP_ITERS) if _P16_BACKUP_ITERS else 'BACKUP.INTERVAL',
++                       iteration_stride=1 if _P16_BACKUP_ITERS else 'BACKUP.INTERVAL')
+     def _save_intermediate_checkpoint(self, iteration: int, dataset: BaseDataset) -> None:
+         """Creates an intermediate checkpoint at the current iteration."""
++        if _P16_BACKUP_ITERS and iteration not in _P16_BACKUP_ITERS:
++            return
+         Logger.log_info(f'creating intermediate model and training checkpoint at iteration {iteration}')
+         self.model.save(self.checkpoint_directory / f'{iteration:07d}.pt')
+         if self.BACKUP.TRAINING_STATE:

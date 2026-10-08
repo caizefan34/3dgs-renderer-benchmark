@@ -1,0 +1,122 @@
+{
+  "artifact": "PAPER0_OPEN_GAPS",
+  "schema": "paper0-open-gaps/v1",
+  "generated_utc": "2026-10-02",
+  "gap_vocabulary": [
+    "BLOCKER",
+    "HIGH",
+    "MEDIUM",
+    "LOW"
+  ],
+  "gaps": [
+    {
+      "id": "G1",
+      "gap": "Only K50-B1 has a real full-training-step speedup; TFC/DFC/CGC/KFC/AGS are renderer-local (frozen PLY) and MUST NOT be presented as training speedups.",
+      "severity": "BLOCKER",
+      "methods": [
+        "TFC",
+        "DFC",
+        "CGC",
+        "KFC",
+        "AGS"
+      ]
+    },
+    {
+      "id": "G2",
+      "gap": "No method has a measured TOTAL-training-time speedup end-to-end (only per-iter / renderer-step). K50-B1 implies it but no separate total-time field.",
+      "severity": "HIGH",
+      "methods": [
+        "K50-B1",
+        "TFC"
+      ]
+    },
+    {
+      "id": "G3",
+      "gap": "K50-B1: single seed, no multi-seed CI; LPIPS not measured; stage4a config-buggy 5K cohort.",
+      "severity": "HIGH",
+      "methods": [
+        "K50-B1"
+      ]
+    },
+    {
+      "id": "G4",
+      "gap": "DFC: >=1.2x E2E gate fails on dense scenes (garden 1.140x, bicycle 1.061x); O(N) projection dominates 39-50% of budget; no transmittance headroom. Room pass marginal (4/8 cams).",
+      "severity": "HIGH",
+      "methods": [
+        "DFC"
+      ]
+    },
+    {
+      "id": "G5",
+      "gap": "VOS: Amdahl-bound (optimizer ~15% of wall, SparseGaussianAdam O(N)); no wall-clock speedup; room seed-0 instability (-0.271 dB).",
+      "severity": "HIGH",
+      "methods": [
+        "VOS"
+      ]
+    },
+    {
+      "id": "G6",
+      "gap": "CGC: fidelity gates (SSIM/grad-cos/LPIPS) fail at every threshold on every scene; rasterize kernel overhead-bound; no trained ckpt for garden/bicycle.",
+      "severity": "HIGH",
+      "methods": [
+        "CGC"
+      ]
+    },
+    {
+      "id": "G7",
+      "gap": "KFC: fused kernel cannot launch on real workload (804KB shared >> 164KB A100 max); bwd compute-bound; autograd boundary blocks E2E; KFC0 DRAM claim disproven.",
+      "severity": "HIGH",
+      "methods": [
+        "KFC"
+      ]
+    },
+    {
+      "id": "G8",
+      "gap": "AGS: 0% tile reuse (Jaccard ~0.001); incremental repair 2.18x slower than radix; garden/bicycle ckpts missing.",
+      "severity": "HIGH",
+      "methods": [
+        "AGS"
+      ]
+    },
+    {
+      "id": "G9",
+      "gap": "IGF: no CUDA kernel (pure-PyTorch sparse step slower end-to-end); quality/economic tension; importance model does not transfer across scene complexity.",
+      "severity": "HIGH",
+      "methods": [
+        "IGF"
+      ]
+    },
+    {
+      "id": "G10",
+      "gap": "Single hardware cohort (EPIC-05 A100 remote-only); no cross-GPU / cross-vendor validation.",
+      "severity": "MEDIUM",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "id": "G11",
+      "gap": "TFC2 grad_cosine>=0.99999 self-imposed proxy gate at CUDA noise floor (documented, not a regression); full-convergence evidence absent.",
+      "severity": "MEDIUM",
+      "methods": [
+        "TFC"
+      ]
+    },
+    {
+      "id": "G12",
+      "gap": "DFC1-R1 saved-T backward fix validated but is a no-op at early-termination thresholds and delivers no standalone speedup (SUPPORTING only).",
+      "severity": "LOW",
+      "methods": [
+        "DFC"
+      ]
+    },
+    {
+      "id": "G13",
+      "gap": "Historical failed/superseded gates must be preserved in the paper (KFC0/AGS0/CGC0/IGF0/DFC0/VOS0/TFC0) - do not silently drop.",
+      "severity": "MEDIUM",
+      "methods": [
+        "ALL"
+      ]
+    }
+  ]
+}

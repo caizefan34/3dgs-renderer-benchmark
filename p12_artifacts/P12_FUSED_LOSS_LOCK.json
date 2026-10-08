@@ -1,0 +1,54 @@
+{
+  "phase": "P12 fused-loss lock (P11-validated identity reuse)",
+  "date_utc": "2026-09-26T12:55:44Z",
+  "p11_identity_reused": {
+    "repo": "https://github.com/rahul-goel/fused-ssim",
+    "commit": "a7c48d6dd7ac6dc39a7958c7c4452e0b10418f38",
+    "working_tree_clean": true,
+    "module_file": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim/__init__.py",
+    "module_sha256": "7b3784de48096f3b5d1ee156ce721f71f77a02650131f6c539331bc7d2d1ecc6",
+    "so_path": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim_cuda.cpython-310-x86_64-linux-gnu.so",
+    "so_sha256": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+    "build_flags": [
+      "-O3",
+      "--use_fast_math",
+      "--maxrregcount=32",
+      "CUDA_ARCHITECTURES=80"
+    ]
+  },
+  "semantic_lock": {
+    "loss_formula": "L = 0.8 * L1 + 0.2 * (1 - SSIM)",
+    "padding": "same",
+    "window": "11x11 Gaussian, sigma=1.5 (hardcoded 11-tap kernel in fused .so)",
+    "C1": 0.0001,
+    "C2": 0.0009,
+    "image_range": "[0,1] clamped rendered vs GT (same GT preprocessing)",
+    "reduction": "mean over full-size SSIM map (padding=same)",
+    "train_flag": true,
+    "p11_equivalence_classification": "SEMANTICALLY_MATCHED_WITHIN_FP",
+    "p11_equivalence_evidence": {
+      "worst_grad_rel_l2": {
+        "room": 1.6497413788791675e-05,
+        "bicycle": 3.212392965134127e-05,
+        "garden": 1.3401504372044155e-05
+      },
+      "worst_loss_rel_diff": {
+        "room": 5.831013759096951e-06,
+        "bicycle": 1.1562487498060393e-06,
+        "garden": 5.753460018982582e-07
+      }
+    },
+    "p11_timing_evidence_S_loss": {
+      "room": 15.892,
+      "bicycle": 15.879,
+      "garden": 15.881
+    }
+  },
+  "eval_metric_lock": {
+    "training_loss_ssim": "fused-ssim padding=same (P12 arms)",
+    "evaluation_ssim_metric": "SepSSIM (frozen evaluation procedure; identical to P8/DSH-A so quality rows remain comparable)"
+  },
+  "lock_rule": "Any fused_ssim_cuda.so sha256 != P11 value aborts every P12 run (hard RuntimeError in publication_trainer_p12.py).",
+  "so_sha256_matches_p11": true,
+  "failures": []
+}

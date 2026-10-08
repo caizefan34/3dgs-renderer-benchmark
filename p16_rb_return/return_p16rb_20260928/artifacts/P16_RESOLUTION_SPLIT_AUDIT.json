@@ -1,0 +1,346 @@
+{
+  "purpose": "Resolution and train/test split audit for the P16-RB 2026 baseline reset",
+  "scenes": {
+    "room": {
+      "rule": "hold8_sorted_image_name_idx_mod_8_eq_0",
+      "test_step": 8,
+      "n_total": 311,
+      "n_test": 39,
+      "expected_names_source": "/root/epic05_p16rb/artifacts/expected_names_room.json",
+      "p12_common_render": {
+        "status": "SUCCESS",
+        "n_test": 39,
+        "resolution": [
+          1920,
+          1080
+        ],
+        "metric_block_sha256": "87e4ebd6bb15073e24cf15045dda383e1100ddfc7393c765e37e897346b3f0b6",
+        "images_manifest_n": 39,
+        "path": "/root/epic05_p16rb/runs/P12_C0/room/common_eval/common_eval.json"
+      }
+    },
+    "bicycle": {
+      "rule": "hold8_sorted_image_name_idx_mod_8_eq_0",
+      "test_step": 8,
+      "n_total": 194,
+      "n_test": 25,
+      "expected_names_source": "/root/epic05_p16rb/artifacts/expected_names_bicycle.json",
+      "p12_common_render": {
+        "status": "SUCCESS",
+        "n_test": 25,
+        "resolution": [
+          1920,
+          1080
+        ],
+        "metric_block_sha256": "87e4ebd6bb15073e24cf15045dda383e1100ddfc7393c765e37e897346b3f0b6",
+        "images_manifest_n": 25,
+        "path": "/root/epic05_p16rb/runs/P12_C0/bicycle/common_eval/common_eval.json"
+      }
+    },
+    "garden": {
+      "rule": "hold8_sorted_image_name_idx_mod_8_eq_0",
+      "test_step": 8,
+      "n_total": 185,
+      "n_test": 24,
+      "expected_names_source": "/root/epic05_p16rb/artifacts/expected_names_garden.json",
+      "p12_common_render": {
+        "status": "SUCCESS",
+        "n_test": 24,
+        "resolution": [
+          1920,
+          1080
+        ],
+        "metric_block_sha256": "87e4ebd6bb15073e24cf15045dda383e1100ddfc7393c765e37e897346b3f0b6",
+        "images_manifest_n": 24,
+        "path": "/root/epic05_p16rb/runs/P12_C0/garden/common_eval/common_eval.json"
+      }
+    }
+  },
+  "methods": {
+    "P12_C0": {
+      "family": "p12_frozen",
+      "repo_key": null,
+      "commit": "P12_C0_FROZEN@2c6d9685b0eca852f6749ff4d64dc5a3ef942237",
+      "split_policy": "P12 has NO train/test split: it trains on ALL cameras and evaluates all of them. The common-split numbers in this campaign come from rendering the frozen final checkpoint on the hold-8 test cameras (p16_p12_render_common.py).",
+      "scene_evidence": {},
+      "resolution": {}
+    },
+    "FasterGS": {
+      "family": "external_2026",
+      "repo_key": "nerficg",
+      "commit": "e458ac6e41810ad6d9405687c1e698fadd28dac5",
+      "split_policy": "framework hold-8: the framework's own reader sorts by image name and takes idx % 8 == 0 as test; proven by pixel-identity of the framework's test rgb_gt against the common GT (stage0_preflight gt_audit)",
+      "scene_evidence": {
+        "room": {
+          "stage0_preflight": {
+            "status": "PASS",
+            "checks": {
+              "train_exit_zero": true,
+              "dataset_loaded": true,
+              "training_loop_completed": true,
+              "timings_txt": true,
+              "native_render_ok": true,
+              "split_and_gt_identity_pixels": true,
+              "resolution_1920x1080": true,
+              "single_gpu": true
+            },
+            "path": "/root/epic05_p16rb/artifacts/P16_STAGE0_FasterGS_room.json"
+          }
+        }
+      },
+      "resolution": {}
+    },
+    "FasterGSFused": {
+      "family": "external_2026",
+      "repo_key": "nerficg",
+      "commit": "e458ac6e41810ad6d9405687c1e698fadd28dac5",
+      "split_policy": "framework hold-8: the framework's own reader sorts by image name and takes idx % 8 == 0 as test; proven by pixel-identity of the framework's test rgb_gt against the common GT (stage0_preflight gt_audit)",
+      "scene_evidence": {
+        "room": {
+          "stage0_preflight": {
+            "status": "PASS",
+            "checks": {
+              "train_exit_zero": true,
+              "dataset_loaded": true,
+              "training_loop_completed": true,
+              "timings_txt": true,
+              "native_render_ok": true,
+              "split_and_gt_identity_pixels": true,
+              "resolution_1920x1080": true,
+              "single_gpu": true
+            },
+            "path": "/root/epic05_p16rb/artifacts/P16_STAGE0_FasterGSFused_room.json"
+          }
+        }
+      },
+      "resolution": {}
+    },
+    "FastGS": {
+      "family": "external_2026",
+      "repo_key": "FastGS",
+      "commit": "44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f",
+      "split_policy": "graphdeco llffhold=8 evaluated by the method's own reader; proven by reader audit plus render count/resolution match",
+      "scene_evidence": {
+        "room": {
+          "stage0_preflight": {
+            "status": "PASS",
+            "checks": {
+              "audit_ran": true,
+              "split_identity": true,
+              "resolution_1920x1080": true,
+              "all_image_paths_exist": true,
+              "train_exit_zero": true,
+              "model_saved": true,
+              "render_exit_zero": true,
+              "render_resolution_1920x1080": true,
+              "render_test_count": true
+            },
+            "path": "/root/epic05_p16rb/artifacts/P16_STAGE0_FastGS_room.json"
+          }
+        },
+        "bicycle": {
+          "reader_audit": {
+            "status": "PASS",
+            "n_train": 169,
+            "n_test": 25,
+            "resolution_seen": [
+              [
+                1920,
+                1080
+              ]
+            ],
+            "split_identity": true,
+            "train_test_disjoint": true,
+            "train_plus_test_covers_all": true,
+            "path": "/root/epic05_p16rb/artifacts/P16_SPLIT_AUDIT_FastGS_bicycle.json"
+          }
+        },
+        "garden": {
+          "reader_audit": {
+            "status": "PASS",
+            "n_train": 161,
+            "n_test": 24,
+            "resolution_seen": [
+              [
+                1920,
+                1080
+              ]
+            ],
+            "split_identity": true,
+            "train_test_disjoint": true,
+            "train_plus_test_covers_all": true,
+            "path": "/root/epic05_p16rb/artifacts/P16_SPLIT_AUDIT_FastGS_garden.json"
+          }
+        }
+      },
+      "resolution": {}
+    },
+    "SADGS": {
+      "family": "external_2026",
+      "repo_key": "SADGS",
+      "commit": "029814fb5ed773e4a794cec5115951a64f610ab8",
+      "split_policy": "graphdeco llffhold=8 evaluated by the method's own reader; proven by reader audit plus render count/resolution match",
+      "scene_evidence": {
+        "room": {
+          "stage0_preflight": {
+            "status": "PASS",
+            "checks": {
+              "audit_ran": true,
+              "split_identity": true,
+              "resolution_1920x1080": true,
+              "all_image_paths_exist": true,
+              "train_exit_zero": true,
+              "model_saved": true,
+              "render_exit_zero": true,
+              "render_resolution_1920x1080": true,
+              "render_test_count": true
+            },
+            "path": "/root/epic05_p16rb/artifacts/P16_STAGE0_SADGS_room.json"
+          }
+        },
+        "bicycle": {
+          "reader_audit": {
+            "status": "PASS",
+            "n_train": 169,
+            "n_test": 25,
+            "resolution_seen": [
+              [
+                1920,
+                1080
+              ]
+            ],
+            "split_identity": true,
+            "train_test_disjoint": true,
+            "train_plus_test_covers_all": true,
+            "path": "/root/epic05_p16rb/artifacts/P16_SPLIT_AUDIT_SADGS_bicycle.json"
+          }
+        },
+        "garden": {
+          "reader_audit": {
+            "status": "PASS",
+            "n_train": 161,
+            "n_test": 24,
+            "resolution_seen": [
+              [
+                1920,
+                1080
+              ]
+            ],
+            "split_identity": true,
+            "train_test_disjoint": true,
+            "train_plus_test_covers_all": true,
+            "path": "/root/epic05_p16rb/artifacts/P16_SPLIT_AUDIT_SADGS_garden.json"
+          }
+        }
+      },
+      "resolution": {}
+    }
+  },
+  "resolution_gate": {
+    "rule": "DIRECT_COMPARABLE requires test render dims == common P12 dims or <=2% pixel difference",
+    "common_resolution": [
+      1920,
+      1080
+    ],
+    "common_resolution_overrides": {
+      "nerficg": "DATASET.IMAGE_SCALE_FACTOR 0.25 -> 1.0 (author value trains on quarter-scale images for garden); only resolution changed",
+      "graphdeco": "-r 1 (author scripts use the default -1 = 1600-px cap); only resolution changed"
+    },
+    "provenance": {
+      "policy": "author config + minimal dataset/identity overrides",
+      "overrides": [
+        "GLOBAL.GPU_INDICES",
+        "TRAINING.MODEL_NAME",
+        "DATASET.PATH",
+        "DATASET.IMAGE_SCALE_FACTOR"
+      ],
+      "kept_author_values": [
+        "GLOBAL.RANDOM_SEED",
+        "TRAINING.NUM_ITERATIONS",
+        "DATASET.TEST_STEP",
+        "DATASET.APPLY_PCA",
+        "DATASET.APPLY_PCA_RESCALE",
+        "DATASET.NEAR_PLANE",
+        "DATASET.FAR_PLANE",
+        "TRAINING.OPTIMIZER",
+        "TRAINING.LOSS",
+        "TRAINING.DENSIFICATION"
+      ],
+      "configs": {
+        "p16_fastergs_room_1920.yaml": {
+          "author_yaml": "/root/epic05_p16rb/src/fastergs_main/fastergs_garden.yaml",
+          "author_yaml_sha256": "6d6cc8a7c1474737a4748d2512a6baeb234abf77562409c869f4665c4392f0e2",
+          "method_type": "FasterGS",
+          "seed": 0,
+          "num_iterations": 30000,
+          "dataset_path": "/root/epic05_p16rb/common_data/mipnerf360/room",
+          "image_scale_factor": 1.0,
+          "test_step": 8,
+          "shipped_as_yaml": "/root/epic05_p16rb/configs/p16_fastergs_room_1920.yaml"
+        },
+        "p16_fastergs_bicycle_1920.yaml": {
+          "author_yaml": "/root/epic05_p16rb/src/fastergs_main/fastergs_garden.yaml",
+          "author_yaml_sha256": "6d6cc8a7c1474737a4748d2512a6baeb234abf77562409c869f4665c4392f0e2",
+          "method_type": "FasterGS",
+          "seed": 0,
+          "num_iterations": 30000,
+          "dataset_path": "/root/epic05_p16rb/common_data/mipnerf360/bicycle",
+          "image_scale_factor": 1.0,
+          "test_step": 8,
+          "shipped_as_yaml": "/root/epic05_p16rb/configs/p16_fastergs_bicycle_1920.yaml"
+        },
+        "p16_fastergs_garden_1920.yaml": {
+          "author_yaml": "/root/epic05_p16rb/src/fastergs_main/fastergs_garden.yaml",
+          "author_yaml_sha256": "6d6cc8a7c1474737a4748d2512a6baeb234abf77562409c869f4665c4392f0e2",
+          "method_type": "FasterGS",
+          "seed": 0,
+          "num_iterations": 30000,
+          "dataset_path": "/root/epic05_p16rb/common_data/mipnerf360/garden",
+          "image_scale_factor": 1.0,
+          "test_step": 8,
+          "shipped_as_yaml": "/root/epic05_p16rb/configs/p16_fastergs_garden_1920.yaml"
+        },
+        "p16_fastergsfused_room_1920.yaml": {
+          "author_yaml": "/root/epic05_p16rb/src/fastergs_fused/fastergsfused_garden.yaml",
+          "author_yaml_sha256": "9da784b82cfd4faf30a2d6384c02e4b626b9de7d163a3c1ed542c16267c9e95e",
+          "method_type": "FasterGSFused",
+          "seed": 0,
+          "num_iterations": 30000,
+          "dataset_path": "/root/epic05_p16rb/common_data/mipnerf360/room",
+          "image_scale_factor": 1.0,
+          "test_step": 8,
+          "shipped_as_yaml": "/root/epic05_p16rb/configs/p16_fastergsfused_room_1920.yaml"
+        },
+        "p16_fastergsfused_bicycle_1920.yaml": {
+          "author_yaml": "/root/epic05_p16rb/src/fastergs_fused/fastergsfused_garden.yaml",
+          "author_yaml_sha256": "9da784b82cfd4faf30a2d6384c02e4b626b9de7d163a3c1ed542c16267c9e95e",
+          "method_type": "FasterGSFused",
+          "seed": 0,
+          "num_iterations": 30000,
+          "dataset_path": "/root/epic05_p16rb/common_data/mipnerf360/bicycle",
+          "image_scale_factor": 1.0,
+          "test_step": 8,
+          "shipped_as_yaml": "/root/epic05_p16rb/configs/p16_fastergsfused_bicycle_1920.yaml"
+        },
+        "p16_fastergsfused_garden_1920.yaml": {
+          "author_yaml": "/root/epic05_p16rb/src/fastergs_fused/fastergsfused_garden.yaml",
+          "author_yaml_sha256": "9da784b82cfd4faf30a2d6384c02e4b626b9de7d163a3c1ed542c16267c9e95e",
+          "method_type": "FasterGSFused",
+          "seed": 0,
+          "num_iterations": 30000,
+          "dataset_path": "/root/epic05_p16rb/common_data/mipnerf360/garden",
+          "image_scale_factor": 1.0,
+          "test_step": 8,
+          "shipped_as_yaml": "/root/epic05_p16rb/configs/p16_fastergsfused_garden_1920.yaml"
+        }
+      }
+    },
+    "all_methods_exact_1920x1080": true,
+    "note": "all five entries render the same hold-8 test cameras at exactly 1920x1080, so every wall-time ratio computed in the aggregation is DIRECT_COMPARABLE on resolution"
+  },
+  "caveats": [
+    "P12 trains on all cameras including the hold-8 test cameras (no split in its protocol); this favours P12's quality on those views and is reported with every P12 comparison.",
+    "External methods never train on the hold-8 test cameras.",
+    "Metrics for every entry are produced by ONE evaluator on 8-bit PNG renders against the common GT (artifacts: runs/<method>/<scene>/metrics_common.json)."
+  ]
+}

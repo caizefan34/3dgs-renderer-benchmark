@@ -1,0 +1,18 @@
+import sys
+sys.path.insert(0, "/root/epic05_n1")
+import n1_core as C
+C.bootstrap_c0()
+ds = C.load_scene_dataset("room")
+cam, gt = ds.get_item(5)
+print("cam type", type(cam))
+print("cam attrs", [a for a in dir(cam) if not a.startswith("__")])
+print("image_width", cam.image_width, "image_height", cam.image_height)
+print("K shape", cam.K.shape, "K=", cam.K)
+print("viewmatrix shape", cam.viewmatrix.shape)
+print("gt shape", gt.shape, gt.dtype, gt.min(), gt.max())
+print("camera_center", cam.camera_center)
+print("FoVx", getattr(cam,"FoVx",None), "FoVy", getattr(cam,"FoVy",None))
+print("=== dataset attrs ===")
+print("ds type", type(ds))
+print("ds len", len(ds))
+print("ds attrs", [a for a in dir(ds) if not a.startswith("_")][:40])

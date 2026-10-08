@@ -1,0 +1,34 @@
+{
+  "artifact": "PAPER0_HARDENED_PENDING_RESULTS",
+  "schema": "paper0-hardened-pending-results/v1",
+  "generated_utc": "2026-10-02",
+  "note": "Placeholders for in-flight / reconciled packs. Status reflects current worktree evidence. No result is fabricated.",
+  "pending": {
+    "PBR0": {
+      "status": "COMPLETE_RECONCILIATION",
+      "role": "TFC cross-pack reconciliation + gradient noise-floor audit",
+      "result": "PASS. Realized full-step speedup native 1.1988x (>=1.10 PASS), down2 1.0985x (borderline FAIL, reported). Intersection reduction native 0.3927. PSNR loss A->B 0.0 dB. max abs RGB diff A-vs-B 3.2e-4; B==C bitwise (maxabs_BC=0.0). gradient_AB_cosine_mean 0.999888; train cam151 aa_cos_median 0.99995, ab_cos_median 0.99939 (REAL_DIFF).",
+      "implication": "TFC 1.3564x is legacy forward-pipeline timing; reconciled native full-step = 1.1988x. TFC 'pixel-identical' -> 'numerically indistinguishable'.",
+      "evidence": "_pbr0_oracle/PBR0_VERDICT.json, PBR0_RECONCILIATION.json"
+    },
+    "DFC2_GENERALIZATION": {
+      "status": "RUNNING (PREPARED_QUEUED, no GPU)",
+      "role": "DFC universal-fixed threshold generalization on held-out scenes",
+      "result": "PENDING. 6 held-out scenes x 8 cams x {1e-7,1e-6}, no per-scene tuning. Assembler self-test PASSES; runner syntax-checked; awaiting isolated EPIC-05 A100 node.",
+      "evidence": "_dfc2_pack/DFC2_SOURCE_LOCK.json"
+    },
+    "DFC_FC0_FULL_CONVERGENCE": {
+      "status": "RUNNING (PREPARED_QUEUED REQUIRES_VALIDATION, no GPU)",
+      "role": "DFC full 30K convergence baseline vs DFC1-R2",
+      "result": "PENDING. train_dfc.py scaffold unverified; needs 200-iter smoke + isolated node before 30K.",
+      "evidence": "_dfc2_pack/DFC_FC0_SOURCE_LOCK.json"
+    },
+    "PUB0": {
+      "status": "COMPLETE",
+      "role": "Bottleneck ledger (timing normalization + Amdahl), CPU-only",
+      "result": "Current-cohort full-step geomean: stock 1.000x, TFC 1.0317x, DFC 1.0539x, TFC+DFC 1.0868x. TFC touches only intersection (~3.9% of step, ceiling 1.04x); DFC touches rasterize+backward (~58.7%, measured 1.05x vs 2.44x ceiling); TFC+DFC best current-cohort policy (1.087x, realized/ceiling ~0.32). Adam optimizer ~30% of step, O(N), untouched by ALL policies. K50-B1 cohort = HISTORICAL (multi-GPU), NOT comparable per-run.",
+      "implication": "Authoritative cohort-tagged timing ledger; confirms TFC full-step is ~1.03x (not 1.3564x).",
+      "evidence": "_pub0_ledger/PUB0_REPORT.md, PUB0_AMDAHL_LEDGER.json"
+    }
+  }
+}

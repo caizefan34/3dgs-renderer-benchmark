@@ -1,0 +1,372 @@
+Revising Densification in Gaussian Splatting Report GitHub Issue × Title: Content selection saved.
+Describe the issue below: Description: Submit without GitHub Submit in GitHub arXiv is now an independent nonprofit! Learn more × Back to arXiv Why HTML? Report Issue Back to Abstract Download PDF Abstract 1 Introduction 1.1 Related works 2 Preliminaries: Gaussian Splatting Gaussian primitive.
+Splatting.
+Rendering.
+Mip-splatting.
+3 Revising Densification 3.1 Adaptive Density Control and its limitations Growing.
+Pruning.
+Limitations.
+3.2 Error-based densification Implementation details.
+3.3 Opacity correction after cloning 3.4 Primitives growth control 3.5 Alternative to opacity reset 4 Experimental Evaluation 4.1 Datasets and metrics 4.2 Experimental setup A note about LPIPS.
+4.3 Main results 4.4 Ablation experiments 4.5 Limitations 5 Conclusion References 0.A Finer-grained analysis of the MipNeRF360 results 0.B Failure of standard Gaussian Splatting even with 10M primitives 0.C Ablation of different densification guiding error License: CC BY-SA 4.0 arXiv:2404.06109v1 [cs.CV] 09 Apr 2024 Revising Densification in Gaussian Splatting Samuel Rota Bulò Lorenzo Porzi Peter Kontschieder Affiliation: Meta Reality Labs Zurich Abstract In this paper, we address the limitations of Adaptive Density Control (ADC) in 3D Gaussian Splatting (3DGS), a scene representation method achieving high-quality, photorealistic results for novel view synthesis.
+ADC has been introduced for automatic 3D point primitive management, controlling densification and pruning, however, with certain limitations in the densification logic.
+Our main contribution is a more principled, pixel-error driven formulation for density control in 3DGS, leveraging an auxiliary, per-pixel error function as the criterion for densification.
+We further introduce a mechanism to control the total number of primitives generated per scene and correct a bias in the current opacity handling strategy of ADC during cloning operations.
+Our approach leads to consistent quality improvements across a variety of benchmark scenes, without sacrificing the method’s efficiency.
+Keywords: Gaussian Splatting 3D reconstruction Novel View Synthesis Figure 1 : Densification is a critical component of 3D Gaussian Splatting (3DGS), and a common failure point.
+In this example (ground truth on the left) we show how 3DGS can fail (center) to add primitives to high-texture areas, like the grass in the bottom part of the pictures, producing large and blurry artifacts.
+Our approach (right) solves this issue by comprehensively revising densification in 3DGS.
+1 Introduction High-quality, photorealistic scene modelling from images has been an important research area in computer vision and graphics, with plentiful applications in AR/VR/MR, robotics, etc .
+In the last years, this field has gained a lot of attention due to advances in Neural 3D scene representations, particularly Neural Radiance Fields (NeRFs) [ 17 ] .
+NeRFs take a new approach to 3D scene representation and rendering, by leveraging a combination of deep learning and volumetric rendering techniques for generating photorealistic images from novel viewpoints.
+By optimizing MLPs to map from spatial coordinates and viewing directions to density and colour fields, these models have demonstrated astonishing capabilities for capturing the complex interplay of light and geometry in a data-driven way.
+While highly efficient in terms of representation quality, the original NeRF representation relies on time-consuming sampling strategies and thus excludes applications with fast rendering requirements.
+With many advances in terms of the underlying representation, these models have been significantly optimized towards improved training time and scene representation fidelity.
+However, inference speed for high-resolution, novel view synthesis remains an ongoing limitation.
+More recently, 3D Gaussian Splatting (3DGS) [ 9 ] has been proposed as an alternative and expressive scene representation, enabling both high-speed, high-fidelity training of models and high-resolution, GPU rasterization-friendly rendering of novel views.
+Their core representation is an optimized set of (anisotropic) 3D Gaussians, after being randomly distributed in 3D space, or systematically initialized at points obtained by Structure-from-Motion [ 20 ] .
+For obtaining a 2D image, all relevant 3D primitives are efficiently rendered via splatting-based rasterization with low-pass filtering.
+In 3DGS, each 3D primitive is parameterized as a 3D Gaussian distribution ( i.e .
+, with position and covariance), together with parameters controlling its opacity and describing its directional appearance (typically spherical harmonics).
+The parameter optimization procedure is guided by a multi-view, photometric loss, and is interleaved with Adaptive Density Control (ADC), a mechanism controlling density management for 3D points by means of introducing or deleting 3D primitives.
+ADC plays a critical role as it determines where to expand/shrink the scene representation budget for empty or over-reconstructed regions, respectively.
+Both growing and pruning operations are activated based on user-defined thresholds: Growing depends on the accumulated positional gradients of existing primitives and is, conditioned on the size of the Gaussians, executed by either splitting large primitives or by cloning smaller ones.
+Pruning is activated once the opacity falls below a provided threshold.
+While quite effective in practice, such density management strategies have several limitations.
+First, estimating a gradient magnitude-based threshold is rather non-intuitive and not robust to potential changes in the model, loss terms, etc .
+Second, there are cases where only few and large Gaussians are modeling high-frequency patterns like grass as shown in the middle of Fig.
+1 .
+Here, changes accumulated from positional gradients might remain very low and thus fail to trigger the densification mechanism, which in turn leads to substantial scene underfitting.
+Finally, ADC lacks explicit control of the maximum number of Gaussians generated per scene.
+This has important, practical implications as uncontrolled growth might easily lead to out-of-memory errors during training.
+In this work we address the shortcomings of Adaptive Density Control proposed in the original 3D Gaussian splatting method.
+Our core contribution is a more principled, pixel-error driven formulation for density control in 3DGS.
+We describe how 2D, per-pixel errors as e.g .
+derived from Structural Similarity (or any other informative objective function) can be propagated back as errors to contributing Gaussian primitives.
+In our solution, we first break down the per-pixel errors according to each Gaussian’s contribution, and in a camera-specific way.
+This allows us to track the maximum error per primitive for all views and across two subsequent ADC runs, yielding our novel, error-specific, and thus more intuitive decision criterion for densification.
+Our second contribution is correcting a bias introduced with the current form of opacity handling in ADC when conducting a primitive cloning operation.
+The original approach suggests to keep the same opacity for the cloned Gaussian, which however biases the alpha-compositing logic applied for rendering the pixel colors.
+Indeed, this procedure leads to an overall increase of opacity in the cloned region, preventing the model to correctly account for contributions of other primitives and thus negatively affecting the densification process.
+Our third contribution is a mechanism for controlling the total number of primitives generated per scene and the maximum amount of novel primitives introduced per densification run.
+With this functionality, we can avoid undesired out-of-memory errors and better tune the method’s behaviour w.r.t.
+given hardware constraints.
+We extensively validate our contributions on standard benchmark datasets like Mip-NeRF 360 [ 1 ] , Tanks and Temples [ 10 ] , and Deep Blending [ 6 ] .
+Our experiments show consistent improvements over different baselines including 3DGS [ 9 ] and Mip-Splatting [ 29 ] .
+To summarize, our contributions are improving methodological shortcomings in 3DGS’ Adaptive Density Control mechanism as follows: • We propose a principled approach that enables the guidance of the densification process according to an auxiliary, per-pixel error function, rather than relying on positional gradients.
+• We correct an existing, systematic bias from the primitive growing procedure when cloning Gaussians, negatively impacting the overall densification.
+• We present ablations and experimental evaluations on different, real-world benchmarks, confirming quantitative and qualitative improvements.
+1.1 Related works Since it was presented in [ 9 ] , 3DGS has been used in a remarkably wide set of downstream applications, including Simultaneous Localization and Mapping [ 16 , 30 , 24 , 8 ] , text-to-3D generation [ 2 , 21 , 28 ] , photo-realistic human avatars [ 32 , 13 , 11 , 19 ] , dynamic scene modeling [ 22 , 15 , 25 ] and more [ 5 , 23 , 27 ] .
+However, only a handful of works like ours have focused on advancing 3DGS itself, by improving its quality or overcoming some of its limitations.
+In GS++ [ 7 ] , Huang et al .
+present an improved approximation of the 3D-to-2D splatting operation at the core of 3DGS, which achieves better accuracy near image edges and solves some common visual artifacts.
+Spec-Gaussian [ 26 ] and Scaffold-gs [ 14 ] focus on improving view-dependent appearance modeling: the former by replacing spherical harmonics with an anisotropic spherical Gaussian appearance field; the latter by making all 3D Gaussian parameters, including whether specific primitives should be rendered or not, dependent on view direction through a small MLP.
+Mip-Splatting [ 29 ] tackles the strong artifacts that appear in 3DGS models when they are rendered at widely different resolutions (or viewing distances) compared to the images they were trained on.
+To do this, Yu et al .
+propose to incorporate a 3D filter to constrain the size of the 3D primitives depending on their maximal sampling rate on the training views, and a 2D Mip filter to mitigate aliasing issues.
+All these works adopt the original ADC strategy proposed in [ 9 ] , and can potentially benefit from our improved approach, as we show for Mip-Splatting in Sec.
+4 .
+Only few concurrent works have touched on densification, while putting most of their focus on other aspects of 3DGS.
+Lee et al .
+[ 12 ] propose a quantization-based approach to produce more compact 3DGS representations, which includes a continuous sparsification strategy that takes both primitive size and opacity into account.
+GaussianPro [ 3 ] directly tackles related densification limitations as we explore in our work, filling the gaps from SfM-based initialization.
+They propose a rather complex procedure based on the progressive propagation of primitives along estimated planes, using patch-matching and geometric consistency as guidance.
+In contrast to our method, [ 3 ] focuses on fixing the quality of planar regions, instead of holistically improving densification.
+We also note that a fair comparison with their method on the standard Mip-NeRF 360 benchmark is not feasible at the time of submission, as the authors did not publicly share the improved SfM point cloud used in their experiments (see §5.2 of [ 3 ] ).
+2 Preliminaries: Gaussian Splatting Gaussian Splatting [ 9 ] revisits ideas from EWA splatting [ 33 ] and proposes to fit a 3D scene as a collection of 3D Gaussian primitives Γ ≔ { γ 1 , … , γ K } \Gamma\coloneqq\{\gamma_{1},\ldots,\gamma_{K}\} that can be rendered by leveraging volume splatting.
+Gaussian primitive.
+A Gaussian primitive γ k ≔ ( 𝝁 k , Σ k , α k , 𝒇 k ) \gamma_{k}\coloneqq(\boldsymbol{\mu}_{k},\mathtt{\Sigma}_{k},\alpha_{k},\boldsymbol{f}_{k}) geometrically resembles a 3D Gaussian kernel 𝒢 k ​ ( 𝒙 ) ≔ exp ⁡ ( − 1 2 ​ ( 𝒙 − 𝝁 k ) ⊤ ​ Σ k − 1 ​ ( 𝒙 − 𝝁 k ) ) \mathcal{G}_{k}(\boldsymbol{x})\coloneqq\exp\left(-\frac{1}{2}(\boldsymbol{x}-\boldsymbol{\mu}_{k})^{\top}\mathtt{\Sigma}_{k}^{-1}(\boldsymbol{x}-\boldsymbol{\mu}_{k})\right) centered in 𝝁 k ∈ ℝ 3 \boldsymbol{\mu}_{k}\in\mathbb{R}^{3} and having Σ k \mathtt{\Sigma}_{k} as its 3 × 3 3\times 3 covariance matrix.
+Each primitive additionally entails
+an opacity factor α k ∈ [ 0 , 1 ] \alpha_{k}\in[0,1] and
+a feature vector 𝒇 k ∈ ℝ d \boldsymbol{f}_{k}\in\mathbb{R}^{d} ( e.g .
+RGB color or spherical harmonics coefficients).
+Splatting.
+This is the operation of projecting a Gaussian primitive γ k \gamma_{k} to a camera pixel space via its world-to-image transformation π : ℝ 3 → ℝ 2 \pi:\mathbb{R}^{3}\to\mathbb{R}^{2} , which we refer directly
+to as the camera for simplicity.
+The projection π \pi is approximated to the first order at the primitive’s center 𝝁 k \boldsymbol{\mu}_{k} so that the projected primitive is geometrically equivalent to a 2D Gaussian kernel 𝒢 k π \mathcal{G}_{k}^{\pi} with mean π ⁡ ( 𝝁 k ) ∈ ℝ 2 \pi(\boldsymbol{\mu}_{k})\in\mathbb{R}^{2} and 2D covariance 𝙹 k π ​ Σ k ​ 𝙹 𝚔 π ⊤ \mathtt{J}_{k}^{\pi}\mathtt{\Sigma}_{k}\mathtt{J_{k}^{\pi}}^{\top} with 𝙹 k π \mathtt{J}_{k}^{\pi} being the Jacobian of π \pi evaluated at 𝝁 k \boldsymbol{\mu}_{k} .
+Rendering.
+To render the primitives Γ \Gamma representing a scene from camera π \pi , we require a decoder Φ \Phi to be specified, which provides the feature we want to render as Φ ⁡ ( γ k , 𝒖 ) ∈ ℝ m \Phi(\gamma_{k},\boldsymbol{u})\in\mathbb{R}^{m} for each Gaussian primitive γ k \gamma_{k} and pixel 𝒖 \boldsymbol{u} .
+Moreover, we assume Gaussian primitives Γ \Gamma to be ordered with respect to their center’s depth, when seen from the camera’s reference frame.
+Then, the rendering equation takes the following form (with Γ \Gamma being omitted from the notation) ℛ ⁡ [ π , Φ ] ​ ( 𝒖 ) ≔ ∑ k = 1 K Φ ⁡ ( γ k , 𝒖 ) ​ ω k π ​ ( 𝒖 ) , \mathcal{R}[\pi,\Phi](\boldsymbol{u})\coloneqq{\sum_{k=1}^{K}}\Phi(\gamma_{k},\boldsymbol{u})\omega^{\pi}_{k}(\boldsymbol{u})\,, where ω k π ​ ( 𝒖 ) \omega^{\pi}_{k}(\boldsymbol{u}) are alpha-compositing coefficients given by ω k π ​ ( 𝒖 ) ≔ α k ​ 𝒢 k π ​ ( 𝒖 ) ​ ∏ j = 1 k − 1 ( 1 − α j ​ 𝒢 j π ​ ( 𝒖 ) ) .
+\omega^{\pi}_{k}(\boldsymbol{u})\coloneqq\alpha_{k}\mathcal{G}^{\pi}_{k}(\boldsymbol{u})\prod_{j=1}^{k-1}\left(1-\alpha_{j}\mathcal{G}^{\pi}_{j}(\boldsymbol{u})\right).
+If we assume the feature vectors 𝒇 k \boldsymbol{f}_{k} to be spherical harmonics coefficients encoding an RGB function on the sphere, we can regard Φ 𝚁𝙶𝙱 ​ ( 𝒖 ) \Phi_{\mathtt{RGB}}(\boldsymbol{u}) as the
+decoded RGB color for the given view direction associated to pixel 𝒖 \boldsymbol{u} .
+If we use Φ 𝚁𝙶𝙱 \Phi_{\mathtt{RGB}} as the decoder in the rendering equation, we obtain a rendered color image C π ​ ( 𝒖 ) ≔ ℛ ⁡ [ π , Φ 𝚁𝙶𝙱 ] ​ ( 𝒖 ) C_{\pi}(\boldsymbol{u})\coloneqq\mathcal{R}[\pi,\Phi_{\mathtt{RGB}}](\boldsymbol{u}) for each camera π \pi .
+Similarly, one can pick different Φ \Phi ’s to enable the rendering of depth, normals, or other quantities of interest as we will show later.
+Mip-splatting.
+In [ 29 ] , the authors introduce a variation of standard Gaussian splatting that focuses on solving aliasing issues.
+We refer the reader to the original paper for details, but the idea is to track the maximum sampling rate for each Gaussian primitive and use it to reduce aliasing effects by attenuating the Gaussian primitives’ opacity.
+3 Revising Densification We first review the Adaptive Density Control module proposed in the original Gaussian splatting work [ 9 ] , highlight some of its limitations, and then introduce our novel and improved densification procedure.
+3.1 Adaptive Density Control and its limitations 3DGS [ 9 ] and follow-up extensions (e.g.
+Mip-splatting [ 29 ] ) rely on the Adaptive Density Control (ADC) module to grow or prune Gaussian primitives.
+This module is run according to a predetermined schedule and densification decisions are based on gradient statistics collected across the ADC runs.
+Specifically, for each Gaussian primitive γ k \gamma_{k} the positional gradient magnitude ‖ ∂ L π ∂ 𝝁 k ‖ \left\|\frac{\partial L_{\pi}}{\partial\boldsymbol{\mu}_{k}}\right\| is tracked and averaged over all rendered views π ∈ Π \pi\in\Pi within the collection period, where L π L_{\pi} denotes the loss that is optimized for camera π \pi .
+The resulting quantity is denoted by τ k \tau_{k} .
+Growing.
+ADC grows new Gaussian primitives via a clone or a split operation.
+A primitive γ k \gamma_{k} will be considered for a growing operation only if τ k \tau_{k} exceeds a user-defined threshold.
+The decision about which operation to apply depends on the size of the primitive measured in terms of the largest eigenvalue of the covariance matrix Σ k \mathtt{\Sigma}_{k} .
+Specifically, primitives larger than a threshold are split, otherwise cloned.
+When a primitive γ k \gamma_{k} is split, two new primitives are generated with their position being sampled from 𝒢 k \mathcal{G}_{k} and their covariance being a scaled down version of Σ k \mathtt{\Sigma}_{k} , while preserving the same opacity and feature vector.
+When a clone operation takes place, a simple clone of γ k \gamma_{k} is instantiated.
+Pruning.
+ADC prunes a Gaussian primitive γ k \gamma_{k} if its opacity α k \alpha_{k} is below a user-defined threshold, typically 0.005 0.005 .
+To ensure that an unused primitive is eventually pruned, a hard-reset of the opacity to a minimum value (usually 0.01 0.01 ) is enforced according to a predefined schedule.
+Limitations.
+Deciding which Gaussian primitives to split/clone based on the magnitude of the positional gradient suffers from a number of limitations: • Determining a threshold for a gradient magnitude is not intuitive and very sensitive to modifications to the model, losses and hyperparameters, • There are cases of scene underfitting also when the value of τ k \tau_{k} is below the threshold that triggers densification (see Fig.
+1 ).
+• It is not possible to directly control the number of Gaussian primitives that are generated for a given scene, resulting in possible out-of-memory errors if their number grows abnormally.
+In addition, we found that the ADC’s logic of growing primitives suffers from a bias that weights more the contribution of freshly cloned primitives.
+More details will follow in Sec.
+3.3 3.2 Error-based densification Assume we have an image with an area characterized by a high-frequency pattern and covered by few large splatted Gaussian primitives ( e.g .
+the grass in Fig.
+1 ).
+Under this scenario, an infinitesimal change in the 3D location 𝝁 k \boldsymbol{\mu}_{k} of one of the corresponding Gaussian primitives γ k \gamma_{k} will leave the error almost unchanged and, hence, the collected magnitude of the positional gradient τ k \tau_{k} remains close to zero.
+In fact, τ k \tau_{k} is sensitive to error-changes, but is blind to the absolute value of the error.
+This becomes a problem, for we expect to increase the number of Gaussian primitives in areas exhibiting a larger error.
+Given the above considerations, we propose to steer the densification decisions directly based on an auxiliary per-pixel error function ℰ π \mathcal{E}_{\pi} ( e.g .
+Structural Similarity) that we measure when rendering on a camera π \pi with available ground-truth.
+One problem to address is how to turn per-pixel errors into per-Gaussian-primitive errors in light of the fact that each pixel error entangles the contribution of multiple Gaussian primitives.
+Our solution consists of first re-distributing the per-pixel errors ℰ π ​ ( 𝒖 ) \mathcal{E}_{\pi}(\boldsymbol{u}) to each Gaussian primitive γ k \gamma_{k} proportionally to their contribution to the rendered pixel color, i.e .
+proportionally to w k π ​ ( 𝒖 ) w^{\pi}_{k}(\boldsymbol{u}) .
+This yields the following error for each primitive γ k \gamma_{k} and camera π \pi : E k π ≔ ∑ 𝒖 ∈ Pix ℰ π ​ ( 𝒖 ) ​ w k π ​ ( 𝒖 ) , E^{\pi}_{k}\coloneqq\sum_{\boldsymbol{u}\in\text{Pix}}\mathcal{E}_{\pi}(\boldsymbol{u})w^{\pi}_{k}(\boldsymbol{u})\,, where the sum runs over the image pixels.
+Then, for each primitive γ k \gamma_{k} we track the maximum value of the error E k π E^{\pi}_{k} across all views π ∈ Π \pi\in\Pi seen between two runs of the ADC module, i.e .
+E k ≔ max π ∈ Π ⁡ E k π .
+E_{k}\coloneqq\max_{\pi\in\Pi}E^{\pi}_{k}.
+This is the score that we use to prioritize the growing of Gaussian primitives.
+As opposed to τ k \tau_{k} , it is easier to set a threshold for our new densification score, for it is typically expressed in terms of a known error metric.
+Implementation details.
+In order to compute E k π E^{\pi}_{k} we assign an additional scalar e k e_{k} to each Gaussian primitive γ k \gamma_{k} , and enable the possibility of rendering it via the decoder Φ 𝙴𝚁𝚁 ​ ( γ k , 𝒖 ) ≔ e k \Phi_{\mathtt{ERR}}(\gamma_{k},\boldsymbol{u})\coloneqq e_{k} .
+Then, we add the following auxiliary loss to the standard Gaussian splatting training objective: L π 𝚊𝚞𝚡 ≔ ∑ 𝒖 ∈ Pix ∇ ​ [ ℰ π ​ ( 𝒖 ) ] ​ ℛ ​ [ π , Φ 𝙴𝚁𝚁 ] ​ ( 𝒖 ) ⏟ = ∑ k = 1 K e k ​ ω k π ​ ( 𝒖 ) , L^{\mathtt{aux}}_{\pi}\coloneqq\sum_{\boldsymbol{u}\in\text{Pix}}\cancel{\nabla}[\mathcal{E}_{\pi}(\boldsymbol{u})]\underbrace{\mathcal{R}[\pi,\Phi_{\mathtt{ERR}}](\boldsymbol{u})}_{=\sum_{k=1}^{K}e_{k}\omega^{\pi}_{k}(\boldsymbol{u})}\,, which is basically the dot product of the per-pixel error with gradient detached and the rendering of the newly-added scalar.
+We initialize e k e_{k} to 0 0 for each Gaussian primitive γ k \gamma_{k} and never update it during training.
+In this way, L π 𝚊𝚞𝚡 = 0 L^{\mathtt{aux}}_{\pi}=0 and all Gaussian primitives’ parameters, excepting e k e_{k} , are left invariant by this loss.
+The gradient with respect to e k e_{k} instead yields ∂ L π 𝚊𝚞𝚡 ∂ e k = ∑ 𝒖 ∈ Pix ℰ π ​ ( 𝒖 ) ​ ω k π ​ ( 𝒖 ) = E k π , \frac{\partial L^{\mathtt{aux}}_{\pi}}{\partial e_{k}}=\sum_{\boldsymbol{u}\in\text{Pix}}\mathcal{E}_{\pi}(\boldsymbol{u})\omega^{\pi}_{k}(\boldsymbol{u})=E^{\pi}_{k}\,, which is the per-Gaussian-primitive error for camera π \pi we wanted to compute.
+3.3 Opacity correction after cloning In the original ADC module, when a Gaussian primitive is split or cloned, the opacity value is preserved.
+This choice introduces a bias in the case of the clone operation by implicitly increasing the impact of the densified primitive on the final rendered color.
+To see why this is the case we can follow the example in Fig.
+2 , where we consider what happens if we render a splatted Gaussian in its center pixel assuming an opacity value α \alpha .
+Before a cloning operation happens, the rendered color depends on primitives that come next in the ordering with weight 1 − α 1-\alpha .
+But after we clone, due to the alpha-compositing logic, we have that primitives that come next weight ( 1 − α ) 2 (1-\alpha)^{2} , which is lower than 1 − α 1-\alpha for all opacity values in ( 0 , 1 ) (0,1) .
+Accordingly, by applying the standard logic of preserving the opacity after cloning we have a bias to weight more the cloned primitives.
+The solution we suggest consist in reducing the opacity of the primitives after cloning so that the bias is removed.
+The new opacity value α ^ \hat{\alpha} can be found by solving the equation ( 1 − α ) = ( 1 − α ^ ) 2 (1-\alpha)=(1-\hat{\alpha})^{2} , which yields α ^ ≔ 1 − 1 − α \hat{\alpha}\coloneqq 1-\sqrt{1-\alpha} .
+Figure 2 : Consider rendering a single splatted Gaussian in its center pixel with opacity α \alpha before and after cloning.
+Before we clone, the rendered color depends with weight 1 − α 1-\alpha on what comes next.
+After we clone, since we preserve the opacity, the rendered color depends with weight ( 1 − α ) 2 (1-\alpha)^{2} on what comes next.
+Since ( 1 − α ) ≥ ( 1 − α ) 2 (1-\alpha)\geq(1-\alpha)^{2} we have a bias towards weighting more Gaussian primitives that get cloned.
+The proposed correction changes the opacity post clone to α ^ \hat{\alpha} so that the bias is removed.
+If we depart from the simplified setting of considering only the center pixel and rather consider all pixels, it is unfortunately not possible to remove completely the bias.
+Nonetheless, the correction factor we introduce reduces the bias for all pixels compared to keeping the opacity of the cloned primitive.
+Indeed, the following relation holds for all α k ∈ ( 0 , 1 ) \alpha_{k}\in(0,1) and all pixels 𝒖 \boldsymbol{u} : 1 − α k ​ 𝒢 k π ​ ( 𝒖 ) ≥ ( 1 − α ^ k ​ 𝒢 k π ​ ( 𝒖 ) ) 2 > ( 1 − α k ​ 𝒢 k π ​ ( 𝒖 ) ) 2 , 1-\alpha_{k}\mathcal{G}_{k}^{\pi}(\boldsymbol{u})\geq(1-\hat{\alpha}_{k}\mathcal{G}_{k}^{\pi}(\boldsymbol{u}))^{2}>(1-\alpha_{k}\mathcal{G}_{k}^{\pi}(\boldsymbol{u}))^{2}\,, where α ^ k ≔ 1 − 1 − α k \hat{\alpha}_{k}\coloneqq 1-\sqrt{1-\alpha_{k}} is our corrected opacity.
+The proof of the relation follows by noting that α ^ k \hat{\alpha}_{k} can be rewritten as α k 1 + 1 − α k \frac{\alpha_{k}}{1+\sqrt{1-\alpha_{k}}} which is strictly smaller than α k \alpha_{k} for α k ∈ ( 0 , 1 ) \alpha_{k}\in(0,1) .
+Finally, the correction of the opacity as shown above is derived assuming we clone a Gaussian primitive, but does not strictly match the case of a split operation, for when we split we move the two offspring randomly away from the previous center and we change the covariance scale.
+For this reason, we stick to the standard rule of preserving the opacity of a primitive we split.
+3.4 Primitives growth control Figure 3 : Evolution of the number of Gaussians in 3DGS, and in our method with upper limit set to the number reached by 3DGS (on the garden scene from the Mip-NeRF 360 dataset).
+Note that, while 3DGS’ ADC process stops after 15k iterations, ours remains active for 27k.
+This is not immediately visible from the plot, since pruned primitives are immediately replaced by newly spawned ones, keeping the overall number stable once the maximum is reached.
+The ADC module grows a Gaussian primitive if τ k \tau_{k} is larger than a threshold.
+This mechanism can lead to unpredictable growth of the number of primitives, eventually resulting in out-of-memory issues.
+To avoid this problem, we introduce a global limit to the maximum number of Gaussian primitives, and a mechanism to control the maximum number of primitives that can be created each time densification is run.
+Among the many possible options, we explore a logic that limits new primitive offspring to a fixed fraction of the primitives that already exist.
+In case the number of primitives that are entitled to be densified exceeds the available budget, we retain only the ones that exhibit the highest densification score.
+An example of this process is shown in Fig.
+3 , compared to the one from 3DGS: For Ours , the number of primitives grows smoothly until it reaches the allotted maximum, without the discontinuities induced by opacity reset (see Sec.
+3.5 ).
+The way we control the number of primitives is not limited to our error-based densification logic, but can be applied equally to the original gradient-based one.
+3.5 Alternative to opacity reset The strategy introduced in [ 9 ] to favour the sparsification of Gaussian primitives consists in periodical hard resets of the opacity for all primitives to a low value, so that primitives whose opacity is not increased again by the optimization will eventually be pruned.
+This introduces a small shock in the training trajectory, which is suboptimal for the sake of having stable and predictable training dynamics.
+Moreover, resetting the opacity is particularly harmful for our error-based densification method, for it will lead to misleading error statistics right after the hard-reset, potentially triggering wrong densification decisions.
+For this reason, we propose a different logic to favour primitives pruning in a smoother way.
+Specifically, we decrease the opacity of each primitive by a fixed amount (we use 0.001 0.001 ) after each densification run, so that the opacity will gradually move towards the pruning range.
+In this way, we avoid sudden changes in the densification metric, while preserving the desired sparsification properties.
+One downside of the new opacity regularization logic is that the constant push towards lowering the opacity of the primitives implicitly invites the model to make more use of the background where possible.
+This is also harmful, for it could generate more holes in the scene that will be visible from novel views.
+To counteract this dynamics, we also regularize the residual probabilities of the alpha-compositing ( a.k.a.
+residual transmittance) to be zero for every pixel, by simply minimizing their average value, weighted by a hyperparameter (here 0.1 0.1 ).
+4 Experimental Evaluation In the following we show how our improved ADC mechanism can equally be applied both to standard 3DGS [ 9 ] and its Mip-Splatting extension [ 29 ] , providing benefits to both.
+4.1 Datasets and metrics We follow the experimental setup from the 3DGS [ 9 ] paper, focusing on the real-world scenes from the Mip-NeRF 360 [ 1 ] , Tanks and Temples [ 10 ] and Deep Blending [ 6 ] datasets.
+Mip-NeRF 360 comprises nine scenes (5 outdoor, 4 indoor) captured in a circular pattern which focuses on a central area of a few meters, with a potentially unbounded background.
+For Tanks and Temples, we focus on the “Truck” and “Train” scenes, while for Deep Blending we focus on the “Dr Johnson” and “Playroom” scenes, using the images and SfM reconstructions shared by the Gaussian Splatting authors.
+In each experiment we set aside each 8th image as a validation set, and report peak signal-to-noise ratio (PSNR), structural similarity (SSIM) and the perceptual metric from [ 31 ] (LPIPS).
+4.2 Experimental setup We evaluate based on our re-implementations of 3DGS, which allows us to easily switch between standard 3DGS, Mip-Splatting, the original ADC of [ 9 ] , our contributions or any combination thereof.
+We reproduce the training settings proposed in [ 29 , 9 ] and the respective public code-bases 1 1 1 https://github.com/graphdeco-inria/gaussian-splatting 2 2 2 https://github.com/autonomousvision/mip-splatting , including number of training iterations, batch size, input resolution, learning rates etc.
+When training with our contributions, we grow Gaussians with E k > 0.1 E_{k}>0.1 , adding up to 5 % 5\% of the current number of primitives at each densification step.
+Differently from 3DGS, we keep our ADC process active for 27k iterations ( i.e .
+90% of the training process), instead of stopping it after 15k.
+Other relevant hyper-parameters are left to the default values used in 3DGS, and shared across all datasets and scenes.
+In all our experiments, we set the maximum primitives budget to the number of primitives (or its median, for experiments with multiple runs) generated by the corresponding baseline, in order to obtain perfectly comparable models.
+For more details, please refer to the supplementary document.
+A note about LPIPS.
+Investigating the 3DGS and Mip-Splatting baselines, we discovered a discrepancy in the way LPIPS is calculated in both public code-bases, which resulted in under-estimated values being reported in the original papers.
+This was confirmed in private correspondence with the authors.
+In order to simplify comparisons with future works that don’t rely on these code-bases, and might be unaware of this issue, we report correct LPIPS values here, and refer the reader to the supplementary document for values compatible with those shown in the tables of [ 29 , 9 ] .
+4.3 Main results Figure 4 : Qualitative results on the Mip-NeRF 360, Tanks and Temples and Deep Blending validation sets.
+Note that 3DGS and Ours use the same number of primitives .
+Best viewed on screen at high magnification.
+Table 1 : Results on the Mip-NeRF 360 dataset.
+Top section of the table: results from the Gaussian Splatting paper; bottom section: results from our re-implementation averaged over 5 runs.
+PSNR ↑ \uparrow SSIM ↑ \uparrow LPIPS ↓ \downarrow Method Mean Stdev Mean Stdev Mean Stdev Plenoxels [ 4 ] 23.08 – 0.626 – 0.436 – INGP [ 18 ] 25.59 – 0.699 – 0.331 – Mip-NeRF 360 [ 1 ] 27.69 – 0.792 – 0.237 – 3DGS [ 9 ] 27.45 0.081 0.817 0.001 0.250 0.001 Mip-Splatting [ 29 ] 27.51 0.074 0.818 0.001 0.251 0.001 Ours, 3DGS 27.61 0.067 0.822 0.001 0.223 0.001 Ours, Mip-Splatting 27.70 0.065 0.823 0.001 0.223 0.001 Table 2 : Results on the Tanks and Temples dataset.
+Top section of the table: results from the Gaussian Splatting paper; bottom section: results from our re-implementation averaged over 5 runs.
+PSNR ↑ \uparrow SSIM ↑ \uparrow LPIPS ↓ \downarrow Method Mean Stdev Mean Stdev Mean Stdev Plenoxels [ 4 ] 21.08 – 0.719 – 0.379 – INGP [ 18 ] 21.92 – 0.745 – 0.305 – Mip-NeRF 360 [ 1 ] 22.22 – 0.759 – 0.257 – 3DGS [ 9 ] 23.44 0.089 0.845 0.002 0.212 0.001 Mip-Splatting [ 29 ] 23.65 0.066 0.849 0.001 0.211 0.001 Ours, 3DGS 23.93 0.070 0.853 0.001 0.187 0.001 Ours, Mip-Splatting 24.10 0.109 0.857 0.002 0.183 0.001 Table 3 : Results on the Deep Blending dataset.
+Top section of the table: results from the Gaussian Splatting paper; bottom section: results from our re-implementation averaged over 5 runs.
+PSNR ↑ \uparrow SSIM ↑ \uparrow LPIPS ↓ \downarrow Method Mean Stdev Mean Stdev Mean Stdev Plenoxels [ 4 ] 23.06 – 0.795 – 0.510 – INGP [ 18 ] 24.96 – 0.817 – 0.390 – Mip-NeRF 360 [ 1 ] 29.40 – 0.901 – 0.245 – 3DGS [ 9 ] 29.54 0.096 0.902 0.000 0.311 0.001 Mip-Splatting [ 29 ] 29.68 0.068 0.903 0.000 0.309 0.000 Ours, 3DGS 29.50 0.110 0.904 0.001 0.305 0.001 Ours, Mip-Splatting 29.64 0.126 0.905 0.001 0.303 0.001 In a first set of experiments, we evaluate the effectiveness of our improved ADC strategy (Ours) when applied to 3DGS and Mip-Splatting.
+Results, collected over 5 training runs to average out the randomness induced by stochastic primitive splitting, are reported in Tab.
+1 , 2 and 3 .
+For the sake of completeness, we also include scores obtained with three NeRF baselines, i.e .
+Plenoxels [ 4 ] , Instant-NGP (INGP) [ 18 ] and Mip-NeRF 360 [ 1 ] , as originally reported in [ 9 ] .
+Our approach consistently outperforms the corresponding baselines ( i.e .
+Ours, 3DGS vs.
+3DGS; Ours, Mip-Splatting vs.
+Mip-Splatting), particularly on SSIM and LPIPS.
+This is in line with what we discussed in Sec.
+3.1 and 3.2 : standard ADC often leads to localized under-fitting, as it fails to split large gaussians that cover highly-textured regions of the scene.
+This kind of errors is poorly reflected by PSNR, which measures the “average fit” over image pixels, but are promptly detected by perceptual metrics like LPIPS.
+On the Deep Blending dataset, we observe thinner gaps, PSNR actually showing a small regression w.r.t.
+the baselines, although with low confidence margins.
+We suspect this might be related to the fact that Deep Blending contains many flat, untextured surfaces (see Fig.
+4 ), that are particularly challenging to reconstruct accurately with 3DGS-like methods, independently of the ADC strategy being adopted.
+Figure 4 contains a qualitative comparison between standard 3DGS and 3DGS augmented with our contributions (Ours).
+Areas with under-fitting artifacts are highlighted, showing how these are notably ameliorated by our approach.
+It is also worth noting that Ours effectively maintains the same quality as 3DGS in non-problematic areas, producing a more perceptually accurate reconstruction while using the same number of primitives (see Sec.
+4.2 ).
+4.4 Ablation experiments Table 4 : Ablation experiments on the Mip-NeRF 360 dataset, adding individual contributions to 3DGS or removing them from Ours.
+OC: Opacity Correction, Sec.
+3.3 ; GC: Growth Control, Sec.
+3.4 ; OR: Opacity Regularization, Sec.
+3.5 .
+3DGS Ours Baseline + + OC + + GC + + OR Full − - OC − - GC − - OR PSNR ↑ \uparrow 27.45 27.65 27.35 27.48 27.61 27.04 27.54 27.28 SSIM ↑ \uparrow 0.817 0.822 0.810 0.818 0.822 0.812 0.818 0.810 LPIPS ↓ \downarrow 0.250 0.239 0.256 0.243 0.223 0.235 0.223 0.234 In Tab.
+4 we ablate the effects of Opacity Correction (OC, Sec.
+3.3 ), Growth Control (GC, Sec.
+3.4 ) and Opacity Regularization (OR, Sec.
+3.5 ) on the Mip-NeRF 360 dataset.
+In particular, we evaluate 3DGS augmented with each of these components (left side of the table), and our method with the components replaced by the corresponding baseline mechanism in 3DGS’ standard ADC (right side of the table).
+First, we observe that OC, GC and OR all contribute to our method, as the Full version of Ours achieves the overall best results on all metrics, and removing them consistently degrades performance.
+Interestingly, Opacity Correction seems to have the largest impact here, as it produces both the largest increase in the scores when added to 3DGS, and the largest decrease when removed from Ours.
+Finally, Growth Control has a negative impact on 3DGS when utilized in isolation, while only slightly degrading the results when removed from Ours.
+Note that this observation doesn’t detract from GC’s usefulness as a strategy to control and limit the capacity of the model.
+We hypothesize that GC’s negative effect on 3DGS might be a consequence of the fact that the standard, gradient-based densification score is actually a poor choice for comparing gaussians in terms of how soon they should be split or cloned (remember that GC ranks Gaussians based on their score).
+4.5 Limitations While our method appears to be quite effective at solving under-fitting issues, these can still be present in especially difficult scenes ( e.g .
+treehill in the Mip-NeRF 360 dataset, both scenes from the Deep Blending dataset).
+Focusing on the problematic areas that our ADC approach handles successfully, we observe that, while perceptually more “correct”, the reconstruction there can still be quite inaccurate when closely compared to the ground truth (see e.g .
+the flowers scene in Fig.
+4 ).
+We suspect both these issues might be related to 3DGS’ intrinsic limits in handling i) strong view-dependent effects; ii) appearance variations across images; and iii) errors induced by the linear approximation in the Splatting operation (see Sec.
+2 ).
+An interesting future direction could be to combine our approach with works that address these issues, e.g .
+Spec-Gaussian [ 26 ] for (i) and GS++ [ 7 ] for (iii).
+5 Conclusion In this paper, we addressed the limitations of the Adaptive Density Control (ADC) mechanism in 3D Gaussian Splatting (3DGS), a scene representation method for high-quality, photorealistic rendering.
+Our main contribution is a more principled, pixel-error driven formulation for density control in 3DGS.
+We propose how to leverage a novel decision criterion for densification based on per-pixel errors and introduce a mechanism to control the total number of primitives generated per scene.
+We also correct a bias in the current opacity handling in ADC during cloning.
+Our approach leads to consistent and systematic improvements over previous methods, particularly in perceptual metrics like LPIPS.
+References [1] Barron, J.T., Mildenhall, B., Verbin, D., Srinivasan, P.P., Hedman, P.: Mip-nerf 360: Unbounded anti-aliased neural radiance fields.
+In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+pp.
+5470–5479 (2022) [2] Chen, Z., Wang, F., Liu, H.: Text-to-3d using gaussian splatting.
+arXiv preprint arXiv:2309.16585 (2023) [3] Cheng, K., Long, X., Yang, K., Yao, Y., Yin, W., Ma, Y., Wang, W., Chen, X.: Gaussianpro: 3d gaussian splatting with progressive propagation.
+arXiv preprint arXiv:2402.14650 (2024) [4] Fridovich-Keil, S., Yu, A., Tancik, M., Chen, Q., Recht, B., Kanazawa, A.: Plenoxels: Radiance fields without neural networks.
+In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+pp.
+5501–5510 (2022) [5] Guédon, A., Lepetit, V.: Sugar: Surface-aligned gaussian splatting for efficient 3d mesh reconstruction and high-quality mesh rendering.
+arXiv preprint arXiv:2311.12775 (2023) [6] Hedman, P., Philip, J., Price, T., Frahm, J.M., Drettakis, G., Brostow, G.: Deep blending for free-viewpoint image-based rendering.
+ACM Transactions on Graphics (ToG) 37 (6), 1–15 (2018) [7] Huang, L., Bai, J., Guo, J., Guo, Y.: Gs++: Error analyzing and optimal gaussian splatting.
+arXiv preprint arXiv:2402.00752 (2024) [8] Keetha, N., Karhade, J., Jatavallabhula, K.M., Yang, G., Scherer, S., Ramanan, D., Luiten, J.: Splatam: Splat, track & map 3d gaussians for dense rgb-d slam.
+arXiv preprint arXiv:2312.02126 (2023) [9] Kerbl, B., Kopanas, G., Leimkühler, T., Drettakis, G.: 3d gaussian splatting for real-time radiance field rendering.
+ACM Transactions on Graphics 42 (4) (July 2023), https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/ [10] Knapitsch, A., Park, J., Zhou, Q.Y., Koltun, V.: Tanks and temples: Benchmarking large-scale scene reconstruction.
+ACM Transactions on Graphics (ToG) 36 (4), 1–13 (2017) [11] Kocabas, M., Chang, J.H.R., Gabriel, J., Tuzel, O., Ranjan, A.: Hugs: Human gaussian splats.
+arXiv preprint arXiv:2311.17910 (2023) [12] Lee, J.C., Rho, D., Sun, X., Ko, J.H., Park, E.: Compact 3d gaussian representation for radiance field.
+arXiv preprint arXiv:2311.13681 (2023) [13] Lei, J., Wang, Y., Pavlakos, G., Liu, L., Daniilidis, K.: Gart: Gaussian articulated template models.
+arXiv preprint arXiv:2311.16099 (2023) [14] Lu, T., Yu, M., Xu, L., Xiangli, Y., Wang, L., Lin, D., Dai, B.: Scaffold-gs: Structured 3d gaussians for view-adaptive rendering.
+arXiv preprint arXiv:2312.00109 (2023) [15] Luiten, J., Kopanas, G., Leibe, B., Ramanan, D.: Dynamic 3d gaussians: Tracking by persistent dynamic view synthesis.
+arXiv preprint arXiv:2308.09713 (2023) [16] Matsuki, H., Murai, R., Kelly, P.H., Davison, A.J.: Gaussian splatting slam.
+arXiv preprint arXiv:2312.06741 (2023) [17] Mildenhall, B., Srinivasan, P.P., Tancik, M., Barron, J.T., Ramamoorthi, R., Ng, R.: Nerf: Representing scenes as neural radiance fields for view synthesis.
+In: ECCV.
+p.
+405–421 (2020) [18] Müller, T., Evans, A., Schied, C., Keller, A.: Instant neural graphics primitives with a multiresolution hash encoding.
+ACM Trans.
+Graph.
+41 (4), 102:1–102:15 (Jul 2022).
+https://doi.org/10.1145/3528223.3530127, https://doi.org/10.1145/3528223.3530127 [19] Saito, S., Schwartz, G., Simon, T., Li, J., Nam, G.: Relightable gaussian codec avatars.
+arXiv preprint arXiv:2312.03704 (2023) [20] Snavely, N., Seitz, S.M., Szeliski, R.: Photo tourism: exploring photo collections in 3d.
+In: ACM siggraph 2006 papers, pp.
+835–846 (2006) [21] Tang, J., Ren, J., Zhou, H., Liu, Z., Zeng, G.: Dreamgaussian: Generative gaussian splatting for efficient 3d content creation.
+arXiv preprint arXiv:2309.16653 (2023) [22] Wu, G., Yi, T., Fang, J., Xie, L., Zhang, X., Wei, W., Liu, W., Tian, Q., Wang, X.: 4d gaussian splatting for real-time dynamic scene rendering.
+arXiv preprint arXiv:2310.08528 (2023) [23] Xie, T., Zong, Z., Qiu, Y., Li, X., Feng, Y., Yang, Y., Jiang, C.: Physgaussian: Physics-integrated 3d gaussians for generative dynamics.
+arXiv preprint arXiv:2311.12198 (2023) [24] Yan, C., Qu, D., Wang, D., Xu, D., Wang, Z., Zhao, B., Li, X.: Gs-slam: Dense visual slam with 3d gaussian splatting.
+arXiv preprint arXiv:2311.11700 (2023) [25] Yang, Z., Yang, H., Pan, Z., Zhu, X., Zhang, L.: Real-time photorealistic dynamic scene representation and rendering with 4d gaussian splatting.
+arXiv preprint arXiv:2310.10642 (2023) [26] Yang, Z., Gao, X., Sun, Y., Huang, Y., Lyu, X., Zhou, W., Jiao, S., Qi, X., Jin, X.: Spec-gaussian: Anisotropic view-dependent appearance for 3d gaussian splatting.
+arXiv preprint arXiv:2402.15870 (2024) [27] Ye, M., Danelljan, M., Yu, F., Ke, L.: Gaussian grouping: Segment and edit anything in 3d scenes.
+arXiv preprint arXiv:2312.00732 (2023) [28] Yi, T., Fang, J., Wu, G., Xie, L., Zhang, X., Liu, W., Tian, Q., Wang, X.: Gaussiandreamer: Fast generation from text to 3d gaussian splatting with point cloud priors.
+arXiv preprint arXiv:2310.08529 (2023) [29] Yu, Z., Chen, A., Huang, B., Sattler, T., Geiger, A.: Mip-splatting: Alias-free 3d gaussian splatting.
+arXiv preprint arXiv:2311.16493 (2023) [30] Yugay, V., Li, Y., Gevers, T., Oswald, M.R.: Gaussian-slam: Photo-realistic dense slam with gaussian splatting.
+arXiv preprint arXiv:2312.10070 (2023) [31] Zhang, R., Isola, P., Efros, A.A., Shechtman, E., Wang, O.: The unreasonable effectiveness of deep features as a perceptual metric.
+In: Proceedings of the IEEE conference on computer vision and pattern recognition.
+pp.
+586–595 (2018) [32] Zielonka, W., Bagautdinov, T., Saito, S., Zollhöfer, M., Thies, J., Romero, J.: Drivable 3d gaussian avatars.
+arXiv preprint arXiv:2311.08581 (2023) [33] Zwicker, M., Pfister, H., van Baar, J., Gross, M.: Ewa volume splatting.
+In: Proceedings Visualization, 2001.
+VIS ’01.
+pp.
+29–538 (2001).
+https://doi.org/10.1109/VISUAL.2001.964490 Appendix 0.A Finer-grained analysis of the MipNeRF360 results In this section, we provide quantitative results on the MipNeRF360 dataset broken down into per-scene scores.
+We report PSNR, SSIM and LPIPS scores averaged over 5 runs with standard deviations.
+In Tab.
+5 , we compare the performance of our method against standard Gaussian splatting, while in Tab.
+6 we compare the respective Mip variants.
+For a fair comparison, we fix the maximum number of primitives for our method to the median number of primitives of the 5 runs of the baseline.
+As we can read from both tables, our method outperforms the baselines on all scenes and all metrics, expecting 3 cases: PSNR on flowers and PSNR+SSIM on treehill.
+In particular, we observe significant gains in terms of LPIPS, which better correlates with the perceptual similarity.
+Indeed, in the two scenes (flowers and treehill) where PSNR is worse but LPIPS is better than the baseline, our renderings look visually better (see e.g .
+Fig.1 in the main paper).
+In Fig.
+5 we provide additional qualitative results with highligths on some scenes from the Tanks and Temples and MipNeRF360 datasets.
+Table 5 : Per-scene quantitative results (PSNR, SSIM, LPIPS) on the MipNeRF360 dataset.
+We report the results of standard Gaussian Splatting (3DGS) and the proposed method (Ours).
+Scores are averaged over 5 runs and reported with standard deviations.
+PSNR ↑ \uparrow SSIM ↑ \uparrow LPIPS ↓ \downarrow 3DGS Ours 3DGS Ours 3DGS Ours bicycle 25.184 ± .041 25.184^{\pm.041} 25.353 ± .025 {\bf 25.353}^{\pm.025} 0.769 ± .001 0.769^{\pm.001} 0.782 ± .001 {\bf 0.782}^{\pm.001} 0.228 ± .001 0.228^{\pm.001} 0.193 ± .001 {\bf 0.193}^{\pm.001} bonsai 32.040 ± .205 32.040^{\pm.205} 32.478 ± .051 {\bf 32.478}^{\pm.051} 0.940 ± .001 0.940^{\pm.001} 0.944 ± .001 {\bf 0.944}^{\pm.001} 0.254 ± .001 0.254^{\pm.001} 0.231 ± .000 {\bf 0.231}^{\pm.000} counter 28.926 ± .132 28.926^{\pm.132} 29.121 ± .091 {\bf 29.121}^{\pm.091} 0.907 ± .001 0.907^{\pm.001} 0.909 ± .001 {\bf 0.909}^{\pm.001} 0.256 ± .001 0.256^{\pm.001} 0.240 ± .001 {\bf 0.240}^{\pm.001} flowers 21.649 ± .031 {\bf 21.649}^{\pm.031} 21.302 ± .035 21.302^{\pm.035} 0.609 ± .001 0.609^{\pm.001} 0.625 ± .001 {\bf 0.625}^{\pm.001} 0.357 ± .001 0.357^{\pm.001} 0.288 ± .001 {\bf 0.288}^{\pm.001} garden 27.332 ± .060 27.332^{\pm.060} 27.622 ± .062 {\bf 27.622}^{\pm.062} 0.867 ± .001 0.867^{\pm.001} 0.872 ± .001 {\bf 0.872}^{\pm.001} 0.120 ± .001 0.120^{\pm.001} 0.109 ± .001 {\bf 0.109}^{\pm.001} kitchen 31.382 ± .036 31.382^{\pm.036} 31.884 ± .103 {\bf 31.884}^{\pm.103} 0.927 ± .001 0.927^{\pm.001} 0.930 ± .000 {\bf 0.930}^{\pm.000} 0.154 ± .001 0.154^{\pm.001} 0.147 ± .000 {\bf 0.147}^{\pm.000} room 31.395 ± .107 31.395^{\pm.107} 31.902 ± .160 {\bf 31.902}^{\pm.160} 0.916 ± .001 0.916^{\pm.001} 0.922 ± .001 {\bf 0.922}^{\pm.001} 0.286 ± .001 0.286^{\pm.001} 0.271 ± .001 {\bf 0.271}^{\pm.001} stump 26.681 ± .038 26.681^{\pm.038} 26.806 ± .030 {\bf 26.806}^{\pm.030} 0.778 ± .001 0.778^{\pm.001} 0.789 ± .001 {\bf 0.789}^{\pm.001} 0.237 ± .002 0.237^{\pm.002} 0.211 ± .001 {\bf 0.211}^{\pm.001} treehill 22.435 ± .077 {\bf 22.435}^{\pm.077} 22.025 ± .042 22.025^{\pm.042} 0.636 ± .001 {\bf 0.636}^{\pm.001} 0.623 ± .002 0.623^{\pm.002} 0.358 ± .002 0.358^{\pm.002} 0.321 ± .001 {\bf 0.321}^{\pm.001} average 27.447 ± .081 27.447^{\pm.081} 27.611 ± .067 {\bf 27.611}^{\pm.067} 0.817 ± .001 0.817^{\pm.001} 0.822 ± .001 {\bf 0.822}^{\pm.001} 0.250 ± .001 0.250^{\pm.001} 0.223 ± .001 {\bf 0.223}^{\pm.001} Table 6 : Per-scene quantitative results (PSNR, SSIM, LPIPS) on the MipNeRF360 dataset.
+We report the results of Mip-splatting (MipS) and our method in its Mip variant (OursMip).
+Scores are averaged over 5 runs and reported with standard deviations.
+PSNR ↑ \uparrow SSIM ↑ \uparrow LPIPS ↓ \downarrow MipS OursMip MipS OursMip MipS OursMip bicycle 25.299 ± .030 25.299^{\pm.030} 25.513 ± .048 {\bf 25.513}^{\pm.048} 0.771 ± .001 0.771^{\pm.001} 0.786 ± .001 {\bf 0.786}^{\pm.001} 0.231 ± .001 0.231^{\pm.001} 0.190 ± .001 {\bf 0.190}^{\pm.001} bonsai 32.139 ± .103 32.139^{\pm.103} 32.480 ± .087 {\bf 32.480}^{\pm.087} 0.940 ± .001 0.940^{\pm.001} 0.944 ± .001 {\bf 0.944}^{\pm.001} 0.253 ± .001 0.253^{\pm.001} 0.229 ± .000 {\bf 0.229}^{\pm.000} counter 29.032 ± .125 29.032^{\pm.125} 29.182 ± .048 {\bf 29.182}^{\pm.048} 0.907 ± .001 0.907^{\pm.001} 0.910 ± .000 {\bf 0.910}^{\pm.000} 0.256 ± .001 0.256^{\pm.001} 0.238 ± .000 {\bf 0.238}^{\pm.000} flowers 21.729 ± .021 {\bf 21.729}^{\pm.021} 21.474 ± .049 21.474^{\pm.049} 0.612 ± .001 0.612^{\pm.001} 0.629 ± .001 {\bf 0.629}^{\pm.001} 0.360 ± .001 0.360^{\pm.001} 0.291 ± .001 {\bf 0.291}^{\pm.001} garden 27.430 ± .029 27.430^{\pm.029} 27.698 ± .051 {\bf 27.698}^{\pm.051} 0.870 ± .000 0.870^{\pm.000} 0.873 ± .000 {\bf 0.873}^{\pm.000} 0.120 ± .000 0.120^{\pm.000} 0.110 ± .001 {\bf 0.110}^{\pm.001} kitchen 31.343 ± .127 31.343^{\pm.127} 31.880 ± .111 {\bf 31.880}^{\pm.111} 0.928 ± .001 0.928^{\pm.001} 0.930 ± .001 {\bf 0.930}^{\pm.001} 0.154 ± .001 0.154^{\pm.001} 0.147 ± .001 {\bf 0.147}^{\pm.001} room 31.382 ± .129 31.382^{\pm.129} 32.042 ± .120 {\bf 32.042}^{\pm.120} 0.916 ± .003 0.916^{\pm.003} 0.924 ± .001 {\bf 0.924}^{\pm.001} 0.287 ± .002 0.287^{\pm.002} 0.269 ± .001 {\bf 0.269}^{\pm.001} stump 26.701 ± .055 26.701^{\pm.055} 26.778 ± .033 {\bf 26.778}^{\pm.033} 0.779 ± .002 0.779^{\pm.002} 0.788 ± .001 {\bf 0.788}^{\pm.001} 0.239 ± .001 0.239^{\pm.001} 0.212 ± .000 {\bf 0.212}^{\pm.000} treehill 22.556 ± .050 {\bf 22.556}^{\pm.050} 22.270 ± .041 22.270^{\pm.041} 0.639 ± .001 {\bf 0.639}^{\pm.001} 0.627 ± .001 0.627^{\pm.001} 0.362 ± .002 0.362^{\pm.002} 0.321 ± .001 {\bf 0.321}^{\pm.001} average 27.512 ± .074 27.512^{\pm.074} 27.702 ± .065 {\bf 27.702}^{\pm.065} 0.818 ± .001 0.818^{\pm.001} 0.823 ± .001 {\bf 0.823}^{\pm.001} 0.251 ± .001 0.251^{\pm.001} 0.223 ± .001 {\bf 0.223}^{\pm.001} Figure 5 : Qualitative results with highlights from Tanks and Temples and MipNeRF360 datasets.
+We compare ground-truth, standard Gaussian splatting (GS) and our proposed method (Ours).
+Appendix 0.B Failure of standard Gaussian Splatting even with 10M primitives We test the hypothesis that the standard Gaussian Splatting (GS) densification logic fails to densify the MipNeRF360-Flowers scene even with 10M primitives.
+In order to enable GS to reach the desired number of primitives, we bypass the thresholding mechanism and use instead our proposed growing strategy.
+In Fig.
+6 , we report the qualitative results on a particularly difficult validation view for GS.
+On the left, we see the outcome by using the standard GS algorithm, which yields very blurry grass.
+The standard approach uses 4.2M primitives for the scene.
+On the right, we show the result we obtain by pushing the number of primitives to 10M.
+We observe a slight increase in the number of primitives in the critical area, but the result stays substantially very blurred.
+This indicates that underrepresented areas might score extremely low if we use the gradient-based densification strategy proposed in GS, to a level that even with 10M primitives we do not reach the point where sufficient densification is triggered.
+Figure 6 : Qualitative result on MipNeRF360-Flowers scene.
+Left: Gaussian Splatting with standard densification strategy, which yields 4.2M primitives.
+Right: Gaussian Splatting with our proposed growing strategy and thresholding bypassed to push the number of primitives to 10M.
+Appendix 0.C Ablation of different densification guiding error In Tab.
+7 , we compare the results of our method and standard Gaussian splatting, when we use ℓ 1 \ell_{1} as the guiding error.
+We run experiments on the MipNeRF360 dataset.
+We report the usual metrics averaged over 5 runs and report also standard deviation.
+Our method still outperforms the baseline on all scenes and all metrics, with a couple of more exceptions compared to using SSIM as the guiding error.
+In Fig.
+7 , we also show that despite using an error that does not strongly penalize blurred areas, our method can still reconstruct the grass that is very blurry with standard Gaussian splatting.
+Figure 7 : Qualitative result on a validation image from flowers with ℓ 1 \ell_{1} as the densification guiding error.
+Table 7 : Per-scene quantitative results (PSNR, SSIM, LPIPS) on the MipNeRF360 dataset.
+We report the results of our method with ℓ 1 \ell_{1} as the guiding error (Ours- ℓ 1 \ell_{1} ) and Gaussian splatting (3DGS).
+Scores are averaged over 5 runs and reported with standard deviations.
+PSNR ↑ \uparrow SSIM ↑ \uparrow LPIPS ↓ \downarrow 3DGS Ours- ℓ 1 \ell_{1} 3DGS Ours- ℓ 1 \ell_{1} 3DGS Ours- ℓ 1 \ell_{1} bicycle 25.184 ± .041 25.184^{\pm.041} 25.39 ± .036 {\bf 25.39}^{\pm.036} 0.769 ± .001 0.769^{\pm.001} 0.786 ± .001 {\bf 0.786}^{\pm.001} 0.228 ± .001 0.228^{\pm.001} 0.202 ± .001 {\bf 0.202}^{\pm.001} bonsai 32.040 ± .205 32.040^{\pm.205} 32.22 ± .238 {\bf 32.22}^{\pm.238} 0.940 ± .001 0.940^{\pm.001} 0.941 ± .002 {\bf 0.941}^{\pm.002} 0.254 ± .001 0.254^{\pm.001} 0.244 ± .001 {\bf 0.244}^{\pm.001} counter 28.926 ± .132 28.926^{\pm.132} 29.11 ± .045 {\bf 29.11}^{\pm.045} 0.907 ± .001 {\bf 0.907}^{\pm.001} 0.906 ± .000 0.906^{\pm.000} 0.256 ± .001 0.256^{\pm.001} 0.249 ± .001 {\bf 0.249}^{\pm.001} flowers 21.649 ± .031 {\bf 21.649}^{\pm.031} 21.37 ± .036 21.37^{\pm.036} 0.609 ± .001 0.609^{\pm.001} 0.640 ± .001 {\bf 0.640}^{\pm.001} 0.357 ± .001 0.357^{\pm.001} 0.288 ± .001 {\bf 0.288}^{\pm.001} garden 27.332 ± .060 27.332^{\pm.060} 27.64 ± .031 {\bf 27.64}^{\pm.031} 0.867 ± .001 0.867^{\pm.001} 0.876 ± .001 {\bf 0.876}^{\pm.001} 0.120 ± .001 0.120^{\pm.001} 0.109 ± .001 {\bf 0.109}^{\pm.001} kitchen 31.382 ± .036 31.382^{\pm.036} 31.92 ± .025 {\bf 31.92}^{\pm.025} 0.927 ± .001 0.927^{\pm.001} 0.931 ± .001 {\bf 0.931}^{\pm.001} 0.154 ± .001 0.154^{\pm.001} 0.153 ± .001 {\bf 0.153}^{\pm.001} room 31.395 ± .107 31.395^{\pm.107} 31.43 ± .367 {\bf 31.43}^{\pm.367} 0.916 ± .001 0.916^{\pm.001} 0.919 ± .003 {\bf 0.919}^{\pm.003} 0.286 ± .001 {\bf 0.286}^{\pm.001} 0.290 ± .002 0.290^{\pm.002} stump 26.681 ± .038 26.681^{\pm.038} 26.84 ± .059 {\bf 26.84}^{\pm.059} 0.778 ± .001 0.778^{\pm.001} 0.794 ± .001 {\bf 0.794}^{\pm.001} 0.237 ± .002 0.237^{\pm.002} 0.212 ± .001 {\bf 0.212}^{\pm.001} treehill 22.435 ± .077 {\bf 22.435}^{\pm.077} 22.07 ± .017 22.07^{\pm.017} 0.636 ± .001 {\bf 0.636}^{\pm.001} 0.621 ± .002 0.621^{\pm.002} 0.358 ± .002 0.358^{\pm.002} 0.338 ± .001 {\bf 0.338}^{\pm.001} average 27.447 ± .081 27.447^{\pm.081} 27.55 ± .095 {\bf 27.55}^{\pm.095} 0.817 ± .001 0.817^{\pm.001} 0.824 ± .001 {\bf 0.824}^{\pm.001} 0.250 ± .001 0.250^{\pm.001} 0.232 ± .001 {\bf 0.232}^{\pm.001} Experimental support, please view the build logs for errors.
+Generated by L A T E xml .
+Instructions for reporting errors We are continuing to improve HTML versions of papers, and your feedback helps enhance accessibility and mobile
+      support.
+To report errors in the HTML that will help us improve conversion and rendering, choose any of the
+      methods listed below: Click the "Report Issue" ( ) button, located in the page header.
+Tip: You can select the relevant text first, to include it in your report.
+Our team has already identified the following issues .
+We appreciate your time reviewing and reporting rendering errors we
+      may not have found yet.
+Your efforts will help us improve the HTML versions for all readers, because disability
+      should not be a barrier to accessing research.
+Thank you for your continued support in championing open access for
+      all.
+Have a free development cycle? Help support accessibility at arXiv! Our collaborators at LaTeXML maintain a list of packages that need conversion , and welcome developer contributions .
+We gratefully acknowledge support from
+        our major funders , member institutions , ,
+        and all contributors.
+About · Help · Contact · Subscribe · Copyright · Privacy · Accessibility · Operational Status (opens in new tab) Major funding support from

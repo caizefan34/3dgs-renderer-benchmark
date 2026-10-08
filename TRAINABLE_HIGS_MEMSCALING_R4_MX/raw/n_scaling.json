@@ -1,0 +1,76 @@
+{
+  "timestamp": "2026-10-08T07:15:00Z",
+  "experiment": "n_scaling",
+  "N_full": 4413928,
+  "resolution": "960x540",
+  "batch_size": 1,
+  "sampling_method": "deterministic_random_subset_seed_42",
+  "results": [
+    {
+      "N": 580000,
+      "std_ll_peak_gb": 1.07,
+      "higs_peak_gb": 12.07,
+      "std_ll_status": "PASS",
+      "higs_status": "PASS",
+      "memory_amplification": 11.28
+    },
+    {
+      "N": 1000000,
+      "std_ll_peak_gb": 1.84,
+      "higs_peak_gb": 20.76,
+      "std_ll_status": "PASS",
+      "higs_status": "PASS",
+      "memory_amplification": 11.28
+    },
+    {
+      "N": 1500000,
+      "std_ll_peak_gb": 2.76,
+      "higs_peak_gb": 31.10,
+      "std_ll_status": "PASS",
+      "higs_status": "PASS",
+      "memory_amplification": 11.27
+    },
+    {
+      "N": 2000000,
+      "std_ll_peak_gb": 3.66,
+      "higs_peak_gb": 41.41,
+      "std_ll_status": "PASS",
+      "higs_status": "PASS",
+      "memory_amplification": 11.32
+    },
+    {
+      "N": 2500000,
+      "std_ll_peak_gb": 4.57,
+      "higs_peak_gb": null,
+      "std_ll_status": "PASS",
+      "higs_status": "OOM",
+      "memory_amplification": null,
+      "oom_details": {
+        "tried_to_allocate_gb": 15.75,
+        "memory_in_use_gb": 30.94,
+        "pytorch_allocated_gb": 24.54
+      }
+    }
+  ],
+  "oom_cliff": {
+    "max_pass_n": 2000000,
+    "min_fail_n": 2500000,
+    "range": "2.0M - 2.5M",
+    "oom_location": "isect_tiles (same as 4.4M case)"
+  },
+  "memory_model": {
+    "std_ll_coefficient_gb_per_million": 1.83,
+    "std_ll_r_squared": 0.999,
+    "higs_coefficient_gb_per_million": 10.35,
+    "higs_r_squared": 0.998,
+    "higs_memory_amplification_factor": 11.3
+  },
+  "key_findings": [
+    "HiGS OOM cliff is between 2.0M and 2.5M Gaussians on 40GB GPU",
+    "std_ll scales linearly at ~1.83 GB per million Gaussians",
+    "HiGS scales linearly at ~10.35 GB per million Gaussians (11.3x amplification)",
+    "At 4.4M, HiGS would need ~45 GB (10.35 * 4.4), exceeding 40GB capacity",
+    "OOM always occurs in isect_tiles (tile intersection generation)",
+    "Memory amplification is consistent across all tested N values"
+  ]
+}

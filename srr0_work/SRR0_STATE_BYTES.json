@@ -1,0 +1,127 @@
+{
+  "schema": "SRR0_STATE_BYTES",
+  "gate": 5,
+  "reached": false,
+  "reason_not_reached": "Gate 4 DROP_NO_COMPUTE_HEADROOM (sequential early-exit). No compute headroom => retained-state bytes irrelevant to verdict.",
+  "identity": {
+    "hostname": "dsw-933622-64cc845c7d-lqswc",
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "source_git_sha": "e458ac6e41810ad6d9405687c1e698fadd28dac5"
+  },
+  "byte_budget_rule": "retained bytes <= 25% of current relevant forward/backward saved-state bytes AND added write/read traffic <= 60% of estimated compute-time saving (conservative roofline)",
+  "saved_state_per_primitive_bytes": 52,
+  "saved_state_fields": [
+    [
+      "n_touched_tiles",
+      4
+    ],
+    [
+      "offset",
+      4
+    ],
+    [
+      "screen_bounds",
+      8
+    ],
+    [
+      "mean2d",
+      8
+    ],
+    [
+      "conic_opacity",
+      16
+    ],
+    [
+      "color",
+      12
+    ]
+  ],
+  "candidates_bytes_per_primitive": {
+    "R1": 12,
+    "R2": 48,
+    "R3": 60
+  },
+  "roofline": {
+    "model": "conservative roofline: added write+read traffic must be <= 60% of estimated compute-time saving",
+    "bytes_per_element": 4,
+    "assumption_note": "Advisory only — Gate 4 already dropped SRR0 (no compute headroom), so Gate 5 is not reached in the prereg sequence. Byte math shown for completeness."
+  },
+  "per_scene": {
+    "room": {
+      "n_gaussians": 1262605,
+      "saved_state_bytes_per_primitive": 52,
+      "saved_state_bytes_total": 65655460,
+      "candidates": {
+        "R1": {
+          "retained_bytes_per_primitive": 12,
+          "retained_bytes_total": 15151260,
+          "retained_frac_of_saved_state": 0.2308,
+          "within_25pct_budget": true
+        },
+        "R2": {
+          "retained_bytes_per_primitive": 48,
+          "retained_bytes_total": 60605040,
+          "retained_frac_of_saved_state": 0.9231,
+          "within_25pct_budget": false
+        },
+        "R3": {
+          "retained_bytes_per_primitive": 60,
+          "retained_bytes_total": 75756300,
+          "retained_frac_of_saved_state": 1.1538,
+          "within_25pct_budget": false
+        }
+      }
+    },
+    "garden": {
+      "n_gaussians": 4809378,
+      "saved_state_bytes_per_primitive": 52,
+      "saved_state_bytes_total": 250087656,
+      "candidates": {
+        "R1": {
+          "retained_bytes_per_primitive": 12,
+          "retained_bytes_total": 57712536,
+          "retained_frac_of_saved_state": 0.2308,
+          "within_25pct_budget": true
+        },
+        "R2": {
+          "retained_bytes_per_primitive": 48,
+          "retained_bytes_total": 230850144,
+          "retained_frac_of_saved_state": 0.9231,
+          "within_25pct_budget": false
+        },
+        "R3": {
+          "retained_bytes_per_primitive": 60,
+          "retained_bytes_total": 288562680,
+          "retained_frac_of_saved_state": 1.1538,
+          "within_25pct_budget": false
+        }
+      }
+    },
+    "bicycle": {
+      "n_gaussians": 4720561,
+      "saved_state_bytes_per_primitive": 52,
+      "saved_state_bytes_total": 245469172,
+      "candidates": {
+        "R1": {
+          "retained_bytes_per_primitive": 12,
+          "retained_bytes_total": 56646732,
+          "retained_frac_of_saved_state": 0.2308,
+          "within_25pct_budget": true
+        },
+        "R2": {
+          "retained_bytes_per_primitive": 48,
+          "retained_bytes_total": 226586928,
+          "retained_frac_of_saved_state": 0.9231,
+          "within_25pct_budget": false
+        },
+        "R3": {
+          "retained_bytes_per_primitive": 60,
+          "retained_bytes_total": 283233660,
+          "retained_frac_of_saved_state": 1.1538,
+          "within_25pct_budget": false
+        }
+      }
+    }
+  },
+  "advisory_summary": "Only R1 (12B = 23.1% of 52B saved-state) fits the 25% byte budget; R2 (48B=92.3%) and R3 (60B=115.4%) blow it. But R1 retains only the view direction, eliminating just the normalize() — the SH basis polynomial (dominant SH cost) and Q5/Q6 covariance math remain recomputed, so R1's compute-saving is negligible. Even if Gate 5 were reached, no candidate both fits the byte budget and removes meaningful compute. Corroborates DROP."
+}

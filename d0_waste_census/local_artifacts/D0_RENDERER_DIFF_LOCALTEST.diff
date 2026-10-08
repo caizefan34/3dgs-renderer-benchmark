@@ -1,0 +1,54 @@
+--- frozen/gsplat/experimental/render/functional/gaussian_inference.py
++++ d0/gsplat/experimental/render/functional/gaussian_inference.py
+@@ -1911,6 +1911,10 @@
+                 "visible_gaussian_ids": torch.empty(
+                     0, dtype=torch.long, device=means.device
+                 ),
++                "d0_tiles_per_gauss": None,
++                "d0_depths_vis": None,
++                "d0_means2d_px": None,
++                "d0_f9_enabled": False,
+             }
+             if C == 1:
+                 return frame.squeeze(0)[None], alpha_ch.squeeze(0)[None]  # [1,H,W,3], [1,H,W,1]
+@@ -2026,6 +2030,10 @@
+             "n_isects_full": getattr(ctx, "n_isects_full", 0),
+             "densification_radii": densification_radii,
+             "visible_gaussian_ids": master_visible_ids,
++            "d0_tiles_per_gauss": getattr(ctx, "d0_tiles_per_gauss", None),
++            "d0_depths_vis": getattr(ctx, "d0_depths_vis", None),
++            "d0_means2d_px": getattr(ctx, "d0_means2d_px", None),
++            "d0_f9_enabled": bool(getattr(ctx, "f9_enabled", False)),
+         }
+         return frame[None], alpha_ch[None]
+ 
+@@ -2176,6 +2184,10 @@
+                 True, False,
+             )
+             ctx.n_isects_sampled = int(isect_ids.numel())
++            # D0 instrumentation (metadata only): expose already-computed
++            # per-visible tensors; no tensor value or op order changes.
++            ctx.d0_tiles_per_gauss = tiles_per_gauss.detach()
++            ctx.d0_depths_vis = depths.reshape(-1).detach()
+             # The op returns per-Gaussian counts restricted to the selected
+             # tiles, so the exact full-N count is not available from its
+             # outputs; the sampled isect fraction is recovered exactly at the
+@@ -2270,6 +2282,7 @@
+             (depth_acc.reshape(C, height, width).contiguous()
+              if depth_acc is not None else None),              # [I, H, W] or None
+         )
++        ctx.d0_means2d_px = captured[0].detach()
+         return render_colors, render_alphas, captured
+ 
+     @staticmethod
+@@ -2982,6 +2995,10 @@
+             "tile_mask": fwd_meta.get("tile_mask"),
+             "n_isects": fwd_meta.get("n_isects", 0),
+             "n_isects_full": fwd_meta.get("n_isects_full", 0),
++            "d0_tiles_per_gauss": fwd_meta.get("d0_tiles_per_gauss"),
++            "d0_depths_vis": fwd_meta.get("d0_depths_vis"),
++            "d0_means2d_px": fwd_meta.get("d0_means2d_px"),
++            "d0_f9_enabled": bool(fwd_meta.get("d0_f9_enabled", False)),
+             "cull_refresh_interval": cull_refresh_interval,
+         },
+     }

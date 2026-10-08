@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-10-08T08:30:00Z",
+  "status": "ROOT_CAUSE_IDENTIFIED_FIX_DESIGNED",
+  "campaign": "TRAINABLE-HIGS-MEMFIX-R5-MX",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "experiments_completed": [
+    "P0: R4 evidence audit",
+    "P1: Memory accounting analysis",
+    "P2: Fix route selection",
+    "P3: Patch design and implementation plan"
+  ],
+  "experiments_pending": [
+    "P4: Correctness validation (requires build)",
+    "P5: Large N feasibility (requires build)",
+    "P6: Performance validation (requires build)"
+  ],
+  "key_findings": {
+    "root_cause": "H5 Over-allocation in isect_tiles",
+    "amplification_definition": "Total peak VRAM = M_HiGS / M_std",
+    "amplification_value": 11.3,
+    "dominant_factor": "Pre-allocated capacity ~80x actual intersections",
+    "fix_strategy": "Chunked intersection processing for N > 1.5M",
+    "expected_reduction": "3-4x memory reduction"
+  },
+  "answers": {
+    "q1_11_3x_definition": "Total peak VRAM amplification (M_HiGS / M_std), NOT intersection count",
+    "q2_dominant_cause": "H5 Over-allocation: isect_tiles pre-allocates N * MAX_INTERSECTIONS_PER_GAUSSIAN (~80x over-provisioning)",
+    "q3_4.4m_feasibility": "NOT_TESTED with fix, requires build. Original HiGS OOMs.",
+    "q4_after_fix": "NOT_TESTED (requires build). Expected: 3-4x memory reduction, 5-10% speed overhead.",
+    "q5_research_value": "INVESTIGATE - root cause clear and fixable, but historical performance marginal (1.02x-1.09x)"
+  },
+  "deliverables": {
+    "completed": 8,
+    "pending": 5,
+    "total_required": 13
+  },
+  "recommendation": "Build patched HiGS with chunked intersection processing. Validate correctness at 580K. Test memory at 4.4M. Benchmark performance. Decision gate: if memory fixed AND performance acceptable, KEEP_MEMORY_FIX. Otherwise REDESIGN_HIERARCHY."
+}

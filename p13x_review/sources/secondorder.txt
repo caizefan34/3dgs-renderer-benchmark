@@ -1,0 +1,5504 @@
+3DGS2: Near Second-order Converging 3D Gaussian Splatting
+Report GitHub Issue
+×
+Title:
+Content selection saved. Describe the issue below:
+Description:
+Submit without GitHub
+Submit in GitHub
+arXiv is now an independent nonprofit!
+Learn more
+×
+Back to arXiv
+Why HTML?
+Report Issue
+Back to Abstract
+Download PDF
+Abstract.
+1
+Introduction
+2
+Related Work
+2.1
+Accelerating NeRF
+2.2
+Accelerating 3DGS
+3
+Background
+4
+Our Method
+4.1
+Training data preparation
+4.2
+Stochastic Local Newton
+Position solve.
+Scaling solve.
+Rotation solve.
+Opacity solve.
+Color solve
+4.3
+Overshoot
+5
+Experimental Results
+5.1
+Optimization order
+5.2
+Trade off of secondary target
+5.3
+Comparison with existing methods
+6
+Conclusion & Limitation
+References
+A
+Derivatives of Intermediate Variables
+A.1
+Projection function
+A.2
+SH color
+A.3
+Projected covariance matrix
+License: CC BY-NC-SA 4.0
+arXiv:2501.13975v2 [cs.CV] 27 Jan 2025
+Figure 1
+.
+Improve 3DGS training using parallelized local Newton.
+We show 3DGS training can be substantially improved by switching from stochastic gradient descent to stochastic Newton. A Gaussian kernel has multiple attributes, and optimizing all the attributes of all the kernels as a whole leads to a very high-dimensional nonlinear problem. We leverage the fact that kernel attributes are weakly coupled and design a local Newton scheme to find the optimal value of each type of kernel parameter. We also exploit the spatial relation among input images to effectively mitigate the overshoot issue in stochastic optimization. As a result, our method is
+5
+×
+5\times
+to
+10
+×
+10\times
+faster than gradient-based 3DGS training. In the teaser, we show the reconstruction results using the-state-of-the-art 3DGS training algorithms, including vanilla 3DGS
+(
+Kerbl et al., 2023
+)
+, AdR-Gaussian
+(
+Wang et al., 2024
+)
+, EAGLES
+(
+Girish et al., 2025
+)
+, Taming Gaussian
+(
+Mallick et al., 2024
+)
+as well as our method. Our method produces the result of the highest quality (in terms of SSIM, PSNR, and LPIPS) while using only one-tenth of iterations, making the reconstruction of complex 3D scenes in seconds instead of minutes.
+3DGS
+2
+: Near Second-order Converging 3D Gaussian Splatting
+CCS:
+Computing methodologies Rasterization
+CCS:
+Computing methodologies Reconstruction
+CCS:
+Mathematics of computing Stochastic control and optimization
+Lei Lan
+Affiliation:
+University of Utah
+,
+Salt Lake City
+,
+Utah
+,
+USA
+email:
+lanlei.virhum@gmail.com
+,
+Tianjia Shao
+Affiliation:
+Zhejiang University
+,
+Zhejiang
+,
+China
+email:
+tjshao@zju.edu.cn
+,
+Zixuan Lu
+Affiliation:
+University of Utah
+,
+Salt Lake City
+,
+Utah
+,
+USA
+email:
+birdpeople1984@gmail.com
+,
+Yu Zhang
+Affiliation:
+University of Utah
+,
+Salt Lake City
+,
+Utah
+,
+USA
+email:
+zhan723284893@gmail.com
+,
+Chenfanfu Jiang
+Affiliation:
+University of California, Los Angeles
+,
+Los Angeles
+,
+USA
+email:
+Chenfanfu.Jiang@gmail.com
+and
+Yin Yang
+Affiliation:
+University of Utah
+,
+Salt Lake City
+,
+Utah
+,
+USA
+email:
+yangzzzy@gmail.com
+Abstract.
+3D Gaussian Splatting (3DGS) has emerged as a mainstream solution for novel view synthesis and 3D reconstruction. By explicitly encoding a 3D scene using a collection of Gaussian kernels, 3DGS achieves high-quality rendering with superior efficiency. As a learning-based approach, 3DGS training has been dealt with the standard stochastic gradient descent (SGD) method, which offers at most linear convergence. Consequently, training often requires tens of minutes, even with GPU acceleration. This paper introduces a (near) second-order convergent training algorithm for 3DGS, leveraging its unique properties. Our approach is inspired by two key observations. First, the attributes of a Gaussian kernel contribute independently to the image-space loss, which endorses isolated and local optimization algorithms. We exploit this by splitting the optimization at the level of individual kernel attributes, analytically constructing small-size Newton systems for each parameter group, and efficiently solving these systems on GPU threads. This achieves Newton-like convergence per training image without relying on the global Hessian. Second, kernels exhibit sparse and structured coupling across input images. This property allows us to effectively utilize spatial information to mitigate overshoot during stochastic training. Our method converges an order faster than standard GPU-based 3DGS training, requiring over
+10
+×
+10\times
+fewer iterations while maintaining or surpassing the quality of the compared with the SGD-based 3DGS reconstructions.
+Keywords:
+3DGS, Neural radiance fields, Stochastic Newton, Novel view synthesis, Optimization
+1.
+Introduction
+The reconstruction of 3D scenes is a fundamental challenge in computer graphics and vision. Recent advancements in learning-based techniques, such as Neural Radiance Fields (NeRFs)
+(
+Mildenhall et al., 2020
+)
+, have re-banded this field. NeRF formulates the reconstruction process as a training task, encoding the color, texture, and geometry of 3D scenes through an implicit MLP network, achieving state-of-the-art results.
+A noteworthy follow-up is 3D Gaussian Splatting (3DGS)
+(
+Kerbl et al., 2023
+)
+. 3DGS represents a 3D scene explicitly with a collection of Gaussian splatting (GS) kernels. In contrast to NeRF, which relies on ray marching and volume rendering, 3DGS employs rasterization combined with a tile-splatting technique to generate novel views from unseen camera poses. This approach delivers superior runtime efficiency while still maintaining high-quality rendering results.
+Just like other learning tasks, stochastic gradient descent (SGD) has been the mainstream modality for training 3DGS
+(
+Bottou, 1998
+)
+. The GS kernels are initialized from SfM (structure-from-motion)
+(
+Snavely et al., 2006
+)
+, and each kernel is assigned a position, a scaling vector, a rotation, an RGB color, and an opacity. The 3DGS training takes one input image as well as the corresponding camera pose. All the GS kernels are sorted based on the current camera depth, and an image-space loss value is evaluated between the rasterized image and the input image. The loss gradient is then used to update the configurations of all the GS kernels, and the learning rate is empirically adjusted at different stages of the training.
+Such an SGD-based first-order optimization has been a default option for many deep-learning tasks, and it works well in general. Nevertheless, we argue that training 3DGS fundamentally differs from generic deep learning. Simply “copy-and-paste” the standard learning procedure for 3DGS is neither efficient nor effective. When a neural network is being trained, it is normally believed that parameters housed at neurons are
+strongly two-way coupled
+, meaning the perturbation at one parameter non-trivially influences all the other parameters as they are connected on the computational graph. This, however, is not the case for 3DGS training, where local greedy choice often suffices. For instance, in order to obtain a good scaling of a GS kernel to suppress the loss, one can always retrieve the best scaling along
+x
+x
+direction first, and adjust
+y
+y
+- and
+z
+z
+-direction scaling afterwards. In other words, they can be split into multiple sequential local greedy choices. Similarly, the color of a GS kernel does not contribute to a lot of pixels, suggesting color parameters are weakly coupled across GS kernels. Those observations suggest training the GS parameter with the global gradient may be sub-optimal.
+In this paper, we propose a novel training algorithm for 3DGS. Our method is nearly second-order convergent based on local Newton’s method. Concretely, we prioritize per-kernel parameters and calculate the second-order optimal update for each sub-group of parameters in series. The local updates are executed at all the pertaining GS kernels in parallel in a Jacobi-like manner. Because each local Newton only involves a small number of degrees of freedom (DOFs), we can analytically derive and assemble the local Hessian and gradient at a low cost for each GPU thread. The use of Newton’s method avoids the necessity of line search, and the local optimizer always uses the default step size (e.g., the learning rate) of
+1.0
+1.0
+. Due to the weak coupling among DOFs, we observe strong second-order convergence during the training. We also deploy a novel sampling strategy, which effectively mitigates the overshoot issue of local optimizer for a given input image. We tested our method on multiple 3DGS datasets, and our algorithm is constantly
+10
+×
+10\times
+faster than SGD-based GPU 3DGS training with higher quality, making 3DGS training from minutes to seconds e.g. see Fig.
+1
+.
+2.
+Related Work
+Novel view synthesis from multi-view images/videos has been a core problem in computer graphics and vision, and a wide range of techniques have been developed for this purpose e.g., see
+(
+Aliev et al., 2020
+;
+Barron et al., 2021
+;
+Hedman et al., 2018
+;
+Kopanas et al., 2021
+;
+Thies et al., 2019
+;
+Lombardi et al., 2021
+;
+Lombardi et al., 2019
+;
+Zhou et al., 2018
+;
+Lassner and Zollhöfer, 2021
+;
+Zhang et al., 2022
+)
+. NeRF
+(
+Mildenhall et al., 2020
+)
+implicitly encapsulates the information of the scene with an MLP net. By casting rays over this implicit representation, high-quality scene images can be synthesized. 3DGS
+(
+Kerbl et al., 2023
+)
+, on the other hand, utilizes a set of GS kernels, which enable more efficient scene rendering via rasterization. They deliver state-of-the-art results and inspire many follow-up research efforts, such as improving the rendering quality
+(
+Barron et al., 2022
+;
+Lu et al., 2024
+;
+Yu et al., 2024
+)
+, increasing the scale of the scene
+(
+Kerbl et al., 2024
+;
+Song et al., 2025
+)
+,
+2.1.
+Accelerating NeRF
+Although NeRF achieves high rendering quality, due to the expensive ray marching and the complexity of MLP, the training and rendering of NeRF are costly. Therefore, many methods have been proposed to accelerate NeRF’s training and/or rendering. For example, Sun et al.
+(
+2022
+)
+proposed a dense voxel grid storing density and features, along with a post-activation interpolation on voxel density and robust optimization under several priors, leading to very fast convergence of NeRF optimization. Sparse voxel grids with learned features are also utilized to speed up the NeRF rendering
+(
+Hedman et al., 2021
+)
+. KiloNeRF
+(
+Reiser et al., 2021
+)
+utilizes thousands of small MLPs instead of a single large MLP to reduce the query cost, effectively accelerating the NeRF rendering. The octree data structure can be applied to speed up the rendering
+(
+Yu et al., 2021
+)
+. A GPU-friendly implementation
+(
+Chen et al., 2023
+)
+also helps NeRF achieve a faster rendering speed. Plenoxels
+(
+Fridovich-Keil et al., 2022
+)
+replaces MLPs with a sparse 3D grid with spherical harmonics.
+The state-of-the-art work is InstantNGP
+(
+Müller et al., 2022
+)
+, which uses a hash grid and an occupancy grid to accelerate computation and a smaller MLP to represent density and appearance, and its training can be done in a few minutes. While these methods have had great success, due to the ray marching nature, the rendering performance of NeRF-based methods is, in general, slower than that of 3DGS.
+2.2.
+Accelerating 3DGS
+3DGS is the state-of-the-art radiance field representation that performs high-quality rendering in real time. Follow-up researches find that its rendering can be further accelerated due to high parameter counts and the redundant or uneven load in rasterization pipeline.
+For instance, EAGLES
+(
+Girish et al., 2025
+)
+utilized quantized embeddings to reduce per-point memory storage requirements and a coarse-to-fine training strategy to improve the training convergence speed, which largely reduces storage memory while speeding up the rendering. Hamdi et al.
+(
+2024
+)
+introduced Generalized Exponential Functions as a more memory-efficient alternative to Gaussians, which requires fewer particles to represent the scene, reducing the memory storage and increasing the rendering speed.
+LightGaussian
+(
+Fan et al., 2024
+)
+prunes Gaussians with minimal impact on visual quality, condenses spherical harmonic coefficients, and applies vector quantization, which substantially compresses Gaussians and largely boosts the rendering speed. C3DGS
+(
+Lee et al., 2024
+)
+proposes a learnable mask to remove Gaussians that have minimal impact on overall quality, also reducing the storage and increasing the rendering speed. Speedy-Splat
+(
+Hanson et al., 2024
+)
+precisely localizes Gaussians by computing a tight bounding box around their extent and uses soft and hard pruning to effectively reduce the Gaussian numbers and largely speed up the rendering time as well as training time.
+AdR-Gaussian
+(
+Wang et al., 2024
+)
+early culls Gaussian-Tile pairs with low splatting opacity, and proposes a balancing algorithm for pixel thread load, achieving a large increase of rendering and training speed.
+Other examples include changing the densification heuristics to reduce the number of Gaussians
+(
+Rota Bulò et al., 2025
+;
+Fang and Wang, 2024
+;
+Kheradmand et al., 2024
+)
+and improving the underlying differentiable rasterizer
+(
+Feng et al., 2024
+;
+Ye et al., 2024
+)
+. Their goals are mainly compressing Gaussians and accelerating the Gaussian rendering, with the increased training speed as a byproduct.
+Taming 3DGS
+(
+Mallick et al., 2024
+)
+utilizes a new densification strategy to reduce Gaussians, together with the backpropagation with per-splat parallelization, to speed up the Gaussian training on limited resources. 3DGS-LM
+(
+Höllein et al., 2024
+)
+accelerates the training convergence by replacing the stochastic gradient descent (SGD) optimizer like ADAM
+(
+Kingma, 2014
+)
+by Levenberg-Marquardt optimizer. The training process converges
+30
+%
+30\%
+faster. Nevertheless, the Gauss-Newton optimizer is a pseudo-second-order method. It does not utilize the weak coupling feature of the training. As a result, our method outperforms 3DGS-LM by a significant margin.
+3.
+Background
+3DGS represents a radiance field using a set of Gaussian kernels
+𝒦
+\mathcal{K}
+. A GS kernel
+k
+k
+is parameterized with a set of trainable attributes, including the center position
+𝒑
+k
+∈
+ℝ
+3
+\bm{p}_{k}\in\mathbb{R}^{3}
+, the opacity
+σ
+k
+∈
+ℝ
+\sigma_{k}\in\mathbb{R}
+, and the covariance matrix
+𝑨
+k
+∈
+ℝ
+3
+×
+3
+\bm{A}_{k}\in\mathbb{R}^{3\times 3}
+.
+𝑨
+k
+\bm{A}_{k}
+is a positive semi-definite definite matrix which only has six independent DOFs. A common practice is to decompose
+𝑨
+k
+\bm{A}_{k}
+as
+𝑨
+k
+=
+𝑹
+k
+​
+𝑺
+k
+​
+𝑺
+k
+⊤
+​
+𝑹
+k
+⊤
+\bm{A}_{k}=\bm{R}_{k}\bm{S}_{k}\bm{S}_{k}^{\top}\bm{R}_{k}^{\top}
+with a diagonal scaling matrix
+𝑺
+k
+=
+𝖽𝗂𝖺𝗀
+⁡
+(
+s
+k
+,
+x
+,
+s
+k
+,
+y
+,
+s
+k
+,
+z
+)
+\bm{S}_{k}=\mathsf{diag}(s_{k,x},s_{k,y},s_{k,z})
+and a rotation matrix
+𝑹
+k
+\bm{R}_{k}
+. A more compact representation is to use a unit quaternion
+𝒒
+k
+∈
+ℝ
+4
+\bm{q}_{k}\in\mathbb{R}^{4}
+,
+‖
+𝒒
+k
+‖
+=
+1
+\|\bm{q}_{k}\|=1
+as well as a scaling vector
+𝒔
+k
+=
+[
+s
+k
+,
+x
+,
+s
+k
+,
+y
+,
+s
+k
+,
+z
+]
+⊤
+\bm{s}_{k}=[s_{k,x},s_{k,y},s_{k,z}]^{\top}
+to encode the orientation and the geometry of the
+k
+k
+-th Gaussian ellipsoid. A kernel also has its own color information, which is expressed with spherical harmonics (SH) coefficient vector
+𝒄
+k
+\bm{c}_{k}
+. To render an image of the scene, GS kernels are sorted based on the current camera depth and projected onto the image plane. The color of an image pixel at
+(
+m
+,
+n
+)
+(m,n)
+is computed as:
+(1)
+𝒄
+⁡
+(
+m
+,
+n
+)
+=
+∑
+k
+∈
+𝒦
+G
+k
+​
+(
+m
+,
+n
+)
+​
+σ
+k
+​
+𝒄
+~
+k
+​
+(
+𝒓
+k
+,
+𝒄
+k
+)
+​
+∏
+j
+=
+1
+k
+−
+1
+(
+1
+−
+G
+j
+​
+(
+m
+,
+n
+)
+​
+σ
+j
+)
+.
+\bm{c}(m,n)=\sum_{k\in\mathcal{K}}G_{k}(m,n)\sigma_{k}\tilde{\bm{c}}_{k}(\bm{r}_{k},\bm{c}_{k})\prod_{j=1}^{k-1}\left(1-G_{j}(m,n)\sigma_{j}\right).
+Here,
+G
+k
+​
+(
+m
+,
+n
+)
+G_{k}(m,n)
+denotes the 2D Gaussian weight of the
+k
+k
+-th kernel at the pixel whose image coordinate is
+(
+m
+,
+n
+)
+(m,n)
+.
+𝒓
+k
+\bm{r}_{k}
+stands for the view direction from the camera to the kernel center.
+𝒄
+~
+​
+(
+𝒓
+k
+,
+𝒄
+k
+)
+\tilde{\bm{c}}(\bm{r}_{k},\bm{c}_{k})
+is the view-dependent color information expressed via spherical harmonics (SH). A loss function
+L
+L
+measures the difference between the rasterized image and the ground truth image, which consists of a per-pixel color difference and an SSIM loss.
+The training procedure of the vanilla 3DGS searches for a better setup of all the GS kernels by
+𝒙
+←
+α
+​
+Δ
+​
+𝒙
+\bm{x}\leftarrow\alpha\Delta\bm{x}
+. Here,
+𝒙
+\bm{x}
+is a vector of
+|
+𝒦
+|
+⋅
+14
+|\mathcal{K}|\cdot 14
+dimensions, concatenating parameters of all the
+|
+𝒦
+|
+|\mathcal{K}|
+kernels. At each iteration, an incremental improvement
+Δ
+​
+𝒙
+\Delta\bm{x}
+is chosen as the negative gradient of the loss
+Δ
+​
+𝒙
+=
+−
+∂
+L
+∂
+𝒙
+\Delta\bm{x}=-\frac{\partial L}{\partial\bm{x}}
+, and the step size
+0
+<
+α
+<
+1
+0<\alpha<1
+is used to prevent overshooting. The ground-truth loss is defined over all the input images. Because calculating the global gradient is costly, the training uses a sampled gradient based on each input image and progressively reduces the loss in an image-by-image manner.
+The above procedure is well-known as a standard way for nonlinear optimization of a high-dimension and nonlinear problem i.e.,
+min
+𝒙
+⁡
+L
+⁡
+(
+𝒙
+)
+\min_{\bm{x}}L(\bm{x})
+using stochastic gradient descent (SGD). SGD is commonly considered linearly convergent as it leverages the first-order Taylor expansion of the target loss
+(
+Nocedal and Wright, 1999
+)
+. Therefore, it is not surprising to see that 3DGS training needs tens of thousands of iterations to adequately reduce the training loss.
+The convergence of the training procedure can be substantially improved using
+Newton’s method, which quadratically expands
+L
+⁡
+(
+𝒙
+∗
+)
+L(\bm{x}^{*})
+at
+𝒙
+\bm{x}
+such that:
+(2)
+L
+⁡
+(
+𝒙
+∗
+)
+=
+L
+∗
+=
+L
++
+𝒈
+⊤
+​
+Δ
+​
+𝒙
++
+1
+2
+​
+Δ
+​
+𝒙
+⊤
+​
+𝑯
+​
+Δ
+​
+𝒙
++
+O
+⁡
+(
+‖
+Δ
+​
+𝒙
+‖
+3
+)
+.
+L(\bm{x}^{*})=L^{*}=L+\bm{g}^{\top}\Delta\bm{x}+\frac{1}{2}\Delta\bm{x}^{\top}\bm{H}\Delta\bm{x}+O(\|\Delta\bm{x}\|^{3}).
+Here,
+𝒙
+∗
+\bm{x}^{*}
+is a
+local minimizer
+of
+L
+L
+around current
+𝒙
+\bm{x}
+.
+𝒈
+=
+(
+∂
+L
+∂
+𝒙
+)
+⊤
+\bm{g}=\left(\frac{\partial L}{\partial\bm{x}}\right)^{\top}
+, and
+𝑯
+=
+∂
+2
+L
+∂
+𝒙
+2
+\bm{H}=\frac{\partial^{2}L}{\partial\bm{x}^{2}}
+are the gradient and Hessian of the loss
+L
+L
+. Ignoring the cubic error term, the corresponding DOF update
+Δ
+​
+𝒙
+\Delta\bm{x}
+can be computed from:
+Δ
+​
+𝒙
+=
+arg
+⁡
+min
+𝒚
+⁡
+L
++
+𝒈
+⊤
+​
+𝒚
++
+1
+2
+​
+𝒚
+⊤
+​
+𝑯
+​
+𝒚
+\Delta\bm{x}=\arg\min_{\bm{y}}L+\bm{g}^{\top}\bm{y}+\frac{1}{2}\bm{y}^{\top}\bm{H}\bm{y}
+via solving the linear system of:
+(3)
+𝑯
+⁡
+(
+𝒙
+)
+​
+Δ
+​
+𝒙
+=
+−
+𝒈
+⁡
+(
+𝒙
+)
+.
+\bm{H}(\bm{x})\Delta\bm{x}=-\bm{g}(\bm{x}).
+Newton’s method possesses many desired properties for nonlinear optimization. First, if
+O
+⁡
+(
+‖
+Δ
+​
+𝒙
+‖
+3
+)
+O(\|\Delta\bm{x}\|^{3})
+is reasonably small, Newton’s method converges quadratically. It normally needs much fewer iterations than GD. More importantly, Newton’s method does not need the line search
+(
+Nocedal and Wright, 1999
+)
+, i.e.,
+α
+\alpha
+by default is one. When the quadratic approximation of
+L
+∗
+L^{*}
+is valid, and
+Δ
+​
+𝒙
+\Delta\bm{x}
+is second-order optimal.
+4.
+Our Method
+Unfortunately, solving the global Newton system at each iteration is computationally expensive, if not impossible. Even the assembly of the matrix is costly and requires tedious implementation. As a result, Newton’s method never appears as a viable candidate for 3DGS training. Instead of resorting to the global Newton procedure, we argue that local Newton optimization is also efficient and effective.
+Figure 2
+.
+Hessian visualization.
+We plot the values of local and global Hessian matrices for one training image. The local Hessian (left) is for all the parameters of a kernel
+𝒙
+k
+=
+[
+𝒑
+k
+⊤
+,
+𝒒
+k
+⊤
+,
+𝒔
+k
+⊤
+,
+𝒄
+k
+⊤
+,
+σ
+k
+]
+⊤
+\bm{x}_{k}=[\bm{p}_{k}^{\top},\bm{q}_{k}^{\top},\bm{s}_{k}^{\top},\bm{c}_{k}^{\top},\sigma_{k}]^{\top}
+, while the global Hessian (right) is for all the kernels’ parameters. The variation of the matrices across different DOFs suggests (very) weak coupling amount parameters.
+This reasoning is drawn based on several important observations. First of all, 3DGS training never aims for a global optimum. Just as other deep learning tasks, obsessing over whether a global optimum is achieved holds little practical importance.
+Second, training DOFs at a GS kernel are weakly coupled. Numerically, this can be confirmed by visualizing the full Hessian of 3DGS training. As shown in Fig.
+2
+, there exist sparsely localized “spikes” of the values of
+∂
+2
+L
+∂
+𝒙
+2
+\frac{\partial^{2}L}{\partial\bm{x}^{2}}
+. This implies the influence among kernel parameters is not global. Solving the full Newton system does not offer a proportional improvement in convergence relative to its computational cost. Similarly, the Hessian of the attributes of one GS kernel is also concentrated, and positional DOFs play a more important role compared with parameters related to color. Departing from generic learning tasks, the training data for 3DGS is highly structured. It is possible for us to exploit the spatial relation among input images to effectively mitigate the oscillation (e.g., overshoot) during the sampled optimization. In the following subsections, we elaborate on the details of the proposed training algorithm.
+4.1.
+Training data preparation
+Figure 3
+.
+Data preparation.
+We construct a bounding sphere of the scene containing all the GS kernels. Camera poses corresponding to input training images are projected to the sphere surface, and the spherical distance between them is used as the metric to identify KNNs for training images. The current training image is the primary target while its KNNs are the secondary targets.
+Given a set of input training images
+𝒯
+=
+{
+I
+1
+,
+I
+2
+,
+⋯
+,
+I
+|
+𝒯
+|
+}
+\mathcal{T}=\{I^{1},I^{2},\cdots,I^{|\mathcal{T}|}\}
+, we kick off the training following the vanilla 3DGS by computing a set of initial GS kernels via SfM points. We then estimate a scene center and an encapsulating bounding sphere, which contains all the GS kernels. We project camera poses to the surface of this bounding sphere. The distance between a pair of input images is then defined as the spherical distance between their corresponding camera projections. With the distance defined, we can then obtain the
+K
+K
+nearest neighbors (KNNs) of a given input image
+I
+t
+I^{t}
+, which intuitively are images that share similar camera perspectives of
+I
+t
+I^{t}
+. We call
+I
+t
+I^{t}
+i.e., the current training image, the
+primary target
+, and the set of its KNNs
+secondary targets
+, denoted as
+𝒩
+t
+\mathcal{N}_{t}
+. Training images that are distant from
+I
+t
+I^{t}
+i.e.,
+𝒯
+−
+(
+{
+I
+t
+}
++
+𝒩
+t
+)
+\mathcal{T}-(\{I^{t}\}+\mathcal{N}_{t})
+, are considered less relevant as only a small fraction of local kernels are visible from them. On the other hand, secondary targets are more tightly coupled with
+I
+t
+I^{t}
+. In our implementation, we set
+K
+=
+3
+K=3
+and noticed this value offers a good balance between convergence and efficiency. As to be discussed later, Hessians and gradients of secondary targets are sparsely evaluated, which accumulate to the primary Hessian/gradient to prevent overshoot (i.e., see Sec.
+4.3
+).
+4.2.
+Stochastic Local Newton
+As mentioned, each GS kernel
+k
+k
+houses the position
+𝒑
+k
+\bm{p}_{k}
+, opacity
+σ
+k
+\sigma_{k}
+, orientation
+𝒒
+k
+\bm{q}_{k}
+, scaling
+𝒔
+k
+\bm{s}_{k}
+, as well as a SH color vector
+𝒄
+k
+\bm{c}_{k}
+. Rather than learning the full parameter of
+𝒙
+k
+=
+[
+𝒑
+k
+⊤
+,
+σ
+k
+,
+𝒒
+k
+⊤
+,
+𝒔
+k
+⊤
+,
+𝒄
+k
+⊤
+]
+⊤
+\bm{x}_{k}=[\bm{p}_{k}^{\top},\sigma_{k},\bm{q}_{k}^{\top},\bm{s}_{k}^{\top},\bm{c}_{k}^{\top}]^{\top}
+as one single variable, we split the optimization into multiple sub-steps, following the order of position, orientation, scaling, opacity, and color. We note that position is of the most importance and should always be optimized first. Shape parameters (orientation, scaling) are prioritized over the color information. This intuition is straightforward to follow: without the right placement of a kernel, the correlated pixels are blank, leaving no opportunities for color-wise adjustment. However, we do not have a strong preference regarding the order of orientation and scaling or color and opacity. Numerically speaking, they become nearly decoupled after the position has been determined.
+Each parameter of kernel
+k
+k
+is optimized via a local Newton solve given a certain training input
+I
+t
+I^{t}
+:
+(4)
+Δ
+​
+𝒚
+k
+=
+−
+(
+∂
+2
+L
+t
+∂
+𝒚
+k
+2
+)
+−
+1
+​
+(
+∂
+L
+t
+∂
+𝒚
+k
+)
+⊤
+,
+\Delta\bm{y}_{k}=-\left(\frac{\partial^{2}L^{t}}{\partial\bm{y}_{k}^{2}}\right)^{-1}\left(\frac{\partial L^{t}}{\partial\bm{y}_{k}}\right)^{\top},
+where
+𝒚
+k
+\bm{y}_{k}
+refers to a specific set of variables to be optimized. The loss function depends on the RGB values at a pixel
+(
+m
+,
+n
+)
+(m,n)
+from 3DGS rasterization
+𝒄
+⁡
+(
+m
+,
+n
+)
+\bm{c}(m,n)
+and from the training input
+I
+t
+I^{t}
+i.e.,
+𝒄
+t
+​
+(
+m
+,
+n
+)
+\bm{c}^{t}(m,n)
+. This allows us to use the chain rule to compute the Hessian and gradient of the loss:
+(5)
+∂
+L
+t
+∂
+𝒚
+k
+=
+∂
+L
+t
+∂
+𝒄
+​
+∂
+𝒄
+∂
+𝒚
+k
+,
+∂
+2
+L
+t
+∂
+𝒚
+k
+2
+=
+(
+∂
+𝒄
+∂
+𝒚
+k
+)
+⊤
+​
+∂
+2
+L
+t
+∂
+𝒄
+2
+​
+∂
+𝒄
+∂
+𝒚
+k
++
+∂
+L
+t
+∂
+𝒄
+⋅
+∂
+2
+𝒄
+∂
+𝒚
+k
+2
+.
+\displaystyle\frac{\partial L^{t}}{\partial\bm{y}_{k}}=\frac{\partial L^{t}}{\partial\bm{c}}\frac{\partial\bm{c}}{\partial\bm{y}_{k}},\quad\frac{\partial^{2}L^{t}}{\partial\bm{y}_{k}^{2}}=\left(\frac{\partial\bm{c}}{\partial\bm{y}_{k}}\right)^{\top}\frac{\partial^{2}L^{t}}{\partial\bm{c}^{2}}\frac{\partial\bm{c}}{\partial\bm{y}_{k}}+\frac{\partial L^{t}}{\partial\bm{c}}\cdot\frac{\partial^{2}\bm{c}}{\partial\bm{y}^{2}_{k}}.
+In our implementation, the loss function is the superposition of the L2 loss and SSIM loss such that
+L
+t
+=
+L
+2
+t
++
+λ
+​
+L
+S
+t
+L^{t}=L^{t}_{2}+\lambda L^{t}_{S}
+. To assemble Eq. (
+4
+) for all the kernel attributes, we first compute the first and second derivatives of L2 loss and SSIM loss w.r.t. the rasterized color:
+(6)
+∂
+L
+2
+t
+∂
+𝒄
+⁡
+(
+m
+,
+n
+)
+=
+1
+3
+​
+|
+I
+t
+|
+​
+(
+𝒄
+⁡
+(
+m
+,
+n
+)
+−
+𝒄
+t
+​
+(
+m
+,
+n
+)
+)
+,
+∂
+2
+L
+2
+t
+∂
+𝒄
+2
+​
+(
+m
+,
+n
+)
+=
+𝑰
+3
+3
+​
+|
+I
+t
+|
+,
+\displaystyle\frac{\partial L^{t}_{2}}{\partial\bm{c}(m,n)}=\frac{1}{3|I^{t}|}\left(\bm{c}(m,n)-\bm{c}^{t}(m,n)\right),\quad\frac{\partial^{2}L^{t}_{2}}{\partial\bm{c}^{2}(m,n)}=\frac{\bm{I}_{3}}{3|I^{t}|},
+(7)
+∂
+L
+S
+t
+∂
+𝒄
+⁡
+(
+m
+,
+n
+)
+=
+1
+3
+​
+|
+I
+t
+|
+​
+∑
+j
+=
+0
+H
+∑
+i
+=
+0
+W
+∂
+f
+S
+​
+(
+m
++
+i
+−
+W
+2
+,
+n
++
+j
+−
+H
+2
+)
+∂
+𝒄
+⁡
+(
+m
+,
+n
+)
+,
+\displaystyle\frac{\partial L^{t}_{S}}{\partial\bm{c}(m,n)}=\frac{1}{3|I^{t}|}\sum\limits_{j=0}^{H}\sum\limits_{i=0}^{W}\frac{\partial f_{S}\left(m+i-\frac{W}{2},n+j-\frac{H}{2}\right)}{\partial\bm{c}(m,n)},
+(8)
+∂
+2
+L
+S
+t
+∂
+𝒄
+2
+​
+(
+m
+,
+n
+)
+=
+1
+3
+​
+|
+I
+t
+|
+​
+∑
+j
+=
+0
+H
+∑
+i
+=
+0
+W
+∂
+2
+f
+S
+​
+(
+m
++
+i
+−
+W
+2
+,
+n
++
+j
+−
+H
+2
+)
+∂
+𝒄
+2
+​
+(
+m
+,
+n
+)
+.
+\displaystyle\frac{\partial^{2}L^{t}_{S}}{\partial\bm{c}^{2}(m,n)}=\frac{1}{3|I^{t}|}\sum\limits_{j=0}^{H}\sum\limits_{i=0}^{W}\frac{\partial^{2}f_{S}\left(m+i-\frac{W}{2},n+j-\frac{H}{2}\right)}{\partial\bm{c}^{2}(m,n)}.
+Here,
+|
+I
+t
+|
+|I^{t}|
+denotes the total number of pixels in the input training
+I
+t
+I^{t}
+.
+𝑰
+3
+\bm{I}_{3}
+is a
+3
+×
+3
+3\times 3
+identity matrix.
+F
+S
+​
+(
+a
+,
+b
+)
+F_{S}(a,b)
+measures the SSIM error between
+𝒄
+⁡
+(
+a
+,
+b
+)
+\bm{c}(a,b)
+and
+𝒄
+t
+​
+(
+a
+,
+b
+)
+\bm{c}^{t}(a,b)
+at pixel
+(
+a
+,
+b
+)
+(a,b)
+(
+Wang et al., 2004
+)
+as the sum of errors of RGB components i.e.,
+F
+S
+​
+(
+a
+,
+b
+)
+=
+F
+S
+,
+R
++
+F
+S
+,
+G
++
+F
+S
+,
+B
+F_{S}(a,b)=F_{S,R}+F_{S,G}+F_{S,B}
+. The error of each color component e.g., the red component
+F
+S
+,
+R
+F_{S,R}
+is:
+(9)
+F
+S
+,
+R
+​
+(
+a
+,
+b
+)
+=
+(
+2
+​
+μ
+​
+μ
+t
++
+C
+1
+)
+​
+(
+2
+​
+ρ
+~
+t
++
+C
+2
+)
+(
+(
+μ
+​
+μ
+t
+)
+2
++
+C
+1
+)
+​
+(
+(
+ρ
+​
+ρ
+t
+)
+2
++
+C
+2
+)
+,
+F_{S,R}(a,b)=\frac{(2\mu\mu^{t}+C_{1})(2\tilde{\rho}^{t}+C_{2})}{\left((\mu\mu^{t})^{2}+C_{1}\right)\left((\rho\rho^{t})^{2}+C_{2}\right)},
+where
+μ
+\mu
+,
+μ
+t
+\mu^{t}
+and
+ρ
+\rho
+,
+ρ
+t
+\rho^{t}
+are respectively the weighted means and variances of the red values within a
+W
+×
+H
+W\times H
+Gaussian filter centered at pixel
+(
+a
+,
+b
+)
+(a,b)
+in the rasterized image and training image
+I
+t
+I^{t}
+.
+ρ
+~
+t
+\tilde{\rho}^{t}
+is the weighted covariance.
+C
+1
+=
+0.01
+2
+C_{1}=0.01^{2}
+and
+C
+2
+=
+0.03
+2
+C_{2}=0.03^{2}
+are two constants. SSIM uses a filter of
+W
+=
+H
+=
+11
+W=H=11
+.
+F
+S
+,
+G
+F_{S,G}
+and
+F
+S
+,
+B
+F_{S,B}
+are calculated similarly.
+It is clear that
+F
+S
+,
+R
+F_{S,R}
+only depends on the red color value, and it is irrelevant to the green or blue components. Therefore, we have:
+(10)
+∂
+F
+S
+​
+(
+a
+,
+b
+)
+∂
+𝒄
+⁡
+(
+m
+,
+n
+)
+=
+∂
+F
+S
+∂
+[
+c
+R
+,
+c
+G
+,
+c
+B
+]
+⊤
+=
+[
+∂
+F
+S
+,
+R
+c
+R
+,
+∂
+F
+S
+,
+G
+c
+G
+,
+∂
+F
+S
+,
+B
+c
+B
+]
+,
+\displaystyle\frac{\partial F_{S}(a,b)}{\partial\bm{c}(m,n)}=\frac{\partial F_{S}}{\partial[c_{R},c_{G},c_{B}]^{\top}}=\left[\frac{\partial F_{S,R}}{c_{R}},\frac{\partial F_{S,G}}{c_{G}},\frac{\partial F_{S,B}}{c_{B}}\right],
+(11)
+∂
+2
+F
+S
+​
+(
+a
+,
+b
+)
+∂
+𝒄
+2
+​
+(
+m
+,
+n
+)
+=
+𝖽𝗂𝖺𝗀
+⁡
+(
+∂
+2
+F
+S
+,
+R
+c
+R
+2
+,
+∂
+2
+F
+S
+,
+G
+c
+G
+2
+,
+∂
+2
+F
+S
+,
+B
+c
+B
+2
+)
+.
+\displaystyle\frac{\partial^{2}F_{S}(a,b)}{\partial\bm{c}^{2}(m,n)}=\mathsf{diag}\left(\frac{\partial^{2}F_{S,R}}{c^{2}_{R}},\frac{\partial^{2}F_{S,G}}{c^{2}_{G}},\frac{\partial^{2}F_{S,B}}{c^{2}_{B}}\right).
+The first and second derivatives of the red SSIM error w.r.t. the red component (and other color components) can be computed as:
+(12)
+∂
+F
+S
+,
+R
+∂
+c
+R
+=
+f
+1
+f
+2
+​
+f
+3
+​
+g
+0
++
+f
+0
+f
+2
+​
+f
+3
+​
+g
+1
+−
+f
+0
+​
+f
+1
+f
+2
+2
+​
+f
+3
+​
+g
+2
+−
+f
+0
+​
+f
+1
+f
+2
+​
+f
+3
+2
+​
+g
+3
+,
+\displaystyle\frac{\partial F_{S,R}}{\partial c_{R}}=\frac{f_{1}}{f_{2}f_{3}}g_{0}+\frac{f_{0}}{f_{2}f_{3}}g_{1}-\frac{f_{0}f_{1}}{f^{2}_{2}f_{3}}g_{2}-\frac{f_{0}f_{1}}{f_{2}f^{2}_{3}}g_{3},
+∂
+2
+F
+S
+,
+R
+∂
+2
+c
+R
+=
+(
+g
+1
+f
+2
+​
+f
+3
+−
+f
+2
+​
+g
+3
++
+f
+3
+​
+g
+2
+f
+2
+2
+​
+f
+3
+2
+​
+f
+1
+)
+​
+g
+0
+2
++
+(
+g
+0
+f
+2
+​
+f
+3
+−
+f
+2
+​
+g
+3
++
+f
+3
+​
+g
+2
+f
+2
+2
+​
+f
+3
+2
+​
+f
+0
+)
+​
+g
+1
+2
+\displaystyle\frac{\partial^{2}F_{S,R}}{\partial^{2}c_{R}}=\left(\frac{g_{1}}{f_{2}f_{3}}-\frac{f_{2}g_{3}+f_{3}g_{2}}{f^{2}_{2}f^{2}_{3}}f_{1}\right)g^{2}_{0}+\left(\frac{g_{0}}{f_{2}f_{3}}-\frac{f_{2}g_{3}+f_{3}g_{2}}{f^{2}_{2}f^{2}_{3}}f_{0}\right)g^{2}_{1}
++
+(
+−
+(
+f
+0
+​
+g
+1
++
+f
+1
+​
+g
+0
+)
+f
+2
+2
+​
+f
+3
++
+2
+​
+f
+2
+​
+f
+3
+​
+g
+2
++
+f
+2
+2
+​
+g
+3
+(
+f
+2
+2
+​
+f
+3
+)
+2
+​
+f
+0
+​
+f
+1
+)
+​
+g
+2
+2
+\displaystyle+\left(\frac{-(f_{0}g_{1}+f_{1}g_{0})}{f^{2}_{2}f_{3}}+\frac{2f_{2}f_{3}g_{2}+f^{2}_{2}g_{3}}{(f^{2}_{2}f_{3})^{2}}f_{0}f_{1}\right)g^{2}_{2}
+(13)
++
+(
+−
+(
+f
+0
+​
+g
+1
++
+f
+1
+​
+g
+0
+)
+f
+2
+​
+f
+3
+2
++
+2
+​
+f
+2
+​
+f
+3
+​
+g
+3
++
+f
+3
+2
+​
+g
+2
+(
+f
+2
+​
+f
+3
+2
+)
+2
+​
+f
+0
+​
+f
+1
+)
+​
+g
+3
+2
+,
+\displaystyle+\left(\frac{-(f_{0}g_{1}+f_{1}g_{0})}{f_{2}f^{2}_{3}}+\frac{2f_{2}f_{3}g_{3}+f^{2}_{3}g_{2}}{(f_{2}f^{2}_{3})^{2}}f_{0}f_{1}\right)g^{2}_{3},
+where
+f
+0
+=
+2
+​
+μ
+​
+μ
+t
++
+C
+1
+,
+f
+1
+=
+2
+​
+ρ
+~
+t
++
+C
+2
+,
+f
+3
+=
+(
+ρ
+​
+ρ
+t
+)
+2
++
+C
+2
+,
+\displaystyle f_{0}=2\mu\mu^{t}+C_{1},\quad f_{1}=2\tilde{\rho}^{t}+C_{2},\quad f_{3}=(\rho\rho^{t})^{2}+C_{2},
+g
+0
+=
+2
+​
+w
+i
+,
+j
+​
+μ
+t
+,
+g
+1
+=
+2
+​
+w
+i
+,
+j
+​
+(
+𝒄
+⁡
+(
+m
+,
+n
+)
+−
+μ
+t
+)
+,
+\displaystyle g_{0}=2w_{i,j}\mu^{t},\quad g_{1}=2w_{i,j}(\bm{c}(m,n)-\mu^{t}),
+g
+2
+=
+2
+​
+w
+i
+,
+j
+​
+μ
+,
+g
+3
+=
+2
+​
+w
+i
+,
+j
+​
+(
+𝒄
+⁡
+(
+m
+,
+n
+)
+−
+μ
+)
+.
+\displaystyle g_{2}=2w_{i,j}\mu,\quad g_{3}=2w_{i,j}(\bm{c}(m,n)-\mu).
+Here,
+w
+i
+,
+j
+=
+w
+⁡
+(
+m
+−
+a
++
+H
+2
+,
+n
+−
+b
++
+W
+2
+)
+w_{i,j}=w(m-a+\frac{H}{2},n-b+\frac{W}{2})
+is the filter’s weight.
+The per-attribute Hessian and gradient can then be computed with Eq. (
+5
+), where the first and second derivatives of
+𝒄
+⁡
+(
+m
+,
+n
+)
+\bm{c}(m,n)
+i.e., how the pixel colors change w.r.t. kernel attributes are evaluated at each individual attribute.
+Position solve.
+The position of the kernel
+k
+k
+is not full-rank. During the optimization, we only permit planner position adjustment of
+k
+k
+that is perpendicular to the camera’s look at
+𝒓
+k
+\bm{r}_{k}
+. To extra the actual DOFs of the kernel position, we build a basis matrix
+𝑼
+k
+=
+[
+𝒖
+x
+,
+𝒖
+y
+]
+∈
+ℝ
+3
+×
+2
+\bm{U}_{k}=[\bm{u}_{x},\bm{u}_{y}]\in\mathbb{R}^{3\times 2}
+such that:
+(14)
+𝒖
+y
+=
+1
+𝒓
+k
+⋅
+𝒓
+k
+​
+(
+𝒓
+k
+⊗
+𝒓
+k
+)
+​
+[
+0
+,
+1
+,
+0
+]
+⊤
+,
+𝒖
+x
+=
+1
+𝒓
+k
+⋅
+𝒓
+k
+​
+𝒓
+k
+×
+𝒖
+y
+.
+\bm{u}_{y}=\frac{1}{\bm{r}_{k}\cdot\bm{r}_{k}}(\bm{r}_{k}\otimes\bm{r}_{k})[0,1,0]^{\top},\quad\bm{u}_{x}=\frac{1}{\sqrt{\bm{r}_{k}\cdot\bm{r}_{k}}}\bm{r}_{k}\times\bm{u}_{y}.
+The update of the kernel position is then re-parameterized with
+𝒗
+k
+∈
+ℝ
+2
+\bm{v}_{k}\in\mathbb{R}^{2}
+:
+(15)
+Δ
+​
+𝒑
+k
+=
+𝑼
+k
+​
+Δ
+​
+𝒗
+k
+.
+\Delta\bm{p}_{k}=\bm{U}_{k}\Delta\bm{v}_{k}.
+We first compute the partial derivatives w.r.t. the full positional DOFs via:
+(16)
+∂
+𝒄
+∂
+𝒑
+k
+=
+∂
+𝒄
+∂
+𝒄
+~
+k
+​
+∂
+𝒄
+~
+k
+∂
+𝒑
+k
++
+∂
+𝒄
+∂
+G
+k
+​
+(
+∂
+G
+k
+∂
+𝝅
+k
+​
+∂
+𝝅
+k
+∂
+𝒑
+k
++
+∂
+G
+k
+∂
+𝚺
+k
+​
+∂
+𝚺
+k
+∂
+𝒑
+k
+)
+,
+\displaystyle\frac{\partial\bm{c}}{\partial\bm{p}_{k}}=\frac{\partial\bm{c}}{\partial\tilde{\bm{c}}_{k}}\frac{\partial\tilde{\bm{c}}_{k}}{\partial\bm{p}_{k}}+\frac{\partial\bm{c}}{\partial G_{k}}\left(\frac{\partial G_{k}}{\partial\bm{\pi}_{k}}\frac{\partial\bm{\pi}_{k}}{\partial\bm{p}_{k}}+\frac{\partial G_{k}}{\partial\bm{\Sigma}_{k}}\frac{\partial\bm{\Sigma}_{k}}{\partial\bm{p}_{k}}\right),
+∂
+2
+𝒄
+∂
+𝒑
+k
+2
+=
+∂
+𝒄
+∂
+𝒄
+~
+k
+⋅
+∂
+2
+𝒄
+~
+k
+∂
+𝒑
+k
+2
++
+∂
+𝒄
+∂
+G
+k
+​
+(
+∂
+G
+k
+∂
+𝝅
+k
+⋅
+∂
+2
+𝝅
+k
+∂
+2
+𝒑
+k
++
+∂
+G
+k
+∂
+Σ
+k
+:
+∂
+2
+𝚺
+k
+∂
+𝒑
+k
+2
+CLOSE
+\displaystyle\frac{\partial^{2}\bm{c}}{\partial\bm{p}^{2}_{k}}=\frac{\partial\bm{c}}{\partial\tilde{\bm{c}}_{k}}\cdot\frac{\partial^{2}\tilde{\bm{c}}_{k}}{\partial\bm{p}^{2}_{k}}+\frac{\partial\bm{c}}{\partial G_{k}}\left(\frac{\partial G_{k}}{\partial\bm{\pi}_{k}}\cdot\frac{\partial^{2}\bm{\pi}_{k}}{\partial^{2}\bm{p}_{k}}+\frac{\partial G_{k}}{\partial\Sigma_{k}}:\frac{\partial^{2}\bm{\Sigma}_{k}}{\partial\bm{p}^{2}_{k}}\right.
++
+(
+∂
+𝝅
+k
+∂
+𝒑
+k
+)
+⊤
+​
+∂
+2
+G
+k
+∂
+𝝅
+k
+2
+​
+∂
+𝝅
+k
+∂
+𝒑
+k
++
+(
+∂
+𝚺
+k
+∂
+𝒑
+k
+)
+⊤
+:
+∂
+2
+G
+k
+∂
+𝚺
+k
+2
+:
+∂
+𝚺
+k
+∂
+𝒑
+k
+\displaystyle+\left(\frac{\partial\bm{\pi}_{k}}{\partial\bm{p}_{k}}\right)^{\top}\frac{\partial^{2}G_{k}}{\partial\bm{\pi}^{2}_{k}}\frac{\partial\bm{\pi}_{k}}{\partial\bm{p}_{k}}+\left(\frac{\partial\bm{\Sigma}_{k}}{\partial\bm{p}_{k}}\right)^{\top}:\frac{\partial^{2}G_{k}}{\partial\bm{\Sigma}^{2}_{k}}:\frac{\partial\bm{\Sigma}_{k}}{\partial\bm{p}_{k}}
+(17)
++
+2
+(
+∂
+𝚺
+k
+∂
+𝒑
+k
+)
+⊤
+:
+∂
+2
+G
+k
+∂
+𝝅
+k
+​
+∂
+𝚺
+k
+:
+∂
+𝝅
+k
+∂
+𝒑
+k
+)
+.
+\displaystyle\left.+2\left(\frac{\partial\bm{\Sigma}_{k}}{\partial\bm{p}_{k}}\right)^{\top}:\frac{\partial^{2}G_{k}}{\partial\bm{\pi}_{k}\partial\bm{\Sigma}_{k}}:\frac{\partial\bm{\pi}_{k}}{\partial\bm{p}_{k}}\right).
+The Hessian and the gradient of the generalized kernel position
+𝒗
+k
+\bm{v}_{k}
+can then be computed as:
+(18)
+∂
+𝒄
+∂
+𝒗
+k
+=
+𝑼
+k
+⊤
+​
+∂
+𝒄
+∂
+𝒗
+k
+,
+∂
+2
+𝒄
+∂
+𝒗
+k
+2
+=
+𝑼
+k
+⊤
+​
+∂
+2
+𝒄
+∂
+𝒑
+k
+2
+​
+𝑼
+k
+.
+\frac{\partial\bm{c}}{\partial\bm{v}_{k}}=\bm{U}_{k}^{\top}\frac{\partial\bm{c}}{\partial\bm{v}_{k}},\quad\frac{\partial^{2}\bm{c}}{\partial\bm{v}^{2}_{k}}=\bm{U}_{k}^{\top}\frac{\partial^{2}\bm{c}}{\partial\bm{p}^{2}_{k}}\bm{U}_{k}.
+Here,
+𝝅
+k
+=
+𝝅
+k
+​
+(
+𝒑
+k
+)
+∈
+ℝ
+2
+\bm{\pi}_{k}=\bm{\pi}_{k}(\bm{p}_{k})\in\mathbb{R}^{2}
+is the image space projection of the kernel center
+𝒑
+k
+\bm{p}_{k}
+a.k.a. the normalized device coordinate.
+𝚺
+k
+∈
+ℝ
+2
+×
+2
+\bm{\Sigma}_{k}\in\mathbb{R}^{2\times 2}
+is 2D covariance matrix.
+𝒄
+~
+k
+=
+𝒄
+~
+k
+​
+(
+𝒓
+k
+)
+\tilde{\bm{c}}_{k}=\tilde{\bm{c}}_{k}(\bm{r}_{k})
+is view-dependent SH color. The first and second derivatives of those intermediate variables are given in the supplementary document.
+Scaling solve.
+A potential risk in optimizing scaling and orientation is redundancy. It is the projected 2D Gaussian ellipse that directly influences the pixel color on the rasterized image. Different combinations of scaling and orientation can result in the same projection. This brings the nullspace to the Hessian and undermines the convergence. To avoid this issue, we follow the strategy used for position solve, and perform the local optimization in a reduced space.
+Specifically, to optimize
+𝒔
+k
+\bm{s}_{k}
+, we only concern how it would affect the eigenvalue of the 2D covariance matrix
+𝚺
+k
+\bm{\Sigma}_{k}
+i.e., the lengths of two axes of the projected ellipse. By eigenvalue decomposition
+𝚺
+k
+=
+𝑽
+k
+⊤
+​
+𝚲
+k
+​
+𝑽
+k
+\bm{\Sigma}_{k}=\bm{V}_{k}^{\top}\bm{\Lambda}_{k}\bm{V}_{k}
+, we have:
+(19)
+𝚲
+k
+=
+(
+𝑽
+k
+​
+𝑱
+k
+​
+𝑾
+k
+​
+𝑹
+k
+)
+​
+𝖽𝗂𝖺𝗀
+​
+(
+s
+k
+,
+x
+2
+,
+s
+k
+,
+y
+2
+,
+s
+k
+,
+z
+2
+)
+​
+(
+𝑱
+k
+​
+𝑾
+k
+​
+𝑹
+k
+​
+𝑽
+k
+)
+⊤
+,
+\bm{\Lambda}_{k}=\left(\bm{V}_{k}\bm{J}_{k}\bm{W}_{k}\bm{R}_{k}\right)\mathsf{diag}\left(s_{k,x}^{2},s_{k,y}^{2},s_{k,z}^{2}\right)\left(\bm{J}_{k}\bm{W}_{k}\bm{R}_{k}\bm{V}_{k}\right)^{\top},
+where
+𝚲
+k
+∈
+ℝ
+2
+×
+2
+=
+𝖽𝗂𝖺𝗀
+⁡
+(
+λ
+m
+​
+i
+​
+n
+,
+λ
+m
+​
+a
+​
+x
+)
+\bm{\Lambda}_{k}\in\mathbb{R}^{2\times 2}=\mathsf{diag}(\lambda_{min},\lambda_{max})
+is the diagonal matrix of eigenvalues.
+𝑽
+k
+∈
+ℝ
+2
+×
+3
+\bm{V}_{k}\in\mathbb{R}^{2\times 3}
+includes the corresponding eigenvectors.
+𝑾
+k
+\bm{W}_{k}
+and
+𝑱
+k
+\bm{J}_{k}
+represent the view matrix and the Jacobian matrix of orthographic projection
+𝑷
+\bm{P}
+. Since the updates of
+s
+k
+,
+x
+s_{k,x}
+,
+s
+k
+,
+y
+s_{k,y}
+, and
+s
+k
+,
+z
+s_{k,z}
+only alter
+𝚲
+k
+\bm{\Lambda}_{k}
+,
+𝑽
+k
+\bm{V}_{k}
+remains unchanged.
+𝑱
+k
+\bm{J}_{k}
+,
+𝑾
+k
+\bm{W}_{k}
+and
+𝑹
+k
+\bm{R}_{k}
+are also constant. Hence, we have:
+(20)
+(
+𝑽
+k
+​
+𝑱
+k
+​
+𝑾
+k
+​
+𝑹
+k
+)
+​
+𝖽𝗂𝖺𝗀
+​
+(
+s
+k
+,
+x
+,
+s
+k
+,
+y
+,
+s
+k
+,
+z
+)
+=
+𝖽𝗂𝖺𝗀
+⁡
+(
+λ
+m
+​
+i
+​
+n
+,
+λ
+m
+​
+a
+​
+x
+)
+,
+\left(\bm{V}_{k}\bm{J}_{k}\bm{W}_{k}\bm{R}_{k}\right)\mathsf{diag}\left(s_{k,x},s_{k,y},s_{k,z}\right)=\mathsf{diag}(\lambda_{min},\lambda_{max}),
+leading to
+(21)
+𝐄
+2
+⊤
+:
+(
+𝑽
+k
+​
+𝑱
+k
+​
+𝑾
+k
+​
+𝑹
+k
+)
+:
+𝐄
+3
+⏟
+𝑻
+k
+𝒔
+k
+=
+𝝀
+k
+=
+[
+λ
+m
+​
+i
+​
+n
+λ
+m
+​
+a
+​
+x
+]
+,
+\underbrace{\mathbf{E}_{2}^{\top}:\left(\bm{V}_{k}\bm{J}_{k}\bm{W}_{k}\bm{R}_{k}\right):\mathbf{E}_{3}}_{\bm{T}_{k}}\bm{s}_{k}=\bm{\lambda}_{k}=\left[\begin{array}[]{c}\lambda_{min}\\
+\lambda_{max}\end{array}\right],
+where
+𝐄
+2
+\mathbf{E}_{2}
+and
+𝐄
+3
+\mathbf{E}_{3}
+are 3-order tensors padding a vector to a diagonal matrix such that
+𝚲
+k
+=
+𝐄
+2
+⋅
+𝝀
+k
+\bm{\Lambda}_{k}=\mathbf{E}_{2}\cdot\bm{\lambda}_{k}
+and
+𝑺
+k
+=
+𝐄
+3
+⋅
+𝒔
+k
+\bm{S}_{k}=\mathbf{E}_{3}\cdot\bm{s}_{k}
+.
+The gradient and Hessian of the full scaling factor
+𝒔
+k
+\bm{s}_{k}
+are:
+∂
+𝒄
+∂
+𝒔
+k
+=
+∂
+𝒄
+∂
+G
+k
+​
+∂
+G
+k
+∂
+𝚺
+k
+:
+∂
+𝚺
+k
+∂
+𝝀
+k
+​
+∂
+𝝀
+k
+∂
+𝒔
+k
+,
+\displaystyle\frac{\partial\bm{c}}{\partial\bm{s}_{k}}=\frac{\partial\bm{c}}{\partial G_{k}}\frac{\partial G_{k}}{\partial\bm{\Sigma}_{k}}:\frac{\partial\bm{\Sigma}_{k}}{\partial\bm{\lambda}_{k}}\frac{\partial\bm{\lambda}_{k}}{\partial\bm{s}_{k}},
+(22)
+∂
+2
+𝒄
+∂
+𝒔
+k
+2
+=
+∂
+𝒄
+∂
+G
+k
+(
+(
+∂
+𝚺
+k
+∂
+𝝀
+k
+∂
+𝝀
+k
+∂
+𝒔
+k
+)
+⊤
+∂
+2
+G
+k
+∂
+𝚺
+k
+2
+:
+∂
+𝚺
+k
+∂
+𝝀
+k
+∂
+𝝀
+k
+∂
+𝒔
+k
++
+∂
+G
+k
+∂
+𝚺
+k
+:
+∂
+𝚺
+k
+∂
+𝝀
+k
+∂
+2
+𝝀
+k
+∂
+𝒔
+k
+2
+)
+.
+\displaystyle\frac{\partial^{2}\bm{c}}{\partial\bm{s}_{k}^{2}}=\frac{\partial\bm{c}}{\partial G_{k}}\left(\left(\frac{\partial\bm{\Sigma}_{k}}{\partial\bm{\lambda}_{k}}\frac{\partial\bm{\lambda}_{k}}{\partial\bm{s}_{k}}\right)^{\top}\frac{\partial^{2}G_{k}}{\partial\bm{\Sigma}^{2}_{k}}:\frac{\partial\bm{\Sigma}_{k}}{\partial\bm{\lambda}_{k}}\frac{\partial\bm{\lambda}_{k}}{\partial\bm{s}_{k}}+\frac{\partial G_{k}}{\partial\bm{\Sigma}_{k}}:\frac{\partial\bm{\Sigma}_{k}}{\partial\bm{\lambda}_{k}}\frac{\partial^{2}\bm{\lambda}_{k}}{\partial\bm{s}_{k}^{2}}\right).
+They are then projected into the least-square subspace of
+𝑻
+k
+\bm{T}_{k}
+as:
+(23)
+∂
+𝒄
+∂
+𝝀
+k
+=
+𝑻
+k
+​
+(
+𝑻
+k
+⊤
+​
+𝑻
+k
+)
+−
+⁣
+⊤
+​
+∂
+𝒄
+∂
+𝒔
+k
+,
+∂
+2
+𝒄
+∂
+𝝀
+k
+2
+=
+𝑻
+k
+​
+(
+𝑻
+k
+⊤
+​
+𝑻
+k
+)
+−
+⁣
+⊤
+​
+∂
+2
+𝒄
+∂
+𝒔
+k
+2
+​
+(
+𝑻
+k
+⊤
+​
+𝑻
+k
+)
+−
+1
+​
+𝑻
+k
+⊤
+.
+\frac{\partial\bm{c}}{\partial\bm{\lambda}_{k}}=\bm{T}_{k}(\bm{T}_{k}^{\top}\bm{T}_{k})^{-\top}\frac{\partial\bm{c}}{\partial\bm{s}_{k}},\,\frac{\partial^{2}\bm{c}}{\partial\bm{\lambda}_{k}^{2}}=\bm{T}_{k}(\bm{T}_{k}^{\top}\bm{T}_{k})^{-\top}\frac{\partial^{2}\bm{c}}{\partial\bm{s}_{k}^{2}}(\bm{T}_{k}^{\top}\bm{T}_{k})^{-1}\bm{T}_{k}^{\top}.
+Rotation solve.
+We optimize the rotation
+𝒒
+k
+\bm{q}_{k}
+by constraining its axis to align with
+𝒓
+k
+\bm{r}_{k}
+so the rotation is orthogonal to the scaling. This constraint allows us to re-write the rotation update as
+Δ
+​
+𝒒
+k
+=
+[
+cos
+⁡
+θ
+k
+,
+cos
+⁡
+θ
+k
+​
+𝒓
+k
+]
+⊤
+\Delta{\bm{q}_{k}}=[\cos{\theta_{k}},\cos{\theta_{k}}\bm{r}_{k}]^{\top}
+, where
+θ
+k
+\theta_{k}
+is the rotation angle to be optimized:
+∂
+𝒄
+∂
+θ
+k
+=
+∂
+𝒄
+∂
+G
+k
+​
+∂
+G
+k
+∂
+𝚺
+k
+​
+∂
+𝚺
+k
+∂
+θ
+k
+,
+\displaystyle\frac{\partial\bm{c}}{\partial\theta_{k}}=\frac{\partial\bm{c}}{\partial G_{k}}\frac{\partial G_{k}}{\partial\bm{\Sigma}_{k}}\frac{\partial\bm{\Sigma}_{k}}{\partial\theta_{k}},
+(24)
+∂
+2
+𝒄
+∂
+θ
+k
+2
+=
+∂
+𝒄
+∂
+G
+k
+(
+∂
+𝚺
+k
+∂
+θ
+k
+⊤
+∂
+2
+G
+k
+∂
+𝚺
+k
+2
+:
+∂
+𝚺
+k
+∂
+θ
+k
++
+∂
+G
+k
+∂
+𝚺
+k
+:
+∂
+2
+𝚺
+k
+∂
+θ
+k
+2
+)
+.
+\displaystyle\frac{\partial^{2}\bm{c}}{\partial\theta_{k}^{2}}=\frac{\partial\bm{c}}{\partial G_{k}}\left(\frac{\partial\bm{\Sigma}_{k}}{\partial\theta_{k}}^{\top}\frac{\partial^{2}G_{k}}{\partial\bm{\Sigma}^{2}_{k}}:\frac{\partial\bm{\Sigma}_{k}}{\partial\theta_{k}}+\frac{\partial G_{k}}{\partial\bm{\Sigma}_{k}}:\frac{\partial^{2}\bm{\Sigma}_{k}}{\partial\theta^{2}_{k}}\right).
+Instead of the linear update
+𝒒
+←
+𝒒
++
+Δ
+​
+𝒒
+\bm{q}\leftarrow\bm{q}+\Delta\bm{q}
+, the rotation update is done with:
+(25)
+𝒒
+←
+Δ
+​
+𝒒
+⋅
+𝒒
+.
+\bm{q}\leftarrow\Delta\bm{q}\cdot\bm{q}.
+Opacity solve.
+The opacity
+σ
+k
+\sigma_{k}
+is a scalar variable. However, its value is not arbitrary as
+σ
+k
+∈
+[
+0
+,
+1
+)
+\sigma_{k}\in[0,1)
+, suggesting inequality constraints need to be imposed to avoid out-out-boundary values. We use the interior-point method
+(
+Potra and Wright, 2000
+)
+by adding two logarithmic barrier terms into the local loss such that:
+(26)
+L
+t
+←
+L
+t
+−
+α
+σ
+​
+ln
+⁡
+σ
+k
++
+ln
+⁡
+(
+1
+−
+σ
+k
+)
+.
+L^{t}\leftarrow L^{t}-\alpha_{\sigma}\ln\sigma_{k}+\ln(1-\sigma_{k}).
+The gradient of the opacity is:
+(27)
+∂
+𝒄
+∂
+σ
+k
+=
+G
+k
+​
+(
+∏
+j
+=
+1
+k
+−
+1
+(
+1
+−
+G
+j
+​
+σ
+j
+)
+)
+​
+(
+𝒄
+k
+−
+∑
+i
+=
+k
++
+1
+G
+i
+​
+σ
+i
+​
+𝒄
+i
+​
+∏
+j
+=
+k
++
+1
+i
+−
+1
+(
+1
+−
+G
+j
+​
+σ
+j
+)
+)
+,
+\frac{\partial\bm{c}}{\partial\sigma_{k}}=G_{k}\left(\prod_{j=1}^{k-1}\left(1-G_{j}\sigma_{j}\right)\right)\left(\bm{c}_{k}-\sum_{i=k+1}G_{i}\sigma_{i}\bm{c}_{i}\prod_{j=k+1}^{i-1}\left(1-G_{j}\sigma_{j}\right)\right),
+and it has a vanished second derivative e.g.,
+∂
+2
+𝒄
+∂
+σ
+k
+2
+=
+0
+\frac{\partial^{2}\bm{c}}{\partial\sigma^{2}_{k}}=0
+. The Hessian and gradient w.r.t.
+L
+t
+L^{t}
+should also incorporate barrier loss i.e.,
+−
+1
+σ
+k
+−
+1
+1
+−
+σ
+k
+-\frac{1}{\sigma_{k}}-\frac{1}{1-\sigma_{k}}
+and
+1
+(
+1
+−
+σ
+k
+)
+2
+−
+1
+σ
+k
+2
+\frac{1}{(1-\sigma_{k})^{2}}-\frac{1}{\sigma_{k}^{2}}
+.
+Color solve
+The color of the kernel is encoded with SH bases
+𝑩
+k
+\bm{B}_{k}
+, which also depends on the current position of the kernel, i.e.,
+𝑩
+k
+​
+(
+𝒓
+k
+​
+(
+𝒑
+k
+)
+)
+\bm{B}_{k}\left(\bm{r}_{k}(\bm{p}_{k})\right)
+. Because
+𝒑
+k
+\bm{p}_{k}
+is always the first to be optimized, we decouple this relation during the color solve so that
+𝒓
+k
+\bm{r}_{k}
+is now constant, and
+𝒄
+~
+k
+=
+𝑩
+k
+​
+𝒄
+k
+\tilde{\bm{c}}_{k}=\bm{B}_{k}\bm{c}_{k}
+is a linear function of the SH vector
+𝒄
+k
+\bm{c}_{k}
+.
+Similar to
+F
+S
+F_{S}
+, the optimization of
+𝒄
+k
+\bm{c}_{k}
+can be simplified by de-coupling each color component e.g., between
+c
+R
+c_{R}
+and
+𝒄
+k
+,
+R
+\bm{c}_{k,R}
+as:
+(28)
+∂
+c
+R
+∂
+𝒄
+k
+,
+R
+=
+∑
+k
+∈
+𝒦
+G
+k
+​
+σ
+k
+​
+∏
+j
+=
+1
+k
+−
+1
+(
+1
+−
+G
+j
+​
+σ
+j
+)
+​
+𝑩
+k
+,
+R
+,
+\displaystyle\frac{\partial c_{R}}{\partial\bm{c}_{k,R}}=\sum_{k\in\mathcal{K}}G_{k}\sigma_{k}\prod_{j=1}^{k-1}\left(1-G_{j}\sigma_{j}\right)\bm{B}_{k,R},
+where
+𝑩
+k
+,
+R
+\bm{B}_{k,R}
+is a row vector corresponding to the red component in
+𝑩
+k
+\bm{B}_{k}
+. It is easy to see that the second derivative
+∂
+2
+c
+R
+∂
+𝒄
+k
+,
+R
+2
+=
+0
+\frac{\partial^{2}c_{R}}{\partial\bm{c}^{2}_{k,R}}=0
+is vanished.
+4.3.
+Overshoot
+A common challenge for stochastic optimization is
+overshoot
+. Due to the large amount of training images, it is impractical to evaluate the ground-truth Hessian
+𝑯
+⋆
+\bm{H}^{\star}
+and gradient
+𝒈
+⋆
+\bm{g}^{\star}
+because the loss is accumulated over the entire training set
+L
+=
+L
+1
++
+L
+2
++
+⋯
++
+L
+|
+𝒯
+|
+L=L^{1}+L^{2}+\cdots+L^{|\mathcal{T}|}
+.
+When we optimize the attributes of GS kernels under the view of the current training image
+I
+t
+I^{t}
+, the optimization is not aware of how the result could influence the loss values in other images. If the per-image optimization is over-aggressive, the reduction of
+L
+t
+L^{t}
+can get outweighed by increases at other images, and the global loss
+L
+L
+becomes actually worsened. We refer to this numerical phenomenon as overshoot, which severely undermines the global convergence. Preventing overshoot is expensive in general, as the global information of the loss function is needed. As a result, damped batch-based optimization is often employed
+(
+Qian, 1999
+;
+Kingma, 2014
+)
+together with the hyper-parameter tuning of the learning rate. Because of the second-order convergence, overshoot is more likely to occur without the constraint of the learning rate. However, if a learning rate is still necessary, why should we use Newton’s method at all?
+We give an efficient solution to this dilemma of stochastic training of 3DGS. Given a training image
+I
+t
+I^{t}
+and the current GS kernel
+k
+k
+being trained, we define its
+complementary
+loss
+L
+¯
+t
+\bar{L}^{t}
+such that:
+(29)
+L
+¯
+t
+=
+∑
+j
+∈
+𝒯
+,
+j
+≠
+t
+L
+j
+,
+for
+​
+∂
+L
+j
+∂
+𝒙
+k
+≠
+𝟎
+.
+\bar{L}^{t}=\sum_{j\in\mathcal{T},j\neq t}L^{j},\;\text{for}\;\frac{\partial L^{j}}{\partial\bm{x}_{k}}\neq\bm{0}.
+In other words,
+L
+¯
+t
+\bar{L}^{t}
+includes all the losses that are relevant to the kernel’s attribute. Ideally, if the local training is in the form of
+min
+𝒙
+k
+⁡
+(
+L
+t
++
+L
+¯
+t
+)
+\min_{\bm{x}_{k}}(L^{t}+\bar{L}^{t})
+,
+overshoot can be fully avoided. Unfortunately, doing so needs to traverse all the training data, which is clearly prohibitive. Given the spatial arrangement of training images, we note that
+L
+¯
+t
+\bar{L}^{t}
+is not evenly distributed over
+𝒯
+\mathcal{T}
+. Rather,
+L
+¯
+t
+\bar{L}^{t}
+concentrates on images sharing similar camera perspectives of
+I
+t
+I^{t}
+, i.e., the secondary targets (as mentioned in Sec.
+4.1
+). Therefore, we approximate
+L
+¯
+t
+\bar{L}^{t}
+as the total image losses of the secondary targets
+𝒩
+t
+\mathcal{N}_{t}
+and re-form the per-kernel training to the following format:
+(30)
+min
+𝒚
+k
+⁡
+(
+L
+t
++
+L
+~
+t
+)
+,
+where
+​
+L
+~
+t
+=
+∑
+j
+∈
+𝒩
+t
+L
+j
+.
+\min_{\bm{y}_{k}}\left(L^{t}+\tilde{L}^{t}\right),\;\text{where}\;\tilde{L}^{t}=\sum_{j\in\mathcal{N}_{t}}L^{j}.
+The addition of
+L
+~
+t
+\tilde{L}^{t}
+is intended to prevent overshoot so that
+Δ
+​
+𝒚
+k
+\Delta\bm{y}_{k}
+does not accidentally increase the loss in
+𝒩
+t
+\mathcal{N}_{t}
+. We do not expect
+Δ
+​
+𝒚
+k
+\Delta\bm{y}_{k}
+to play a primary role in reducing
+L
+~
+t
+\tilde{L}^{t}
+as this is handled by the respective local Newton solve. The actual gradient and Hessian of
+∂
+L
+~
+t
+∂
+𝒚
+k
+\frac{\partial\tilde{L}^{t}}{\partial\bm{y}_{k}}
+and
+∂
+2
+L
+~
+t
+∂
+𝒚
+k
+2
+\frac{\partial^{2}\tilde{L}^{t}}{\partial\bm{y}^{2}_{k}}
+are of less interest as they act more like a self-adjusting pre-conditioner of
+Δ
+​
+𝒚
+k
+\Delta\bm{y}_{k}
+. Therefore, we downsample images in
+𝒩
+t
+\mathcal{N}_{t}
+for improved training efficiency. The gradient and Hessian of
+L
+~
+t
+\tilde{L}^{t}
+are computed in a similar way as discussed in the previous subsection.
+The experiment is consistent with our analysis (see Sec.
+5.2
+). The loss from the secondary targets offers an effective way to mitigate overshoot at a marginal computational cost. Solving Eq. (
+30
+), the global loss converges stably and hardly shows any oscillations at different training batches without the learning-rate-based step size trimming.
+5.
+Experimental Results
+We implemented our pipeline on a desktop computer with an
+intel
+i7-12700
+CPU and an
+Nvidia
+3090
+RTX
+GPU. Our algorithm was implemented using
+C++
+and
+CUDA
+. We used standard datasets and metrics as in 3DGS
+(
+Kerbl et al., 2023
+)
+. Specifically, the datasets comprise all scenes from Mip-NeRF360
+(
+Barron et al., 2022
+)
+, two scenes from
+Tanks & Temples
+(
+Knapitsch et al., 2017
+)
+, and two scenes from DeepBlending
+(
+Hedman et al., 2018
+)
+. Our experiments primarily measure the training convergence, time performance, and the quality of the resulting reconstruction. In general, our training method is
+5
+×
+5\times
+to
+10
+×
+10\times
+faster than the vanilla GS training using one order fewer iterations. The executable is also available in the supplemental material.
+A representative example is reported in Fig.
+4
+. In the figure, we plot the convergence curves of 3DGS training of six different scenes given the input image. Being gradient-based, vanilla 3DGS training converges much slower than our method. It is often the case that one iteration using the proposed per-attribute Newton lowers the loss more effectively than
+100
+100
+gradient descent iterations. Because local Hessian and gradient are small-size, the computational time for each iteration is only
+20
+%
+20\%
+–
+25
+%
+25\%
+slower compared with one gradient descent.
+Table 1
+.
+Benchmark statistics.
+This table reports standard benchmarks using different 3DGS training algorithm, including vanilla 3DGS
+(
+Kerbl et al., 2023
+)
+, AdR-Gaussian
+(
+Wang et al., 2024
+)
+, EAGLES
+(
+Girish et al., 2025
+)
+, 3DGS-LM
+(
+Höllein et al., 2024
+)
+, and Taming 3DGS
+(
+Mallick et al., 2024
+)
+. The performance of our method can be further improved with fast rasterization techniques. The table only reports the performance of our method using the standard 3DGS rasterization pipeline.
+Training algorithm
+Mip NeRF-360
+Tanks & Temples
+Deep Blender
+SSIM
+PSNR
+LPIPS
+Training (s)
+SSIM
+PSNR
+LPIPS
+Training (s)
+SSIM
+PSNR
+LPIPS
+Training (s)
+Vanilla 3DGS
+(
+Kerbl et al., 2023
+)
+0.871
+29.18
+0.183
+1307
+0.853
+23.71
+0.169
+695
+0.907
+29.90
+0.238
+1210
+AdR-Gaussian
+(
+Wang et al., 2024
+)
+0.850
+28.50
+0.220
+783
+0.835
+23.52
+0.201
+476
+0.905
+29.75
+0.250
+709
+EAGLES
+(
+Girish et al., 2025
+)
+0.810
+28.64
+0.192
+2163
+0.834
+23.13
+0.204
+913
+0.909
+29.79
+0.242
+1560
+Taming 3DGS
+(
+Mallick et al., 2024
+)
+0.878
+29.48
+0.171
+781
+0.859
+24.15
+0.161
+482
+0.911
+30.27
+0.232
+627
+3DGS-LM
+(
+Höllein et al., 2024
+)
+0.813
+27.39
+0.221
+972
+0.845
+23.72
+0.182
+663
+0.903
+29.72
+0.247
+951
+Our method
+0.876
+29.42
+0.168
+𝟐𝟓𝟔
+\bm{256}
+(
+5.1
+×
+5.1\times
+)
+0.871
+24.43
+0.154
+𝟏𝟑𝟏
+\bm{131}
+(
+5.3
+×
+5.3\times
+)
+0.927
+30.43
+0.228
+𝟏𝟖𝟗
+\bm{189}
+(
+6.4
+×
+6.4\times
+)
+5.1.
+Optimization order
+An important strategy allowing local optimization is the decoupling of the kernel attribute. To further validate this, we plot convergence curves of three representative 3DGS reconstruction cases under different orders for per-attribute training. The result is reported in Fig.
+5
+. It can be seen that optimizing the positions and geometries of GS kernels should be carried out before color information. Once kernel positions have been determined, orders of scaling and orientation do not matter since they become decoupled. The order between opacity and color is also of less importance. If we choose to optimize the color information first, on the other hand, training also converges but often to a lower-quality local minimum.
+5.2.
+Trade off of secondary target
+Another major contributor to our excellent convergence is mitigating overshoot by estimate
+L
+~
+\tilde{L}
+at secondary target
+𝒩
+t
+\mathcal{N}_{t}
+. A trade-off we have to decide is the size of
+𝒩
+t
+\mathcal{N}_{t}
+and the convergence rate. Incorporating more training into
+𝒩
+t
+\mathcal{N}_{t}
+improves the convergence but at the cost of more expensive local optimization since the Hessian and gradient of training data in the secondary target are also needed. To this end, we select three classic training scenarios and compare the training time and iteration counts with different
+|
+𝒩
+t
+|
+|\mathcal{N}_{t}|
+i.e.,
+|
+𝒩
+t
+|
+=
+0
+|\mathcal{N}_{t}|=0
+,
+|
+𝒩
+t
+|
+=
+3
+|\mathcal{N}_{t}|=3
+,
+|
+𝒩
+t
+|
+=
+8
+|\mathcal{N}_{t}|=8
+. It can be clearly seen from Fig.
+6
+that increasing
+|
+𝒩
+t
+|
+|\mathcal{N}_{t}|
+from
+0
+0
+to a small quantity effectively improves the convergence. Further enlarging
+𝒩
+t
+\mathcal{N}_{t}
+to
+8
+8
+is able to better resolve this issue at the cost of more expensive computation. This is consistent with our previous analysis and endorses the design of our training algorithm.
+5.3.
+Comparison with existing methods
+While many efforts have been investigated to improve the rendering of a reconstructed 3DGS scene, there are relatively fewer works focusing on 3DGS training. We compared our method with vanilla 3DGS
+(
+Kerbl et al., 2023
+)
+, AdR-Gaussian
+(
+Wang et al., 2024
+)
+, EAGLES
+(
+Girish et al., 2025
+)
+, 3DGS-LM
+(
+Höllein et al., 2024
+)
+, and Taming 3DGS
+(
+Mallick et al., 2024
+)
+. The detailed benchmark is reported in Tab.
+1
+. AdR-Gaussian
+(
+Wang et al., 2024
+)
+and EAGLES
+(
+Girish et al., 2025
+)
+focus on improving the efficiency of the rasterization of GS kernels and the memory footprint. Therefore, the total 3DGS training time may also be shortened. Our method is orthogonal to AdR-Gaussian or EAGLES, as we focus on the underlying numerical method for 3DGS training. Combining our method with faster rasterization techniques leads to even faster training. Nevertheless, we report our training performance using the standard 3DGS rasterization pipeline to avoid confusion. 3DGS-LM
+(
+Höllein et al., 2024
+)
+replaces SGD with global LM (Levenberg-Marquardt) optimization
+(
+Ranganathan, 2004
+)
+aiming for improved training convergence. Unfortunately, global LM optimization is not able to effectively extract localized nonlinearity (i.e., as shown in Fig.
+2
+). Our method outperforms 3DGS-LM by a significant margin. Taming 3DGS
+(
+Mallick et al., 2024
+)
+aims to improve the training efficiency by using fewer GS kernels. It is more effective on hardware platforms with limited computing resources. With our experiment setup, Taming 3DGS performs similarly as AdR-Gaussian. It remains a first-order training modality and is slower than our method.
+6.
+Conclusion & Limitation
+This paper introduces a second-order convergent training method for 3DGS. We are inspired by the numerical properties of the loss Hessian and switch SGD-based linear optimization to local-Newton-based raining. The decoupled DOFs allow us to analytically derive the local Hessian for each type of kernel attribute and solve the resulting system efficiently in parallel. We also exploit the spatial correlation among input images to approximate the down-sampled global loss so that per-batch 3DGS training does not overshoot. This method outperforms existing method by a significant margin. It demonstrates a strong second-order convergent behavior and only needs one-tenth iterations. As a result, it reduced the total training time by one order without accuracy compromise.
+We prove the feasibility of the second-order training for 3DGS reconstruction. While our results are encouraging, there are still many limitations that could be improved in the future. As the vanilla 3DGS, our algorithm is only tested for static scenes. While reconstructing dynamic scenes may be possible, moving GS kernels generates dynamically varying coupling, which may negatively impact the training effectiveness. Evaluating the Hessian of the kernel position is expensive and stands as one major bottleneck of our current pipeline. It may be possible to replace local Newton with Gauss-Newton (e.g. as in
+(
+Höllein et al., 2024
+)
+but at local DOFs) or quasi-Newton methods for different kernel attributes to further improve the efficiency. It is also of interest for us to explore auxiliary spatial data structures such as AABB or spatial hashing to speed up the kernel sorting
+(
+Lefebvre and Hoppe, 2006
+)
+.
+Figure 4
+.
+Convergence curves of our method and 3DGS.
+We report a group of representative convergence plots using the proposed training method (local Newton) and vanilla 3DGS training (GD). The corresponding input training images are also attached next to the curves. We observe a strong second-order convergence using our method compared with gradient-based training in almost all the scenes.
+Figure 5
+.
+Training order of kernel attributes.
+We always train the kernel position before the color information (RGB and opacity). Without a good positioning of the kernel, there is limited space for color-wise optimization. If one chooses to train the kernel color first, the training converges quadratically as well, but to a different local minimum. Meanwhile, the training order of rotation and scaling or opacity and RBG information is not important. The convergence curves are nearly identical as those attributes are de-coupled.
+Figure 6
+.
+Overshoot vs.
+|
+𝒩
+t
+|
+|\mathcal{N}_{t}|
+.
+The Hessian and gradient from secondary target
+𝒩
+t
+\mathcal{N}_{t}
+effectively avoids overshoot, making our training converge smoothly across different batches. The plots show that SGD-based 3DGS training overshoots — we can see loss spikes after the training switches to a new
+I
+t
+I^{t}
+. Without the secondary target i.e.,
+|
+𝒩
+t
+|
+=
+0
+|\mathcal{N}_{t}|=0
+, , our method overshoots too, and sometimes even more severely than the vanilla 3DGS, due to its secondary-order nature. Fortunately, sampling at the secondary target of KNNs mitigates this issue. When
+K
+=
+8
+K=8
+, we barely see oscillations of the training loss. In our implementation, we use
+K
+=
+3
+K=3
+, which balances the training efficiency and convergence.
+References
+Aliev et al
+.
+(2020)
+Kara-Ali Aliev, Artem Sevastopolsky, Maria Kolos, Dmitry Ulyanov, and Victor Lempitsky. 2020.
+Neural Point-Based Graphics. In
+Computer Vision – ECCV 2020: 16th European Conference, Glasgow, UK, August 23–28, 2020, Proceedings, Part XXII
+(Glasgow, United Kingdom). Springer-Verlag, Berlin, Heidelberg, 696–712.
+Barron et al
+.
+(2021)
+Jonathan T. Barron, Ben Mildenhall, Matthew Tancik, Peter Hedman, Ricardo Martin-Brualla, and Pratul P. Srinivasan. 2021.
+Mip-NeRF: A Multiscale Representation for Anti-Aliasing Neural Radiance Fields. In
+2021 IEEE/CVF International Conference on Computer Vision (ICCV)
+. 5835–5844.
+Barron et al
+.
+(2022)
+Jonathan T Barron, Ben Mildenhall, Dor Verbin, Pratul P Srinivasan, and Peter Hedman. 2022.
+Mip-nerf 360: Unbounded anti-aliased neural radiance fields. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition
+. 5470–5479.
+Bottou (1998)
+Léon Bottou. 1998.
+Online algorithms and stochastic approximations.
+Online learning in neural networks
+(1998).
+Chen et al
+.
+(2023)
+Zhiqin Chen, Thomas Funkhouser, Peter Hedman, and Andrea Tagliasacchi. 2023.
+MobileNeRF: Exploiting the Polygon Rasterization Pipeline for Efficient Neural Field Rendering on Mobile Architectures. In
+2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+. 16569–16578.
+Fan et al
+.
+(2024)
+Zhiwen Fan, Kevin Wang, Kairun Wen, Zehao Zhu, Dejia Xu, and Zhangyang Wang. 2024.
+LightGaussian: Unbounded 3D Gaussian Compression with 15x Reduction and 200+ FPS.
+arXiv:2311.17245 [cs.CV]
+Fang and Wang (2024)
+Guangchi Fang and Bing Wang. 2024.
+Mini-Splatting: Representing Scenes with a Constrained Number of Gaussians. In
+Computer Vision – ECCV 2024
+, Aleš Leonardis, Elisa Ricci, Stefan Roth, Olga Russakovsky, Torsten Sattler, and Gül Varol (Eds.). Springer Nature Switzerland, Cham, 165–181.
+Feng et al
+.
+(2024)
+Guofeng Feng, Siyan Chen, Rong Fu, Zimu Liao, Yi Wang, Tao Liu, Zhilin Pei, Hengjie Li, Xingcheng Zhang, and Bo Dai. 2024.
+FlashGS: Efficient 3D Gaussian Splatting for Large-scale and High-resolution Rendering.
+arXiv:2408.07967 [cs.CV]
+Fridovich-Keil et al
+.
+(2022)
+Sara Fridovich-Keil, Alex Yu, Matthew Tancik, Qinhong Chen, Benjamin Recht, and Angjoo Kanazawa. 2022.
+Plenoxels: Radiance Fields without Neural Networks. In
+2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+. 5491–5500.
+Girish et al
+.
+(2025)
+Sharath Girish, Kamal Gupta, and Abhinav Shrivastava. 2025.
+EAGLES: Efficient Accelerated 3D Gaussians with Lightweight EncodingS. In
+Computer Vision – ECCV 2024
+, Aleš Leonardis, Elisa Ricci, Stefan Roth, Olga Russakovsky, Torsten Sattler, and Gül Varol (Eds.). Springer Nature Switzerland, Cham, 54–71.
+Hamdi et al
+.
+(2024)
+Abdullah Hamdi, Luke Melas-Kyriazi, Jinjie Mai, Guocheng Qian, Ruoshi Liu, Carl Vondrick, Bernard Ghanem, and Andrea Vedaldi. 2024.
+GES: Generalized Exponential Splatting for Efficient Radiance Field Rendering. In
+2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+. 19812–19822.
+Hanson et al
+.
+(2024)
+Alex Hanson, Allen Tu, Geng Lin, Vasu Singla, Matthias Zwicker, and Tom Goldstein. 2024.
+Speedy-Splat: Fast 3D Gaussian Splatting with Sparse Pixels and Sparse Primitives.
+arXiv preprint arXiv:2412.00578
+(2024).
+Hedman et al
+.
+(2018)
+Peter Hedman, Julien Philip, True Price, Jan-Michael Frahm, George Drettakis, and Gabriel Brostow. 2018.
+Deep blending for free-viewpoint image-based rendering.
+ACM Transactions on Graphics (ToG)
+37, 6 (2018), 1–15.
+Hedman et al
+.
+(2021)
+Peter Hedman, Pratul P. Srinivasan, Ben Mildenhall, Jonathan T. Barron, and Paul Debevec. 2021.
+Baking Neural Radiance Fields for Real-Time View Synthesis. In
+2021 IEEE/CVF International Conference on Computer Vision (ICCV)
+. 5855–5864.
+Höllein et al
+.
+(2024)
+Lukas Höllein, Aljaž Božič, Michael Zollhöfer, and Matthias Nießner. 2024.
+3DGS-LM: Faster Gaussian-Splatting Optimization with Levenberg-Marquardt.
+arXiv:2409.12892 [cs.CV]
+Kerbl et al
+.
+(2023)
+Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, and George Drettakis. 2023.
+3D Gaussian Splatting for Real-Time Radiance Field Rendering.
+ACM Trans. Graph.
+42, 4 (2023), 139–1.
+Kerbl et al
+.
+(2024)
+Bernhard Kerbl, Andreas Meuleman, Georgios Kopanas, Michael Wimmer, Alexandre Lanvin, and George Drettakis. 2024.
+A hierarchical 3d gaussian representation for real-time rendering of very large datasets.
+ACM Transactions on Graphics (TOG)
+43, 4 (2024), 1–15.
+Kheradmand et al
+.
+(2024)
+Shakiba Kheradmand, Daniel Rebain, Gopal Sharma, Weiwei Sun, Jeff Tseng, Hossam Isack, Abhishek Kar, Andrea Tagliasacchi, and Kwang Moo Yi. 2024.
+3D Gaussian Splatting as Markov Chain Monte Carlo.
+arXiv:2404.09591 [cs.CV]
+Kingma (2014)
+Diederik P Kingma. 2014.
+Adam: A method for stochastic optimization.
+arXiv preprint arXiv:1412.6980
+(2014).
+Knapitsch et al
+.
+(2017)
+Arno Knapitsch, Jaesik Park, Qian-Yi Zhou, and Vladlen Koltun. 2017.
+Tanks and temples: Benchmarking large-scale scene reconstruction.
+ACM Transactions on Graphics (ToG)
+36, 4 (2017), 1–13.
+Kopanas et al
+.
+(2021)
+Georgios Kopanas, Julien Philip, Thomas Leimkühler, and George Drettakis. 2021.
+Point-Based Neural Rendering with Per-View Optimization.
+Computer Graphics Forum
+40, 4 (2021), 29–43.
+Lassner and Zollhöfer (2021)
+Christoph Lassner and Michael Zollhöfer. 2021.
+Pulsar: Efficient Sphere-based Neural Rendering. In
+2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+. 1440–1449.
+Lee et al
+.
+(2024)
+Joo Chan Lee, Daniel Rho, Xiangyu Sun, Jong Hwan Ko, and Eunbyung Park. 2024.
+Compact 3D Gaussian Representation for Radiance Field. In
+2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+. 21719–21728.
+Lefebvre and Hoppe (2006)
+Sylvain Lefebvre and Hugues Hoppe. 2006.
+Perfect spatial hashing.
+ACM Transactions on Graphics (TOG)
+25, 3 (2006), 579–588.
+Lombardi et al
+.
+(2019)
+Stephen Lombardi, Tomas Simon, Jason Saragih, Gabriel Schwartz, Andreas Lehrmann, and Yaser Sheikh. 2019.
+Neural volumes: learning dynamic renderable volumes from images.
+ACM Trans. Graph.
+38, 4, Article 65 (July 2019), 14 pages.
+Lombardi et al
+.
+(2021)
+Stephen Lombardi, Tomas Simon, Gabriel Schwartz, Michael Zollhoefer, Yaser Sheikh, and Jason Saragih. 2021.
+Mixture of volumetric primitives for efficient neural rendering.
+ACM Transactions on Graphics (ToG)
+40, 4 (2021), 1–13.
+Lu et al
+.
+(2024)
+Tao Lu, Mulin Yu, Linning Xu, Yuanbo Xiangli, Limin Wang, Dahua Lin, and Bo Dai. 2024.
+Scaffold-GS: Structured 3D Gaussians for View-Adaptive Rendering. In
+2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+. 20654–20664.
+Mallick et al
+.
+(2024)
+Saswat Subhajyoti Mallick, Rahul Goel, Bernhard Kerbl, Markus Steinberger, Francisco Vicente Carrasco, and Fernando De La Torre. 2024.
+Taming 3DGS: High-Quality Radiance Fields with Limited Resources. In
+SIGGRAPH Asia 2024 Conference Papers
+(SA ’24)
+. Association for Computing Machinery, New York, NY, USA, Article 2, 11 pages.
+Mildenhall et al
+.
+(2020)
+B Mildenhall, PP Srinivasan, M Tancik, JT Barron, R Ramamoorthi, and R Ng. 2020.
+Nerf: Representing scenes as neural radiance fields for view synthesis. In
+European conference on computer vision
+.
+Müller et al
+.
+(2022)
+Thomas Müller, Alex Evans, Christoph Schied, and Alexander Keller. 2022.
+Instant neural graphics primitives with a multiresolution hash encoding.
+41, 4, Article 102 (July 2022), 15 pages.
+Nocedal and Wright (1999)
+Jorge Nocedal and Stephen J Wright. 1999.
+Numerical optimization
+.
+Springer.
+Potra and Wright (2000)
+Florian A Potra and Stephen J Wright. 2000.
+Interior-point methods.
+Journal of computational and applied mathematics
+124, 1-2 (2000), 281–302.
+Qian (1999)
+Ning Qian. 1999.
+On the momentum term in gradient descent learning algorithms.
+Neural networks
+12, 1 (1999), 145–151.
+Ranganathan (2004)
+Ananth Ranganathan. 2004.
+The levenberg-marquardt algorithm.
+Tutoral on LM algorithm
+11, 1 (2004), 101–110.
+Reiser et al
+.
+(2021)
+Christian Reiser, Songyou Peng, Yiyi Liao, and Andreas Geiger. 2021.
+KiloNeRF: Speeding up Neural Radiance Fields with Thousands of Tiny MLPs. In
+2021 IEEE/CVF International Conference on Computer Vision (ICCV)
+. 14315–14325.
+Rota Bulò et al
+.
+(2025)
+Samuel Rota Bulò, Lorenzo Porzi, and Peter Kontschieder. 2025.
+Revising Densification in Gaussian Splatting. In
+Computer Vision – ECCV 2024
+, Aleš Leonardis, Elisa Ricci, Stefan Roth, Olga Russakovsky, Torsten Sattler, and Gül Varol (Eds.). Springer Nature Switzerland, Cham, 347–362.
+Snavely et al
+.
+(2006)
+Noah Snavely, Steven M Seitz, and Richard Szeliski. 2006.
+Photo tourism: exploring photo collections in 3D.
+In
+ACM siggraph 2006 papers
+. 835–846.
+Song et al
+.
+(2025)
+Kaiwen Song, Xiaoyi Zeng, Chenqu Ren, and Juyong Zhang. 2025.
+City-on-web: Real-time neural rendering of large-scale scenes on the web. In
+European Conference on Computer Vision
+. Springer, 385–402.
+Sun et al
+.
+(2022)
+Cheng Sun, Min Sun, and Hwann-Tzong Chen. 2022.
+Direct Voxel Grid Optimization: Super-fast Convergence for Radiance Fields Reconstruction. In
+2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+. 5449–5459.
+Thies et al
+.
+(2019)
+Justus Thies, Michael Zollhöfer, and Matthias Nießner. 2019.
+Deferred neural rendering: Image synthesis using neural textures.
+Acm Transactions on Graphics (TOG)
+38, 4 (2019), 1–12.
+Wang et al
+.
+(2024)
+Xinzhe Wang, Ran Yi, and Lizhuang Ma. 2024.
+AdR-Gaussian: Accelerating Gaussian Splatting with Adaptive Radius. In
+SIGGRAPH Asia 2024 Conference Papers
+(SA ’24)
+. Association for Computing Machinery, New York, NY, USA, Article 73, 10 pages.
+Wang et al
+.
+(2004)
+Zhou Wang, A.C. Bovik, H.R. Sheikh, and E.P. Simoncelli. 2004.
+Image quality assessment: from error visibility to structural similarity.
+IEEE Transactions on Image Processing
+13, 4 (2004), 600–612.
+Ye et al
+.
+(2024)
+Vickie Ye, Ruilong Li, Justin Kerr, Matias Turkulainen, Brent Yi, Zhuoyang Pan, Otto Seiskari, Jianbo Ye, Jeffrey Hu, Matthew Tancik, and Angjoo Kanazawa. 2024.
+gsplat: An Open-Source Library for Gaussian Splatting.
+arXiv:2409.06765 [cs.CV]
+Yu et al
+.
+(2021)
+Alex Yu, Ruilong Li, Matthew Tancik, Hao Li, Ren Ng, and Angjoo Kanazawa. 2021.
+PlenOctrees for Real-time Rendering of Neural Radiance Fields . In
+2021 IEEE/CVF International Conference on Computer Vision (ICCV)
+. IEEE Computer Society, Los Alamitos, CA, USA, 5732–5741.
+Yu et al
+.
+(2024)
+Zehao Yu, Anpei Chen, Binbin Huang, Torsten Sattler, and Andreas Geiger. 2024.
+Mip-Splatting: Alias-Free 3D Gaussian Splatting. In
+2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+. 19447–19456.
+Zhang et al
+.
+(2022)
+Qiang Zhang, Seung-Hwan Baek, Szymon Rusinkiewicz, and Felix Heide. 2022.
+Differentiable Point-Based Radiance Fields for Efficient View Synthesis. In
+SIGGRAPH Asia 2022 Conference Papers
+(Daegu, Republic of Korea,). ACM, New York, NY, USA, Article 7.
+Zhou et al
+.
+(2018)
+Tinghui Zhou, Richard Tucker, John Flynn, Graham Fyffe, and Noah Snavely. 2018.
+Stereo magnification: learning view synthesis using multiplane images.
+ACM Trans. Graph.
+37, 4, Article 65 (July 2018), 12 pages.
+Appendix A
+Derivatives of Intermediate Variables
+We give the detailed formulation of the first and second derivatives of intermediate variables w.r.t. the kernel center
+𝒑
+k
+\bm{p}_{k}
+.
+A.1.
+Projection function
+𝝅
+k
+​
+(
+𝒑
+k
+)
+\bm{\pi}_{k}(\bm{p}_{k})
+is the projection function, which converts the kernel center from 3D space to its 2D normalized device coordinate. Its first and second derivative w.r.t. the kernel center is:
+(31)
+∂
+𝝅
+k
+∂
+𝒑
+k
+=
+[
+W
+I
+t
+2
+​
+(
+1
+h
+w
+​
+(
+𝑷
+​
+𝑾
+)
+0
+−
+h
+x
+h
+w
+​
+(
+𝑷
+​
+𝑾
+)
+3
+)
+⊤
+H
+I
+t
+2
+​
+(
+1
+h
+w
+​
+(
+𝑷
+​
+𝑾
+)
+1
+−
+h
+y
+h
+w
+​
+(
+𝑷
+​
+𝑾
+)
+3
+)
+⊤
+]
+,
+\displaystyle\frac{\partial\bm{\pi}_{k}}{\partial\bm{p}_{k}}=\begin{bmatrix}\frac{W_{I}^{t}}{2}\left(\frac{1}{h_{w}}(\bm{P}\bm{W})_{0}-\frac{h_{x}}{h_{w}}(\bm{P}\bm{W})_{3}\right)^{\top}\\
+\frac{H_{I}^{t}}{2}\left(\frac{1}{h_{w}}(\bm{P}\bm{W})_{1}-\frac{h_{y}}{h_{w}}(\bm{P}\bm{W})_{3}\right)^{\top}\end{bmatrix},
+(32)
+∂
+2
+𝝅
+k
+∂
+𝒑
+k
+2
+=
+[
+W
+I
+t
+​
+(
+h
+x
+h
+w
+2
+​
+(
+𝑷
+​
+𝑾
+)
+3
+⊤
+​
+(
+𝑷
+​
+𝑾
+)
+3
+−
+1
+h
+w
+2
+​
+(
+𝑷
+​
+𝑾
+)
+3
+⊤
+​
+(
+𝑷
+​
+𝑾
+)
+0
+)
+H
+I
+t
+​
+(
+h
+y
+h
+w
+2
+​
+(
+𝑷
+​
+𝑾
+)
+3
+⊤
+​
+(
+𝑷
+​
+𝑾
+)
+3
+−
+1
+h
+w
+2
+​
+(
+𝑷
+​
+𝑾
+)
+3
+⊤
+​
+(
+𝑷
+​
+𝑾
+)
+1
+)
+]
+.
+\displaystyle\frac{\partial^{2}\bm{\pi}_{k}}{\partial\bm{p}^{2}_{k}}=\begin{bmatrix}W^{t}_{I}\left(\frac{h_{x}}{h^{2}_{w}}(\bm{P}\bm{W})^{\top}_{3}(\bm{P}\bm{W})_{3}-\frac{1}{h^{2}_{w}}(\bm{P}\bm{W})^{\top}_{3}(\bm{P}\bm{W})_{0}\right)\\
+H^{t}_{I}\left(\frac{h_{y}}{h^{2}_{w}}(\bm{P}\bm{W})^{\top}_{3}(\bm{P}\bm{W})_{3}-\frac{1}{h^{2}_{w}}(\bm{P}\bm{W})^{\top}_{3}(\bm{P}\bm{W})_{1}\right)\end{bmatrix}.
+Here,
+W
+I
+t
+W_{I}^{t}
+and
+H
+I
+t
+H_{I}^{t}
+are the width and height of the input training
+I
+t
+I^{t}
+.
+𝑷
+\bm{P}
+and
+𝑾
+\bm{W}
+are
+4
+×
+4
+4\times 4
+(homogeneous) projection matrix and viewing matrix.
+(33)
+𝒉
+=
+[
+h
+x
+,
+h
+y
+,
+h
+z
+,
+h
+w
+]
+⊤
+=
+𝑷
+​
+𝑾
+​
+[
+𝒑
+k
+⊤
+,
+1
+]
+⊤
+∈
+ℝ
+4
+.
+\bm{h}=[h_{x},h_{y},h_{z},h_{w}]^{\top}=\bm{P}\bm{W}[\bm{p}^{\top}_{k},1]^{\top}\in\mathbb{R}^{4}.
+The notion
+(
+𝑷
+​
+𝑾
+)
+i
+(\bm{P}\bm{W})_{i}
+is a 3 dimensional
+row vector
+corresponding to the first three entries of
+i
+i
+-th row of
+𝑷
+​
+𝑾
+\bm{P}\bm{W}
+.
+A.2.
+SH color
+𝒄
+~
+k
+∈
+ℝ
+3
+\tilde{\bm{c}}_{k}\in\mathbb{R}^{3}
+is the view-dependent color based on the SH coefficients. We give the derivatives for the red color component (
+c
+~
+k
+,
+R
+\tilde{c}_{k,R}
+), and the formulation for the other two components is the same.
+∂
+c
+~
+k
+,
+R
+∂
+𝒑
+k
+=
+(
+𝑩
+k
+,
+R
+⊙
+𝒄
+k
+,
+R
+)
+⊤
+​
+∂
+𝚽
+⁡
+(
+𝒓
+k
+)
+∂
+𝒓
+k
+:
+∂
+𝚽
+⁡
+(
+𝒓
+k
+)
+∂
+𝒑
+k
+,
+\displaystyle\frac{\partial\tilde{c}_{k,R}}{\partial\bm{p}_{k}}=\left(\bm{B}_{k,R}\odot\bm{c}_{k,R}\right)^{\top}\frac{\partial\bm{\Phi}(\bm{r}_{k})}{\partial\bm{r}_{k}}:\frac{\partial\bm{\Phi}(\bm{r}_{k})}{\partial\bm{p}_{k}},
+∂
+2
+c
+~
+k
+,
+R
+∂
+𝒑
+k
+2
+=
+(
+∂
+Φ
+⁡
+(
+𝒓
+k
+)
+∂
+𝒑
+k
+)
+⊤
+:
+(
+𝑩
+k
+,
+R
+⊙
+𝒄
+k
+,
+R
+)
+⊤
+​
+∂
+2
+𝚽
+⁡
+(
+𝒓
+k
+)
+∂
+𝒓
+k
+2
+:
+∂
+𝚽
+⁡
+(
+𝒓
+k
+)
+∂
+𝒑
+k
+\displaystyle\frac{\partial^{2}\tilde{c}_{k,R}}{\partial\bm{p}^{2}_{k}}=\left(\frac{\partial\Phi(\bm{r}_{k})}{\partial\bm{p}_{k}}\right)^{\top}:\left(\bm{B}_{k,R}\odot\bm{c}_{k,R}\right)^{\top}\frac{\partial^{2}\bm{\Phi}(\bm{r}_{k})}{\partial\bm{r}^{2}_{k}}:\frac{\partial\bm{\Phi}(\bm{r}_{k})}{\partial\bm{p}_{k}}
+(34)
++
+(
+𝑩
+k
+,
+R
+⊙
+𝒄
+k
+,
+R
+)
+⊤
+​
+∂
+Φ
+⁡
+(
+𝒓
+k
+)
+∂
+𝒓
+k
+:
+∂
+2
+𝚽
+⁡
+(
+𝒓
+k
+)
+∂
+𝒑
+k
+2
+.
+\displaystyle+\left(\bm{B}_{k,R}\odot\bm{c}_{k,R}\right)^{\top}\frac{\partial\Phi(\bm{r}_{k})}{\partial\bm{r}_{k}}:\frac{\partial^{2}\bm{\Phi}(\bm{r}_{k})}{\partial\bm{p}^{2}_{k}}.
+𝑩
+k
+\bm{B}_{k}
+is the SH bases.
+⊙
+\odot
+represents the Hadamard product.
+𝒓
+k
+\bm{r}_{k}
+is the unit vector from the camera to
+𝒑
+k
+\bm{p}_{k}
+.
+𝚽
+⁡
+(
+𝒓
+k
+)
+\bm{\Phi}(\bm{r}_{k})
+is a set of vectors:
+𝚽
+d
+=
+0
+=
+1
+,
+\displaystyle\bm{\Phi}_{d=0}=1,
+𝚽
+d
+=
+1
+=
+[
+𝚽
+d
+=
+0
+,
+−
+r
+k
+,
+y
+,
+r
+k
+,
+z
+,
+−
+r
+k
+,
+x
+]
+⊤
+,
+\displaystyle\bm{\Phi}_{d=1}=\left[\bm{\Phi}_{d=0},-r_{k,y},r_{k,z},-r_{k,x}\right]^{\top},
+𝚽
+d
+=
+2
+=
+[
+𝚽
+d
+=
+0
+,
+𝚽
+d
+=
+1
+,
+r
+k
+,
+x
+r
+k
+,
+y
+,
+r
+k
+,
+y
+r
+k
+,
+z
+,
+2
+r
+k
+,
+z
+2
+−
+r
+k
+,
+x
+2
+−
+r
+k
+,
+y
+2
+,
+\displaystyle\bm{\Phi}_{d=2}=\left[\bm{\Phi}_{d=0},\bm{\Phi}_{d=1},r_{k,x}r_{k,y},r_{k,y}r_{k,z},2r^{2}_{k,z}-r^{2}_{k,x}-r^{2}_{k,y},\right.
+r
+k
+,
+x
+r
+k
+,
+z
+,
+r
+k
+,
+x
+2
+−
+r
+k
+,
+y
+2
+]
+⊤
+,
+\displaystyle\left.r_{k,x}r_{k,z},r^{2}_{k,x}-r^{2}_{k,y}\right]^{\top},
+𝚽
+d
+=
+3
+=
+[
+𝚽
+d
+=
+0
+,
+𝚽
+d
+=
+1
+,
+Φ
+d
+=
+2
+,
+r
+k
+,
+y
+(
+3
+r
+k
+,
+x
+2
+−
+r
+k
+,
+y
+2
+)
+,
+r
+k
+,
+x
+r
+k
+,
+y
+r
+k
+,
+z
+,
+\displaystyle\bm{\Phi}_{d=3}=\left[\bm{\Phi}_{d=0},\bm{\Phi}_{d=1},\Phi_{d=2},r_{k,y}(3r^{2}_{k,x}-r^{2}_{k,y}),r_{k,x}r_{k,y}r_{k,z},\right.
+r
+k
+,
+y
+​
+(
+4
+​
+r
+k
+,
+z
+2
+−
+r
+k
+,
+x
+2
+−
+r
+k
+,
+y
+2
+)
+,
+r
+k
+,
+z
+​
+(
+2
+​
+r
+k
+,
+z
+2
+−
+3
+​
+r
+k
+,
+x
+2
+−
+3
+​
+r
+k
+,
+y
+2
+)
+,
+\displaystyle r_{k,y}(4r^{2}_{k,z}-r^{2}_{k,x}-r^{2}_{k,y}),r_{k,z}(2r^{2}_{k,z}-3r^{2}_{k,x}-3r^{2}_{k,y}),
+r
+k
+,
+x
+(
+4
+r
+k
+,
+z
+2
+−
+r
+k
+,
+x
+2
+−
+r
+k
+,
+y
+2
+)
+,
+r
+k
+,
+z
+(
+r
+k
+,
+x
+2
+−
+r
+k
+,
+y
+2
+)
+,
+r
+k
+,
+x
+(
+r
+k
+,
+x
+2
+−
+3
+r
+k
+,
+y
+2
+)
+]
+⊤
+.
+\displaystyle\left.r_{k,x}(4r^{2}_{k,z}-r^{2}_{k,x}-r^{2}_{k,y}),r_{k,z}(r^{2}_{k,x}-r^{2}_{k,y}),r_{k,x}(r^{2}_{k,x}-3r^{2}_{k,y})\right]^{\top}.
+A.3.
+Projected covariance matrix
+Let
+𝒙
+=
+[
+m
+,
+n
+]
+⊤
+\bm{x}=[m,n]^{\top}
+be the image space coordinate of the pixel.
+G
+k
+=
+exp
+−
+1
+2
+​
+(
+𝝅
+k
+−
+𝒙
+)
+⊤
+​
+𝚺
+−
+1
+​
+(
+𝝅
+k
+−
+𝒙
+)
+G_{k}=\exp^{-\frac{1}{2}(\bm{\pi}_{k}-\bm{x})^{\top}\bm{\Sigma}^{-1}(\bm{\pi}_{k}-\bm{x})}
+, the derivatives
+∂
+G
+k
+∂
+𝚺
+k
+\frac{\partial G_{k}}{\partial\bm{\Sigma}_{k}}
+,
+∂
+2
+G
+k
+∂
+𝚺
+k
+2
+\frac{\partial^{2}G_{k}}{\partial\bm{\Sigma}^{2}_{k}}
+can be written as follows:
+∂
+G
+k
+∂
+𝚺
+k
+=
+−
+1
+2
+​
+G
+k
+​
+(
+(
+𝝅
+k
+−
+𝒙
+)
+⊤
+​
+∂
+𝚺
+k
+−
+1
+∂
+𝚺
+k
+:
+(
+𝝅
+k
+−
+𝒙
+)
+)
+,
+\displaystyle\frac{\partial G_{k}}{\partial\bm{\Sigma}_{k}}=-\frac{1}{2}G_{k}\left((\bm{\pi}_{k}-\bm{x})^{\top}\frac{\partial\bm{\Sigma}^{-1}_{k}}{\partial\bm{\Sigma}_{k}}:(\bm{\pi}_{k}-\bm{x})\right),
+∂
+2
+G
+k
+∂
+𝚺
+k
+2
+=
+G
+k
+2
+4
+​
+(
+(
+𝝅
+k
+−
+𝒙
+)
+⊤
+​
+∂
+𝚺
+k
+−
+1
+∂
+𝚺
+k
+:
+(
+𝝅
+k
+−
+𝒙
+)
+)
+2
+\displaystyle\frac{\partial^{2}G_{k}}{\partial\bm{\Sigma}^{2}_{k}}=\frac{G^{2}_{k}}{4}\left((\bm{\pi}_{k}-\bm{x})^{\top}\frac{\partial\bm{\Sigma}^{-1}_{k}}{\partial\bm{\Sigma}_{k}}:(\bm{\pi}_{k}-\bm{x})\right)^{2}
+(35)
+−
+G
+k
+2
+(
+(
+𝝅
+k
+−
+𝒙
+)
+⊤
+:
+∂
+𝚺
+k
+−
+1
+∂
+𝚺
+k
+:
+(
+𝝅
+k
+−
+𝒙
+)
+)
+.
+\displaystyle-\frac{G_{k}}{2}\left((\bm{\pi}_{k}-\bm{x})^{\top}:\frac{\partial\bm{\Sigma}^{-1}_{k}}{\partial\bm{\Sigma}_{k}}:(\bm{\pi}_{k}-\bm{x})\right).
+∂
+𝚺
+k
+−
+1
+∂
+𝚺
+k
+\frac{\partial\bm{\Sigma}^{-1}_{k}}{\partial\bm{\Sigma}_{k}}
+is a fourth-order tensor, and
+∂
+2
+𝚺
+k
+−
+1
+∂
+𝚺
+k
+2
+\frac{\partial^{2}\bm{\Sigma}^{-1}_{k}}{\partial\bm{\Sigma}^{2}_{k}}
+is a sixth-order tensor. The element-wise expressions can be written as:
+∂
+[
+𝚺
+k
+−
+1
+]
+i
+,
+j
+∂
+[
+𝚺
+k
+]
+p
+,
+l
+=
+−
+[
+𝚺
+k
+−
+1
+]
+i
+,
+p
+​
+[
+𝚺
+k
+−
+1
+]
+l
+,
+j
+,
+\displaystyle\frac{\partial\left[\bm{\Sigma}^{-1}_{k}\right]_{i,j}}{\partial\left[\bm{\Sigma}_{k}\right]_{p,l}}=-\left[\bm{\Sigma}^{-1}_{k}\right]_{i,p}\left[\bm{\Sigma}^{-1}_{k}\right]_{l,j},
+∂
+[
+𝚺
+k
+−
+1
+]
+i
+,
+j
+∂
+[
+𝚺
+k
+]
+p
+,
+l
+​
+∂
+[
+𝚺
+k
+]
+g
+,
+h
+=
+[
+𝚺
+k
+−
+1
+]
+i
+,
+g
+​
+[
+𝚺
+k
+−
+1
+]
+h
+,
+p
+​
+[
+𝚺
+k
+−
+1
+]
+l
+,
+j
+\displaystyle\frac{\partial\left[\bm{\Sigma}^{-1}_{k}\right]_{i,j}}{\partial\left[\bm{\Sigma}_{k}\right]_{p,l}\partial\left[\bm{\Sigma}_{k}\right]_{g,h}}=\left[\bm{\Sigma}^{-1}_{k}\right]_{i,g}\left[\bm{\Sigma}^{-1}_{k}\right]_{h,p}\left[\bm{\Sigma}^{-1}_{k}\right]_{l,j}
++
+[
+𝚺
+k
+−
+1
+]
+i
+,
+p
+​
+[
+𝚺
+k
+−
+1
+]
+l
+,
+g
+​
+[
+𝚺
+k
+−
+1
+]
+h
+,
+j
+.
+\displaystyle+\left[\bm{\Sigma}^{-1}_{k}\right]_{i,p}\left[\bm{\Sigma}^{-1}_{k}\right]_{l,g}\left[\bm{\Sigma}^{-1}_{k}\right]_{h,j}.
+Experimental support, please
+view the build logs
+for errors. Generated by
+L
+A
+T
+E
+xml
+.
+Instructions for reporting errors
+We are continuing to improve HTML versions of papers, and your feedback helps enhance accessibility and mobile
+      support. To report errors in the HTML that will help us improve conversion and rendering, choose any of the
+      methods listed below:
+Click the "Report Issue"
+(
+)
+button, located in the page header.
+Tip:
+You can select the relevant text first, to include it in your report.
+Our team has already identified
+the following issues
+. We appreciate your time reviewing and reporting rendering errors we
+      may not have found yet. Your efforts will help us improve the HTML versions for all readers, because disability
+      should not be a barrier to accessing research. Thank you for your continued support in championing open access for
+      all.
+Have a free development cycle? Help support accessibility at arXiv! Our collaborators at LaTeXML maintain a
+list of packages that need conversion
+, and welcome
+developer contributions
+.
+We gratefully acknowledge support from
+        our
+major funders
+,
+member institutions
+,
+,
+        and all contributors.
+About
+·
+Help
+·
+Contact
+·
+Subscribe
+·
+Copyright
+·
+Privacy
+·
+Accessibility
+·
+Operational Status
+(opens in new tab)
+Major funding support from

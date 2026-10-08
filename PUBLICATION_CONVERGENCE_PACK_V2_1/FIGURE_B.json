@@ -1,0 +1,57 @@
+{
+  "figure": "B",
+  "title": "TFC performance scopes (4 buckets, per FINAL_PROTOCOL_LOCK)",
+  "authoritative_source": "PUB0_TIMING_LEDGER.json, TFC2_VERDICT.json, PBR0_VERDICT.json, _tfc2_oracle/TFC2_PROFILING.json",
+  "scopes": {
+    "intersection_only": {
+      "definition": "tile-intersection stage only",
+      "current_cohort_speedup_geomean": 1.0317,
+      "tfc2_isect_kernel_speedup": {
+        "room": 1.464,
+        "garden": 1.475,
+        "bicycle": 1.603
+      },
+      "note": "PUB0 current-cohort; TFC2 kernel-level intersect speedup per scene"
+    },
+    "forward_pipeline": {
+      "definition": "preprocess+isect+sort+rasterize (fwd only)",
+      "tfc2_fwd_speedup": {
+        "room": 1.341,
+        "garden": 1.277,
+        "bicycle": 1.379
+      },
+      "note": "TFC2_BENCHMARK fwd_*_s vs baseline"
+    },
+    "forward_backward": {
+      "definition": "forward rendering pipeline + backward kernels on a FROZEN PLY (renderer forward+backward). The 1.3564x pooled figure is FORWARD-RENDERING-PIPELINE TIMING, NOT a production training speedup.",
+      "legacy_pooled_e2e": 1.3564,
+      "per_scene_e2e": {
+        "room": 1.384,
+        "garden": 1.376,
+        "bicycle": 1.508
+      },
+      "note": "1.3564x = LEGACY footprint-stage fwd+bwd (TFC2_PROFILING). NOT a training step.",
+      "production_note": "PENDING TFC_FC0. Do not read 1.3564x as production training."
+    },
+    "production_timing": {
+      "definition": "full production iteration incl. optimizer+densify",
+      "current_cohort_full_step_geomean": {
+        "value": 1.0317,
+        "tier": "Tier-C decomposed timing proxy (PUB0 bucket4)",
+        "note": "Not an authorized production training speedup."
+      },
+      "pbr0_native_reconciled_full_step": {
+        "value": 1.1988,
+        "tier": "Tier-C decomposed proxy (PBR0-M4)",
+        "note": "REMOVED from production claim; PBR0_H1 shows M4 is a decomposed microbenchmark, not a production iteration."
+      },
+      "status": "PENDING_TFC_FC0",
+      "note": "PBR0 reconciled native full-step 1.1988x; current-cohort 1.0317x. Total 30K wall-clock pending TFC_FC0."
+    }
+  },
+  "rule": "intersection-only != forward pipeline != fwd+bwd != production. Never collapse these.",
+  "pending": [
+    "production total 30K wall-clock (TFC_FC0)"
+  ],
+  "v2_note": "HARDENING_V2: production_timing = PENDING TFC_FC0; 1.3564x = forward-rendering-pipeline timing; PBR0/PUB0 = Tier-C decomposed proxies."
+}

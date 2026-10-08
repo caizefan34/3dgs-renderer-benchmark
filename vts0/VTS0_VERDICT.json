@@ -1,0 +1,65 @@
+{
+  "label": "VTS0 — Visibility-Topology Scheduler feasibility audit",
+  "date": "2026-10-01",
+  "verdict": "VTS0_DROP",
+  "question": "Does topology-aware dependency scheduling provide additional safe optimizer skipping beyond visibility-based VOS?",
+  "execution": {
+    "host": "EPIC-05 A100 (8x A100-SXM4-80GB)",
+    "torch": "2.9.1+cu128",
+    "seed": 42,
+    "method": "zero-diff visibility + topology trace on frozen C0",
+    "window": "iter 1..4000 (dynamic phase, densify active 501..3999)",
+    "n_topology_events_per_scene": 35,
+    "modified_vos_or_reprotopo": false,
+    "threshold_relaxation": false
+  },
+  "measured": {
+    "room": {
+      "visibility_skip_ratio": 0.6211,
+      "topology_forced_update_ratio": 0.0479,
+      "lineage_dependency_ratio": 0.0645,
+      "clone_split_prune_settlement_ratio": 0.0612,
+      "extra_safe_skip_headroom_ratio": 0.0
+    },
+    "bicycle": {
+      "visibility_skip_ratio": 0.7458,
+      "topology_forced_update_ratio": 0.0942,
+      "lineage_dependency_ratio": 0.1435,
+      "clone_split_prune_settlement_ratio": 0.1007,
+      "extra_safe_skip_headroom_ratio": 0.0
+    }
+  },
+  "gate": {
+    "name": "extra_safe_skip_headroom < 10%",
+    "threshold": 0.10,
+    "observed": 0.0,
+    "pass": false,
+    "action": "CLOSE_DIRECTION"
+  },
+  "structural_argument": [
+    "VOS already skips all invisible rows (visibility_skip_ratio 0.62-0.75).",
+    "A visible row has a real nonzero gradient; its Adam transition is real and skipping it changes the trajectory (not exact). Topology cannot zero a visible row's gradient.",
+    "Topology events (clone/split/prune) only ADD forced reads/copies/settlements; they never enable skipping a visible row's real step. topology_forced/lineage/settlement ratios are COSTS.",
+    "In the VOS active region (iter 15001..30000) topology is FROZEN (densify_until_iter=15000 gates clone/split/prune and opacity reset), so all topology ratios are exactly 0 there.",
+    "Therefore extra_safe_skip_headroom = 0 in the VOS region; in the dynamic region topology only REDUCES headroom."
+  ],
+  "decisive_metric": "extra_safe_skip_headroom_ratio = 0.0 (both scenes)",
+  "why_killed": "Topology-awareness provides zero additional safe optimizer skipping beyond visibility. Invisibility is the only exact skip signal (zero-grad => exact deferred replay); topology is a forced-cost channel.",
+  "what_must_not_be_revived": "Any claim that topology-aware dependency scheduling adds optimizer-skipping headroom beyond visibility. Reviving requires a new mechanism making a visible row's optimizer step provably redundant (would break exactness).",
+  "artifacts": [
+    "vts0/results/room_vts0_result.json",
+    "vts0/results/bicycle_vts0_result.json",
+    "vts0/results/room_topology_events.json",
+    "vts0/results/bicycle_topology_events.json",
+    "vts0/vts0_trace_driver.py",
+    "vts0/vts0_analyze.py",
+    "vts0/VTS0_VERDICT.md"
+  ],
+  "evidence_labels": {
+    "visibility_skip_ratio": "MEASURED",
+    "topology_forced_update_ratio": "MEASURED",
+    "lineage_dependency_ratio": "MEASURED",
+    "clone_split_prune_settlement_ratio": "MEASURED",
+    "extra_safe_skip_headroom_ratio": "DERIVED (structural, confirmed by measurement)"
+  }
+}

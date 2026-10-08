@@ -1,0 +1,167 @@
+{
+ "deliverable": "EXACT_OPT_DEDUP_MASTER_VERDICT",
+ "program": "EXACT_OPT_DEDUP_CONTINUATION",
+ "date": "2026-10-03",
+ "master_verdict": "NOT_ELIGIBLE (0 confirmed independent PASS)",
+ "independent_pass_confirmed": 0,
+ "blocked_external_oracle_pass": [
+  "HGR0",
+  "ABC0"
+ ],
+ "composition_performed": false,
+ "composition_reason": "No-rescue: a candidate must independently PASS before composition. 0 confirmed PASS. HGR0/ABC0 are NO-GO: MODELED cost-model (realizable estimates are slowdowns; ABC0 oracle is a hardcoded tautology) AND BLOCKED-EXTERNAL (inaccessible /root assets + no exclusive A100 + no authoritative real-CUDA-kernel timing). They cannot be counted as PASS.",
+ "lanes": {
+  "PSR0": {
+   "verdict": "DROP_NO_E2E_HEADROOM",
+   "status": "FINAL",
+   "backward_speedup": "projection-backward recompute <8% production iteration AND <15% backward -> DROP per preregistered gate",
+   "exactness": "n/a (dropped before exactness gate)",
+   "projected_production_gain": "none (dropped)",
+   "memory_overhead": "n/a",
+   "engineering_complexity": "n/a",
+   "scene_robustness": "n/a",
+   "novelty_confidence": "n/a",
+   "evidence": "goal-objective PSR0 gate; prior-turn resolution"
+  },
+  "SGOR0": {
+   "verdict": "FAIL_BY_DILUTION (no-e2e-headroom)",
+   "status": "FINAL",
+   "backward_speedup": "scatter fraction |f|<=0.05 of SerialBatchBwd inner loop; Amdahl ceiling 1/(1-f)<=1.053x even with infinite scatter speedup; < 1.10x/scene and < 1.25x/pooled gates. scatter-side 1.274x signal is real but optimizes a <=5% slice.",
+   "exactness": "G2 cos=1.0 (owner-reduction), extension-e2e cos=1.0 (4 groups) - PASS (but moot given G3 fail)",
+   "projected_production_gain": "none (scatter is <=5% of backward; compute-bound inner loop dominates)",
+   "memory_overhead": "scratch 64-159MB (<<40GB) - bounded, PASS (but moot)",
+   "engineering_complexity": "high (split-build torch extension, two-pass integration) - for a moot target",
+   "scene_robustness": "f contention-independent (contended==uncontended f~=-0.05); robust",
+   "novelty_confidence": "moderate (selective per-Gaussian fanout owner-reduction is novel vs per-tile baselines, but the target slice is too small to matter)",
+   "evidence": "_sgor0/SGOR0_DILUTION_ANALYSIS.md; SGOR0_DILUTION_RESULT.txt; SGOR0_STATUS.json"
+  },
+  "HGR0": {
+   "verdict": "NO-GO_AUTHORITATIVE_TIMING_UNAVAILABLE (BLOCKED-EXTERNAL)",
+   "status": "NO-GO (MODELED cost-model; realizable estimate is a slowdown; authoritative timing BLOCKED-EXTERNAL)",
+   "backward_speedup": "MODELED cost-model Amdahl UPPER BOUND 1.517x pooled (room1.367/garden1.975/bicycle1.294), NOT measured; microbench CONTENDED. Realizable estimate (oracle*0.6 eff) = 0.910x pooled (0.820/1.185/0.776) = SLOWDOWN, FAILS gate. Gate-check used optimistic upper bound, not realizable.",
+   "exactness": "compositor-confirmed FAITHFUL vs gsplat 1.5.3 CUDA backward: color cos 0.99999999 (PASS 0.99999), opacity cos 0.99913 (PASS 0.999, FAIL strict 0.99999; convention-level residual from early-termination T_EPS / alpha-clip, not algorithmic). Authoritative real-CUDA-kernel TIMING still unavailable (compositor is a Python reference, not the kernel).",
+   "projected_production_gain": "oracle suggests positive, unconfirmed",
+   "memory_overhead": "unknown (not measured)",
+   "engineering_complexity": "unknown",
+   "scene_robustness": "3-scene oracle all >1.1x",
+   "novelty_confidence": "unknown",
+   "evidence": "HGR0_VERDICT.json; BLOCKED on /root/epic05_p16rb (Permission denied) + exclusive A100"
+  },
+  "ABC0": {
+   "verdict": "NO-GO_AUTHORITATIVE_TIMING_UNAVAILABLE (BLOCKED-EXTERNAL)",
+   "status": "NO-GO (MODELED cost-model tautology; realizable estimate is a slowdown; authoritative timing BLOCKED-EXTERNAL)",
+   "backward_speedup": "MODELED cost-model: f_recompute=0.35 HARDCODED -> oracle=1/(1-0.35)=1.538x for ALL scenes (tautological constant, NOT a per-scene measurement); microbench CONTENDED. Realizable estimate (oracle*0.6 eff) = 0.923x pooled = SLOWDOWN, FAILS gate. Gate-check used optimistic upper bound, not realizable.",
+   "exactness": "compositor-confirmed FAITHFUL vs gsplat 1.5.3 CUDA backward: color cos 0.99999999 (PASS 0.99999), opacity cos 0.99913 (PASS 0.999, FAIL strict 0.99999; convention-level residual from early-termination T_EPS / alpha-clip, not algorithmic). Authoritative real-CUDA-kernel TIMING still unavailable (compositor is a Python reference, not the kernel).",
+   "projected_production_gain": "oracle suggests positive, unconfirmed",
+   "memory_overhead": "unknown (not measured)",
+   "engineering_complexity": "unknown",
+   "scene_robustness": "3-scene oracle all 1.538x",
+   "novelty_confidence": "unknown",
+   "evidence": "ABC0_VERDICT.json; BLOCKED on /root/epic05_p16rb (Permission denied) + exclusive A100"
+  },
+  "HBR0": {
+   "verdict": "NO-GO_AUTHORITATIVE_TIMING_UNAVAILABLE (BLOCKED-EXTERNAL, oracle-FAIL)",
+   "status": "BLOCKED_EXTERNAL (oracle would FAIL)",
+   "backward_speedup": "oracle geomean 1.0x (all scenes 1.0x) - would FAIL gates even if timed",
+   "exactness": "not confirmed vs real gsplat CUDA backward",
+   "projected_production_gain": "none (oracle 1.0x)",
+   "memory_overhead": "unknown",
+   "engineering_complexity": "unknown",
+   "scene_robustness": "oracle 1.0x all scenes",
+   "novelty_confidence": "low (prior-art risk flagged in goal; overlaps Gaussian-centric adaptive backward scheduling)",
+   "evidence": "HBR0_VERDICT.json; held as fallback per goal; oracle would fail"
+  }
+ },
+ "gate_reference": {
+  "SGOR0_backward": "1.25x pooled & 1.10x every scene",
+  "PSR0_projection": "1.40x proj-bwd & 1.05x production",
+  "HGR0_ABC0_backward": "1.2x pooled & 1.1x every",
+  "HBR0_backward": "1.3x pooled & 1.15x every"
+ },
+ "external_blockers": {
+  "root_assets": "RESOLVED (2026-10-03 re-poll): accessible gsplat source DOES exist outside /root. Local public_baselines/gsplat (v1.6.0, commit 512d366, has RasterizeToPixels3DGSSerialBatchBwd.cu) + MX /mnt/storage_pool/liaoyuanjun/gsplat-clean-mx (v1.6.0, commit 28e794ca, full setup.py/pyproject.toml/csrc incl. SerialBatchBwd atomicAdd_system scatter region L300-316). The /root/epic05_p16rb lock remains permission-denied but is NOT the only source. Correctness-vs-real-kernel is now locally buildable; only authoritative TIMING still needs exclusive A100.",
+  "exclusive_gpu": "CLEARED (2026-10-03 re-poll): GPU procs dropped 14->3; GPUs 0,4,5,6,7 now COMPLETELY FREE (0 MiB, 0% util, zero compute procs). Only GPUs 1,2,3 hold the 3 residual root RL-tenant procs. First time exclusive A100s have appeared. Transient (root tenant could reclaim); must verify exclusivity at run time.",
+  "ncu_profiling": "ERR_NVGPUCTRPERM - GPU perf counters root-restricted; ncu unusable by this user.",
+  "source_access": "PARTIALLY_RESOLVED (2026-10-03): accessible gsplat 1.6.0 source DOES exist (local public_baselines/gsplat + MX gsplat-clean-mx, both v1.6.0 with RasterizeToPixels3DGSSerialBatchBwd.cu + atomicAdd_system scatter L300-316). Prior handoff claim of no accessible copy was INCORRECT. HOWEVER building it is blocked by a TOOLCHAIN GAP: gsplat 1.6.0 requires C++20 (templated lambdas []<typename T>(), <compare>, std::bit_width); the goal-specified nvcc 11.8.89 maxes at c++17 and CANNOT compile C++20 (definitive probe: -Xcompiler -std=c++20 fails on <compare>; -std=c++17 fails on templated lambda). The prebuilt csrc.so in gsplat-clean-mx was built with a CUDA 12 nvcc (absent here) and links libcudart.so.12 -> incompatible with cu118 runtime (libcudart.so.11.0). Full CUDA 11.8 toolkit (nvcc 11.8.89, cudart, cccl, driver-dev) IS present in mx0qual/pkgs.",
+  "toolchain_gap": "RESOLVED (2026-10-03): PRIOR CLAIM OF ABSENCE WAS WRONG. CUDA 12.8 nvcc IS available at /mnt/storage_pool/liaoyuanjun/higs-13scene-env/bin/nvcc (complete, with nvvm/bin/cicc) + torch 2.9.1+cu128 in the same higs env. PROVEN: gsplat 1.6.0 RasterizeToPixels3DGSSerialBatchBwd.cu compiles cleanly to a valid 2.88MB ELF .o (nvcc 12.8.93, -std=c++20, sm_80, higs torch headers). The goal-specified nvcc 11.8.89 cannot compile C++20 (proven), so the higs env CUDA 12.8 toolchain is the viable build path.",
+  "deviation_note": "FORCED DEVIATION (2026-10-03): goal-specified runtime (torch 2.7.1+cu118, nvcc 11.8.89) CANNOT build gsplat 1.6.0 (C++20). No single nvcc supports both C++20 AND cu118. Viable path = higs env (torch 2.9.1+cu128, CUDA 12.8 nvcc) which compiles the source cleanly. Host/GPU/sm_80 unchanged; only torch+CUDA versions differ. Alternative (patch gsplat to drop C++20) would fork the baseline (worse)."
+ },
+ "resolution_path": "UNBLOCKED (2026-10-03): both external blockers CLEARED - (a) exclusive A100s available (GPUs 0,4,5,6,7 free), (b) buildable cu128 kernel proven (higs env CUDA 12.8 nvcc + torch 2.9.1+cu128 compiles gsplat 1.6.0 SerialBatchBwd). Path to a real HGR0/ABC0 measured verdict is now FEASIBLE in the higs env (cu128, deviates from goal-specified cu118). Remaining: implement HGR0 (atomicAdd_system->owner-warp reduction) + ABC0 (T-recompute elimination) variants, validate correctness vs baseline, run authoritative timing on a free A100. NOTE: cost-model oracle predicts realizable SLOWDOWN (0.910x/0.923x), so measured verdict likely NO-GO; a real measurement would confirm/refute with device evidence.",
+ "compositor_validation": {
+  "result": "CONFIRMED_FAITHFUL (color exact to 1e-7 rel; opacity cos 0.99913)",
+  "color_cos": 0.9999999877516076,
+  "opacity_cos": 0.9991272223451895,
+  "strict_0.99999_gate": "color PASS, opacity FAIL (convention-level)",
+  "artifact": "COMPOSITOR_VALIDATION_RESULT.txt",
+  "verdict_impact": "none - supports exactness dimension only; master stays NOT_ELIGIBLE"
+ },
+ "cost_model_analysis": {
+  "nature": "MODELED cost model (eb0_oracle.py), explicitly 'MODELED, not measured'. Analytical Amdahl bounds 1/(1-f).",
+  "microbench_inputs": "CONTENDED shared A100, exploratory only (oracle flags high variance garden bwd p25=8.5ms p75=16.5ms). NOT authoritative.",
+  "abc0_tautology": "ABC0 f_recompute=0.35 is HARDCODED -> oracle=1/(1-0.35)=1.538x for ALL scenes (room=garden=bicycle=1.538). The per-scene uniformity is an artifact of the hardcoded constant, not a measurement.",
+  "hgr0_model": "HGR0 f_atomic = clip(atomic/(atomic+n_isects),0,0.6)*(0.5+0.5*min(fanout_mean/50,1)); scene-dependent but MODELED, not measured.",
+  "gate_check_flaw": "The verdict gate-check used the optimistic oracle UPPER BOUND, NOT the realizable estimate (oracle*0.6 efficiency).",
+  "realizable_estimates": {
+   "HGR0": {
+    "pooled": 0.91,
+    "per_scene": {
+     "room": 0.82,
+     "garden": 1.185,
+     "bicycle": 0.776
+    },
+    "verdict": "SLOWDOWN (<1.0); FAILS gate (needs 1.2 pooled / 1.1 every)"
+   },
+   "ABC0": {
+    "pooled": 0.923,
+    "per_scene": {
+     "room": 0.923,
+     "garden": 0.923,
+     "bicycle": 0.923
+    },
+    "verdict": "SLOWDOWN (<1.0); FAILS gate (needs 1.2 pooled / 1.1 every)"
+   }
+  },
+  "correctness_gap_status": "oracle's cos=0 was a DOCUMENTED UNMEASURED GAP (zero-confidence placeholder), not a measured orthogonal result. FILLED by compositor validation 2026-10-03: color cos 0.99999999, opacity cos 0.99913 (faithful).",
+  "conclusion": "HGR0/ABC0 speedups are MODELED analytical estimates, not measurements. ABC0's is a hardcoded-constant tautology; both realizable estimates (oracle*0.6) are SLOWDOWNS. Categorically cannot be a PASS. Reinforces NO-GO (independent of the external /root + exclusive-GPU timing blocker)."
+ },
+ "blocked_external_oracle_pass_note": "HGR0/ABC0 oracle UPPER BOUNDS would clear the gates, but the oracle is a MODELED cost model (not measured); its REALIZABLE estimates (oracle*0.6) are SLOWDOWNS (HGR0 0.910x, ABC0 0.923x) that FAIL. ABC0's oracle is a hardcoded 1/(1-0.35)=1.538x tautology. See cost_model_analysis.",
+ "lane_state_classification": {
+  "taxonomy": "RUNNING / PARTIAL_EXISTING / COMPLETE / NOT_STARTED (per goal-objective opening requirement)",
+  "note": "Retrospective classification of current MX lane state (no new experiment started this program). No lane is RUNNING.",
+  "lanes": {
+   "PSR0": {
+    "classification": "COMPLETE",
+    "evidence": "Final verdict DROP_NO_E2E_HEADROOM (projection-bwd <8% prod & <15% bwd). All gates resolved."
+   },
+   "SGOR0": {
+    "classification": "COMPLETE",
+    "evidence": "Final verdict FAIL_BY_DILUTION (scatter |f|<=0.05, Amdahl ceiling 1.053x < 1.25x gate). Verdict robust (contention-independent); no authoritative timing needed for the FAIL."
+   },
+   "HGR0": {
+    "classification": "PARTIAL_EXISTING",
+    "evidence": "Cost-model oracle (HGR0_VERDICT.json, 1.517x upper bound) ingested; NO authoritative real-kernel timing; blocked on /root assets + exclusive A100. Final measured verdict pending external unblock."
+   },
+   "ABC0": {
+    "classification": "PARTIAL_EXISTING",
+    "evidence": "Cost-model oracle (ABC0_VERDICT.json, 1.538x upper bound) ingested; NO authoritative timing; blocked on /root + exclusive A100. Final measured verdict pending external unblock."
+   },
+   "HBR0": {
+    "classification": "PARTIAL_EXISTING",
+    "evidence": "Cost-model oracle (HBR0_VERDICT.json, oracle 1.0x would-fail) exists; full experiment HELD AS FALLBACK per goal (not run); prior-art risk flagged. Partial deliverable only."
+   }
+  },
+  "counts": {
+   "COMPLETE": [
+    "PSR0",
+    "SGOR0"
+   ],
+   "PARTIAL_EXISTING": [
+    "HGR0",
+    "ABC0",
+    "HBR0"
+   ],
+   "RUNNING": [],
+   "NOT_STARTED": []
+  }
+ }
+}

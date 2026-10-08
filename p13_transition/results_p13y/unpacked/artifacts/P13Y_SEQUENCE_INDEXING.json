@@ -1,0 +1,183 @@
+{
+  "phase": "P13-Y Y0a",
+  "date": "2026-09-27",
+  "question": "which training iteration does camera_sequence.npy[0] correspond to (0-based vs 1-based)?",
+  "static_evidence": {
+    "file": "/root/epic05_p12/publication_trainer_p12.py",
+    "sha256": "675b0267f3a1a6a0fa63fadb37c8536481c1c7a6de37a4b7f6ffa98a449050c5",
+    "lines": {
+      "viewpoint_stack = list(range(n_cameras))": {
+        "line_numbers": [
+          524,
+          529
+        ],
+        "source": [
+          "viewpoint_stack = list(range(n_cameras))",
+          "viewpoint_stack = list(range(n_cameras))"
+        ]
+      },
+      "rng = random.Random(config.seed)": {
+        "line_numbers": [
+          526
+        ],
+        "source": [
+          "rng = random.Random(config.seed)"
+        ]
+      },
+      "for iteration in range(1, config.iterations + 1):": {
+        "line_numbers": [
+          527,
+          589
+        ],
+        "source": [
+          "for iteration in range(1, config.iterations + 1):",
+          "for iteration in range(1, config.iterations + 1):"
+        ]
+      },
+      "rand_idx = rng.randint(0, len(viewpoint_stack) - 1)": {
+        "line_numbers": [
+          530
+        ],
+        "source": [
+          "rand_idx = rng.randint(0, len(viewpoint_stack) - 1)"
+        ]
+      },
+      "camera_sequence.append(viewpoint_stack.pop(rand_idx))": {
+        "line_numbers": [
+          531
+        ],
+        "source": [
+          "camera_sequence.append(viewpoint_stack.pop(rand_idx))"
+        ]
+      },
+      "np.save(os.path.join(args.outdir, \"camera_sequence.npy\"), camera_sequence)": {
+        "line_numbers": [
+          533
+        ],
+        "source": [
+          "np.save(os.path.join(args.outdir, \"camera_sequence.npy\"), camera_sequence)"
+        ]
+      },
+      "cam_idx = int(camera_sequence[iteration - 1])": {
+        "line_numbers": [
+          594
+        ],
+        "source": [
+          "cam_idx = int(camera_sequence[iteration - 1])"
+        ]
+      },
+      "cam, gt_image = dataset.get_item(cam_idx)": {
+        "line_numbers": [
+          595
+        ],
+        "source": [
+          "cam, gt_image = dataset.get_item(cam_idx)"
+        ]
+      }
+    }
+  },
+  "per_scene": {
+    "room": {
+      "npy": "/root/epic05_p12/runs/p12a/p12a_c0f_s42_room/camera_sequence.npy",
+      "npy_sha256": "a80127c542dc2859c0806b7fbf90b8c475a8e0536133be785ff38010630b98e9",
+      "dtype": "int32",
+      "shape": [
+        30000
+      ],
+      "n_iterations_saved": 30000,
+      "max_camera_id": 310,
+      "n_unique_cameras_in_seq": 311,
+      "n_cameras_implied": 311,
+      "every_camera_once_per_cycle": true,
+      "regeneration": {
+        "recipe": "list(range(n_cameras)); refill when empty; rng=random.Random(42); rand_idx=rng.randint(0,len-1); append(pop(rand_idx)); np.array(dtype=int32)",
+        "matches_bitwise": true,
+        "diversity": 311
+      },
+      "empirical": {
+        "cam_log": "runs/y_capture_room/cam_log.json",
+        "n_logged": 17000,
+        "run_iterations": 17000,
+        "run_camera_sequence_sha256": "bdbb7db230a61d545a47848e34671f3642b84f74f6f011c09c057909a2d0279d",
+        "alignment_rule": "cam_log[i][0] == i+1 and cam_log[i][1] == camera_sequence[i] for every logged iteration",
+        "alignment_holds_in_run": true,
+        "cam_log_sha256": "aef7b4eb72cfdf5a340cf067acd0ec6d33d393f3354a13aaa104db0836fb43ba",
+        "run_npy": "runs/y_capture_room/camera_sequence.npy",
+        "run_npy_sha256": "bdbb7db230a61d545a47848e34671f3642b84f74f6f011c09c057909a2d0279d",
+        "run_npy_len": 17000,
+        "run_npy_matches_logged_cameras": true,
+        "p12_prefix_len_compared": 17000,
+        "run_npy_is_p12_prefix": true,
+        "conclusion": "camera_sequence.npy[i] is the camera of training iteration i+1 (1-based); the replay's own sequence is the frozen P12 30K prefix"
+      }
+    },
+    "bicycle": {
+      "npy": "/root/epic05_p12/runs/p12a/p12a_c0f_s42_bicycle/camera_sequence.npy",
+      "npy_sha256": "8debe1c2244aca0994e9bd27ddfdd440fcc60f51341351d6c899b3c637c78e2d",
+      "dtype": "int32",
+      "shape": [
+        30000
+      ],
+      "n_iterations_saved": 30000,
+      "max_camera_id": 193,
+      "n_unique_cameras_in_seq": 194,
+      "n_cameras_implied": 194,
+      "every_camera_once_per_cycle": true,
+      "regeneration": {
+        "recipe": "list(range(n_cameras)); refill when empty; rng=random.Random(42); rand_idx=rng.randint(0,len-1); append(pop(rand_idx)); np.array(dtype=int32)",
+        "matches_bitwise": true,
+        "diversity": 194
+      },
+      "empirical": {
+        "cam_log": "runs/y_capture_bicycle/cam_log.json",
+        "n_logged": 17000,
+        "run_iterations": 17000,
+        "run_camera_sequence_sha256": "750e72c97d90cf04d00d60c028e6f7818d49aca3b88779b6559d31c7e82d41a2",
+        "alignment_rule": "cam_log[i][0] == i+1 and cam_log[i][1] == camera_sequence[i] for every logged iteration",
+        "alignment_holds_in_run": true,
+        "cam_log_sha256": "bece4b1335936bc2449009e97d82477d2c60d03c19414a3dc45e22a79e57397c",
+        "run_npy": "runs/y_capture_bicycle/camera_sequence.npy",
+        "run_npy_sha256": "750e72c97d90cf04d00d60c028e6f7818d49aca3b88779b6559d31c7e82d41a2",
+        "run_npy_len": 17000,
+        "run_npy_matches_logged_cameras": true,
+        "p12_prefix_len_compared": 17000,
+        "run_npy_is_p12_prefix": true,
+        "conclusion": "camera_sequence.npy[i] is the camera of training iteration i+1 (1-based); the replay's own sequence is the frozen P12 30K prefix"
+      }
+    },
+    "garden": {
+      "npy": "/root/epic05_p12/runs/p12a/p12a_c0f_s42_garden/camera_sequence.npy",
+      "npy_sha256": "63ad2de2256d09056d18d6e0cda4fcedb0935de81fca3dcd5ffa146a9d385cc5",
+      "dtype": "int32",
+      "shape": [
+        30000
+      ],
+      "n_iterations_saved": 30000,
+      "max_camera_id": 184,
+      "n_unique_cameras_in_seq": 185,
+      "n_cameras_implied": 185,
+      "every_camera_once_per_cycle": true,
+      "regeneration": {
+        "recipe": "list(range(n_cameras)); refill when empty; rng=random.Random(42); rand_idx=rng.randint(0,len-1); append(pop(rand_idx)); np.array(dtype=int32)",
+        "matches_bitwise": true,
+        "diversity": 185
+      },
+      "empirical": {
+        "cam_log": "runs/y_capture_garden/cam_log.json",
+        "n_logged": 17000,
+        "run_iterations": 17000,
+        "run_camera_sequence_sha256": "888c4f26280bfc226d264ecb494b6ed741acf5a67da4480a010428f78b50745a",
+        "alignment_rule": "cam_log[i][0] == i+1 and cam_log[i][1] == camera_sequence[i] for every logged iteration",
+        "alignment_holds_in_run": true,
+        "cam_log_sha256": "09151075322ebf3e33aa54ce4075c9a7af9c97db3d5e9d94659f0ad193c5f209",
+        "run_npy": "runs/y_capture_garden/camera_sequence.npy",
+        "run_npy_sha256": "888c4f26280bfc226d264ecb494b6ed741acf5a67da4480a010428f78b50745a",
+        "run_npy_len": 17000,
+        "run_npy_matches_logged_cameras": true,
+        "p12_prefix_len_compared": 17000,
+        "run_npy_is_p12_prefix": true,
+        "conclusion": "camera_sequence.npy[i] is the camera of training iteration i+1 (1-based); the replay's own sequence is the frozen P12 30K prefix"
+      }
+    }
+  }
+}

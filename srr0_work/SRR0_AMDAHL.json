@@ -1,0 +1,23 @@
+{
+  "schema": "SRR0_AMDAHL",
+  "gate": 7,
+  "reached": false,
+  "reason_not_reached": "Requires Gate 5/6 pass. Gate 4 dropped SRR0. Advisory Amdahl ceiling from Gate 4 recompute fraction included.",
+  "identity": {
+    "hostname": "dsw-933622-64cc845c7d-lqswc",
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "source_git_sha": "e458ac6e41810ad6d9405687c1e698fadd28dac5"
+  },
+  "status": "NOT_REACHED_EARLY_EXIT",
+  "advisory_amdahl_ceiling": {
+    "formula": "speedup = 1 / (1 - f_recompute_removed)",
+    "basis": "async steady-state per-iteration time (governing E2E denominator)",
+    "per_scene": {
+      "room": 1.011,
+      "garden": 1.0437,
+      "bicycle": 1.0282
+    },
+    "note": "Upper bound assumes 100% of preprocess_backward recompute eliminated AND fully on critical path. Actual would be lower (retained-state adds traffic). All < 1.04 except garden; far below the 1.03x-in->=2/3 economics bar when combined with memory-traffic overhead."
+  },
+  "result": null
+}

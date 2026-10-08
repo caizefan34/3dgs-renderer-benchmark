@@ -1,0 +1,91 @@
+{
+  "audit_type": "H0_CHECKPOINT_INVENTORY",
+  "host": "EPIC-05 (dsw-933622-64cc845c7d-lqswc), 8x A100-SXM4-80GB",
+  "frozen_trajectory": "/root/epic05_n1/runs/n1snap_c0f_s42_{scene}",
+  "frozen_trajectory_note": "n1snap = save-only edit of frozen P12 trainer (sha256 49a79538..); reproduced canonical seed-42 stream bit-exactly; snapshots saved at 10K/15K/20K/25K only. No 5K snapshot was ever written.",
+  "prereg_pinned": {
+    "c0_ext_so": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaff6dacf3197258a513f11",
+    "core_gsplat_so": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+    "room25k": "b31e5a6b0e733911b736bbad2e4f9d4d804d5929655f64efb51a9e5132fc047d"
+  },
+  "binary_verification": {
+    "c0_ext_so": {
+      "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so",
+      "sha256": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaff6dacf3197258a513f11",
+      "match": true
+    },
+    "core_gsplat_so": {
+      "path": "/root/epic05_build_cache/core/gsplat_cuda/gsplat_cuda.so",
+      "sha256": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+      "match": true
+    }
+  },
+  "cells": {
+    "room@5000": {
+      "scene": "room",
+      "iter": 5000,
+      "path": "/root/epic05_n1/runs/n1snap_c0f_s42_room/ckpt_5000.pt",
+      "exists_in_frozen_trajectory": false,
+      "ckpt_sha256": null,
+      "pinned_by_prereg": false,
+      "hash_matches_prereg": null
+    },
+    "room@15000": {
+      "scene": "room",
+      "iter": 15000,
+      "path": "/root/epic05_n1/runs/n1snap_c0f_s42_room/ckpt_15000.pt",
+      "exists_in_frozen_trajectory": true,
+      "ckpt_sha256": "b276b338f5a444d8ea1be390d21fd3e67679b7d862652f0babd131db9434e5dd",
+      "pinned_by_prereg": false,
+      "hash_matches_prereg": null
+    },
+    "room@25000": {
+      "scene": "room",
+      "iter": 25000,
+      "path": "/root/epic05_n1/runs/n1snap_c0f_s42_room/ckpt_25000.pt",
+      "exists_in_frozen_trajectory": true,
+      "ckpt_sha256": "b31e5a6b0e733911b736bbad2e4f9d4d804d5929655f64efb51a9e5132fc047d",
+      "pinned_by_prereg": true,
+      "hash_matches_prereg": true
+    },
+    "bicycle@5000": {
+      "scene": "bicycle",
+      "iter": 5000,
+      "path": "/root/epic05_n1/runs/n1snap_c0f_s42_bicycle/ckpt_5000.pt",
+      "exists_in_frozen_trajectory": false,
+      "ckpt_sha256": null,
+      "pinned_by_prereg": false,
+      "hash_matches_prereg": null
+    },
+    "bicycle@15000": {
+      "scene": "bicycle",
+      "iter": 15000,
+      "path": "/root/epic05_n1/runs/n1snap_c0f_s42_bicycle/ckpt_15000.pt",
+      "exists_in_frozen_trajectory": true,
+      "ckpt_sha256": "273971d3867c1d2a08b7246803265539d74756b8eca4e3f01c6a8d149b7fd6f7",
+      "pinned_by_prereg": false,
+      "hash_matches_prereg": null
+    },
+    "bicycle@25000": {
+      "scene": "bicycle",
+      "iter": 25000,
+      "path": "/root/epic05_n1/runs/n1snap_c0f_s42_bicycle/ckpt_25000.pt",
+      "exists_in_frozen_trajectory": true,
+      "ckpt_sha256": "73ae5436cc44a2c25dca26cb226e522047465e65b671717ac043578cbd7e21ea",
+      "pinned_by_prereg": false,
+      "hash_matches_prereg": null
+    }
+  },
+  "missing_required_cells": [
+    "room@5000",
+    "bicycle@5000"
+  ],
+  "present_required_cells": [
+    "room@15000",
+    "room@25000",
+    "bicycle@15000",
+    "bicycle@25000"
+  ],
+  "verdict": "H0_CHECKPOINT_BLOCKER",
+  "blocker_reason": "Required cells room@5000 and bicycle@5000 are ABSENT from the frozen C0 trajectory (/root/epic05_n1/runs/n1snap_c0f_s42_{room,bicycle} saved only 10K/15K/20K/25K). No ckpt_5000.pt exists for room or bicycle anywhere in the frozen trajectory. Per H0_PREREG.md sec.2 and DSH_HANDOFF item 9: emit H0_CHECKPOINT_BLOCKER and STOP; do not substitute. 5K is the only active-densification-regime cell; substituting 10K would change the scientific meaning."
+}

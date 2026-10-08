@@ -1,0 +1,912 @@
+{
+  "phase": "P11 Gate L1 - SepSSIM vs fused-ssim (padding=same) equivalence",
+  "gpu": {
+    "gpu_index": 0,
+    "gpu_info": "GPU-d94b65aa-4a44-3402-7a54-72ef0f3d8ff3, NVIDIA A100-SXM4-80GB, 570.133.20",
+    "foreign_processes": []
+  },
+  "loss_definition": "L = 0.8*L1 + 0.2*(1-SSIM); SSIM: 11x11 Gaussian sigma=1.5, zero same-padding, C1=0.01^2, C2=0.03^2, range [0,1]; comparison on clamped rendered images from the frozen 30K DSH-A states",
+  "fused_ssim_padding": "same",
+  "gsplat_convenience_ssim_note": "gsplat.cuda._losses ssim_loss NOT used (it selects valid-padding semantics); fused-ssim padding='same' used per gate spec",
+  "classification_rule": "data-driven from same-input repeat noise and fp32-vs-fp64 implementation error of each impl; see provisional_classification per scene",
+  "per_scene": {
+    "room": {
+      "state": {
+        "source": "/root/3dgs-publication-epic05/full30k/gmain03_s42_room/ckpt_30000.pt",
+        "sha256": "95a61d0fa6776ca1f2e481603ef1c84cdba8a61b11507a4823c8c6662d453e8a",
+        "iteration": 30000,
+        "N": 885508,
+        "active_sh_degree": 3
+      },
+      "cameras": [
+        {
+          "camera_index": 57,
+          "n_gaussians": 885508,
+          "image_shape": [
+            1080,
+            1920,
+            3
+          ],
+          "primary_comparison": {
+            "total_loss": {
+              "ref": 0.02730640023946762,
+              "tst": 0.027306530624628067,
+              "abs_diff": 1.30385160446167e-07,
+              "rel_diff": 4.774893772256121e-06
+            },
+            "ssim_scalar": {
+              "ref": 0.91612309217453,
+              "tst": 0.9161224365234375,
+              "abs_diff": 6.556510925292969e-07,
+              "rel_diff": 7.156801287183243e-07
+            },
+            "dL_dimage": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 2.902424967032857e-10,
+              "mean_abs": 2.9809052361912114e-12,
+              "rel_l2": 1.3380215945039222e-05,
+              "cosine": 1.0,
+              "norm_ref": 0.0013817447470501065,
+              "norm_tst": 0.0013817395083606243
+            }
+          },
+          "fp_calibration": {
+            "sep_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "sep_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "sep_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 3.583409124985337e-10,
+              "mean_abs": 2.5356123450892554e-12,
+              "rel_l2": 1.1181392144162405e-05,
+              "cosine": 0.9999998807907104,
+              "norm_ref": 0.0013817447470501065,
+              "norm_tst": 0.0013817495200783014,
+              "scalar": {
+                "ref": 0.02730640023946762,
+                "tst": 0.027306590119324743,
+                "abs_diff": 1.8987985712232147e-07,
+                "rel_diff": 6.95367589492358e-06
+              }
+            },
+            "fused_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 2.8126123652327806e-10,
+              "mean_abs": 3.757420589944882e-12,
+              "rel_l2": 1.6810307610172472e-05,
+              "cosine": 1.0,
+              "norm_ref": 0.0013817395083606243,
+              "norm_tst": 0.0013817495200783014,
+              "scalar": {
+                "ref": 0.027306530624628067,
+                "tst": 0.027306590119324743,
+                "abs_diff": 5.949469667615448e-08,
+                "rel_diff": 2.178771719263946e-06
+              }
+            },
+            "sigma_clamp_census": {
+              "n_pred_variance_negative": 886,
+              "n_target_variance_negative": 0,
+              "n_elements": 6220800,
+              "frac_pred_variance_negative": 0.00014242541510611773,
+              "most_negative_pred_variance": -1.1920928955078125e-07,
+              "note": "fused-ssim clamps sigma^2 to >=0 (fmaxf) and zeros derivatives at clamped samples; SepSSIM does not clamp"
+            }
+          }
+        },
+        {
+          "camera_index": 12,
+          "n_gaussians": 885508,
+          "image_shape": [
+            1080,
+            1920,
+            3
+          ],
+          "primary_comparison": {
+            "total_loss": {
+              "ref": 0.020444007590413094,
+              "tst": 0.020444126799702644,
+              "abs_diff": 1.1920928955078125e-07,
+              "rel_diff": 5.831013759096951e-06
+            },
+            "ssim_scalar": {
+              "ref": 0.9411753416061401,
+              "tst": 0.9411747455596924,
+              "abs_diff": 5.960464477539062e-07,
+              "rel_diff": 6.333001104095413e-07
+            },
+            "dL_dimage": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 2.445403879391961e-10,
+              "mean_abs": 3.0821191952801197e-12,
+              "rel_l2": 1.46802009267201e-05,
+              "cosine": 1.0,
+              "norm_ref": 0.0013054187875241041,
+              "norm_tst": 0.0013054140144959092
+            }
+          },
+          "fp_calibration": {
+            "sep_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "sep_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "sep_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.6552803572267294e-10,
+              "mean_abs": 2.4669994779652482e-12,
+              "rel_l2": 1.1478154928957405e-05,
+              "cosine": 0.9999998807907104,
+              "norm_ref": 0.0013054187875241041,
+              "norm_tst": 0.0013054225128144026,
+              "scalar": {
+                "ref": 0.020444007590413094,
+                "tst": 0.020444173045961998,
+                "abs_diff": 1.6545554890404213e-07,
+                "rel_diff": 8.093107389650451e-06
+              }
+            },
+            "fused_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 2.3430857254425064e-10,
+              "mean_abs": 3.547357936908857e-12,
+              "rel_l2": 1.681580205065695e-05,
+              "cosine": 1.0,
+              "norm_ref": 0.0013054140144959092,
+              "norm_tst": 0.0013054225128144026,
+              "scalar": {
+                "ref": 0.020444126799702644,
+                "tst": 0.020444173045961998,
+                "abs_diff": 4.624625935326088e-08,
+                "rel_diff": 2.262080440331329e-06
+              }
+            },
+            "sigma_clamp_census": {
+              "n_pred_variance_negative": 213,
+              "n_target_variance_negative": 0,
+              "n_elements": 6220800,
+              "frac_pred_variance_negative": 3.423996895435266e-05,
+              "most_negative_pred_variance": -1.4901161193847656e-07,
+              "note": "fused-ssim clamps sigma^2 to >=0 (fmaxf) and zeros derivatives at clamped samples; SepSSIM does not clamp"
+            }
+          }
+        },
+        {
+          "camera_index": 142,
+          "n_gaussians": 885508,
+          "image_shape": [
+            1080,
+            1920,
+            3
+          ],
+          "primary_comparison": {
+            "total_loss": {
+              "ref": 0.02388550154864788,
+              "tst": 0.02388559654355049,
+              "abs_diff": 9.499490261077881e-08,
+              "rel_diff": 3.977094741649096e-06
+            },
+            "ssim_scalar": {
+              "ref": 0.9325020909309387,
+              "tst": 0.9325016140937805,
+              "abs_diff": 4.76837158203125e-07,
+              "rel_diff": 5.113523742634049e-07
+            },
+            "dL_dimage": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 2.39538167079445e-10,
+              "mean_abs": 3.757559801503829e-12,
+              "rel_l2": 1.6497413788791675e-05,
+              "cosine": 1.0,
+              "norm_ref": 0.001363426330499351,
+              "norm_tst": 0.0013634186470881104
+            }
+          },
+          "fp_calibration": {
+            "sep_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "sep_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "sep_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.703028829069808e-10,
+              "mean_abs": 3.0671513506080883e-12,
+              "rel_l2": 1.3286281514746967e-05,
+              "cosine": 1.0,
+              "norm_ref": 0.001363426330499351,
+              "norm_tst": 0.0013634327333420515,
+              "scalar": {
+                "ref": 0.02388550154864788,
+                "tst": 0.023885704200899246,
+                "abs_diff": 2.0265225136525955e-07,
+                "rel_diff": 8.484320538654603e-06
+              }
+            },
+            "fused_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 2.7569058147491887e-10,
+              "mean_abs": 4.760558700717121e-12,
+              "rel_l2": 2.0798843770192855e-05,
+              "cosine": 1.0000001192092896,
+              "norm_ref": 0.0013634186470881104,
+              "norm_tst": 0.0013634327333420515,
+              "scalar": {
+                "ref": 0.02388559654355049,
+                "tst": 0.023885704200899246,
+                "abs_diff": 1.0765734875448074e-07,
+                "rel_diff": 4.507207871412783e-06
+              }
+            },
+            "sigma_clamp_census": {
+              "n_pred_variance_negative": 44,
+              "n_target_variance_negative": 0,
+              "n_elements": 6220800,
+              "frac_pred_variance_negative": 7.073045253491728e-06,
+              "most_negative_pred_variance": -8.940696716308594e-08,
+              "note": "fused-ssim clamps sigma^2 to >=0 (fmaxf) and zeros derivatives at clamped samples; SepSSIM does not clamp"
+            }
+          }
+        }
+      ]
+    },
+    "bicycle": {
+      "state": {
+        "source": "/root/3dgs-publication-epic05/full30k/gmain03_s42_bicycle/ckpt_30000.pt",
+        "sha256": "5e0c06c6cab3ba2b117602a9a9d6cc8cf06fa873c206c3c699561157bbd15f68",
+        "iteration": 30000,
+        "N": 3716728,
+        "active_sh_degree": 3
+      },
+      "cameras": [
+        {
+          "camera_index": 163,
+          "n_gaussians": 3716728,
+          "image_shape": [
+            1080,
+            1920,
+            3
+          ],
+          "primary_comparison": {
+            "total_loss": {
+              "ref": 0.04466401785612106,
+              "tst": 0.04466399922966957,
+              "abs_diff": 1.862645149230957e-08,
+              "rel_diff": 4.1703483892362976e-07
+            },
+            "ssim_scalar": {
+              "ref": 0.8685158491134644,
+              "tst": 0.8685159683227539,
+              "abs_diff": 1.1920928955078125e-07,
+              "rel_diff": 1.3725632027609382e-07
+            },
+            "dL_dimage": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.1687006917782128e-10,
+              "mean_abs": 1.4471670389815117e-12,
+              "rel_l2": 6.193827988577846e-06,
+              "cosine": 0.9999999403953552,
+              "norm_ref": 0.0011897345539182425,
+              "norm_tst": 0.0011897310614585876
+            }
+          },
+          "fp_calibration": {
+            "sep_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "sep_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "sep_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 6.30961949354969e-11,
+              "mean_abs": 1.0832983815545205e-12,
+              "rel_l2": 4.409062633328991e-06,
+              "cosine": 0.9999998807907104,
+              "norm_ref": 0.0011897345539182425,
+              "norm_tst": 0.0011897367658093572,
+              "scalar": {
+                "ref": 0.04466401785612106,
+                "tst": 0.044664098435631544,
+                "abs_diff": 8.057951048079381e-08,
+                "rel_diff": 1.8041258791443602e-06
+              }
+            },
+            "fused_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 9.913492249324918e-11,
+              "mean_abs": 1.6893808400808563e-12,
+              "rel_l2": 7.369162137023009e-06,
+              "cosine": 0.9999998807907104,
+              "norm_ref": 0.0011897310614585876,
+              "norm_tst": 0.0011897367658093572,
+              "scalar": {
+                "ref": 0.04466399922966957,
+                "tst": 0.044664098435631544,
+                "abs_diff": 9.920596197310338e-08,
+                "rel_diff": 2.2211616443697784e-06
+              }
+            },
+            "sigma_clamp_census": {
+              "n_pred_variance_negative": 0,
+              "n_target_variance_negative": 0,
+              "n_elements": 6220800,
+              "frac_pred_variance_negative": 0.0,
+              "most_negative_pred_variance": 5.326000973582268e-09,
+              "note": "fused-ssim clamps sigma^2 to >=0 (fmaxf) and zeros derivatives at clamped samples; SepSSIM does not clamp"
+            }
+          }
+        },
+        {
+          "camera_index": 28,
+          "n_gaussians": 3716728,
+          "image_shape": [
+            1080,
+            1920,
+            3
+          ],
+          "primary_comparison": {
+            "total_loss": {
+              "ref": 0.06443752348423004,
+              "tst": 0.06443744897842407,
+              "abs_diff": 7.450580596923828e-08,
+              "rel_diff": 1.1562487498060393e-06
+            },
+            "ssim_scalar": {
+              "ref": 0.816957950592041,
+              "tst": 0.8169582486152649,
+              "abs_diff": 2.980232238769531e-07,
+              "rel_diff": 3.647962831636301e-07
+            },
+            "dL_dimage": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 4.344826720625861e-09,
+              "mean_abs": 1.4643478487078032e-12,
+              "rel_l2": 3.212392965134127e-05,
+              "cosine": 0.9999997615814209,
+              "norm_ref": 0.0010872817365452647,
+              "norm_tst": 0.0010872791754081845
+            }
+          },
+          "fp_calibration": {
+            "sep_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "sep_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "sep_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.5916157281026244e-10,
+              "mean_abs": 8.085115151164335e-13,
+              "rel_l2": 5.04219671567908e-06,
+              "cosine": 1.0,
+              "norm_ref": 0.0010872817365452647,
+              "norm_tst": 0.0010872831335291266,
+              "scalar": {
+                "ref": 0.06443752348423004,
+                "tst": 0.06443754991412898,
+                "abs_diff": 2.6429898936086715e-08,
+                "rel_diff": 4.101631705718016e-07
+              }
+            },
+            "fused_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 4.346588866610546e-09,
+              "mean_abs": 1.6330069891809518e-12,
+              "rel_l2": 3.2578580360422364e-05,
+              "cosine": 1.0,
+              "norm_ref": 0.0010872791754081845,
+              "norm_tst": 0.0010872831335291266,
+              "scalar": {
+                "ref": 0.06443744897842407,
+                "tst": 0.06443754991412898,
+                "abs_diff": 1.00935704905325e-07,
+                "rel_diff": 1.5664137315417596e-06
+              }
+            },
+            "sigma_clamp_census": {
+              "n_pred_variance_negative": 857,
+              "n_target_variance_negative": 3452,
+              "n_elements": 6220800,
+              "frac_pred_variance_negative": 0.00013776363630313426,
+              "most_negative_pred_variance": -1.7881393432617188e-07,
+              "note": "fused-ssim clamps sigma^2 to >=0 (fmaxf) and zeros derivatives at clamped samples; SepSSIM does not clamp"
+            }
+          }
+        },
+        {
+          "camera_index": 6,
+          "n_gaussians": 3716728,
+          "image_shape": [
+            1080,
+            1920,
+            3
+          ],
+          "primary_comparison": {
+            "total_loss": {
+              "ref": 0.054909270256757736,
+              "tst": 0.05490925908088684,
+              "abs_diff": 1.1175870895385742e-08,
+              "rel_diff": 2.0353340780394578e-07
+            },
+            "ssim_scalar": {
+              "ref": 0.8419532179832458,
+              "tst": 0.8419532775878906,
+              "abs_diff": 5.960464477539063e-08,
+              "rel_diff": 7.079329765870282e-08
+            },
+            "dL_dimage": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.674038685450796e-10,
+              "mean_abs": 6.80490819943147e-13,
+              "rel_l2": 4.490906441946301e-06,
+              "cosine": 0.9999999403953552,
+              "norm_ref": 0.0010960842482745647,
+              "norm_tst": 0.0010960830841213465
+            }
+          },
+          "fp_calibration": {
+            "sep_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "sep_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "sep_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.2227019396959804e-10,
+              "mean_abs": 5.258847285589952e-13,
+              "rel_l2": 3.329750024891666e-06,
+              "cosine": 1.0,
+              "norm_ref": 0.0010960842482745647,
+              "norm_tst": 0.0010960851795971394,
+              "scalar": {
+                "ref": 0.054909270256757736,
+                "tst": 0.05490929934209686,
+                "abs_diff": 2.908533912326927e-08,
+                "rel_diff": 5.296981545605172e-07
+              }
+            },
+            "fused_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.9758772396016866e-10,
+              "mean_abs": 7.346762087578895e-13,
+              "rel_l2": 5.0317635756911945e-06,
+              "cosine": 0.9999998807907104,
+              "norm_ref": 0.0010960830841213465,
+              "norm_tst": 0.0010960851795971394,
+              "scalar": {
+                "ref": 0.05490925908088684,
+                "tst": 0.05490929934209686,
+                "abs_diff": 4.0261210018655014e-08,
+                "rel_diff": 7.33231711601612e-07
+              }
+            },
+            "sigma_clamp_census": {
+              "n_pred_variance_negative": 0,
+              "n_target_variance_negative": 0,
+              "n_elements": 6220800,
+              "frac_pred_variance_negative": 0.0,
+              "most_negative_pred_variance": 6.984919309616089e-09,
+              "note": "fused-ssim clamps sigma^2 to >=0 (fmaxf) and zeros derivatives at clamped samples; SepSSIM does not clamp"
+            }
+          }
+        }
+      ]
+    },
+    "garden": {
+      "state": {
+        "source": "/root/3dgs-publication-epic05/full30k/gmain03_s42_garden/ckpt_30000.pt",
+        "sha256": "bc2d76bb8006012cb1a1eb18fc4df77e4789daa8073111490fe9f21d5cd713a4",
+        "iteration": 30000,
+        "N": 2530521,
+        "active_sh_degree": 3
+      },
+      "cameras": [
+        {
+          "camera_index": 163,
+          "n_gaussians": 2530521,
+          "image_shape": [
+            1080,
+            1920,
+            3
+          ],
+          "primary_comparison": {
+            "total_loss": {
+              "ref": 0.05827382579445839,
+              "tst": 0.0582737922668457,
+              "abs_diff": 3.3527612686157227e-08,
+              "rel_diff": 5.753460018982582e-07
+            },
+            "ssim_scalar": {
+              "ref": 0.8282405734062195,
+              "tst": 0.8282407522201538,
+              "abs_diff": 1.7881393432617188e-07,
+              "rel_diff": 2.158961297812087e-07
+            },
+            "dL_dimage": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.5052137314341962e-10,
+              "mean_abs": 2.2118860562581055e-12,
+              "rel_l2": 1.0968179349607835e-05,
+              "cosine": 0.9999998807907104,
+              "norm_ref": 0.0011412458261474967,
+              "norm_tst": 0.001141241635195911
+            }
+          },
+          "fp_calibration": {
+            "sep_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "sep_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "sep_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.475655153626576e-10,
+              "mean_abs": 1.7762974251211983e-12,
+              "rel_l2": 8.76245829427559e-06,
+              "cosine": 1.0,
+              "norm_ref": 0.0011412458261474967,
+              "norm_tst": 0.0011412493186071515,
+              "scalar": {
+                "ref": 0.05827382579445839,
+                "tst": 0.058273953223174906,
+                "abs_diff": 1.2742871651622023e-07,
+                "rel_diff": 2.1867230232262903e-06
+              }
+            },
+            "fused_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.7917045624926686e-10,
+              "mean_abs": 2.6176910031955325e-12,
+              "rel_l2": 1.2816050531214227e-05,
+              "cosine": 0.9999999403953552,
+              "norm_ref": 0.001141241635195911,
+              "norm_tst": 0.0011412493186071515,
+              "scalar": {
+                "ref": 0.0582737922668457,
+                "tst": 0.058273953223174906,
+                "abs_diff": 1.6095632920237746e-07,
+                "rel_diff": 2.7620706142708334e-06
+              }
+            },
+            "sigma_clamp_census": {
+              "n_pred_variance_negative": 0,
+              "n_target_variance_negative": 0,
+              "n_elements": 6220800,
+              "frac_pred_variance_negative": 0.0,
+              "most_negative_pred_variance": 2.0936323608111707e-07,
+              "note": "fused-ssim clamps sigma^2 to >=0 (fmaxf) and zeros derivatives at clamped samples; SepSSIM does not clamp"
+            }
+          }
+        },
+        {
+          "camera_index": 28,
+          "n_gaussians": 2530521,
+          "image_shape": [
+            1080,
+            1920,
+            3
+          ],
+          "primary_comparison": {
+            "total_loss": {
+              "ref": 0.089665487408638,
+              "tst": 0.08966545015573502,
+              "abs_diff": 3.725290298461914e-08,
+              "rel_diff": 4.154653486111575e-07
+            },
+            "ssim_scalar": {
+              "ref": 0.7226712703704834,
+              "tst": 0.7226714491844177,
+              "abs_diff": 1.7881393432617188e-07,
+              "rel_diff": 2.47434679718901e-07
+            },
+            "dL_dimage": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 4.306329515202378e-09,
+              "mean_abs": 1.784098042911797e-12,
+              "rel_l2": 1.3401504372044155e-05,
+              "cosine": 0.9999999403953552,
+              "norm_ref": 0.0012411741772666574,
+              "norm_tst": 0.0012411708012223244
+            }
+          },
+          "fp_calibration": {
+            "sep_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "sep_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "sep_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.6711965145077556e-10,
+              "mean_abs": 1.4087094121414956e-12,
+              "rel_l2": 7.050863631621951e-06,
+              "cosine": 1.0,
+              "norm_ref": 0.0012411741772666574,
+              "norm_tst": 0.0012411769712343812,
+              "scalar": {
+                "ref": 0.089665487408638,
+                "tst": 0.08966559818043277,
+                "abs_diff": 1.1077179476459698e-07,
+                "rel_diff": 1.2353894231318893e-06
+              }
+            },
+            "fused_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 4.306258460928802e-09,
+              "mean_abs": 2.185861951511936e-12,
+              "rel_l2": 1.4800430414442393e-05,
+              "cosine": 1.0,
+              "norm_ref": 0.0012411708012223244,
+              "norm_tst": 0.0012411769712343812,
+              "scalar": {
+                "ref": 0.08966545015573502,
+                "tst": 0.08966559818043277,
+                "abs_diff": 1.4802469774921612e-07,
+                "rel_diff": 1.650855457616285e-06
+              }
+            },
+            "sigma_clamp_census": {
+              "n_pred_variance_negative": 119,
+              "n_target_variance_negative": 313,
+              "n_elements": 6220800,
+              "frac_pred_variance_negative": 1.9129372958559543e-05,
+              "most_negative_pred_variance": -1.1920928955078125e-07,
+              "note": "fused-ssim clamps sigma^2 to >=0 (fmaxf) and zeros derivatives at clamped samples; SepSSIM does not clamp"
+            }
+          }
+        },
+        {
+          "camera_index": 6,
+          "n_gaussians": 2530521,
+          "image_shape": [
+            1080,
+            1920,
+            3
+          ],
+          "primary_comparison": {
+            "total_loss": {
+              "ref": 0.07641340792179108,
+              "tst": 0.07641338557004929,
+              "abs_diff": 2.2351741790771484e-08,
+              "rel_diff": 2.9251073075615776e-07
+            },
+            "ssim_scalar": {
+              "ref": 0.7697683572769165,
+              "tst": 0.7697685360908508,
+              "abs_diff": 1.7881393432617188e-07,
+              "rel_diff": 2.3229577136521e-07
+            },
+            "dL_dimage": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 2.580691216280684e-10,
+              "mean_abs": 2.4406564009399334e-12,
+              "rel_l2": 1.0588141857972303e-05,
+              "cosine": 0.9999998807907104,
+              "norm_ref": 0.0012863479787483811,
+              "norm_tst": 0.0012863429728895426
+            }
+          },
+          "fp_calibration": {
+            "sep_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_grad_rel_l2": [
+              0.0,
+              0.0
+            ],
+            "sep_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "fused_repeat_loss_abs_diff": [
+              0.0,
+              0.0
+            ],
+            "sep_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 1.787157088983804e-10,
+              "mean_abs": 1.974383764119514e-12,
+              "rel_l2": 8.451217195584252e-06,
+              "cosine": 0.9999999403953552,
+              "norm_ref": 0.0012863479787483811,
+              "norm_tst": 0.001286352053284645,
+              "scalar": {
+                "ref": 0.07641340792179108,
+                "tst": 0.07641356711265879,
+                "abs_diff": 1.5919086771010171e-07,
+                "rel_diff": 2.0832844920754373e-06
+              }
+            },
+            "fused_vs_fp64": {
+              "finite_fraction_ref": 1.0,
+              "finite_fraction_tst": 1.0,
+              "max_abs": 2.3931079340400174e-10,
+              "mean_abs": 3.0500886104983804e-12,
+              "rel_l2": 1.293975210308692e-05,
+              "cosine": 1.0,
+              "norm_ref": 0.0012863429728895426,
+              "norm_tst": 0.001286352053284645,
+              "scalar": {
+                "ref": 0.07641338557004929,
+                "tst": 0.07641356711265879,
+                "abs_diff": 1.815426095008732e-07,
+                "rel_diff": 2.375795917777395e-06
+              }
+            },
+            "sigma_clamp_census": {
+              "n_pred_variance_negative": 0,
+              "n_target_variance_negative": 0,
+              "n_elements": 6220800,
+              "frac_pred_variance_negative": 0.0,
+              "most_negative_pred_variance": 7.652852218598127e-08,
+              "note": "fused-ssim clamps sigma^2 to >=0 (fmaxf) and zeros derivatives at clamped samples; SepSSIM does not clamp"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "provisional_classification": {
+    "room": {
+      "worst_grad_rel_l2": 1.6497413788791675e-05,
+      "grad_threshold": 0.00020798843770192856,
+      "worst_loss_rel_diff": 5.831013759096951e-06,
+      "loss_threshold": 8.484320538654603e-05,
+      "worst_finite_fraction": 1.0,
+      "sep_fp64_rel_l2_max": 1.3286281514746967e-05,
+      "fused_fp64_rel_l2_max": 2.0798843770192855e-05,
+      "repeat_noise_rel_l2_max": 0.0,
+      "pass_grad": true,
+      "pass_loss": true,
+      "pass_finite": true,
+      "classification": "SEMANTICALLY_MATCHED_WITHIN_FP"
+    },
+    "bicycle": {
+      "worst_grad_rel_l2": 3.212392965134127e-05,
+      "grad_threshold": 0.0003257858036042236,
+      "worst_loss_rel_diff": 1.1562487498060393e-06,
+      "loss_threshold": 2.2211616443697785e-05,
+      "worst_finite_fraction": 1.0,
+      "sep_fp64_rel_l2_max": 5.04219671567908e-06,
+      "fused_fp64_rel_l2_max": 3.2578580360422364e-05,
+      "repeat_noise_rel_l2_max": 0.0,
+      "pass_grad": true,
+      "pass_loss": true,
+      "pass_finite": true,
+      "classification": "SEMANTICALLY_MATCHED_WITHIN_FP"
+    },
+    "garden": {
+      "worst_grad_rel_l2": 1.3401504372044155e-05,
+      "grad_threshold": 0.00014800430414442392,
+      "worst_loss_rel_diff": 5.753460018982582e-07,
+      "loss_threshold": 2.7620706142708336e-05,
+      "worst_finite_fraction": 1.0,
+      "sep_fp64_rel_l2_max": 8.76245829427559e-06,
+      "fused_fp64_rel_l2_max": 1.4800430414442393e-05,
+      "repeat_noise_rel_l2_max": 0.0,
+      "pass_grad": true,
+      "pass_loss": true,
+      "pass_finite": true,
+      "classification": "SEMANTICALLY_MATCHED_WITHIN_FP"
+    }
+  },
+  "overall_classification": "SEMANTICALLY_MATCHED_WITHIN_FP",
+  "consequence": "fused-ssim IS a strong-baseline substitute for the frozen recipe; L2/L3/L4 use it as the strong baseline"
+}

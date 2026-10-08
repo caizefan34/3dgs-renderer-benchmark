@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "baseline_definition": {
+    "arm_B": "Pristine conventional differentiable gsplat",
+    "description": "Standard gsplat rasterization() with default training path, no HiGS",
+    "entry_point": "gsplat.rendering.rasterization()",
+    "semantics": {
+      "projection": "fully_fused_projection (3DGS convention: mean3D -> mean2D + cov2D)",
+      "sh_degree": 3,
+      "alpha_compositing": "front-to-back, per-tile sorted",
+      "eps2d": 0.3,
+      "camera_model": "pinhole",
+      "loss": "L1 (configurable, default in benchmark)",
+      "background": "configurable (default: zeros or provided color)",
+      "resolution": "configurable via width/height args",
+      "training_state": "FP32 masters (means, quats, scales, opacities, SH)",
+      "packed": false,
+      "sparse_grad": false,
+      "antialiased": false,
+      "absgrad": false
+    },
+    "backward": "autograd through rasterization() (standard gsplat CUDA backward kernels)",
+    "forward_state_saved": "gsplat default: means2D, conics, colors, opacities, radii, geometry counts"
+  },
+  "arm_H": "Trainable HiGS native",
+  "description": "HiGS hierarchical inference renderer with native differentiable backward",
+  "entry_point": "gsplat.experimental.render.functional.gaussian_inference.rasterize_gaussian_higs_frozen() or _dynamic()",
+  "backward_mode": "higs_native (default) or gsplat_recompute (fallback)",
+  "semantics": {
+    "projection": "Same fully_fused_projection as B (for visible subset)",
+    "sh_degree": 3,
+    "alpha_compositing": "Same front-to-back, but over HiGS macro-tile intersections",
+    "eps2d": 0.3,
+    "camera_model": "pinhole",
+    "loss": "Same L1",
+    "background": "Same",
+    "resolution": "Same",
+    "training_state": "FP32 masters, packed FP16 scene buffers (culling path only)",
+    "hierarchical_forward": true,
+    "macro_tile_size": 16,
+    "culling": "discrete visibility mask (no_grad), resolution-independent"
+  },
+  "native_backward": {
+    "description": "Custom CUDA kernels consuming forward-captured state",
+    "kernels": [
+      "higs_blend_bwd_kernel",
+      "higs_projection_bwd_kernel",
+      "higs_sh_vjp_kernel"
+    ],
+    "state_binding": "Forward-captured tensors (means2D, conics, colors_eval, opacities, per-tile sorted isects, render alphas, last ids, radii)",
+    "no_recomputation": true,
+    "gradient_scatter": "Direct to FP32 master rows via visible_ids (no index_copy_)"
+  },
+  "protocol_matching": {
+    "requirement": "B and H must use identical: Gaussian state, cameras, resolution, loss, eps2d, render mode, SH degree, dtype, background, optimizer, LR, densification, pruning, camera ordering, seed",
+    "verification": "Benchmark harness ensures identical inputs; correctness gate verifies output parity",
+    "known_differences": [
+      "H adds culling mask computation (discrete, no_grad) - documented as HiGS architectural feature",
+      "H native backward consumes different internal state layout - transparent to user API",
+      "H dynamic mode includes densify/prune with Adam-state sync - optional, not used in frozen benchmarks"
+    ]
+  },
+  "exclusions": {
+    "forbidden_optimizations": [
+      "F9 (fused Adam)",
+      "H8-MR (mixed precision backward)",
+      "SCALAR_ADJOINT",
+      "tile sampling",
+      "error-guided sampling",
+      "masked Adam",
+      "progressive resolution",
+      "resolution decay",
+      "SkipGS",
+      "NOVA3",
+      "VCD"
+    ],
+    "scope_note": "This study isolates core Trainable HiGS architecture (hierarchical forward + native backward + dynamic topology). Optimization modules tested in separate studies."
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "artifact": "PAPER0_COHORT_MAP",
+  "schema": "paper0-cohort-map/v1",
+  "generated_utc": "2026-10-02",
+  "principle": "Each cohort is a self-consistent hardware+environment+scene+seed+protocol group. Numbers MUST NOT be merged across cohorts.",
+  "cohorts": [
+    {
+      "cohort_id": "EPIC05_A100_REMOTE",
+      "authority": "EPIC-05 A100 cluster (remote-only)",
+      "hardware": "NVIDIA A100-SXM4-80GB",
+      "software": "CUDA 12.8, torch 2.9.1+cu128 (some 2.10.0+cu128), gsplat 1.5.3 fork gsplat-b1-clean-v153",
+      "gpu_rule": "no local CUDA; all work remote",
+      "scenes": [
+        "room",
+        "garden",
+        "bicycle",
+        "bonsai",
+        "counter",
+        "kitchen",
+        "stump",
+        "flowers",
+        "treehill",
+        "truck",
+        "train"
+      ],
+      "seed": "42 (per-method)",
+      "protocols": [
+        "renderer forward+backward microbench on frozen PLY",
+        "per-camera bit-exactness",
+        "CUDA-event timing WARMUP=3 ITERS=10 median"
+      ],
+      "methods": [
+        "TFC",
+        "DFC",
+        "CGC",
+        "KFC",
+        "AGS",
+        "VOS1-hardened"
+      ],
+      "notes": "Frozen-PLY renderer cohorts (TFC/DFC/CGC/KFC/AGS) are NOT full-training. VOS1-hardened uses full 30K training + true-holdout eval."
+    },
+    {
+      "cohort_id": "C51_STAGE4A_ROOM",
+      "authority": "Phase C51 Stage 4A",
+      "hardware": "A100-PCIE-40GB, 8 GPUs SM80",
+      "software": "gsplat 1.5.3, CUDA 11.8 build, MipNeRF360 room 1920x1080 (311 cameras)",
+      "scenes": [
+        "room"
+      ],
+      "seed": "multiple (gpu_id 1-6)",
+      "protocols": [
+        "5K + 30K full training (baseline vs k50_b1)",
+        "single-camera CUDA microbench",
+        "kernel fwd+bwd timing"
+      ],
+      "methods": [
+        "K50-B1"
+      ],
+      "caveats": "5K baseline had low absolute PSNR (~29) due to prune_and_reset shape bug + no SSIM loss + opacity reset disabled. Config-buggy; superseded by stage4b for headline. SINGLE SCENE."
+    },
+    {
+      "cohort_id": "C51_STAGE4B_3SCENE",
+      "authority": "Phase C51 Stage 4B",
+      "hardware": "A100-80GB (gpu_id 1/3)",
+      "software": "gsplat 1.5.3, MipNeRF360 room/garden/bicycle",
+      "scenes": [
+        "room",
+        "garden",
+        "bicycle"
+      ],
+      "seed": "per-scene (gpu_id 1/3)",
+      "protocols": [
+        "30K full training (baseline vs k50_b1)",
+        "per-iter mean_ms timing",
+        "densification_events + mask_stats"
+      ],
+      "methods": [
+        "K50-B1"
+      ],
+      "caveats": "CLEAN cohort. THE source of K50-B1 full-training-step speedups (8.2%/24.4%/28.9%). Do NOT merge with stage4a."
+    },
+    {
+      "cohort_id": "FASTERGSFUSED_C0_30K",
+      "authority": "FasterGSFused (C0) backend",
+      "hardware": "A100 (EPIC-05 remote)",
+      "software": "FasterGSFused C0, graphdeco pipeline",
+      "scenes": [
+        "room",
+        "garden",
+        "bicycle"
+      ],
+      "seed": "42; 3 seeds {0,1,42} for VOS multi-seed",
+      "protocols": [
+        "30K full training",
+        "checkpoint-replay for quality",
+        "in-process replay oracle vs single-tensor Adam A_s"
+      ],
+      "methods": [
+        "VOS",
+        "IGF"
+      ],
+      "caveats": "Optimizer-level methods (no custom CUDA kernel). VOS multi-seed = 18 runs. IGF warmup 0..15000 dense, scheduled 15000..30000 frozen."
+    }
+  ],
+  "cross_cohort_prohibitions": [
+    "K50-B1 stage4a != stage4b",
+    "renderer-frozen-PLY cohorts (TFC/DFC/CGC/KFC/AGS) != full-training cohorts (K50-B1/VOS/IGF)",
+    "EPIC-05 A100-SXM4-80GB != A100-PCIE-40GB (stage4a)"
+  ]
+}

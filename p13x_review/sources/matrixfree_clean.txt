@@ -1,0 +1,476 @@
+Matrix-free Second-order Optimization of Gaussian Splats with Residual Sampling
+
+3D Gaussian Splatting (3DGS) is widely used for novel view synthesis due to its high rendering quality and fast inference time.
+However, 3DGS predominantly relies on first-order optimizers such as Adam, which leads to long training times.
+To address this limitation, we propose a novel second-order optimization strategy based on Levenberg-Marquardt (LM) and Conjugate Gradient (CG), specifically tailored towards Gaussian Splatting.
+Our key insight is that the Jacobian in 3DGS exhibits significant sparsity since each Gaussian affects only a limited number of pixels.
+We exploit this sparsity by proposing a matrix-free and GPU-parallelized LM optimization.
+To further improve its efficiency, we propose sampling strategies for both camera views and loss function and, consequently, the normal equation, significantly reducing the computational complexity.
+In addition, we increase the convergence rate of the second-order approximation by introducing an effective heuristic to determine the learning rate that avoids the expensive computation cost of line search methods.
+As a result, our method achieves a $4\times$ speedup over standard LM and outperforms Adam by $~5\times$ when the Gaussian count is low while providing $\approx 1.3x$ speed in moderate counts.
+In addition, our matrix-free implementation achieves $2\times$ speedup over the concurrent second-order optimizer 3DGS-LM, while using $3.5\times$ less memory. Project Page: https://vcai.mpi-inf.mpg.de/projects/LM-RS
+
+
+
+1 Introduction
+
+Photoreal novel view synthesis from multi-view images or video has attracted significant attention in recent years due to widely applicable downstream tasks in content creation, VR/XR, gaming, and the movie industry, to name a few.
+Here, Neural Radiance Fields (NeRF) [ 36 ] and 3D Gaussian Splatting (3DGS) [ 22 ] mark a major milestone, due to their unprecedented quality leading to follow ups beyond view synthesis like VR rendering [ 54 ] , avatar creation [ 50 ] , simultaneous localization and mapping (SLAM) [ 35 , 1 ] , and scene editing [ 3 , 11 ] .
+
+However, NeRF-based models often require substantial training time, and researchers have developed various techniques to mitigate this problem.
+Some of them include neural hashing [ 39 ] , employing explicit scene modeling [ 47 ] , improved sampling strategies [ 21 ] , and tensor factorization methods [ 10 ] .
+3DGS [ 22 ] instead does not rely on coordinate-based representations, but leverages a set of 3D Gaussians, which can be effectively rendered into image space using tile-based rasterization.
+Nonetheless, optimizing the parameters of each Gaussian can still take hours.
+Previous work focused on finding better densification strategies [ 31 , 23 ] , quantization and compression of Gaussians [ 16 , 41 ] , and more efficient implementations for the backward pass [ 31 ] , which led to substantially reduced training times.
+However, all of them mostly rely on a first-order optimization routine, i.e. gradient descent or Adam [ 24 ] , and do not explore other (potentially second-order) alternatives.
+
+Second-order optimization is known for having better convergence guarantees compared to first-order methods.
+However, its adoption in 3DGS remains challenging due to the high memory and computational demands associated with storing and inverting large Jacobian matrices.
+Notably, the Jacobian size scales quadratically with both the number of Gaussians and image pixels.
+Unlike NeRFs, which rely on a dense neural network and a coordinate-based formulation, 3DGS benefits from inherently sparse Jacobians since each Gaussian influences only a small subset of pixels (residuals).
+Our key idea is to leverage this sparsity in order to make second-order optimization for Gaussian Splatting not only tractable, but also potentially more efficient than first-order baselines.
+
+To this end, we formulate fitting the Gaussian parameters to the multi-view images as a non-linear least squares optimization problem and leverage the Levenberg-Marquardt (LM) algorithm for solving it.
+Concurrent work 3DGS-LM [ 20 ] also adopts the LM optimizer with Gaussian Splatting; however, it still suffers from the high storage and computation requirements of the Jacobian matrix.
+In addition, 3DGS-LM has to run the Adam [ 24 ] optimizer first to provide fast convergence, since solving the numerical system arising from the normal equation is computationally expensive.
+
+To overcome these challenges, we propose a GPU-parallelized matrix-free conjugate gradient solver coupled with pixel sampling, which circumvents explicit storage of the Jacobian matrix and solves the matrix inverse iteratively.
+Firstly, we show that implementing a matrix-free solver naively does not result in a fast optimizer because of the high computational cost of Jacobian-vector products.
+Therefore, we propose to approximate the full normal equation by an effective view sampling strategy and by sampling individual pixels, which results in significantly faster convergence.
+These approximations make the Jacobian-vector products cheaper to begin with and obviate the need for the Adam optimizer.
+We also introduce a heuristic to automatically determine the learning rate, which eliminates the need for line search algorithms that are commonly used in conjunction with second-order optimizers.
+
+Overall, with these improvements, our proposed second-order optimizer is both memory and compute efficient compared to 3DGS-LM [ 20 ] , suggesting that second-order optimization for 3DGS is a highly promising direction for further study.
+Our optimizer demonstrates improvements in settings with a low and moderate number of Gaussians over first-order optimizers as well.
+In summary, we propose a novel second-order optimizer for 3DGS with the following features:
+
+Formulating Gaussian Splatting as a non-linear least squares optimization problem that is solved using a memory and computationally efficient matrix-free Levenberg-Marquardt and conjugate gradient solver specifically tailored towards 3DGS.
+
+A view and importance sampling strategy over the pixels (residuals) to effectively approximate the loss, leading to a significant decrease in computational complexity.
+
+An effective heuristic to determine the learning rate, which eliminates the need for expensive line search methods while providing stable convergence for 3DGS optimization.
+
+2 Related Work
+
+3D Scene Representation. Neural Radiance Fields (NeRFs) [ 36 ] represent the 3D geometry of a scene implicitly using a coordinate-based neural network.
+Subsequently, several variations of NeRFs have been proposed to improve visual quality [ 4 ] and to improve computational efficiency [ 49 , 18 , 40 ] .
+However, despite the significant advancements, NeRFs still face limitations, particularly in terms of their training and rendering efficiency.
+More recently, 3D Gaussian Splatting (3DGS) [ 22 ] has been proposed, which employs a fully explicit representation, unlocking significant enhancements in rendering speed while maintaining better qualitative results than NeRF-based methods.
+Recent advancements have further improved the rendering quality of 3DGS [ 30 , 56 ] , or its efficiency [ 14 , 28 , 15 , 44 , 31 ] .
+Notably, LightGaussian [ 14 ] and C3DGS [ 28 ] focus on pruning Gaussians, directly leading to improvements in rendering speed.
+Another related approach is to constrain the densification process, efficiently modeling the scene with less Gaussians, such as in Mini-Splatting [ 15 ] and 3DGS-MCMC [ 23 ] .
+Some other works aim to compress or quantize Gaussians [ 16 , 41 ] .
+Taming3DGS [ 31 ] steers the densification process in a controlled manner, while also devising a parallelized implementation for more efficient backpropagation in CUDA.
+Orthogonally to these works, we explore second-order optimizers for 3DGS optimization, which is challenging due to the high memory and computational demands associated with storing and inverting large Jacobian matrices.
+To achieve this, we exploit the sparsity of the Jacobian matrices of 3DGS.
+
+First-order Optimizers. Stochastic Gradient Descent (SGD) [ 43 ] was developed as a general optimization method and has been widely used in modern multi-dimensional deep learning tasks.
+With the addition of momentum [ 46 ] , SGD can overcome local optima, a crucial feature in stochastic settings.
+However, a key limitation is that SGD applies the same update to all dimensions, which makes it difficult to adapt to complex problems.
+To address this, researchers have developed various preconditioners for the gradient information.
+Adagrad [ 13 ] accumulates the squares of the gradients and preconditions the gradient with the square root of the accumulated values.
+RMSprop [ 51 ] replaces accumulation with an exponentially moving average, which leads to more stable training.
+Adam [ 24 ] , arguably the most popular optimizer today, combines momentum with the moving average of second-order moments.
+It has also become the default optimizer for many 3D tasks, including NeRF and 3DGS, and provides a strong baseline.
+However, despite the efficacy of first-order optimizers, there is strong incentive to explore second-order optimizers due to their attractive properties, as discussed next.
+
+Second-order Optimizers. Second-order optimizers often approximate the inverse of the Hessian matrix to precondition the gradient, and can offer significant advantages over first-order methods.
+They require far fewer iterations because they can obtain the second-order approximation of the loss landscape into account [ 32 , 34 , 33 ] .
+Additionally, second-order methods are often not as sensitive to learning rate values, and can often estimate it locally through line search algorithms [ 2 , 20 , 37 ] , or trust region methods [ 12 , 42 ] .
+
+A subset of second-order optimizers, particularly those deriving from Gauss-Newton, leverage curvature information to refine parameter updates.
+The general update rule for this family of optimizers follows:
+
+$\boldsymbol{\beta}_{t+1}=\boldsymbol{\beta}_{t}-\mathbf{H^{-1}}\mathbf{g}$ (1)
+
+where $\mathbf{g}\in\mathbb{R}^{n}$ is the gradient, $\mathbf{H}\in\mathbb{R}^{n\times n}$ is the Hessian of the loss function and $\boldsymbol{\beta}\in\mathbb{R}^{n}$ are the parameters to be updated, and $n$ is the number of parameters.
+In a naive implementation, storing the Hessian requires $O(n^{2})$ space, and computing its inverse takes $O(n^{3})$ time, making it impractical for large-scale optimization tasks.
+Instead, a numerical approximation of the inverse can be obtained using iterative solvers like conjugate gradient (CG) [ 19 ] .
+This method can also eliminate the need to store the Hessian matrix, as CG only requires the results of matrix-vector multiplications [ 34 , 33 ] .
+In the literature, this class of methods is referred to as Hessian-free or matrix-free optimization.
+
+Specifically, within the class of second-order optimizers, the Gauss-Newton (GN) algorithm [ 27 ] is sometimes adopted to approximate the Hessian $\mathbf{H}$ with $\mathbf{J^{\top}J}$ , where $\mathbf{J}$ is the Jacobian matrix.
+This method effectively approximates the second-order derivative only using first-order derivatives.
+Notably, the Levenberg-Marquardt (LM) algorithm [ 38 ] is an extension over GN, interpolating between GN and gradient descent, resulting in more stable optimization.
+Recently, some works [ 26 , 20 ] also explored second-order optimizers for 3DGS optimization.
+3DGS 2 [ 26 ] explores an algorithm based on Newton’s method, but makes it computationally tractable by limiting the second-order computations to a small locality.
+Concurrent work 3DGS-LM [ 20 ] employs the LM optimizer with a dedicated cache for intermediate Jacobian entries for fast computation.
+However, caching Jacobians results in quadratic memory requirements, as it scales with respect to both pixels and parameters.
+In addition, 3DGS-LM heavily relies on Adam optimizer for performance since processing a large cache is also expensive.
+
+In our paper, we also adapt the LM optimizer, proposing a fast GPU-parallelized conjugate solver for 3DGS, which is a matrix-free optimization that avoids explicitly storing the Jacobian matrix and solves the matrix inverse iteratively.
+Our LM optimizer exploits the sparsity property within 3DGS representations for computational efficiency by an effective view sampling strategy and by residual sampling, which enables the matrix-free implementation and provides faster convergence.
+
+3 Background - 3D Gaussian Splatting (3DGS)
+
+3DGS is a point-based representation that can reconstruct 3D scenes with high fidelity.
+The 3D scene is represented using a set of Gaussians, where each Gaussian has an optimizable mean $\mathcal{X}$ and covariance $\boldsymbol{\Sigma}$ :
+
+$G(\mathbf{x})=e^{-\frac{1}{2}\left(\mathbf{x}-\mathcal{X}\right)^{T}\boldsymbol{\Sigma}^{-1}\left(\mathbf{x}-\mathcal{X}\right)}$ (2)
+
+To ensure the covariance matrix remains positive-definite, it is decomposed into rotation $\mathbf{R}$ and scale $\mathbf{S}$ matrices:
+
+$\Sigma=\mathbf{R}\mathbf{S}\mathbf{S^{\top}}\mathbf{R^{\top}}.$ (3)
+
+To render a pixel, the Gaussians are first projected onto the 2D image plane, and sorted according to their depth.
+A pixel value $\hat{I_{i}}$ is computed using $\alpha$ -blending, which combines the color $c$ and per-pixel opacity $\alpha$ of the projected Gaussians:
+
+$\displaystyle\hat{I_{i}}=$ $\displaystyle\sum_{n\leq\mathcal{S}}c_{n}\cdot\alpha_{n}\cdot\prod_{m<n}(1-\alpha_{m})$ (4) $\displaystyle\text{, where}\quad\alpha_{n}=o_{n}\boldsymbol{\pi}_{\text{cam}}\left(G_{n}\right)$
+
+where $\mathcal{S}$ represents the total number of depth-sorted Gaussians projected onto pixel $i$ , and opacity contribution $\alpha_{n}$ is obtained by multiplying Gaussian base opacity $o_{n}$ with its 2D projection (via camera projection $\boldsymbol{\pi}_{\text{cam}}$ ).
+
+The parameters of the Gaussians are updated by optimizing a loss function between the rendered image $\hat{\mathcal{I}}$ and ground-truth image ${\mathcal{I}}$ .
+This optimization is done predominantly using the Adam optimizer:
+
+$\mathcal{L}=\frac{1}{N}\sum_{i=1}^{N}\mathcal{L}_{f}(\hat{\mathcal{I}},\mathcal{I}),$ (5)
+
+where $\mathcal{L}_{f}(\cdot)$ is a loss function that quantifies image differences.
+In this paper, we experiment with mean squared error (MSE) and structural similarity (SSIM) [ 52 ] loss functions.
+Additionally, 3DGS models the view-dependent effects with spherical harmonics.
+In this work, however, we assume each scene has Lambertian surface and disable the corresponding spherical harmonics levels.
+
+4 Method
+
+We first introduce the LM optimizer in Sec. 4.1 , which we adopt in this work.
+Then, we derive why a naive implementation is not feasible for Gaussian Splatting.
+To resolve this issue, in Sec. 4.2 , we discuss our matrix-free approach to adapt the LM optimizer.
+In detail, we propose a GPU-parallelized conjugate gradient solver for our second-order 3DGS optimizer, which circumvents explicit storage of the Jacobian matrix, and solves the matrix inverse iteratively.
+Next, in Sec. 4.3 , we introduce a new view sampling strategy to effectively approximate the full normal equation, thereby providing reliable update step directions by integrating information from multiple views.
+In Sec. 4.4 , we present our residual sampling, providing an approximate loss function, which results in significantly faster convergence.
+Lastly, in Sec. 4.5 , we introduce a heuristic to automatically determine the learning rate, which eliminates the need for line search algorithms that are commonly used in conjunction with second-order optimizers.
+The overview of all the components is given in Fig. 2 .
+
+4.1 Levenberg-Marquardt Optimizer for 3DGS
+
+We use the LM optimizer with a fixed damping parameter to compute an update step by minimizing the loss over a mini-batch $B$ , which includes images of the shape height $H$ , width $W$ , and channels $C$ .
+The optimizable parameters for each Gaussian are opacity $o\in\mathbb{R}$ , color $c\in\mathbb{R}^{3}$ , mean value $\mathcal{X}\in\mathbb{R}^{3}$ , scale $s\in\mathbb{R}^{3}$ , and quaternion rotation $q\in\mathbb{R}^{4}$ .
+We represent all Gaussian parameters with $\boldsymbol{\beta}\in\mathbb{R}^{P}$ , where we denote the total number of optimizable parameters with $P$ .
+
+The rendering loss function in Eq. 5 can be rewritten as a nonlinear least squares objective:
+
+$\mathcal{L}=\frac{1}{M}\sum_{i=1}^{M}(r_{i})^{2}$ (6)
+
+where $r$ is a residual and $M=BHWC$ .
+The residuals are defined as pixel and structural similarity losses; however, to keep the derivation concise, we omit the structural similarity term:
+
+$r_{i}=\hat{\mathcal{I}_{i}}-\mathcal{I}_{i}$ (7)
+
+Then, the update vector $\Delta\boldsymbol{\beta}\in\mathbb{R}^{P}$ is retrieved by solving the following normal equation :
+
+$\left(\mathbf{J}^{T}\mathbf{J}+\lambda\mathbf{I}\right)\Delta\boldsymbol{\beta}=\mathbf{J}^{T}\mathbf{r}$ (8)
+
+where $\lambda$ is the fixed damping parameter, $\mathbf{r}\in\mathbb{R}^{M}$ is the vectorized form of the residuals $r_{i}$ , and $\mathbf{J}\in\mathbb{R}^{M\times P}$ is the Jacobian of $\mathbf{r}$ .
+
+Input : Gaussians $\boldsymbol{\beta}_{k}$ , cameras $\mathcal{C}$ Output : Updated Gaussians $\boldsymbol{\beta}_{k+1}$
+
+One iteration of the LM optimizer is completed after we update all the Gaussian parameters $\boldsymbol{\beta}$ with the learning rate $\eta$ :
+
+$\boldsymbol{\beta}_{(k+1)}=\boldsymbol{\beta}_{(k)}+\eta\cdot\Delta\boldsymbol{\beta}$ (9)
+
+Note that in the original 3DGS, for each parameter group (opacity, color, mean, scale, and rotation), a different learning rate is used.
+On the other hand, we use a uniform learning rate across parameters because Gauss-Newton-type methods inherently incorporate parameter scaling through the Hessian approximation $\mathbf{J^{\top}J}$ .
+In Sec. 4.5 , we discuss a heuristic to determine the learning rate at every iteration.
+
+In practice, naively solving the normal equation is not feasible, especially in large-scale numerical systems.
+First, the Jacobians scale quadratically with both the number of Gaussians and the number of pixels, and storing the Jacobians explicitly in memory quickly becomes infeasible.
+For example, using $100$ images at a resolution of $800\times 800$ pixels as training data, along with $10\,000$ Gaussians to model the 3D scene, would result in Jacobians exceeding $100$ TB in size.
+Even assuming a sparse storage format with a $99\%$ sparsity, the storage requirement would still exceed $1$ TB for a true LM optimizer.
+In addition, explicitly inverting the system matrix has O( $P^{3}$ ) time complexity when implemented naively.
+Thus, computing the explicit inverse is often infeasible, and previous work has focused on solving the normal equation iteratively [ 34 , 33 , 9 ] , but they still remain computationally expensive, as discussed in the next section.
+
+4.2 Matrix-free Preconditioned Conjugate Gradient (PCG) Solver for 3DGS
+
+We first discuss our matrix-free PCG solver to adapt the LM optimizer.
+In this subsection, we present a GPU-parallelized conjugate gradient solver, which does not need to store the Jacobian matrix explicitly, avoiding the memory issues mentioned in Sec. 4.1 .
+To achieve this, we solve Eq. 8 via the preconditioned conjugate gradient algorithm [ 19 ] , which only needs results of Jacobian-vector products, and finds the solution $\Delta\boldsymbol{\beta}$ iteratively.
+
+To improve the condition number of the linear system in Eq. 8 , we used the Jacobi preconditioner due to its simplicity and effectiveness.
+More specifically, we use $\frac{1}{\operatorname{diag}(\mathbf{J^{\top}J}+\lambda\mathbf{I})}\in\mathbb{R}^{P}$ , as the precondition.
+We provide the implementation of the solver in CUDA, together with efficient Jacobian-vector product kernel, which is implemented with forward mode differentiation and dual numbers [ 5 , 53 ] .
+See the supplementary material for details about the kernel design.
+The pseudocode of the optimizer is given in Alg. 1 .
+
+Although this optimizer is able to converge to the final solution in a limited number of steps, it is $4\times$ slower than our final method, as shown in Tab. 3 .
+The main reason for this is that the conjugate gradient algorithm needs to run several iterations, therefore, we need to repeatedly compute the $\mathbf{J}^{\top}\mathbf{J}\mathbf{p}$ product arising on line $10$ of Alg. 1 .
+This kind of computational complexity commonly arises when a second-order optimizer is used in large-scale numerical systems, and usually, an approximation method is used for efficiency.
+The common approximation methods are diagonal [ 6 , 29 , 55 , 48 ] and block-diagonal [ 32 , 45 , 7 ] approximation of the Hessian or $\mathbf{J^{\top}J}$ matrix.
+
+We observe that the Hessian approximation $\mathbf{J^{\top}J}$ in 3DGS does not exhibit a dominant diagonal or block-diagonal structure, as illustrated in Fig. 3 .
+This arises because each pixel is rendered through the interaction of multiple Gaussians, as described in Eq. 4 .
+In other words, no single Gaussian independently represents a surface; instead, it relies on the collective contribution of surrounding Gaussians to accurately capture the ground truth.
+This leads to many off-diagonal and off-block-diagonal entries in $\mathbf{J^{\top}J}$ .
+Therefore, the common diagonal and block-diagonal approximations do not provide good approximations.
+To this end, we propose to estimate the loss function with our proposed view and residual sampling. The sampling techniques enable the matrix-free implementation as the cost of solving Eq. 8 is drastically reduced.
+
+4.3 View Sampling
+
+Second-order methods like LM are typically used in deterministic settings where the full objective is evaluated at every iteration.
+If this is not the case, estimating local curvature can be problematic and become unreliable [ 9 ] .
+This poses a challenge in the 3DGS setting, where the number of views can exceed hundreds, as incorporating all of them at the same time is infeasible.
+Yet, to compute meaningful gradients, we must find an effective way to approximate the full normal equation in Eq. 8 .
+
+To this end, we introduce a camera sampling approach that allows us to get a diverse set of views in each batch.
+Let $\mathcal{C}=\{c_{1},c_{2},\dots,c_{N}\}$ be the set of all cameras. For each camera $c_{i}$ , we form the feature vector:
+
+$f_{i}=[x_{i},y_{i},z_{i},\;{dx}_{i},{dy}_{i},{dz}_{i}]$ (10)
+
+where $(x,y,z)$ is the cameras’ normalized location and $({dx},{dy},{dz})$ is the viewing direction.
+We then run K-Means clustering on $\{f_{i}\}_{i=1}^{N}$ to partition the cameras into batch size number of clusters (e.g., 8 clusters created for a batch size of 8).
+A camera is then randomly selected from every cluster and collected in the set $\mathcal{C}_{B}$ , which serves as training input.
+This approach ensures that each batch captures a more balanced and diverse set of views, resulting in a more accurate estimation of the curvature information.
+As evidenced by Tab. 2 , this method converges to higher scores compared to the random sampling of the cameras.
+
+4.4 Estimation of Loss Function with Residual Sampling
+
+Additionally, to improve the efficiency and feasibility of our second-order optimizer for 3DGS, we further exploit the sparsity property within the 3DGS representation, which has been discussed in Sec. 4.2 .
+Yet, at the same time, as observed in Fig. 3 , there does not exist a well-organized structure to the sparsity.
+Instead, in this paper, we propose to adopt a residual sampling approach.
+
+We begin our derivation by rewriting our least squares loss function in Eq. 6 as an integral:
+Then, the loss function is given as:
+
+$L=\int_{\Omega}r(\mathbf{p})^{2}\,d\mathbf{p}$ (11)
+
+where the integral is defined over $\Omega$ , the union of all image domains of all cameras, and calculated at the coordinates $\mathbf{p}\in\mathbb{R}^{2}$ of the image plane.
+To estimate the loss function $L$ , we express it as an expectation with respect to an arbitrary probability distribution $q(\mathbf{p})$ :
+
+$L=\int_{\Omega}r(\mathbf{p})^{2}\,\frac{q(\mathbf{p})}{q(\mathbf{p})}\,d\mathbf{p}=\mathbb{E}_{\mathbf{p}\sim q(\mathbf{p})}\left[\frac{r(\mathbf{p})^{2}}{q(\mathbf{p})}\right].$ (12)
+
+This formulation allows us to interpret $q(\mathbf{p})$ as a sampling distribution over the domain $\Omega$ . Consequently, we can approximate the expectation numerically using Monte Carlo estimation. In particular, by independently sampling $N$ pixels $\{\mathbf{p}_{i}\}_{i=1}^{N}$ from $q(\mathbf{p})$ , the loss function can be approximated as:
+
+$L\approx\hat{L}=\frac{1}{N}\sum_{i=1}^{N}r(i)^{2}\,\frac{1}{q(i)}.$ (13)
+
+The estimated loss function allows us to derive the estimated versions of Jacobian-vector products arising in the PCG solver.
+The derivative of the estimated loss function with respect to a parameter becomes:
+
+$\frac{\partial\hat{L}}{\partial\boldsymbol{\beta}_{j}}=\frac{2}{N}\sum_{i=1}^{N}\frac{\partial r_{i}}{\partial\beta_{j}}r_{i}\,\frac{1}{q(i)}$ (14)
+
+This gradient estimates the right-hand side of the normal equation given in Eq. 8 since $\frac{\partial r_{i}}{\partial\beta_{j}}=J_{ij}$ .
+
+Similarly, we can calculate the Hessian of the estimated loss function given in Eq. 13 . To do so, we take the derivative of Eq. 14 with respect to parameter $\boldsymbol{\beta}_{k}$ :
+
+$\hat{H}_{jk}=\frac{2}{N}\sum_{i=1}^{N}\left(\frac{\partial r_{i}}{\partial\beta_{j}}\frac{\partial r_{i}}{\partial\beta_{k}}\;+\;r_{i}\,\frac{\partial^{2}r_{i}}{\partial\beta_{j}\,\partial\beta_{k}}\right)\,\frac{1}{q(i)}$ (15)
+
+When we apply the Gauss-Newton approximation to the Hessian matrix, the term with second derivative in Eq. 15 is ignored, and we are left with an estimation of $\mathbf{J^{\top}J}$ .
+
+Note that this approximation preserves the symmetry and positive semi-definiteness of $\mathbf{J^{\top}J}$ , a property required for the convergence of the conjugate gradient algorithm.
+
+In this work, we evaluated a range of candidate distributions $q$ and found that simple uniform distribution works well.
+For a comparison of alternative distributions and their respective results, please refer to the Supplementary.
+
+In practice, sampling pixels over the image does not efficiently integrate with GPU programming and the backward pass of 3DGS.
+The reason is that an image is divided into $16\times 16$ tiles and when the pixels are selected randomly, some tiles get more samples than others, causing an unbalanced workload among thread blocks.
+Moreover, the random nature of the sampling does not allow fixed thread assignment per tile.
+Therefore, we use a stratified sampling strategy by distributing samples among tiles, and we perform sampling inside them.
+In other words, instead of sampling $N$ pixels from the entire image, we sample $N/\mathcal{T}$ pixels from each tile, where $\mathcal{T}$ is the total number of tiles in the image.
+
+The sampling mechanism allows us to achieve $4\times$ speedup over the non-approximated LM optimizer, while maintaining similar performance, as shown in Tab. 3 .
+
+4.5 Dynamic Learning Rate Scheduler
+
+When second-order optimizers are applied to large-scale systems, numerical errors can occur, causing the solution vector $\Delta\boldsymbol{\beta}$ to overshoot the true loss landscape.
+To determine the optimal learning rate, line search algorithms or trust region methods [ 2 , 20 , 37 , 12 , 42 , 8 ] are usually employed.
+However, these methods require additional forward or backward passes, increasing the computational overhead and slowing down the overall algorithm.
+Rather than relying on these methods, we estimate the learning rate by constraining the maximum update of color values.
+In 3DGS, the color parameters range between $\approx-1.77$ and $\approx 1.77$ due to the level $0$ spherical harmonic coefficient.
+This gives us a natural bound for the color parameters.
+We trust the update direction $\Delta\boldsymbol{\beta}$ , as long as the resulting color change does not exceed 1. If the change surpasses this threshold, we scale $\Delta\boldsymbol{\beta}$ so that the maximum change remains 1.
+Notably, this scaling is applied uniformly across all parameters, regardless of their type (e.g., opacity, color, mean, scale, or rotation).
+The effectiveness of this learning rate heuristic is demonstrated in Tab. 4 , and examples of assigned learning rates are given in the Supplementary.
+
+5 Results
+
+Datasets and Metrics. We conduct our main experiments on the synthetic NeRF [ 36 ] and real-world Mip-NeRF360 indoor datasets [ 4 ] .
+In the synthetic dataset, we position $10{,}000$ Gaussians at random locations with random colors inside of the cube encapsulating the object.
+In the real-world scenes, the Gaussians are initialized with structure-from-motion point clouds as in 3DGS [ 22 ] .
+For all experiments, we use the default training and test splits.
+We report the test set performance based on structural similarity index (SSIM) [ 52 ] , learned perceptual image patch similarity score (LPIPS) [ 57 ] , and peak signal-to-noise ratio (PSNR).
+
+Baselines. In the synthetic dataset, we compare our optimizer against Adam [ 24 ] , RMSprop [ 51 ] , and SGD with momentum [ 46 ] , using their respective implementations in PyTorch.
+The gradients are computed using either the vanilla 3DGS or Taming 3DGS [ 31 ] , which enhances the efficiency of the backward computation by storing the gradient state at every $32^{\text{nd}}$ splat.
+
+In the real-world scenes, we compare against vanilla 3DGS [ 22 ] and 3DGS-LM [ 20 ] . For comparisons against 3DGS-LM, we contacted the authors 1 1 1 At the time of our submission, the code for 3DGS-LM had not yet been released. , who kindly provided PSNR scores, runtime, and average memory usage across several datasets.
+In addition, they provided results obtained without the Adam optimizer, which are denoted in the tables as 3DGS-LM (w/o Adam).
+First-order baselines are run for $10,000$ iterations, and we performed a hyperparameter search to find the best learning rates.
+
+Implementation Details. We conducted synthetic dataset experiments on a NVIDIA Tesla A40 GPU and real-world experiments on a NVIDIA Tesla A100 GPU.
+Our method and the baselines optimize the mean squared error (MSE) loss.
+We set the sampled pixels per tile ( $N$ ) to 32 in each experiment.
+We use a fixed damping parameter $\lambda$ of $0.1$ for the synthetic NeRF scenes and Mip-NeRF360 dataset.
+For the synthetic dataset, the batch size is fixed at $8$ ; for real-world datasets, it is initialized at $16$ and increased to $32$ after the 50th iteration.
+The maximum number of conjugate gradient iterations starts at $3$ for synthetic datasets and at $5$ for real-world datasets, rising to $8$ after the 50th iteration.
+
+Method SSIM $\uparrow$ PSNR $\uparrow$ Time (s) Memory (GB) 3DGS 0.854 28.21 252 5.81 3DGS-LM (w/o Adam) - 26.72 1186 $\approx$ 50 3DGS-LM - 28.31 398 $\approx$ 50 LM-RS (Ours) 0.859 28.59 190 14.75
+
+Method LPIPS $\downarrow$ SSIM $\uparrow$ PSNR $\uparrow$ Time (s) Memory (GB) 3DGS-SGD 0.331 0.488 18.56 164 2.43 3DGS-RMSprop 0.159 0.856 25.52 54 2.43 3DGS-Adam 0.162 0.855 25.49 58 2.43 Taming3DGS-Adam 0.147 0.862 26.01 60 2.54 LM-RS (Ours) 0.139 0.872 26.14 13 3.07
+
+5.1 Comparison
+
+Next, we evaluate our method, named Levenberg-Marquardt with Residual Sampling (LM-RS), on synthetic NeRF scenes and present the results in Fig. 5 .
+As shown, our second-order optimizer converges rapidly and achieves a substantial $\approx 5\times$ speedup over Adam.
+We observed that SGD with momentum consistently underperforms compared to other optimizers, despite our efforts at hyperparameter tuning.
+This highlights the importance of adaptive learning rates for optimizing 3DGS, a feature incorporated in all other evaluated optimizers.
+We also did not observe significant speed benefits from the optimizations of Taming 3DGS, which is likely due to a comparatively lower number of Gaussians in this setting that reduces the advantages of gradient caching.
+
+In addition, we provide results in Mip-NeRF360 dataset in Tab. 1 and Fig. 4 .
+Our method achieves $1.3\times$ speedup over Adam, $2\times$ over 3DGS-LM and $6\times$ speedup over 3DGS-LM (w/o Adam). Thanks to our matrix-free algorithm, we do not rely on the Adam optimizer at all, and our memory requirement is $3.5\times$ less than 3DGS-LM.
+
+Please refer to the Supplementary for the results using SSIM loss, as well as quantitative results in Tanks & Temples [ 25 ] and DeepBlending scenes [ 17 ] .
+
+5.2 Ablation Studies
+
+In this section, we ablate various design choices incorporated into our optimizer.
+
+View Sampling. We propose a view sampling approach in Sec. 4.3 to ensure that our optimizer can effectively estimate the local curvature of the loss landscape while still maintaining a relatively low batch size, through sampling of diverse views in a batch.
+In Tab. 2 , we ablate our design choice, where we observe that our method shows improvements compared to random view sampling.
+We also report performance with reduced batch size, where we observe that the performance is significantly lower.
+
+View Sampler LPIPS $\downarrow$ SSIM $\uparrow$ PSNR $\uparrow$ Clustering-Based, MBS=8 0.363 0.640 19.18 Clustering-Based, MBS=16 0.271 0.719 21.37 Random, MBS=32 0.276 0.722 21.68 Clustering-Based, MBS=32 0.253 0.731 21.83
+
+Residual Sampling Size. Our proposed sampling approach in Sec. 4.4 is the core algorithm that provides significant speed benefits, enabling faster processing by effectively reducing the dimensionality of highly redundant Jacobians.
+Here, we compare our performance against three baselines in Tab. 3 .
+Firstly, when no sampling is used at all, i.e., the full Jacobians are considered every time, the amount of training time required increases significantly, showing the importance of sampling.
+When we adopt our pixel sampling, but use a high number of sampled pixels per tile (e.g., $N=128$ , $N=64$ ), there are some gains over no sampling, but its efficiency is still suboptimal.
+All these show the efficacy of our residual sampling method.
+
+Residual Sampler LPIPS $\downarrow$ SSIM $\uparrow$ PSNR $\uparrow$ Time (s) LM - No Sampling 0.143 0.868 28.68 810 LM-RS - $N=128$ 0.159 0.860 28.63 470 LM-RS - $N=64$ 0.160 0.860 28.66 286 LM-RS - $N=32$ 0.161 0.859 28.59 190
+
+Dynamic Learning Rate Scheduler. We compare our learning rate heuristic introduced in Sec. 4.5 against uniform learning rate, Armijo line search [ 2 , 42 ] , and a grid search method in Tab. 4 .
+The grid search method selects the learning rate at each iteration by identifying the value that results in the greatest reduction in the objective function.
+Although this method is stable, the learning rates obtained are too pessimistic, and it cannot reach the quality of our heuristic.
+Armijo line search improves the grid search method by picking the highest learning rate that results in sufficient reduction of the loss.
+While this approach has been successfully integrated as an improvement in deterministic second-order optimizers, our findings indicate that its effectiveness is limited in stochastic settings, such as ours, where optimization relies on multiple approximations.
+We also found that the uniform learning rate can diverge (LR=0.1) or behave suboptimally (LR=0.07) compared to our scheduler.
+
+Learning Rate LPIPS $\downarrow$ SSIM $\uparrow$ PSNR $\uparrow$ Time (s) Uniform $LR=0.07$ 0.202 0.842 27.91 188 Uniform $LR=0.1$ 0.281 0.669 23.20 188 Grid Line Search 0.224 0.821 27.12 397 Armijo Line Search 0.264 0.763 23.66 416 Our Scheduler (Sec. 4.5 ) 0.161 0.859 28.59 190
+
+6 Limitations
+
+We use only a diagonally approximated SSIM loss for performance reasons, which may affect the convergence behavior. Future work could explore more efficient implementations enabling the use of full SSIM loss. In addition, our matrix-free implementation requires more intermediate vectors than Adam, leading $3\times$ higher memory usage.
+
+7 Conclusion
+
+By leveraging the inherent sparsity of the Jacobian matrix and integrating a GPU-parallelized conjugate gradient solver, our method significantly reduces the computational overhead.
+Our novel view and pixel-wise sampling further enhance efficiency, enabling rapid convergence by decreasing the per-step overhead.
+Additionally, our dynamic learning rate scheduler eliminates the need for costly line search procedures, further accelerating training.
+Our approach achieves up to $5\times$ speedup over Adam, particularly excelling in scenarios with low number of Gaussians.
+Overall, our results highlight the potential of second-order methods in accelerating optimization for 3D Gaussian Splatting.
+We anticipate that future work will refine these techniques, particularly by incorporating additional loss terms without incurring runtime overhead, further advancing the efficiency and quality of Gaussian-based scene representations.
+
+References
+
+Appendix A Details of CUDA Implementation
+
+Input : Sorted Gaussians projected on each pixel: $\mathcal{G}$ . Output : Rendered RGB color C.
+
+Input : Sorted Gaussians projected on each pixel: $\mathcal{G}$ . Output : Rendered RGB color C.
+
+We follow the parallelization pattern applied in 3DGS [ 22 ] , dividing images into $16\times 16$ blocks, and launching a thread for each pixel.
+Our main difference from 3DGS is that our block size is significantly less than $16\times 16=256$ , due to pixel sampling.
+In our implementation, we only support sample sizes that are multiples of $32$ , which allows us to do fast warp-level reductions when needed. Now, we describe our CUDA kernels in detail:
+
+J ⊤ v Kernel. This kernel is similar to the backward pass of 3DGS and is executed in two kernel calls using backward mode differentiation.
+The first kernel computes and forwards the derivatives associated with splatting operations to the Gaussians, while the second kernel computes the derivatives related to Gaussian preprocessing.
+The main difference with 3DGS is that the number of threads per block is significantly reduced due to sampling, enabling us to perform faster computations.
+We use warp-level reductions to collect the partial dot products when needed.
+
+Jv Kernel. This kernel implements forward‐mode differentiation via the dual‐number data structure.
+We overload each operator so that, in a single pass, it performs both the real‐value computation and its derivative.
+This approach is more efficient than using backward-mode differentiation when the Jacobian-vector product is needed [ 5 ] .
+
+Conceptually, this kernel works similarly to the forward pass of 3DGS, but enhanced to carry the derivative information.
+Therefore, unlike J ⊤ v kernel, it first carries out Gaussian preprocessing, then implements splatting.
+Since we should additionally carry the derivative information, the shared memory usage is doubled compared to the forward pass of 3DGS.
+For a comparison between the implementations of the forward pass of 3DGS and our forward-mode differentiation, see Alg. 2 and Alg. 3 .
+As it can be observed from the algorithm, there is no need for warp reductions in this kernel.
+
+Diag (J ⊤ J) Kernel. To our current knowledge, there is no easy way to split this kernel into two calls.
+Therefore, we create a single kernel that squares and accumulates derivatives using warp-level reductions.
+
+Since the remaining part of the preconditioned conjugate gradient algorithm requires only vector-related computations, it can be efficiently implemented in PyTorch.
+
+Appendix B More Results in Synthetic Dataset
+
+We compare our optimizer against Adam [ 24 ] , RMSprop [ 51 ] , and SGD with momentum [ 46 ] , using their respective implementations in PyTorch.
+The momentum term of SGD and second-moment factor of RMSprop is set to $0.99$ .
+For SGD, we used the learning rates $0.16$ for the location, $0.2$ for color and $0.1$ for other parameters.
+We also apply a learning rate schedule for the mean value parameters, as suggested in 3DGS.
+The gradients are computed using either the vanilla 3DGS or Taming 3DGS [ 31 ] .
+All baselines are run for $10{,}000$ iterations.
+We provide the per-scene scores obtained in the NeRF synthetic dataset [ 36 ] in Table 6 . Please also see the supplementary video, comparing Adam and our optimizer in real-time. Additionally, we provide visual results of competing methods in Fig. 6 .
+
+Results with SSIM Loss: We also conduct experiments using SSIM loss, which is approximated diagonally for performance reasons, as mentioned in the limitations section of the main paper.
+The usual SSIM loss propagates gradients through the local neighbors, which is hard to implement with the parallelization scheme of our $\mathbf{Diag(J^{\top}J)}$ kernel.
+Our diagonal approximation is similar that used in 3DGS-LM, which follows the derivations in [ 58 ] .
+In Table 7 , we show that our optimizer still outperforms the competing methods even with the diagonal approximation.
+However, to compensate for this discrepancy, we ran our method for $300$ iterations instead of $200$ iterations.
+The weights are set to $1.0$ and $0.2$ , for MSE and SSIM terms respectively. All other hyperparameters remain identical to those specified in the main paper.
+
+Appendix C More Results in Real-world Scenes
+
+We report per‐scene results for the Mip‐NeRF360 Indoor, DeepBlending, and Tanks & Temples datasets in Tab. 8 , Tab. 9 , and Tab. 10 , respectively.
+All optimizers are trained with the mean‐squared error (MSE) loss.
+Notably, our method outperforms both the Adam optimizer and 3DGS‐LM on the Mip‐NeRF360 Indoor and DeepBlending datasets, and beats 3DGS‐LM on Tanks & Temples.
+
+Memory Requirements: As it can be observed from the tables, our method uses more memory than Adam but significantly less memory than 3DGS-LM.
+When updating $n$ parameters, Adam optimizer scales with the number of parameters and uses $O(3n)$ space to store the gradient and two momentum estimates.
+Our matrix-free solver also scales with the number of parameters; however, we need 8 vectors to run the PCG algorithm, making the space complexity $O(8n)$ .
+This means both Adam and our optimizer have the same $O(n)$ memory complexity, and our memory requirement differs by only a constant factor.
+On the other hand, 3DGS-LM scales with both the number of pixels ( $p$ ) and the number of parameters, as they need to cache the Jacobian and save the PCG-related vectors, resulting in $O(np)$ space complexity.
+
+Results with SSIM Loss: As mentioned earlier, both 3DGS-LM and our implementation uses a diagonal approximation. In Tab. 11 , we compare both methods and show that our optimizer converges faster than 3DGS-LM (w/o Adam).
+However, in this setting, the diagonal approximation becomes overly restrictive, and 3DGS-LM outperforms our method by leveraging the full SSIM loss in the initial steps, which the Adam optimizer conveniently handles.
+
+Appendix D Details of Dynamic Learning Rate Scheduler
+
+Our learning rate scheduler can assign both low and high learning rates, while providing stable training.
+We share the obtained learning rates in Mip-NeRF360 scenes in Fig. 7 .
+Note that, in all experiments, we cap the maximum learning rate to $0.2$ to avoid overshooting, and we use a fixed learning rate $0.05$ in the first $10$ iterations.
+
+Appendix E Alternative Probability Distributions for Residual Sampling
+
+We experimented with different pixel (residual) sampling strategies to improve the performance.
+The following candidates are considered for comparison:
+
+$\mathbf{q}_{\textbf{uniform}}$ : This distribution assigns equal probability $\frac{1}{M}$ to every pixel $p$ , where M is the total number of pixels. This is the distribution used in the main paper.
+
+$\mathbf{q}_{\text{uniform}}(p)=\frac{1}{M}$ (16)
+
+$\mathbf{q}_{\textbf{residual}}$ : This distribution weights pixel $p$ according to its residual error.
+After rendering the Gaussians to obtain the image $\hat{I}$ , we compute the per‐pixel residuals against the ground truth image $I$ .
+We then normalize these residuals using the softmax function:
+
+$\displaystyle r_{p}$ $\displaystyle=\hat{I}_{p}-I_{p}$ (17) $\displaystyle\mathbf{q}_{\text{residual}}(p)$ $\displaystyle=Softmax(\left|r_{p}\right|)=\frac{e^{\left|r_{p}\right|}}{\sum_{k}^{M}e^{\left|r_{k}\right|}}$ (18)
+
+$\mathbf{q}_{\textbf{Gaussian}}$ : This distribution weights pixel $p$ by the number of Gaussians contributing to it, which we denote as $G_{p}$ .
+During the forward pass, we count the number of Gaussians that contribute to pixels’ rendering, omitting those that lie beyond the visibility range (i.e., low transmittance) or are transparent. This weight is then normalized by the total number of Gaussians used across all $M$ pixels.
+
+$\mathbf{q}_{\text{Gaussian}}(p)=\frac{G_{p}}{\sum_{k}^{M}G_{k}}$ (19)
+
+We compare the performance of the these distributions in Tab. 5 .
+While other importance sampling methods yield improvements in certain scenes, their average behavior closely matched that of $\mathbf{q}_{\text{uniform}}$ .
+Accordingly, we adopt $\mathbf{q}_{\text{uniform}}$ in our paper and conduct all experiments with it.
+The similarity in the results could be because of the fixed sample size per tile (32) in every experiment.
+Our implementation restricts sample counts to multiples of 32, matching the CUDA warp size to enable efficient warp-level reductions.
+Investigating lower sample sizes while avoiding warp divergence can be an interesting direction to explore.
+
+Distribution LPIPS $\downarrow$ SSIM $\uparrow$ PSNR $\uparrow$ $\mathbf{q}_{\text{Gaussian}}$ 0.160 0.859 28.65 $\mathbf{q}_{\text{residual}}$ 0.161 0.857 28.49 $\mathbf{q}_{\textbf{uniform}}$ (Ours) 0.161 0.859 28.59
+
+Appendix F Densification of Gaussians
+
+3DGS proposes a densification algorithm to increase the number of Gaussians, which is disabled in this work.
+The reason is that densification algorithms typically rely on statistics collected over many iterations and complement the dynamics of the Adam optimizer.
+However, second‐order optimizers require far fewer iterations, making it difficult to integrate such algorithms directly. Because of similar reasons, densification is also disabled in 3DGS-LM.
+We believe that combining the second-order optimizer with one of the densification strategies would be an interesting research direction.
+
+Method Scene LPIPS $\downarrow$ SSIM $\uparrow$ PSNR $\uparrow$ Time (s) 3DGS-RMSprop Chair 0.162 0.865 24.96 54 3DGS-Adam 0.187 0.834 22.09 60 Taming3DGS-Adam 0.145 0.876 25.75 61 LM-RS (Ours) 0.138 0.882 25.96 11 3DGS-RMSprop Drums 0.185 0.834 22.05 52 3DGS-Adam 0.164 0.864 24.92 55 Taming3DGS-Adam 0.166 0.845 22.57 52 LM-RS (Ours) 0.159 0.855 22.48 10 3DGS-RMSprop Ficus 0.090 0.893 25.79 56 3DGS-Adam 0.093 0.890 25.60 56 Taming3DGS-Adam 0.078 0.903 26.51 60 LM-RS (Ours) 0.086 0.897 25.76 10 3DGS-RMSprop Hotdog 0.111 0.923 29.65 53 3DGS-Adam 0.111 0.924 29.78 57 Taming3DGS-Adam 0.099 0.929 30.34 60 LM-RS (Ours) 0.085 0.936 31.04 13 3DGS-RMSprop Lego 0.196 0.814 24.34 53 3DGS-Adam 0.201 0.809 24.23 57 Taming3DGS-Adam 0.184 0.821 24.82 59 LM-RS (Ours) 0.173 0.833 25.14 12 3DGS-RMSprop Materials 0.182 0.826 23.95 51 3DGS-Adam 0.183 0.827 23.95 56 Taming3DGS-Adam 0.167 0.829 24.22 62 LM-RS (Ours) 0.152 0.859 24.54 10 3DGS-RMSprop Mic 0.104 0.922 28.14 50 3DGS-Adam 0.108 0.920 28.09 56 Taming3DGS-Adam 0.100 0.925 28.64 63 LM-RS (Ours) 0.090 0.930 28.56 25 3DGS-RMSprop Ship 0.238 0.770 25.28 63 3DGS-Adam 0.274 0.769 25.27 67 Taming3DGS-Adam 0.238 0.767 25.44 64 LM-RS (Ours) 0.228 0.782 25.62 13 3DGS-RMSprop Average 0.159 0.856 25.52 54 3DGS-Adam 0.162 0.855 25.49 58 Taming3DGS-Adam 0.147 0.862 26.01 60 LM-RS (Ours) 0.139 0.872 26.14 13
+
+Method Scene LPIPS $\downarrow$ SSIM $\uparrow$ PSNR $\uparrow$ Time (s) 3DGS-RMSprop Chair 0.155 0.878 24.88 85 3DGS-Adam 0.157 0.878 24.88 87 Taming3DGS-Adam 0.138 0.890 25.66 86 LM-RS (Ours) 0.131 0.892 26.18 22 3DGS-RMSprop Drums 0.190 0.853 21.52 83 3DGS-Adam 0.190 0.853 21.60 86 Taming3DGS-Adam 0.159 0.872 22.38 86 LM-RS (Ours) 0.153 0.870 22.66 21 3DGS-RMSprop Ficus 0.089 0.901 25.34 84 3DGS-Adam 0.090 0.901 25.41 83 Taming3DGS-Adam 0.074 0.913 26.28 87 LM-RS (Ours) 0.077 0.911 26.27 20 3DGS-RMSprop Hotdog 0.098 0.937 29.47 86 3DGS-Adam 0.096 0.938 29.64 85 Taming3DGS-Adam 0.087 0.942 30.29 84 LM-RS (Ours) 0.076 0.946 31.46 25 3DGS-RMSprop Lego 0.189 0.835 24.15 83 3DGS-Adam 0.192 0.836 24.170 86 Taming3DGS-Adam 0.175 0.847 24.68 85 LM-RS (Ours) 0.163 0.847 25.31 23 3DGS-RMSprop Materials 0.175 0.864 23.84 81 3DGS-Adam 0.176 0.863 23.80 85 Taming3DGS-Adam 0.159 0.870 24.12 85 LM-RS (Ours) 0.140 0.874 24.70 20 3DGS-RMSprop Mic 0.103 0.936 27.90 81 3DGS-Adam 0.109 0.933 27.75 80 Taming3DGS-Adam 0.090 0.941 28.30 84 LM-RS (Ours) 0.086 0.942 28.65 26 3DGS-RMSprop Ship 0.227 0.804 22.77 86 3DGS-Adam 0.225 0.806 24.90 88 Taming3DGS-Adam 0.214 0.811 25.15 85 LM-RS (Ours) 0.226 0.800 25.53 25 3DGS-RMSprop Average 0.153 0.876 25.23 84 3DGS-Adam 0.154 0.876 25.27 85 Taming3DGS-Adam 0.137 0.886 25.86 85 LM-RS (Ours) 0.132 0.885 26.34 23
+
+Method Scene # Gaussians LPIPS $\downarrow$ SSIM $\uparrow$ PSNR $\uparrow$ Time (s) Memory (GB) Iteration 3DGS counter 155767 0.190 0.822 26.63 253 5.02 10,000 3DGS-LM (w/o Adam) - - 25.42 1332 - 30 3DGS-LM - - 26.71 495 - 10,000 + 10 LM-RS (Ours) 0.189 0.829 26.83 183 15.03 200 3DGS kitchen 241367 0.136 0.857 28.03 277 5.83 10,000 3DGS-LM (w/o Adam) - - 26.42 1294 - 30 3DGS-LM - - 28.15 536 - 10,000 + 10 LM-RS (Ours) 0.134 0.864 28.61 180 15.12 200 3DGS room 112627 0.176 0.858 29.52 240 6.37 10,000 3DGS-LM (w/o Adam) - - 27.85 1087 - 30 3DGS-LM - - 29.51 271 - 10,000 + 5 LM-RS (Ours) 0.177 0.861 29.61 190 14.21 280 3DGS bonsai 206613 0.141 0.877 28.65 240 6.04 10,000 3DGS-LM (w/o Adam) - - 27.17 1031 - 30 3DGS-LM - - 28.85 290 - 10,000 + 5 LM-RS (Ours) 0.142 0.881 29.29 208 14.66 210 3DGS Average 0.161 0.854 28.21 252.5 5.81 3DGS-LM (w/o Adam) - - 26.72 1186 $\approx$ 50 3DGS-LM - - 28.31 398 $\approx$ 50 LM-RS (Ours) 0.161 0.859 28.59 190.25 14.75
+
+Method Scene # Gaussians LPIPS $\downarrow$ SSIM $\uparrow$ PSNR $\uparrow$ Time (s) Memory (GB) Iteration 3DGS playroom 37005 0.205 0.850 26.90 200 3.05 10,000 LM-RS (Ours) 0.197 0.854 27.61 122 6.42 400 3DGS drjohnson 80861 0.275 0.840 26.74 218 4.11 10,000 LM-RS (Ours) 0.274 0.841 26.83 152 8.35 400 3DGS Average 0.240 0.846 26.82 209 3.58 LM-RS (Ours) 0.236 0.848 27.22 137 7.39
+
+Method Scene # Gaussians LPIPS $\downarrow$ SSIM $\uparrow$ PSNR $\uparrow$ Time (s) Memory (GB) Iteration 3DGS train 182686 0.321 0.671 20.22 120 2.12 10,000 3DGS-LM (w/o Adam) - - 20.09 454 - 15 3DGS-LM - - 20.74 172 - 10,000 + 5 LM-RS (Ours) 0.298 0.687 20.22 117 6.20 130 3DGS truck 136029 0.186 0.779 23.45 117 1.78 10,000 3DGS-LM (w/o Adam) - - 23.05 291 - 10 3DGS-LM - - 23.87 171 - 10,000 + 5 LM-RS (Ours) 0.208 0.774 23.43 100 5.43 130 3DGS Average 0.254 0.725 21.84 118.5 1.95 3DGS-LM (w/o Adam) - - 21.57 372.5 $\approx$ 40 3DGS-LM - - 22.31 171 $\approx$ 40 LM-RS (Ours) 0.253 0.731 21.83 108.5 5.82
+
+Method Scene # Gaussians PSNR $\uparrow$ Time (s) Memory (GB) Iteration 3DGS-LM (w/o Adam) train 182686 19.62 604 - 30 3DGS-LM 20.52 174 - 10,000 + 5 LM-RS (Ours) 19.99 118 6.20 130 3DGS-LM (w/o Adam) truck 136029 23.05 828 - 20 3DGS-LM 23.61 173 - 10,000 + 5 LM-RS (Ours) 23.13 103 5.43 130 3DGS-LM (w/o Adam) 21.34 716 $\approx$ 40 3DGS-LM 22.07 173 $\approx$ 40 LM-RS (Ours) 21.56 110 5.82

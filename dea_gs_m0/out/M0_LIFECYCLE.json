@@ -1,0 +1,12 @@
+{
+  "safe": true,
+  "events": {
+    "visible_forward": "shs (appearance) does not enter gsplat rasterization for visibility/culling (visibility = radii>0 from geometry). Deferred appearance rows must be materialized before current-step visible forward use; feasible.",
+    "clone_split": "densify_and_split/clone copy parent shs. Parent deferred state must be materialized to current step before copy (A4). cat_tensors_to_optimizer appends zero state for children (last_seen=t). Feasible.",
+    "prune_compact": "_prune_optimizer slices exp_avg/exp_avg_sq by keep mask. Discarded rows need no appearance materialization. Deferred timestamps for survivors remapped with rows. Feasible.",
+    "checkpoint": "capture() saves theta only. Lazy rows must be materialized before checkpoint serialization (or lazy metadata serialized losslessly). Feasible with a materialize-before-save hook.",
+    "evaluation": "Eval renders images; visible rows' deferred appearance materialized before render. Feasible.",
+    "optimizer_state_remap": "cat_tensors_to_optimizer / _prune_optimizer already remap Adam state across topology; deferred-timestamp metadata would be remapped identically. Feasible."
+  },
+  "notes": "A1 holds: _shs (appearance) is excluded from densification predicates (view-space mean2D gradient, opacity, scaling, screen-size) and from visibility (radii). Geometry/topology params (xyz/scaling/rotation/opacity) are NOT deferred. One persistent stock Adam; state migrated across topology. Lifecycle audit passes: all observe/copy/remap events can materialize deferred appearance beforehand."
+}

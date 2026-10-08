@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "protocol_id": "external-training-comparison-v0",
+  "date": "2026-10-01",
+  "description": "Correctness definitions for the external training comparison. A baseline passes correctness only if its final training state matches the frozen C0 dense reference (A_s, foreach=False) under the canonical hashing below. Hashes are order-sensitive, little-endian float32, SHA256. NO tolerance: a baseline either hash-matches or it is EXACTNESS_FAIL.",
+  "reference": {
+    "trainer": "frozen C0 = publication_trainer_p13x.py --arm c0 --loss fused --p13x-diag 0",
+    "optimizer": "torch.optim.Adam(foreach=False), betas=(0.9,0.999), eps=1e-15",
+    "state": "theta (xyz,shs,opacity,scaling,rotation) + exp_avg (m) + exp_avg_sq (v) + global step + alive mask"
+  },
+  "hashes": {
+    "state_hash": {
+      "definition": "SHA256 over the concatenation, in fixed order, of the little-endian float32 bytes of: alive theta_xyz, theta_shs, theta_opacity, theta_scaling, theta_rotation, m_xyz, m_shs, m_opacity, m_scaling, m_rotation; followed by int64 global step and int64 alive count.",
+      "scope": "ALIVE rows only, in alive-index order (stable row ordering after compaction).",
+      "pass_condition": "state_hash == reference.state_hash (bitwise)"
+    },
+    "topology_hash": {
+      "definition": "SHA256 over the ordered log of every densification event (iteration, event_type in {clone,split,prune}, parent_ids, child_ids, n_rows_before, n_rows_after) plus the final alive-row id sequence.",
+      "scope": "full run 0..30000",
+      "pass_condition": "topology_hash == reference.topology_hash (bitwise)"
+    },
+    "lineage_consistency": {
+      "definition": "Every clone/split child's (theta, m, v) at birth equals the canonical function of its parent(s): clone = exact copy; split = N=2 children with scale s/(0.8*N), position rotation@normal(0,scale)+parent_xyz, rotation/SH/opacity inherited. Verified by re-deriving each child from its logged parent state and hashing.",
+      "pass_condition": "all children re-derive bit-exactly (zero mismatches across the run)"
+    }
+  },
+  "gates": {
+    "C1_state_hash": "state_hash == reference",
+    "C2_topology_hash": "topology_hash == reference",
+    "C3_lineage_consistency": "zero lineage mismatches",
+    "exactness_verdict": "PASS iff C1 and C2 and C3; else EXACTNESS_FAIL (no tolerance rescue)"
+  },
+  "notes": [
+    "These definitions reuse the canonical serialisation in lavos0_headroom/lavos0/hashing.py (hash_tensor_list, hash_int) and the ReproTopo determinism harness.",
+    "External baselines (FastGS, Sparse Adam, gsplat) are expected to FAIL C1/C2/C3 because they alter the optimizer math or densification; they are still measured for efficiency/quality, but marked EXACTNESS_FAIL and not ranked against exact methods on speed.",
+    "The frozen C0 reference itself is the dense trajectory; VOS/ReproTopo/LAVOS must hash-match it at iteration 30000."
+  ]
+}

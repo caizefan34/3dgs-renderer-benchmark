@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "stage": "Memory Scaling",
+  "status": "DERIVED_FROM_EXISTING_EVIDENCE",
+  "source": "Peak VRAM measurements in benchmark results",
+  "measurements": {
+    "tanks_and_temples_train_LOW_N": {
+      "N_gaussians": 1026508,
+      "resolution": "960x540",
+      "std_peak_vram_gb": 3.22,
+      "higs_native_peak_vram_gb": 3.18,
+      "higs_dynamic_peak_vram_gb": 3.63,
+      "delta_native_vs_std_gb": -0.04,
+      "delta_dynamic_vs_std_gb": 0.41,
+      "analysis": {
+        "native": "Native HiGS uses slightly LESS VRAM than std (-0.04 GB); packed FP16 scene buffers vs std's FP32 visible-subset storage",
+        "dynamic": "Dynamic uses +0.41 GB due to densify temporaries (new Gaussians, gradient accumulation, optimizer state for new rows)"
+      }
+    },
+    "mipnerf360_bicycle_HIGH_N": {
+      "N_gaussians": 6131954,
+      "resolution": "960x540",
+      "std_peak_vram_gb": 10.39,
+      "higs_native_peak_vram_gb": 11.14,
+      "higs_dynamic_peak_vram_gb": 14.14,
+      "delta_native_vs_std_gb": 0.75,
+      "delta_dynamic_vs_std_gb": 3.75,
+      "analysis": {
+        "native": "Native uses +0.75 GB MORE VRAM; FP32 captured state (means2D, conics, colors_eval, opacities, isects, alphas) for native backward vs std's autograd-saved tensors",
+        "dynamic": "Dynamic uses +3.75 GB; densify temporaries + optimizer state for 2x N (peak before prune) + resolution-scaling visibility lists"
+      },
+      "high_res_1080p": {
+        "std_peak_vram_gb": 10.89,
+        "higs_native_peak_vram_gb": 11.67,
+        "higs_dynamic_peak_vram_gb": 19.81,
+        "notes": "Dynamic VRAM grows significantly at 1080p (+8.92 GB vs std)"
+      }
+    }
+  },
+  "memory_breakdown": {
+    "std_bicycle_960x540": {
+      "gaussian_parameters_fp32": {
+        "means": "6.13M * 3 * 4 = 73.6 MB",
+        "quats": "6.13M * 4 * 4 = 98.1 MB",
+        "scales": "6.13M * 3 * 4 = 73.6 MB",
+        "opacities": "6.13M * 1 * 4 = 24.5 MB",
+        "sh": "6.13M * 16 * 3 * 4 = 1.18 GB",
+        "total_params": "~1.45 GB"
+      },
+      "optimizer_state_fused_adam": {
+        "exp_avg": "1.45 GB (same shape as params)",
+        "exp_avg_sq": "1.45 GB",
+        "total_opt": "~2.90 GB"
+      },
+      "autograd_saved_tensors": {
+        "means2D": "6.13M * 2 * 4 = 49.0 MB",
+        "conics": "6.13M * 3 * 4 = 73.6 MB",
+        "colors": "6.13M * 16 * 3 * 4 = 1.18 GB",
+        "opacities": "6.13M * 1 * 4 = 24.5 MB",
+        "radii": "6.13M * 1 * 4 = 24.5 MB",
+        "geometry_counts": "~10 MB",
+        "total_saved": "~1.36 GB"
+      },
+      "rendering_workspace": {
+        "isects": "14.1M * (2+4+4+4) * 4 = ~0.9 GB",
+        "tile_offsets": "~10 MB",
+        "sort_buffer": "~0.9 GB",
+        "render_output": "4 * 518400 * 4 = 8.3 MB",
+        "total_render": "~1.8 GB"
+      },
+      "total_estimate": "1.45 + 2.90 + 1.36 + 1.8 = 7.51 GB (measured 10.39 GB includes allocator overhead, fragmentation, temporaries)"
+    },
+    "higs_native_bicycle_960x540": {
+      "gaussian_parameters_fp32": "~1.45 GB (same as std)",
+      "optimizer_state_fused_adam": "~2.90 GB (same as std)",
+      "captured_state_native_backward": {
+        "means2D": "2.27M visible * 2 * 4 = 18.2 MB",
+        "conics": "2.27M * 3 * 4 = 27.2 MB",
+        "colors_eval": "2.27M * 16 * 3 * 4 = 436 MB",
+        "opacities": "2.27M * 1 * 4 = 9.1 MB",
+        "isects": "14.1M * (2+4+4+4) * 4 = ~0.9 GB",
+        "render_alphas": "518400 * 4 = 2.1 MB",
+        "last_ids": "518400 * 4 = 2.1 MB",
+        "total_captured": "~1.39 GB"
+      },
+      "packed_fp16_scene_buffers": {
+        "means_packed": "6.13M * 3 * 2 = 36.8 MB (FP16)",
+        "colors_packed": "6.13M * 16 * 3 * 2 = 588 MB (FP16, if PACKED_16B)",
+        "metadata": "~50 MB",
+        "total_packed": "~0.67 GB"
+      },
+      "rendering_workspace": {
+        "culling_projection_all_N": "6.13M * ~20 * 4 = ~0.5 GB",
+        "visible_subset_temporary": "~0.3 GB",
+        "total_render": "~0.8 GB"
+      },
+      "total_estimate": "1.45 + 2.90 + 1.39 + 0.67 + 0.8 = 7.21 GB (measured 11.14 GB includes overhead)"
+    }
+  },
+  "memory_scaling_analysis": {
+    "vs_gaussian_count": {
+      "LOW_N_1M": {
+        "std": 3.22,
+        "higs_native": 3.18,
+        "delta": -0.04,
+        "notes": "Native slightly better; packed FP16 offsets captured state"
+      },
+      "HIGH_N_6M": {
+        "std": 10.39,
+        "higs_native": 11.14,
+        "delta": 0.75,
+        "notes": "Native worse; captured state (FP32) + packed buffers (FP16) exceed std's autograd saved"
+      },
+      "scaling_exponent": {
+        "std": "1.8x N -> 3.2x VRAM (slightly super-linear due to workspace)",
+        "higs_native": "1.8x N -> 3.5x VRAM (worse scaling due to dual representation)"
+      }
+    },
+    "vs_resolution": {
+      "bicycle_540p": {
+        "std": 10.39,
+        "higs_native": 11.14
+      },
+      "bicycle_1080p": {
+        "std": 10.89,
+        "higs_native": 11.67,
+        "delta": 0.5,
+        "notes": "Resolution has small impact; memory dominated by Gaussian state, not pixels"
+      },
+      "conclusion": "Memory scales weakly with resolution; strongly with N"
+    },
+    "vs_camera_batch": {
+      "not_measured": "Batch scaling memory not separately reported",
+      "inference": "Memory should scale linearly with batch (more isects, more render outputs)",
+      "estimate": "B4 vs B1: +3x isects, +3x render buffers -> ~+2-3 GB expected"
+    }
+  },
+  "key_findings": {
+    "memory_advantage": "NOT PRESENT - HiGS native uses slightly MORE VRAM than std for HIGH-N scenes",
+    "reason": "Dual representation (FP32 captured state for native backward + FP16 packed scene for culling)",
+    "LOW_N_exception": "For LOW-N, packed FP16 savings offset captured state cost",
+    "dynamic_penalty": "Dynamic topology adds +3.75 GB (bicycle) due to densify temporaries",
+    "scaling_behavior": "HiGS memory scales slightly worse than std with N",
+    "implication": "Memory is NOT a selling point for Trainable HiGS in current implementation",
+    "potential_improvement": "If tile LOD realized (30M macro-tile entries vs 330M isects), memory could improve by ~10x for isect storage"
+  },
+  "evidence_labels": {
+    "OBSERVED": "Peak VRAM measurements (torch.cuda.max_memory_allocated)",
+    "DERIVED": "Memory breakdowns (from tensor shapes and dtypes)",
+    "INFERRED": "Scaling exponents (from 2 data points)",
+    "UNRESOLVED": "Exact allocator overhead breakdown; batch scaling memory"
+  }
+}

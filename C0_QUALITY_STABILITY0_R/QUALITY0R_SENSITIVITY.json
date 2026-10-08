@@ -1,0 +1,92 @@
+{
+  "artifact": "QUALITY0R_SENSITIVITY",
+  "campaign": "C0-QUALITY-STABILITY0-R",
+  "source": "QUALITY_30K_METRICS.json d_psnr (9 pairs)",
+  "mean_all_9": -0.093106,
+  "mean_without_garden_s44": -0.163325,
+  "high_influence_pair": {
+    "scene": "garden",
+    "seed": 44,
+    "dPSNR": 0.468648,
+    "note": "largest positive response (not classified as outlier; no pre-defined outlier rule exists)"
+  },
+  "leave_one_scene_out_mean": {
+    "bicycle": -0.052416,
+    "garden": -0.203997,
+    "room": -0.022905
+  },
+  "leave_one_pair_out_mean_range": [
+    -0.163325,
+    -0.031708
+  ],
+  "leave_one_pair_out": [
+    {
+      "removed_scene": "bicycle",
+      "removed_seed": 42,
+      "mean_without": -0.094071
+    },
+    {
+      "removed_scene": "bicycle",
+      "removed_seed": 43,
+      "mean_without": -0.100349
+    },
+    {
+      "removed_scene": "bicycle",
+      "removed_seed": 44,
+      "mean_without": -0.100157
+    },
+    {
+      "removed_scene": "garden",
+      "removed_seed": 42,
+      "mean_without": -0.042701
+    },
+    {
+      "removed_scene": "garden",
+      "removed_seed": 43,
+      "mean_without": -0.031708
+    },
+    {
+      "removed_scene": "garden",
+      "removed_seed": 44,
+      "mean_without": -0.163325
+    },
+    {
+      "removed_scene": "room",
+      "removed_seed": 42,
+      "mean_without": -0.100371
+    },
+    {
+      "removed_scene": "room",
+      "removed_seed": 43,
+      "mean_without": -0.101734
+    },
+    {
+      "removed_scene": "room",
+      "removed_seed": 44,
+      "mean_without": -0.103538
+    }
+  ],
+  "interpretation": "The overall mean is sensitive to which scene/pair is included; the leave-one-pair-out mean range shows the aggregate conclusion depends on the high-variance garden pairs rather than being robust across all removals.",
+  "garden_interpretation": {
+    "artifact": "QUALITY0R_SENSITIVITY",
+    "campaign": "C0-QUALITY-STABILITY0-R",
+    "scene": "garden",
+    "n_negative": 2,
+    "n_positive": 1,
+    "dPSNR_range": [
+      -0.5843,
+      0.4686
+    ],
+    "non_garden_dPSNR_range": [
+      -0.0854,
+      -0.0097
+    ],
+    "variance_dominance": {
+      "garden_spread": 1.0529,
+      "non_garden_spread": 0.0757
+    },
+    "corrected_characterization": "garden dominates the variance and both tails of the quality response: it contains the largest negative delta (garden s42 -0.4963 dB) AND the largest positive response (garden s44 +0.4686 dB). It must NOT be reduced to a purely negative scene.",
+    "original_wording": "garden drives nearly all the negative signal",
+    "problem": "garden has BOTH large-negative and large-positive deltas; describing it as driving 'nearly all the negative signal' misrepresents its bidirectional, high-variance role."
+  }
+}

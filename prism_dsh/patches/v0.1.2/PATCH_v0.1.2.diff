@@ -1,0 +1,246 @@
+diff -ru '--exclude=__pycache__' '--exclude=results' /c/Users/36570/Downloads/prism_gs_extract/prism_gs/prism/__init__.py patches/v0.1.2/prism_gs/prism/__init__.py
+--- /c/Users/36570/Downloads/prism_gs_extract/prism_gs/prism/__init__.py	2026-09-27 09:22:44.000000000 +0800
++++ patches/v0.1.2/prism_gs/prism/__init__.py	2026-09-27 11:29:36.129281900 +0800
+@@ -1,2 +1,2 @@
+ """PRISM-GS research prototype. No measured GPU speedup is claimed."""
+-__version__ = "0.1.0"
++__version__ = "0.1.2"
+diff -ru '--exclude=__pycache__' '--exclude=results' /c/Users/36570/Downloads/prism_gs_extract/prism_gs/prism/geometry.py patches/v0.1.2/prism_gs/prism/geometry.py
+--- /c/Users/36570/Downloads/prism_gs_extract/prism_gs/prism/geometry.py	2026-09-27 09:22:44.000000000 +0800
++++ patches/v0.1.2/prism_gs/prism/geometry.py	2026-09-27 11:29:34.238009600 +0800
+@@ -1,8 +1,20 @@
+ """Differentiable pinhole geometry and a chunkable per-Gaussian consensus solver.
+ 
+ Coordinates: world-to-camera matrices, wxyz quaternions, pixel centers.
+-The FOV clamp follows gsplat's pinhole projection; CUDA parity is a GPU gate.
++Screen features are the renderer's native conic form [u,v,a,b,c]; the FOV clamp
++follows gsplat's pinhole projection; CUDA parity is a GPU gate.
+ No claim of closed-form nonlinear optimization or ADMM convergence is made.
++
++v0.1.1 P1: the screen transport carries the renderer's native conic instead of a
++log-Cholesky re-parameterization, so reading features back and re-rendering is
++bitwise (M0 zero-displacement gate) and no inverse roundtrip is involved.
++v0.1.1 P3: covariance() delegates to the pinned renderer's own conversion on
++CUDA so a covars-route render matches the quats route bitwise; the pure-torch
++expression is a CPU fallback and is not renderer-parity.
++v0.1.2 P4: pack_geometry(), the diagnostic 9-DOF coordinate, repairs rows whose
++renderer-convention fp32 covariance is not positive-definite with a
++trace-relative diagonal jitter and records the repaired-row count. No gate
++value, tolerance, camera rule, selection rule or arm definition is changed.
+ """
+ import torch
+ import torch.nn.functional as F
+@@ -16,12 +28,57 @@
+ 
+ 
+ def covariance(q, log_scales):
++    """Quaternion -> world covariance in the renderer's own value convention.
++
++    On CUDA this delegates to the pinned renderer's device function on the same
++    normalized quaternions the renderer receives, so 'covars=' routes reproduce
++    the quats route exactly. The pure-torch path is the CPU fallback.
++    """
++    if q.is_cuda:
++        from gsplat.cuda._wrapper import quat_scale_to_covar_preci
++        six, _ = quat_scale_to_covar_preci(
++            F.normalize(q, dim=-1), log_scales.exp(), True, False, True)
++        # Renderer triu layout [00,01,02,11,12,22] mirrored to a full matrix.
++        return torch.stack((six[..., 0], six[..., 1], six[..., 2],
++                            six[..., 1], six[..., 3], six[..., 4],
++                            six[..., 2], six[..., 4], six[..., 5]),
++                           -1).reshape(six.shape[:-1]+(3, 3))
+     r = quat_matrix(q)
+     return (r * log_scales.exp().square()[..., None, :]) @ r.transpose(-1, -2)
+ 
+ 
+-def pack_geometry(means, cov):
+-    l = torch.linalg.cholesky(cov)
++def pack_geometry(means, cov, stats=None):
++    """Cholesky parameterization of the renderer's own covariance (v0.1.2).
++
++    Rows whose fp32 covariance is not positive-definite are repaired by a
++    trace-relative diagonal jitter before factorization. The pinned renderer's
++    quat->covar kernel returns such rows for near-underflow scales (tiny
++    negative eigenvalues, |lambda| ~ 1e-9) on the garden 5K/14K snapshots; the
++    rasterizer never needs a Cholesky, so only this diagnostic coordinate is
++    affected. Repaired rows are counted in `stats`; every other row is
++    bitwise unchanged.
++    """
++    c = 0.5 * (cov + cov.transpose(-1, -2))
++    ref = c.diagonal(dim1=-2, dim2=-1).mean(-1).clamp_min(1e-30)
++    eye = torch.eye(3, device=c.device, dtype=c.dtype)
++    l, info = torch.linalg.cholesky_ex(c)
++    jitter = torch.zeros_like(ref)
++    for j in (1e-6, 1e-4, 1e-2, 1e-1):
++        bad = info != 0
++        if not bool(bad.any()):
++            break
++        trial = c[bad] + (j * ref[bad])[:, None, None] * eye
++        l2, info2 = torch.linalg.cholesky_ex(trial)
++        l = l.index_copy(0, bad.nonzero().flatten(), l2)
++        info = info.index_copy(0, bad.nonzero().flatten(), info2)
++        jitter = jitter.index_copy(0, bad.nonzero().flatten(),
++                                   torch.full_like(jitter[bad], j))
++    if bool((info != 0).any()):
++        raise RuntimeError('pack_geometry: covariance not PD after jitter escalation')
++    if stats is not None:
++        stats['rows'] = int(c.shape[0])
++        stats['repaired_rows'] = int((jitter > 0).sum())
++        stats['max_relative_jitter'] = float(jitter.max())
+     return torch.cat((means, torch.stack((l[...,0,0].log(), l[...,1,0],
+         l[...,1,1].log(), l[...,2,0], l[...,2,1], l[...,2,2].log()), -1)), -1)
+ 
+@@ -33,35 +90,34 @@
+     return x[...,:3], l @ l.transpose(-1,-2)
+ 
+ 
+-def screen_pack(uv, cov2):
+-    l = torch.linalg.cholesky(cov2)
+-    # Dimensionless shear makes its scale independent of image resolution.
+-    return torch.cat((uv, torch.stack((l[...,0,0].log(),
+-        l[...,1,0]/l[...,0,0], l[...,1,1].log()), -1)), -1)
++def screen_pack(uv, conic):
++    """Native conic transport (P1): concatenation only, no hidden roundtrip."""
++    return torch.cat((uv, conic), -1)
+ 
+ 
+ def screen_unpack(z):
+-    a,b,c = z[...,2:].unbind(-1)
+-    o = torch.zeros_like(a)
+-    l = torch.stack((a.exp(),o,b*a.exp(),c.exp()), -1).reshape(z.shape[:-1]+(2,2))
+-    return z[...,:2], l @ l.transpose(-1,-2)
++    return z[..., :2], z[..., 2:]
+ 
+ 
+ def cov_to_conic(c):
+-    inv = torch.linalg.inv(c)
+-    return torch.stack((inv[...,0,0],inv[...,0,1],inv[...,1,1]), -1)
++    """2x2 inverse with the fused kernel's elementwise arithmetic (glm::inverse)."""
++    det = c[..., 0, 0]*c[..., 1, 1]-c[..., 0, 1]*c[..., 1, 0]
++    return torch.stack((c[..., 1, 1]/det, -c[..., 0, 1]/det, c[..., 0, 0]/det), -1)
+ 
+ 
+ def conic_to_cov(c):
+-    a,b,d = c.unbind(-1)
+-    return torch.linalg.inv(torch.stack((a,b,b,d),-1).reshape(c.shape[:-1]+(2,2)))
++    a, b, d = c.unbind(-1)
++    det = a*d-b*b
++    return torch.stack((d/det, -b/det, -b/det, a/det), -1).reshape(c.shape[:-1]+(2, 2))
+ 
+ 
+ def project(x, views, ks, width, height, eps2d=.3):
+-    """x [N,9] -> features [V,N,5], depth [V,N]. Does NOT decide visibility.
++    """x [N,9] -> features [V,N,5] in the renderer's native conic form, depth [V,N].
++    Does NOT decide visibility.
+ 
+     Caller must supply a valid camera/visibility mask; near-plane-invalid rows
+-    are excluded before fitting. Covariance uses gsplat's asymmetric FOV clamp.
++    are excluded before fitting. Covariance uses gsplat's asymmetric FOV clamp;
++    the conic is the same 2x2 inverse the fused kernel stores (P1).
+     """
+     means, cov = unpack_geometry(x)
+     r, t = views[:,:3,:3], views[:,:3,3]
+@@ -76,7 +132,7 @@
+     o = torch.zeros_like(tz)
+     j = torch.stack((fx/safe_z,o,-fx*nx/safe_z,o,fy/safe_z,-fy*ny/safe_z),-1).reshape(*tz.shape,2,3)
+     c2 = j @ cv @ j.transpose(-1,-2) + eps2d*torch.eye(2,device=x.device,dtype=x.dtype)
+-    return screen_pack(uv,c2), tz
++    return screen_pack(uv,cov_to_conic(c2)), tz
+ 
+ 
+ def jacobian(x, views, ks, width, height, eps2d=.3):
+diff -ru '--exclude=__pycache__' '--exclude=results' /c/Users/36570/Downloads/prism_gs_extract/prism_gs/prism/gsplat_backend.py patches/v0.1.2/prism_gs/prism/gsplat_backend.py
+--- /c/Users/36570/Downloads/prism_gs_extract/prism_gs/prism/gsplat_backend.py	2026-09-27 09:24:46.000000000 +0800
++++ patches/v0.1.2/prism_gs/prism/gsplat_backend.py	2026-09-27 11:29:24.399098300 +0800
+@@ -8,7 +8,7 @@
+ import math
+ import torch
+ import torch.nn.functional as F
+-from .geometry import screen_pack,screen_unpack,conic_to_cov,cov_to_conic
++from .geometry import screen_unpack,conic_to_cov
+ 
+ 
+ def baseline(params,camera,degree,covars=None,means=None):
+@@ -35,7 +35,8 @@
+     else:
+         view=camera['viewmat'];center=-(view[:3,:3].T@view[:3,3])
+         out=spherical_harmonics(degree,(means-center)[None],sh[None],masks=mask)
+-    return (out+.5).clamp_min(0)
++    # P2: strict activation, matching the kernel's `> 0` gradient mask at exactly 0.
++    return (out+.5).relu()
+ 
+ 
+ def state(params,camera,degree,covars=None,means=None):
+@@ -49,7 +50,9 @@
+ 
+ def features(st,ids):
+     meta=st['meta']
+-    return screen_pack(meta['means2d'][0,ids],conic_to_cov(meta['conics'][0,ids]))
++    # P1: the renderer's native conic is carried through unchanged, so an
++    # override of these values re-renders bitwise (zero-displacement gate).
++    return torch.cat((meta['means2d'][0,ids],meta['conics'][0,ids]),-1)
+ 
+ 
+ def draw(st,ids=None,z=None,rebuild=False):
+@@ -60,9 +63,10 @@
+     if opacity.ndim==1:opacity=opacity[None]
+     if ids is not None:
+         uv=uv.clone();co=co.clone();radii=radii.clone()
+-        new_uv,new_cov=screen_unpack(z)
+-        uv[0,ids]=new_uv;co[0,ids]=cov_to_conic(new_cov)
++        new_uv,new_conic=screen_unpack(z)
++        uv[0,ids]=new_uv;co[0,ids]=new_conic
+         # Pinned EWA bounds: opacity-aware 3.33 sigma (Config.h must match).
++        new_cov=conic_to_cov(new_conic)
+         extend=(2*torch.log((opacity[0,ids]*255).clamp_min(1))).sqrt().clamp_max(3.33)
+         rr=torch.ceil(extend[:,None]*new_cov.diagonal(dim1=-2,dim2=-1).sqrt()).to(radii.dtype)
+         inside=(new_uv[:,0]+rr[:,0]>0)&(new_uv[:,0]-rr[:,0]<c['width'])&\
+diff -ru '--exclude=__pycache__' '--exclude=results' /c/Users/36570/Downloads/prism_gs_extract/prism_gs/prism/oracle.py patches/v0.1.2/prism_gs/prism/oracle.py
+--- /c/Users/36570/Downloads/prism_gs_extract/prism_gs/prism/oracle.py	2026-09-27 09:22:46.000000000 +0800
++++ patches/v0.1.2/prism_gs/prism/oracle.py	2026-09-27 11:29:24.396089200 +0800
+@@ -5,11 +5,13 @@
+ 
+ 
+ def render(z, depth, colors, opacity, height, width):
+-    uv,cov=screen_unpack(z)
++    uv,conic=screen_unpack(z)
+     yy,xx=torch.meshgrid(torch.arange(height,device=z.device,dtype=z.dtype)+.5,
+         torch.arange(width,device=z.device,dtype=z.dtype)+.5,indexing='ij')
+     d=torch.stack((xx,yy),-1)[None]-uv[:,None,None]
+-    power=torch.einsum('nhwi,nij,nhwj->nhw',d,torch.linalg.inv(cov),d)
++    power=(d[...,0].square()*conic[:,0,None,None]
++           +2*d[...,0]*d[...,1]*conic[:,1,None,None]
++           +d[...,1].square()*conic[:,2,None,None])
+     alpha=(opacity[:,None,None]*(-.5*power).exp()).clamp_max(.99)
+     t=torch.ones_like(xx); out=torch.zeros(height,width,3,device=z.device,dtype=z.dtype)
+     for i in depth.detach().argsort().tolist():
+diff -ru '--exclude=__pycache__' '--exclude=results' /c/Users/36570/Downloads/prism_gs_extract/prism_gs/prism/run_gpu.py patches/v0.1.2/prism_gs/prism/run_gpu.py
+--- /c/Users/36570/Downloads/prism_gs_extract/prism_gs/prism/run_gpu.py	2026-09-27 09:30:44.000000000 +0800
++++ patches/v0.1.2/prism_gs/prism/run_gpu.py	2026-09-27 11:29:38.533493200 +0800
+@@ -142,10 +142,12 @@
+             permutation=torch.randperm(len(eligible),device='cuda')
+             ids=eligible[permutation[:args.max_active]]
+             cov=covariance(params['quats'],params['log_scales'])
+-            x0=pack_geometry(params['means'][ids],cov[ids])
++            pack_stats={}
++            x0=pack_geometry(params['means'][ids],cov[ids],stats=pack_stats)
+             z0=torch.stack([B.features(s,ids) for s in states[:3]])
+         out['selection']={'N':len(params['means']),'common_visible':len(eligible),'active':len(ids),
+             'active_fraction':len(ids)/len(params['means']),'ids':ids.cpu().tolist()}
++        out['geometry_pack']=pack_stats
+         out['before_per_view_loss']=before
+         views=torch.stack([c['viewmat'] for c in cameras[:3]])
+         ks=torch.stack([c['K'] for c in cameras[:3]])
+diff -ru '--exclude=__pycache__' '--exclude=results' /c/Users/36570/Downloads/prism_gs_extract/prism_gs/tests/test_geometry.py patches/v0.1.2/prism_gs/tests/test_geometry.py
+--- /c/Users/36570/Downloads/prism_gs_extract/prism_gs/tests/test_geometry.py	2026-09-27 09:22:46.000000000 +0800
++++ patches/v0.1.2/prism_gs/tests/test_geometry.py	2026-09-27 11:29:24.418098600 +0800
+@@ -14,7 +14,8 @@
+         torch.testing.assert_close(pack_geometry(m,c),self.x)
+         z,_=project(self.x,self.v,self.k,self.w,self.h)
+         torch.testing.assert_close(screen_pack(*screen_unpack(z)),z)
+-        torch.testing.assert_close(conic_to_cov(cov_to_conic(screen_unpack(z)[1])),screen_unpack(z)[1])
++        cov=conic_to_cov(screen_unpack(z)[1])
++        torch.testing.assert_close(conic_to_cov(cov_to_conic(cov)),cov)
+ 
+     def test_jacobian_finite_difference(self):
+         z,j=jacobian(self.x,self.v,self.k,self.w,self.h)

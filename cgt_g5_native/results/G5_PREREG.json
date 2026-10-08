@@ -1,0 +1,211 @@
+{
+  "stage": "G5-PREREG",
+  "title": "CGT-G5 Preregistration — Native CGT Representation and Training",
+  "date_utc": "2026-10-04",
+  "status": "PREREGISTERED (gates locked before any G5 measurement)",
+  "frozen_upstream": {
+    "corrected_teacher": "px/py bug fixed; all affected experiments rerun",
+    "G1_real_scene_compressibility": "PASS (required tested scenes/checkpoints)",
+    "G2_certificate": "dense + rigorous interval completed; safe fraction NOT 100% -> canonical fallback required",
+    "F0_fused_cuda_correctness": "PASS (fp32 max_abs ~1.3e-6, gate 2e-5)",
+    "F0_mixed_forward": {
+      "pooled_median_ratio_S_mixed": 2.9915,
+      "room": 3.01,
+      "garden": 3.28,
+      "bicycle": 1.54,
+      "weighted_fallback_fraction": 0.175,
+      "safe_pass_fraction": 0.827,
+      "F0_verdict": "PASS_STRONG_GPU_TRANSLATION"
+    },
+    "note": "These are FORWARD-rendering results. They are NOT training-speed results and MUST NOT be counted as G5 training speed (goal §25, §28)."
+  },
+  "core_question": "Can CGT stop being a post-hoc compressed student of 3D Gaussians and become a directly trainable scene representation whose native GPU renderer produces a meaningful real end-to-end reconstruction acceleration without sacrificing quality?",
+  "success_criterion_update": {
+    "require_3x": false,
+    "rationale": "F0 ~3x is a forward-rendering result (goal §2). G5 is judged by end-to-end time-to-quality, final quality, robustness, VRAM, representation size, engineering overhead, training stability.",
+    "strong_practical_target": "stable real training acceleration ~1.5x-2.0x with preserved quality",
+    "optimize_for": "a decisive scientific answer, NOT activity or a headline multiplier (goal §1, §33)"
+  },
+  "quality_gates_frozen": {
+    "dPSNR_abs_max_dB": 0.15,
+    "dSSIM_abs_max": 0.005,
+    "relative_to": "paired strong canonical baseline (same cohort/split/GT/eval cams, goal §3, §11)",
+    "LPIPS": "reported if the existing baseline supports it; PSNR/SSIM remain HARD gates",
+    "loosen_after_results": false
+  },
+  "certificate_differentiation_semantics": {
+    "policy": "The rigorous certificate/fallback decision MAY be non-differentiable. Do NOT silently backprop through discrete safe/fallback decisions (goal §9).",
+    "allowed_options": [
+      "A: stop-gradient through certificate; differentiate the selected rendering branch",
+      "B: use canonical-branch gradient for fallback work",
+      "C: another mathematically justified piecewise treatment"
+    ],
+    "chosen_for_g5": "A (stop-gradient on the per-tile safe label; differentiate the branch actually rendered: student if safe, canonical teacher if fallback). Documented per stage; no soft learned certificate unless separately preregistered.",
+    "soft_learned_certificate_in_G5": false
+  },
+  "stages": [
+    {
+      "id": "P0",
+      "name": "clean/exclusive F0 confirmation",
+      "on_pass": "-> G5-A",
+      "on_fail_verdict": "DROP_F0_REPRODUCIBILITY",
+      "fail_condition": "clean re-run collapses to pooled <=1x or correctness outside frozen tolerance",
+      "requires_clean_gpu": true
+    },
+    {
+      "id": "G5-A",
+      "name": "native representation capacity oracle",
+      "on_pass": "-> G5-B",
+      "on_fail_verdict": "DROP_NATIVE_CAPACITY",
+      "gate": "direct native optimization reaches teacher-CGT envelope: |dPSNR|<=0.15 dB AND |dSSIM|<=0.005 vs teacher-fitted CGT",
+      "no_rescue": [
+        "extra hidden teacher supervision",
+        "larger rank chosen after failure",
+        "different certificate threshold",
+        "scene-specific rank",
+        "increased fallback",
+        "geometry changes"
+      ]
+    },
+    {
+      "id": "G5-B",
+      "name": "gradient correctness",
+      "on_pass": "-> G5-C",
+      "on_fail_verdict": "DROP_GRADIENT_CORRECTNESS",
+      "gate": "global gradient cosine >=0.999 AND relative L2 <=1e-3 AND no unexplained NaN/Inf",
+      "requires_clean_gpu": true
+    },
+    {
+      "id": "G5-C",
+      "name": "controlled native optimization (room, fixed topology)",
+      "on_pass": "-> G5-D",
+      "on_fail_verdict": "DROP_NATIVE_OPTIMIZATION",
+      "gate": "quality gate PASS AND (>=1.25x time-to-quality OR >=1.25x total controlled-training speedup OR comparable resource improvement with no time regression)",
+      "requires_clean_gpu": true
+    },
+    {
+      "id": "G5-D",
+      "name": "real native training prototype (room -> garden -> bicycle)",
+      "on_pass": "-> multi-scene candidate",
+      "on_fail_verdict": "DROP_TRAINING_HEADROOM (room) / DROP_MULTI_SCENE (later)",
+      "gate_room": "quality PASS + no catastrophic instability + measured TTQ/speedup >=1.25x on room",
+      "sequence": "room first; do NOT launch all three before room validates",
+      "requires_clean_gpu": true
+    },
+    {
+      "id": "G5-E",
+      "name": "structural/topology adaptation",
+      "on_pass": "-> final",
+      "on_fail_verdict": "record representation failure",
+      "only_if": "G5-D room passes but fixed native structure limits final quality",
+      "note": "minimum mechanism only; diagnose representation failure first; do NOT assume canonical 3DGS densification is appropriate"
+    }
+  ],
+  "time_to_quality_metric": {
+    "primary": "S_TTQ = T_baseline(Q) / T_native(Q) for target quality Q (goal §15)",
+    "also_reported": [
+      "T_native(Q)",
+      "T_baseline(Q)",
+      "learning curves PSNR(t)/SSIM(t)/loss(t)",
+      "several quality thresholds where practical"
+    ],
+    "not_sufficient_alone": "fixed-iteration time without time-to-quality (goal §28)"
+  },
+  "performance_evidence_tiers": {
+    "lt_1.10": "effectively no training acceleration",
+    "1.10-1.25": "modest/marginal",
+    "1.25-1.50": "meaningful",
+    "1.50-2.00": "strong",
+    "ge_2.00": "very strong"
+  },
+  "multi_scene_rule": {
+    "scenes": [
+      "room",
+      "garden",
+      "bicycle"
+    ],
+    "all_evaluated": true,
+    "report_each_scene_separately": true,
+    "no_scene_hidden": true,
+    "bicycle_focus": "F0 bicycle ~1.54x is well below room/garden; G5 must investigate its cause (safe fraction, high-freq detail, occlusion, tile workload, fallback, native-optimization difficulty, or structural) and not average it away (goal §21)"
+  },
+  "clean_timing_requirements": [
+    "clean/exclusive MX GPU",
+    "same hardware cohort",
+    "warmup",
+    "repeated runs where practical",
+    "raw timing preserved",
+    "median/spread",
+    "GPU state before/after",
+    "no foreign CUDA process",
+    "contaminated runs are INVALID not scientific failures (goal §23)"
+  ],
+  "memory_accounting_required": [
+    "trainable parameter bytes",
+    "optimizer-state bytes",
+    "structure metadata",
+    "certificate metadata",
+    "fallback metadata",
+    "peak VRAM",
+    "scratch memory",
+    "checkpoint size",
+    "vs canonical 3DGS (goal §24)"
+  ],
+  "baseline_discipline": "Use the current strong canonical baseline; record exact baseline commit/scene/checkpoint-init/renderer/loss/optimizer/CUDA-PyTorch-gsplat versions/tile settings/GPU (goal §26). Do NOT compare against an intentionally slow reference.",
+  "fail_closed_prohibitions": [
+    "lower quality gates",
+    "hide bicycle",
+    "tune rank per scene post hoc",
+    "use teacher loss secretly in native candidate",
+    "count F0 forward speed as G5 training speed",
+    "skip gradient validation",
+    "report iteration speed without time-to-quality",
+    "ignore fallback overhead",
+    "ignore build/structure cost",
+    "mix contaminated timing",
+    "rescue failed G5 with a large new representation change inside the same lane",
+    "modify frozen G1/G2/F0 evidence (goal §28)"
+  ],
+  "rank_policy": "Rank frozen upstream (R=4 primary). No adaptive-rank rescue by default; adaptive rank is a separate future lane unless explicitly opened after the frozen verdict (goal §19).",
+  "required_deliverables": [
+    "G5_PREREG.json",
+    "P0_F0_CLEAN_CONFIRMATION.json",
+    "G5A_NATIVE_CAPACITY.json",
+    "G5B_GRADIENT_CHECK.json",
+    "G5C_CONTROLLED_OPTIMIZATION.json",
+    "G5C_PROFILE_BREAKDOWN.json",
+    "G5D_ROOM_NATIVE_TRAINING.json",
+    "G5D_MULTISCENE_NATIVE_TRAINING.json",
+    "G5E_STRUCTURE_ANALYSIS.json",
+    "G5_REPRESENTATION_EVOLUTION.json",
+    "G5_MEMORY_ACCOUNTING.json",
+    "G5_PRIOR_ART_BOUNDARY.md",
+    "G5_MASTER_VERDICT.json",
+    "G5_MASTER_REPORT.md",
+    "MANIFEST.sha256"
+  ],
+  "unreached_stage_policy": "If a downstream stage is not reached, record NOT_REACHED. Do not fabricate measurements (goal §29).",
+  "allowed_final_verdicts": [
+    "PASS_NATIVE_CGT_METHOD_CANDIDATE",
+    "PASS_NATIVE_CGT_STRONG_CANDIDATE",
+    "DROP_F0_REPRODUCIBILITY",
+    "DROP_NATIVE_CAPACITY",
+    "DROP_GRADIENT_CORRECTNESS",
+    "DROP_NATIVE_OPTIMIZATION",
+    "DROP_TRAINING_HEADROOM",
+    "DROP_MULTI_SCENE",
+    "DROP_MEMORY_OVERHEAD",
+    "DROP_PRIOR_ART_COLLISION",
+    "BLOCKED_GPU_OCCUPIED",
+    "BLOCKED_SOURCE_INTEGRITY"
+  ],
+  "reporting_standard": [
+    "OBSERVED",
+    "EVIDENCE",
+    "INFERENCE",
+    "HYPOTHESIS",
+    "NOT_MEASURED",
+    "CONCLUSION"
+  ],
+  "final_threshold_note": "PASS_NATIVE_CGT_METHOD_CANDIDATE: all quality gates pass, native genuinely trained directly, paired multi-scene evidence exists, real TTQ benefit meaningful, speedup robust. Strong practical target >=1.5x multi-scene TTQ. >=1.25x may qualify if quality preserved, memory favorable, clean, consistent, other structural benefits. PASS_NATIVE_CGT_STRONG_CANDIDATE reserved for ~>=2x real training accel + robust multi-scene + preserved quality + reasonable VRAM + clean native representation. Do NOT require 3x (goal §31)."
+}

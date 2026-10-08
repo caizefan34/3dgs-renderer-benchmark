@@ -1,0 +1,37 @@
+{
+  "artifact": "QUALITY0R_STATE_CLASSIFICATION",
+  "campaign": "C0-QUALITY-STABILITY0-R",
+  "source": "QUALITY_FIXED_STATE_EXACTNESS.json",
+  "classification_rule": {
+    "SAME_STATE": "theta_A0 == theta_C0 == same frozen state (forward/gradient rel-L2 on identical tensors)",
+    "TRAJECTORY_STATE": "theta_A0(t) != theta_C0(t) (differences measured on independently trained states)"
+  },
+  "metrics": [
+    {
+      "metric": "initial (iter1) loss reldiff",
+      "value": 0.0,
+      "class": "SAME_STATE",
+      "justification": "At iteration 1 both arms are at the shared random initialization; reldiff 0.0 is a same-state comparison."
+    },
+    {
+      "metric": "mid (iter15000) loss reldiff",
+      "value": 0.08591253104142235,
+      "class": "TRAJECTORY_STATE",
+      "justification": "iter15000 states are the result of 15000 independently-trained steps; A0 and C0 are NOT at the same state. This is trajectory divergence, NOT fixed-state equivalence, and is REMOVED from the fixed-state block."
+    },
+    {
+      "metric": "late (iter30000) loss reldiff",
+      "value": 0.040077519324971944,
+      "class": "TRAJECTORY_STATE",
+      "justification": "iter30000 states are independently trained; this is trajectory divergence, NOT fixed-state equivalence, and is REMOVED from the fixed-state block."
+    }
+  ],
+  "action_taken": "The iter15000 and iter30000 loss rel-diff values (0.0859, 0.0401) were TRAJECTORY-STATE and have been removed from the fixed-state equivalence evidence block; they are reclassified under TRAJECTORY_DIVERGENCE. Only the iter1 same-state value and the causal-ladder SAME-STATE forward/gradient rel-L2 (within tolerance) remain as fixed-state numerical-equivalence evidence.",
+  "fixed_state_equivalence_status": "SUPPORTED (SAME-STATE forward/gradient within tolerance)",
+  "trajectory_divergence_evidence": {
+    "first_divergent_variable": "n_gaussians (population)",
+    "first_divergence_iters": "600-700 (see QUALITY_FIRST_DIVERGENCE.json)",
+    "trajectory_loss_reldiff_iter15000": 0.08591253104142235,
+    "trajectory_loss_reldiff_iter30000": 0.040077519324971944
+  }
+}

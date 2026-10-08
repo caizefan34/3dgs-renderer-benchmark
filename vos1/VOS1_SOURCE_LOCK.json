@@ -1,0 +1,73 @@
+{
+  "schema": "VOS1_SOURCE_LOCK/v1",
+  "generated_utc": "2026-10-01T02:40:13Z",
+  "hostname": "dsw-933622-64cc845c7d-lqswc",
+  "python": "3.10.21",
+  "purpose": "Pin the exact VOS1 source + VOS0 frozen evidence so the publication hardening is auditable and reproducible.",
+  "vos1_source_hashes": {
+    "publication_trainer_vos1.py": {
+      "path": "/root/vos_traces/publication_trainer_vos1.py",
+      "sha256": "244677a0a19bf3d06a9bb5e5dcc96fe41264749860afd37eae64bddede250516",
+      "bytes": 53812
+    },
+    "vos1_train_driver.py": {
+      "path": "/root/vos_traces/vos1_train_driver.py",
+      "sha256": "d890d57392e915b5ce8a325150e2484244bdd0e74a5e98afcb9d225c7f72f72a",
+      "bytes": 45965
+    },
+    "_vos1_oracle.py": {
+      "path": "/root/vos_traces/_vos1_oracle.py",
+      "sha256": "d971f19ef7753bb390ecd3108f7292923d6a0159503f6a5b3390e8a4ff76f116",
+      "bytes": 11310
+    },
+    "_vos1_compaction.py": {
+      "path": "/root/vos_traces/_vos1_compaction.py",
+      "sha256": "57f316545d82053e91430baaa9613cb616c60421a48728e7bb8be37186cf3d2f",
+      "bytes": 6682
+    },
+    "reference_v1_gaussian_model.py": {
+      "path": "/root/3dgs-renderer-benchmark/baseline/reference_v1/gaussian_model.py",
+      "sha256": "68731e375013a6f24aa4d81e5986402b1ac50f51cddf20688e358be705b1a60b",
+      "bytes": 28991
+    },
+    "reference_v1_config.py": {
+      "path": "/root/3dgs-renderer-benchmark/baseline/reference_v1/config.py",
+      "sha256": "ea8e870476a3ba71c0ae9e1123a6fa5b1cf696bad983bdb6535d6fd04b7acc56",
+      "bytes": 3058
+    },
+    "publication_trainer_p13x.py": {
+      "path": "/root/epic05_p13x/publication_trainer_p13x.py",
+      "sha256": "9966f30a5eaf108b25379c15c32cc2532b25133ac786fcf22f22e6569e760b10",
+      "bytes": 46176
+    }
+  },
+  "frozen_vos0_evidence_hashes": {
+    "VOS_QUALITY.json": {
+      "path": "/root/vos_traces/VOS_QUALITY.json",
+      "sha256": "6e94d5c81fb2ad15af45fb0a751813b31bc252ebde2a0e365c4b9e3f3fe0d6e2",
+      "bytes": 3169
+    },
+    "VOS_30K.json": {
+      "path": "/root/vos_traces/VOS_30K.json",
+      "sha256": "a52cf2c44b0dd4ee2b1c2bf8f1c865bba3cd589409f6174766b4efeb1295a502",
+      "bytes": 10082
+    }
+  },
+  "vos0_frozen_result": {
+    "verdict": "KEEP",
+    "verdict_scope": "SH-only VOS active in iterations 15001-30000 (post-densify region), frozen C0 otherwise untouched.",
+    "performance": {
+      "optimizer_stage_speedup_15k_30k": {
+        "room": 1.66,
+        "bicycle": 2.45,
+        "garden": 1.98
+      },
+      "e2e_wall_reduction_full_30k_run": {
+        "room": 0.0251,
+        "bicycle": 0.1071,
+        "garden": 0.0786
+      }
+    },
+    "note": "VOS0 is the surviving mechanism that VOS1 hardens. VOS0 itself required a device-side compaction to remove the per-step torch.nonzero host sync; VOS1 delivers that compaction and re-freezes the evidence under 3 seeds + corrected true-holdout."
+  }
+}

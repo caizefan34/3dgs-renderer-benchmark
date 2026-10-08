@@ -1,0 +1,91 @@
+{
+  "experiment": "fastgs_room_10k_static_opacity_ablation",
+  "status": "frozen_before_A_measurement",
+  "date": "2026-09-27",
+  "premeasurement_amendments": [
+    "Initial launch stopped at a pre-render camera-membership assertion because the A-only loader correctly did not construct B camera objects. No renderer call or image metric was produced. Corrected the assertion to require construction of A cameras only, keeping B unread until the A gate passes; the frozen sampling, thresholds, and selection rules are unchanged. Updated script hash before any A measurement."
+  ],
+  "question": "Can a fixed-state rule find a batch of 16 high accepted-pixel-cost Gaussians whose temporary opacity suppression measurably improves training-view loss, then retain that effect on separately sampled training views?",
+  "scope": "Static, in-memory interventions on the corrected author FastGS room@10K PLY. No training update, no optimizer or topology event, and no full-training speed or final-quality claim.",
+  "source": {
+    "repository": "/root/codex_fastgs_audit_20260927",
+    "commit": "44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f",
+    "train_py_sha256": "1fd700c341d109f13f95ff3a3cdf1328445f27909119e7eacadb31913e34c963",
+    "ply": "/root/codex_fastgs_audit_20260927/output/room_sparse_adj_eval_p1_10k/point_cloud/iteration_10000/point_cloud.ply",
+    "ply_sha256": "4f0b7032dd97da9da1807a2047ff12a4d8c871ffe7e465aa212397aedae9cff3",
+    "gaussian_count": 689336,
+    "dataset": "/root/3dgs-renderer-benchmark/data/datasets/mipnerf360/room",
+    "train_camera_count": 272,
+    "development_camera_count": 39,
+    "train_names_sha256_canonical_json": "b4d94c9b246119625ab220601400f76ac986bbec067317e5e60b93c53a44af6c"
+  },
+  "render_and_loss": {
+    "resolution_px": [1600, 1066],
+    "mult": 0.5,
+    "scaling_modifier": 1.0,
+    "background": [0.0, 0.0, 0.0],
+    "image_downsampling": false,
+    "optimization_loss": "0.8 * mean(abs(render - target)) + 0.2 * (1 - fused_ssim(render, target)); use original unclamped render/target values, as in the FastGS training loss",
+    "reported_psnr": "clamp rendered and target RGB to [0,1], then compute full-image RGB PSNR",
+    "opacity_intervention": "For one PLY row at a time, fill only raw model._opacity[index] with -20.0 in memory, render, then immediately restore and assert bitwise tensor equality.",
+    "pixel_work_proxy": "All-ones int32 metric_map with render_fastgs(get_flag=True); use accum_metric_counts as accepted Gaussian-pixel contribution counts. This is not a tile-instance count or wall-clock speedup."
+  },
+  "sampling": {
+    "training_camera_order_before_sampling": "lexicographically sorted image_name list from the frozen Colmap eval=True split",
+    "generator": "numpy.random.Generator(numpy.random.PCG64(20260927))",
+    "numpy_version_at_sampling": "2.2.6",
+    "draw_rule": "Permute the 272 sorted training names once without replacement. First 8 form A, next 8 form B. Sort each set only for execution order; retain draw order below.",
+    "a_draw_order": ["DSCF4758", "DSCF4687", "DSCF4792", "DSCF4928", "DSCF4972", "DSCF4940", "DSCF4903", "DSCF4951"],
+    "a_processing_order": ["DSCF4687", "DSCF4758", "DSCF4792", "DSCF4903", "DSCF4928", "DSCF4940", "DSCF4951", "DSCF4972"],
+    "b_draw_order": ["DSCF4975", "DSCF4905", "DSCF4954", "DSCF4857", "DSCF4684", "DSCF4913", "DSCF4685", "DSCF4888"],
+    "b_processing_order": ["DSCF4684", "DSCF4685", "DSCF4857", "DSCF4888", "DSCF4905", "DSCF4913", "DSCF4954", "DSCF4975"],
+    "heldout_policy": "The 39 development/test cameras are excluded from rule construction, candidate selection, thresholds, and evaluation. The diagnostic-heldout outlier DSCF4771 and prior candidate 689298 are not used as an input or special case. B is not read until A selects at least 16 candidates."
+  },
+  "A_gate": {
+    "baseline_repeat_count_per_camera": 3,
+    "repeat_noise": "For each A camera, compute the maximum absolute deviation of the three no-edit losses from their median. noise_max is the maximum across A cameras.",
+    "epsilon": "max(1e-6, 5 * noise_max)",
+    "visibility_eligibility": "A Gaussian must have radius > 0 in at least 2 of the 8 A views.",
+    "cost_scan": "One baseline all-ones accepted-pixel counter render per A camera. Candidate cost is the sum of accepted pixel contributions across the 8 A views.",
+    "candidate_pool": "The 64 visibility-eligible Gaussians with greatest A accepted-pixel cost; ties break by ascending PLY index.",
+    "intervention": "For each candidate, render each A camera once with only that row's raw opacity temporarily set to -20.0; restore after each render.",
+    "qualifies": "Mean across the 8 per-camera intervention-minus-median-baseline original-loss deltas is <= -epsilon, AND at least one A camera has delta <= -1e-5.",
+    "selection": "If fewer than 16 candidates qualify, stop immediately and do not access B. Otherwise choose the 16 qualifying candidates with greatest A accepted-pixel cost, ties by ascending PLY index; freeze IDs before B.",
+    "selection_cost_accounting": "Record baseline repeats, accepted-pixel scan renders, all candidate intervention renders, synchronized per-render and stage wall time, and all rule computation time where measurable."
+  },
+  "B_gate_if_A_passes": {
+    "baseline_repeat_count_per_camera": 3,
+    "threshold_source": "Use epsilon frozen from A only; do not estimate or adjust a threshold from B.",
+    "main_group": "Suppress all 16 frozen A-selected rows simultaneously.",
+    "additional_group": "Suppress the 15 highest-A-cost rows among the selected 16 (the 16th is dropped); no B result can change this set.",
+    "individual_interventions": "Measure each of the 16 frozen rows separately on all 8 B cameras.",
+    "per_camera_report": "For every B camera report original-loss delta and clamped PSNR delta for the main 16-point group, 15-point group, and each single point.",
+    "main_group_quality_pass": "At least 6/8 B cameras have original-loss delta <= epsilon; at least 2/8 have PSNR delta >= +0.05 dB; mean original-loss delta is <= -epsilon; and mean PSNR delta is > +0.05 dB.",
+    "net_cost_measurement": "For baseline, 16-point group, and 15-point group, rerender each B camera with an all-ones get_flag metric_map. Report the direct net change in total accepted Gaussian-pixel contributions after the group edit. Do not add single-point costs to estimate group savings."
+  },
+  "conditional_controls": {
+    "run_condition": "Run only if the 16-point main group passes every B quality gate. If A or the B main gate fails, do not spend GPU time on controls.",
+    "candidate_universe": "The frozen A top-64 cost pool; no B quantities enter control selection.",
+    "highest_cost_16": "Top 16 in the pool by A accepted-pixel cost, ties by PLY index.",
+    "lowest_opacity_16": "16 lowest sigmoid(opacity) in the pool, ties by PLY index.",
+    "random_16": "Sample 16 without replacement from the pool after excluding the main 16, using PCG64 seed 20260928.",
+    "cost_matched_16": "From pool rows outside the main 16, use deterministic one-for-one swaps initialized with the 16 closest individual costs to target_mean = main-group total cost / 16; iterate the cost-reducing swap with lexicographically smallest (added_index, removed_index) until no swap improves absolute group-total cost error. Report remaining mismatch.",
+    "author_rule_control": "Adapted FastGS final-prune branch only: evaluate the author's pruning_score on 10 fixed training cameras drawn without replacement from the sorted training names left after A/B using PCG64 seed 20260929, with the author's loss_thresh and mult. Eligible rows in the A top-64 pool satisfy sigmoid(opacity) < 0.1 OR pruning_score > 0.9. If >=16 qualify, use the 16 highest pruning_score rows (ties by PLY index); otherwise evaluate the smaller eligible set and report the shortfall. This is not an exact replay of the 10K event because the PLY lacks historical max_radii2D/densification state.",
+    "comparison": "On B, report each control's full-image quality changes and direct all-ones group accepted-pixel change. Include each method's selection/scoring render count, synchronized time, and GPU work. State explicitly if any conditional control is unavailable or not run."
+  },
+  "execution": {
+    "run_a_sha256": "ff30295992a32ad2eabbedb344dd28e1492aa1c406a32ce2ece250d811242c88",
+    "host": "EPIC-05",
+    "cuda_visible_devices": "2",
+    "launch_gate": "Immediately before the first GPU render, recheck physical GPU 2 is idle and has no competing workload. Never use physical GPUs 0 or 1; do not interrupt other processes.",
+    "experiment_directory_remote": "/root/codex_fastgs_audit_20260927/pruning_deletion_ab_20260927",
+    "experiment_directory_local": "experiments/training_solver_design/fastgs_pruning_ab_20260927",
+    "baseline_integrity": "Do not edit author source or PLY. Record PLY SHA-256 before/after. No checkpoint or PLY output is written."
+  },
+  "interpretation_limits": [
+    "Static image-loss interventions do not show that pruning is safe after optimizer and scene state evolve.",
+    "Accepted pixel contribution counts are a work proxy, not tile-instance counts or measured training speed.",
+    "A/B views are training views; they are not official novel-view test evidence.",
+    "No complete training run is part of this experiment."
+  ]
+}

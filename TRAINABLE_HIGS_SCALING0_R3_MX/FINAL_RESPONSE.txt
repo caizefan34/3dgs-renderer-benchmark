@@ -1,0 +1,75 @@
+TRAINABLE-HIGS-SCALING0-R3-MX
+
+Execution:
+BLOCKED
+
+State:
+path: /mnt/storage_pool/liaoyuanjun/r4_13scene_v2/bicycle/candidate_c/checkpoints/iter_30000.pt
+SHA256: ccec425c8da02d423fb66e89450e3c837209f280deea24dbf4a507bc3cd4ea14
+iteration: 30000
+N: 4413928
+
+Source identity:
+baseline binary: /home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/csrc.so
+baseline SHA256: 40a009837e75620454059cfdbb5088cc08423f281e4c734da3053b727d39df50
+candidate binary: /home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/experimental/render/kernels/csrc.so
+candidate SHA256: b64d02c1cdad51bfc9ff0c2c435f9a4c1d1603466700194fb30f1c2348bcf2c3
+
+Correctness:
+N/A (blocked before correctness)
+
+HN-540-B4:
+B forward: 51.615 ms
+H forward: BLOCKED (OOM)
+S_forward: N/A
+
+B backward: 17.562 ms
+H backward: BLOCKED (OOM)
+S_backward: N/A
+
+B FB_cuda: 69.187 ms
+H FB_cuda: BLOCKED (OOM)
+S_FB: N/A
+
+HN-1080-B4:
+B forward: N/A (not reached)
+H forward: N/A (not reached)
+S_forward: N/A
+
+B backward: N/A (not reached)
+H backward: N/A (not reached)
+S_backward: N/A
+
+B FB_cuda: N/A (not reached)
+H FB_cuda: N/A (not reached)
+S_FB: N/A
+
+580K context:
+540p B4: 1.02x (HISTORICAL_CONTEXT_ONLY)
+1080p B4: 1.09x (HISTORICAL_CONTEXT_ONLY)
+
+Does speedup materially increase with N:
+INCONCLUSIVE (blocked at 4.4M)
+
+Hierarchy forward conclusion:
+BLOCKED - HiGS cannot execute at 4.4M scale
+
+Native backward conclusion:
+BLOCKED - Cannot measure
+
+Mechanism conclusion:
+BLOCKED - HiGS native backend requires >40GB GPU memory for 4.4M Gaussian state. The tile intersection data structures exceed available capacity even with culling enabled and single camera batch. Std_ll baseline completed successfully but HiGS cannot run.
+
+Terminal verdict:
+BLOCKED_ENVIRONMENT
+
+Recommended next action:
+HiGS native backend cannot execute at the required 4.0-4.8M Gaussian scale on 40GB GPUs. Options: (1) Use GPU with >64GB memory, (2) Test with state <2M Gaussians, or (3) Optimize HiGS kernel memory footprint. Std_ll baseline measurements are available but HiGS cannot be evaluated at this scale.
+
+Artifacts:
+- RUN_STATUS.json
+- R3_WORKLOAD_IDENTITY.json
+- R3_SOURCE_IDENTITY.json
+- R3_PROTOCOL_IDENTITY.json
+- logs/benchmark_run.log
+- raw/benchmark_results.json (partial - std_ll only)

@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-10-08T08:32:00Z",
+  "status": "PREPARED_NOT_EXECUTED",
+  "reason": "Requires building patched HiGS with modified source code",
+  "test_plan": {
+    "workloads": ["580K", "2.0M", "4.4M"],
+    "backends": ["frozen_higs", "patched_higs", "std_ll"],
+    "resolutions": ["540p"],
+    "batch_sizes": [1]
+  },
+  "correctness_criteria": {
+    "rgb_difference": "< 1e-5",
+    "alpha_difference": "< 1e-5",
+    "depth_difference": "< 1e-5",
+    "gradient_finite": "all True",
+    "repeatability": "stable across 3 runs"
+  },
+  "metrics": {
+    "forward_latency_ms": "median, p10, p90",
+    "backward_latency_ms": "median, p10, p90",
+    "fb_cuda_latency_ms": "median, p10, p90",
+    "peak_vram_gb": "device level",
+    "intersection_count": "actual count",
+    "sort_workspace_gb": "if measurable"
+  },
+  "note": "Correctness validation infrastructure prepared. Execution requires building patched HiGS from modified source."
+}

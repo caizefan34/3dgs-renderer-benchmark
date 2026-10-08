@@ -1,0 +1,27 @@
+{
+  "metric": "projected_training_level_Amdahl_speedup",
+  "formula": "S_train = 1 / ((1 - f) + f / S_mixed_renderer)",
+  "note": "f = forward-renderer fraction of end-to-end training iteration time. NOT measured upstream (F0 scope EXCLUDES training; upstream G2 uses q_weighted = p*f directly, no separate f). f is an ASSUMPTION from the standard 3DGS training profile (forward render is a large share). Presented as a SENSITIVITY, not a measurement. Do not read as a training speedup claim.",
+  "f_status": "ASSUMPTION (needs-verification; out of F0 scope)",
+  "S_mixed_renderer_production": 3.0256,
+  "S_mixed_renderer_conservative_incl_h2d": 1.3711,
+  "sensitivity": [
+    {
+      "f_renderer_fraction": 0.4,
+      "S_train_production_Smixed": 1.3657,
+      "S_train_conservative_Smixed": 1.1214
+    },
+    {
+      "f_renderer_fraction": 0.5,
+      "S_train_production_Smixed": 1.5032,
+      "S_train_conservative_Smixed": 1.1565
+    },
+    {
+      "f_renderer_fraction": 0.6,
+      "S_train_production_Smixed": 1.6714,
+      "S_train_conservative_Smixed": 1.1939
+    }
+  ],
+  "interpretation": "With the production-representative renderer speedup (S_mixed~3.0), a 3DGS trainer whose renderer is 40-60% of iteration time would project to ~1.37-1.67x end-to-end training speedup, preserving quality (fidelity guaranteed by the rigorous certificate on safe tiles, exact fallback on the rest). Even the conservative bench number (S_mixed~1.37 incl. a host-to-device copy production does not pay) still projects to ~1.12-1.19x. A ~1.5x training speedup with preserved quality is scientifically meaningful and may justify G5 (per the F0 gate).",
+  "caveat": "Real training speedup also depends on backward/densification/optimizer costs and on a CGT backward path (downstream of F0 PASS); not measured here."
+}

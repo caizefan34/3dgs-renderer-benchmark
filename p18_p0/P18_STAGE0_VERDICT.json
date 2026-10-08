@@ -1,0 +1,67 @@
+{
+  "phase": "P18-P0 Stage-0",
+  "verdict": "P18_MAPPING_PASS",
+  "reasoning": "Both forward and backward kernels exhibit f_lockstep(W) = 1.0 for all W ∈ {4, 8, 16}. The maximum feasible subgroup width is W = 16.",
+
+  "source_identity": {
+    "status": "PASS",
+    "trainer": "675b0267...9050c5 ✓",
+    "c0_extension": "d26cccf4...a513f11 ✓",
+    "c0_core": "935ea6c0...1ff37e ✓",
+    "fused_ssim": "dd6a4c79...83d8ebb ✓"
+  },
+
+  "forward": {
+    "kernel": "macro_tile_rasterize_kernel<16>",
+    "gauss_per_warp": 1,
+    "f_lockstep": {"W4": 1.0, "W8": 1.0, "W16": 1.0},
+    "exp_implementation": "__h2exp2_approx (half2 MUFU.EX2)",
+    "conic_form": "half2 Cholesky (l00, l10, l11, -log2(opac)) × CHOL_SCALE",
+    "alpha_clamp": "none (threshold-reject only)",
+    "alpha_threshold": "1/255 (sigma < log2(255))",
+    "min_transparency": "1e-4",
+    "lockstep_mechanism": "uniform uint4 LDS of b_idx from warp_queue; same gaussian index for all 32 lanes"
+  },
+
+  "backward": {
+    "kernel": "higs_blend_bwd_px_kernel<3, 2, true, true>",
+    "px": 2,
+    "cta_threads": 128,
+    "f_lockstep": {"W4": 1.0, "W8": 1.0, "W16": 1.0},
+    "exp_implementation": "__expf (FP32 MUFU.EX2)",
+    "conic_form": "FP32 full conic (A, B, C)",
+    "alpha_clamp": "min(0.99, opac*vis)",
+    "alpha_threshold": "1/255",
+    "lockstep_mechanism": "uniform smem index t for conic_batch[t], xy_opacity_batch[t]; same gaussian for all 128 threads",
+    "gradient_scatter": "warpSum reduction → single atomicAdd per gaussian per warp (lane 0)"
+  },
+
+  "max_w": 16,
+  "recommended_w": 16,
+
+  "shared_memory_k_exp_dd": {
+    "feasible": true,
+    "forward_additional_smem_bytes": 2048,
+    "forward_additional_global_traffic": 0,
+    "backward_additional_smem_bytes": 512,
+    "backward_additional_global_traffic": 0,
+    "smem_headroom": "forward: 26.6KB / 100KB, backward: 5.6KB / 100KB"
+  },
+
+  "mapping_compatibility": {
+    "forward_backward_same_pixel_mapping": false,
+    "qscan_reusable": true,
+    "note": "Pixel mappings differ (forward: lane→(x,y) grid; backward: warp→row-band, lane→column) but QSCAN operates on per-gaussian lockstep, which is identical in both passes."
+  },
+
+  "probe_methodology": "Source-level structural proof. The lockstep property is a theorem about the code: the drain loop (forward) and t-loop (backward) use a single uniform loop variable with no per-lane branching on gaussian selection. No runtime probe was executed (would require remote A100 or C0 rebuild on local sm_120 GPU).",
+
+  "no_modifications_made": true,
+  "no_tile_size_change": true,
+  "no_thread_rearrangement": true,
+  "no_sorting_rewrite": true,
+  "no_rasterizer_rewrite": true,
+  "no_compositing_change": true,
+
+  "next_stage": "STOP. Do not proceed to Stage 1 (QSCAN implementation). Stage-0 gate passed at W=16."
+}

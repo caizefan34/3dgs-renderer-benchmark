@@ -1,0 +1,82 @@
+{
+  "record": "GRC3D M0/M1 environment and GPU occupancy",
+  "date": "2026-09-27",
+  "ssh_alias": "EPIC-05",
+  "host": "dsw-933622-64cc845c7d-lqswc",
+  "gpu_pool": "8 x NVIDIA A100-SXM4-80GB (81920 MiB each)",
+  "gpu_pool_snapshot_at_m0": {
+    "0": "32757 MiB used, 0% util - external tenant, not touched",
+    "1": "32757 MiB used, 0% util - external tenant, not touched",
+    "2": "9145 MiB used, 96% util - P12 garden rerun, not touched",
+    "3": "577 MiB used, 0% util - this campaign (m0 + all m1 probes)",
+    "4": "0 MiB, 0% util - idle, not used",
+    "5": "0 MiB at snapshot; used later for the garden FUNCTIONAL_ONLY replay",
+    "6": "573 MiB used, 0% util - external tenant, not touched",
+    "7": "0 MiB at snapshot; used later for the bicycle FUNCTIONAL_ONLY replay"
+  },
+  "gpus_used": {
+    "m0_audit_and_m1_probes": "physical GPU 3 (UUID GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72) via CUDA_VISIBLE_DEVICES=3",
+    "replays": "physical GPU 7 (bicycle) and GPU 5 (garden); timing_grade=FUNCTIONAL_ONLY because the machine is shared - these timings are used as the cost-model base unit with that label, NOT as exclusive timing"
+  },
+  "interpreter": {
+    "path": "/root/miniforge3/envs/gsplat/bin/python",
+    "python": "3.10.21",
+    "torch": "2.9.1+cu128",
+    "cuda": "12.8",
+    "note": "the system python3 (3.12/torch 2.10) cannot load the pinned gsplat .so (undefined symbol _ZN3c104cuda29c10_cuda_check_implementationEiPKcS2_ib); every GPU script used the miniforge interpreter"
+  },
+  "driver": "570.133.20",
+  "nvcc": "not on PATH; the gsplat extension is prebuilt and pinned by sha256",
+  "gsplat": {
+    "tree": "/root/epic05_p8/gsplat-main-512d366b",
+    "pin": "512d366b67073d77ca099ede742683c165dfc23b (gsplat main, P8 pin 2026-09-25)",
+    "so_sha256": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+    "note": "the pin is an environment identity, not a SOTA claim"
+  },
+  "fused_ssim": {
+    "module_file": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim/__init__.py",
+    "so_sha256": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+    "note": "P11-certified fused-ssim, hard-locked by assertion in gx_common.check_fused_lock"
+  },
+  "campaign_repo": {
+    "path": "/root/3dgs-renderer-benchmark",
+    "sha": "abfa6c3e4b23caf5a927bf3722a65cba37b6fab3",
+    "tracked_modifications": "none; git status --porcelain lists only untracked data/official/mipnerf360/* directories"
+  },
+  "workdir": {
+    "root": "/root/epic05_grc3d",
+    "layout": "scripts/ inputs/{snapshots,bundles} outputs/ logs/",
+    "pollution_control": "PYTHONDONTWRITEBYTECODE=1 on all runs; no writes into the campaign repo; P11/P12/P13 artifacts untouched"
+  },
+  "checkpoints": {
+    "bicycle_30k": {
+      "path": "/root/epic05_p12/runs/p12a/p12a_gmainf_s42_bicycle/ckpt_30000.pt",
+      "sha256": "08f51400bbe301d1bf176f135688103f0d4108e88916bc3a9a3f65ee26f2fe51",
+      "n_gaussians": 3706340,
+      "iteration": 30000,
+      "arm": "gmain"
+    },
+    "bicycle_and_garden_5k_14k_states": "exact replay snapshots snap_{scene}_{004936,004984,005000,013936,013984,014000}.pt; per-bundle sha256 in remote_outputs/bundles_manifest_bicycle.json and bundles_manifest_garden.json"
+  },
+  "camera_identity": {
+    "bicycle_cam163": "e596a8e5043795d81e4b188b6b76c0bad6bb20a24143c36c40c1aec7c31bbd54",
+    "bicycle_cameras_json_sha256": "5f0ebcb6b33e415061a485ed9961fb277cf7e875586f0d82d88b746d9d9fd502",
+    "garden_cam163": "4c90b57414bc70ff724d93006aa7381e5b55a203cb925b3b2cfa57d110653f5e",
+    "camera_sequence_bicycle_sha256": "9ef55b8b082a249586c816dddb20942010af56ffeeb4af8142ac84874e7201b7",
+    "camera_sequence_garden_sha256": "c7ec147a8fddcd2af44368b3d0d544c216960a1286a4737bba05174ecbdaf08c",
+    "camera_rule": "first two distinct indices of the frozen camera_sequence (pre-registered): [163, 28] for both scenes"
+  },
+  "gt": {
+    "bicycle_cam163_file": "/root/3dgs-renderer-benchmark/data/datasets/mipnerf360/bicycle/images/_DSC8838.JPG",
+    "bicycle_cam163_sha256": "1bb4b60ed1d9867632dcfcd828b644c8cb9e7a87ac8ebdfee62e3328efe20748"
+  },
+  "render_options": {
+    "resolution_hw": [1080, 1920],
+    "eps2d": 0.3,
+    "background": "black",
+    "tile_size": 16,
+    "packed": false,
+    "sh_degree": 3,
+    "seed": 42
+  }
+}

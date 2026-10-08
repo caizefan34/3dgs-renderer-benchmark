@@ -1,0 +1,3464 @@
+Instant Colorization of Gaussian Splats
+Report GitHub Issue
+×
+Title:
+Content selection saved. Describe the issue below:
+Description:
+Submit without GitHub
+Submit in GitHub
+arXiv is now an independent nonprofit!
+Learn more
+×
+Back to arXiv
+Why HTML?
+Report Issue
+Back to Abstract
+Download PDF
+Abstract
+1
+Introduction
+2
+Related Work
+Relightable Gaussian Splatting
+Textured Gaussian Splatting
+Feature-Enriched 3D Scene Representations
+3D Scene Segmentation
+3
+Method
+Differentiable renderer
+Visibility
+Coloring
+Regularization
+Iterative Refinement
+4
+Experiments
+Implementation Details
+4.1
+Relighting
+Setup
+Qualitative results
+Quantitative results
+4.2
+Feature Enrichment
+4.3
+Segmentation
+Setup
+Results
+5
+Conclusion
+References
+License: arXiv.org perpetual non-exclusive license
+arXiv:2604.17155v1 [cs.CV] 18 Apr 2026
+Instant Colorization of Gaussian Splats
+Daniel Lieber
+Affiliation:
+University of Osnabrück
+Email:
+dlieber@uos.de
+Alexander Mock
+Affiliation:
+University of Osnabrück
+Email:
+alexander.mock@uos.de
+Nils Wandel
+Affiliation:
+University of Osnabrück
+Email:
+nils.wandel@uos.de
+Abstract
+Gaussian Splatting has recently become one of the most popular frameworks for photorealistic 3D scene reconstruction and rendering. While current rasterizers allow for efficient mappings of 3D Gaussian splats onto 2D camera views, this work focuses on mapping 2D image information (e.g. color, neural features or segmentation masks) efficiently back onto an existing scene of Gaussian splats.
+This ’opposite’ direction enables applications ranging from scene relighting and stylization to 3D semantic segmentation, but also introduces challenges, such as view-dependent colorization and occlusion handling.
+Our approach tackles these challenges using the normal equation to solve a visibility-weighted least squares problem for every Gaussian and can be implemented efficiently with existing differentiable rasterizers. We demonstrate the effectiveness of our approach on scene relighting, feature enrichment and 3D semantic segmentation tasks, achieving up to an order of magnitude speedup compared to gradient descent-based baselines.
+1
+Introduction
+Recently, scene representations based on Gaussian splats (GS) have achieved notable success in photorealistic novel view synthesis due to their high computational efficiency and their ability to render complex scenes in real time with high detail
+[
+27
+,
+19
+,
+6
+]
+.
+By optimizing the Gaussian parameters via gradient descent, the scene appearance can be iteratively refined to closely match a set of input camera views.
+However, after a scene has been reconstructed, modifying its appearance or enriching the representation with semantic features remains a relevant but also challenging task as it must account for occlusions caused by partially transparent splats as well as view-dependent effects.
+Although gradient-based optimization can solve this problem, it typically requires many iterations and substantial computational cost.
+Figure 1
+:
+Architecture overview: First, camera poses and an initial point cloud are generated from a set of original scene photos using structure from motion (COLMAP)
+[
+51
+,
+50
+]
+. Then, the 3DGS framework
+[
+27
+]
+is used to generate a 3D Gaussian scene representation. This work focuses on mapping new 2D image information onto this existing GS scene (see red box). Therefore, three scenarios are considered:
+First, we capture the same scene a second time under different lighting conditions in order to relight the Gaussian splats. To ensure correct camera pose registration with the 3D scene, COLMAP is used (see blue arrow).
+Second, we extract principal components from DINOv2 features
+[
+44
+]
+of the original photos to obtain a feature enriched 3D scene representation.
+Finally, we generate segmentation masks using the SAM2 model
+[
+47
+]
+to do 3D semantic scene segmentation (bottom row).
+Thus, we propose a novel algorithm to efficiently map 2D images onto existing 3D Gaussian splat scenes and apply it in 3 different settings (see
+Figure
+1
+): First, scene relighting, second, feature enrichment of scene representations and third, 3D scene segmentation.
+The algorithm leverages the normal equation to solve a visibility-weighted least squares problem between rendered and target images. It explicitly accounts for occlusions, alpha blending of partially transparent splats, and view-dependent colors, and can be easily implemented based on existing differentiable GS rendering frameworks.
+To this end, we recorded additional scenes under varying lighting conditions and generated neural features as well as semantic segmentation masks using the DINOv2
+[
+44
+]
+and the Segment Anything Model 2
+[
+47
+]
+respectively.
+The proposed colorization algorithm achieves up to an order of magnitude faster 2D to 3D projections compared to gradient descent-based optimization approaches like e.g. Adam
+[
+31
+]
+. Code and data are available on github
+https://github.com/dlieber01/Instant-Colorization-of-Gaussian-Splats
+.
+In the following, we first give a short overview over related work. Then, we derive the colorization algorithm and explain our experimental setup. Finally, we present our results and conclude with a short discussion.
+2
+Related Work
+Generating highly realistic 3D scene representations from photographs and rendering novel views efficiently is a long standing research problem in computer vision
+[
+36
+]
+.
+With the upcoming of gradient based optimization schemes for scene representations based on differentiable rasterizers
+[
+35
+,
+34
+,
+23
+]
+or neural radiance fields
+[
+40
+,
+43
+]
+, realism has been significantly improved.
+While volumetric representations based on Gaussians have been studied already for several decades
+[
+57
+,
+61
+,
+4
+,
+48
+]
+, Kerbl et al.
+[
+27
+]
+have recently shown that representations based on Gaussian splats enable highly efficient novel view synthesis on high-fidelity scenes that can be optimized via gradient-descent.
+Optimization improvements via more efficient rasterizers
+[
+60
+]
+, the Levenberg-Marquardt algorithm (3DGS-LM
+[
+18
+]
+) or regularization-based training
+[
+3
+]
+have further reduced training time and improved robustness.
+The success of Gaussian Splatting has already inspired countless follow-up works
+[
+7
+]
+, e.g. methods that make use of 2D Gaussian splats
+[
+19
+]
+, more accurate perspective projections
+[
+17
+]
+, or ray-traced variants for physically-based rendering
+[
+42
+,
+6
+]
+.
+The popularity of gaussian splats for scene representations motivates the search for efficient texture projection techniques that allow to map 2D image information such as relighted scene photos, neural features, segmentation masks, etc back onto the corresponding splats in 3D.
+Relightable Gaussian Splatting
+Several works focus on relightable Gaussian splatting that incorporate surface normals, BRDF parameters and illumination maps (e.g., Relightable 3D Gaussians
+[
+13
+]
+or LumiGauss
+[
+26
+]
+).
+Often, these representations not only allow to change the illumination but also model reflections
+[
+13
+,
+56
+]
+.
+However, more complicated light interactions such as caustics or subsurface scattering are still out of reach.
+Here, data-driven approaches that capture a scene under different light conditions can become a viable option
+[
+8
+]
+.
+While deep-learning based approaches achieve impressive results for example for subsurface scattering
+[
+10
+]
+or human avatars
+[
+54
+]
+,
+training neural networks is computationally expensive and might be prone to overfitting if the dataset is not large enough.
+Thus, in case of scarce data and computational budget, an efficient image mapping strategy might be more suitable
+[
+53
+]
+.
+Textured Gaussian Splatting
+Textured-GS
+[
+2
+,
+20
+]
+and subsequent approaches have shown that extending the standard spherical-harmonic (SH) color representation with spatially varying or learned color fields improves appearance quality and editability.
+This decoupling of geometry and appearance aims to bridge the gap between neural volumetric rendering and traditional mesh-based texturing resulting in higher-quality renderings.
+Further extensions such as Spec-Gaussian
+[
+59
+]
+and SuperGaussians
+[
+58
+]
+enhance the expressiveness of individual splats by modeling view-dependent reflectance or spatially varying color distributions.
+Unfortunately, non-linear color models significantly complicate direct texture projections. Therefore, this work only focuses on linear color models, such as those based on spherical harmonics (SH), which still account for a large proportion of current research into Gaussian splats
+[
+60
+,
+19
+]
+.
+Feature-Enriched 3D Scene Representations
+Beyond discrete semantic labels, recent work has demonstrated that dense image features from vision or vision-language models can be integrated into spatial scene representations.
+Such feature-enriched maps enable queryable scene representations that support multimodal interaction, most prominently through natural language
+[
+29
+,
+46
+,
+38
+,
+30
+]
+.
+Other approaches further exploit these representations for open-set mapping, scene graphs, and spatial reasoning
+[
+24
+,
+52
+,
+14
+,
+21
+]
+.
+These methods typically require specialized neural scene representations or additional training procedures to associate image features with the underlying geometry.
+In contrast, our approach directly projects dense feature maps onto an existing Gaussian splat representation, enabling feature-enriched scene geometry without additional learning and with low computational overhead.
+3D Scene Segmentation
+has important applications in robotics
+[
+41
+]
+, autonomous driving
+[
+5
+]
+, and semantic scene understanding
+[
+11
+]
+.
+Recent advances have shown that Gaussian-based scene representations can also be extended for semantic segmentation and object editing. Semantic-GS
+[
+15
+]
+leverages 2D segmentation priors from foundation models such as SAM
+[
+32
+]
+and SAM2
+[
+47
+]
+to propagate semantic labels into 3D Gaussian fields.
+RT-GS2
+[
+25
+]
+enables real-time semantic segmentation of Gaussian splat representations.
+However, these approaches typically require training additional neural networks to infer semantic labels from the 3D representation.
+Segment Any Gaussian (SAGA)
+[
+1
+]
+learns a contrastive feature field for Gaussian splatting representations to enable interactive segmentation queries.
+This requires an additional training stage to associate semantic features with the Gaussian splats.
+In contrast, our goal is to directly leverage high-quality 2D segmentation models such as SAM2
+[
+47
+]
+by efficiently projecting their outputs into the 3D Gaussian scene representation, avoiding the need for additional training.
+3
+Method
+This section derives a novel method for colorizing Gaussian splats that can be easily implemented with existing differentiable renderers.
+To this end, we formulate the colorization problem as a weighted least squares problem, which can be solved using the normal equation.
+The final algorithm is outlined in
+Algorithm
+1
+.
+Figure
+1
+shows, how this colorization algorithm can be used for various tasks such as scene relighting, feature enrichment or 3D scene segmentation.
+Differentiable renderer
+To optimize a scene representation of Gaussian splats, typically a differentiable renderer creates images from a set of
+N
+g
+N_{g}
+Gaussian splats from different camera perspectives:
+img
+x
+,
+y
+j
+=
+render
+​
+(
+P
+j
+,
+(
+μ
+→
+i
+,
+Σ
+i
+,
+c
+i
+m
+)
+i
+=
+1
+,
+…
+,
+N
+g
+m
+=
+1
+,
+…
+,
+(
+L
++
+1
+)
+2
+)
+\textrm{img}_{x,y}^{j}=\textrm{render}(P_{j},(\vec{\mu}_{i},\Sigma_{i},c_{i}^{m})_{i=1,...,N_{g}}^{m=1,...,(L+1)^{2}})
+(1)
+Here,
+img
+x
+,
+y
+j
+\textrm{img}_{x,y}^{j}
+denotes the pixels of the rendered image with screen coordinates
+x
+,
+y
+x,y
+from the perspective of camera
+j
+j
+.
+P
+j
+P_{j}
+denotes the
+j
+​
+th
+j\textsuperscript{th}
+camera parameters,
+μ
+i
+\mu_{i}
+and
+Σ
+i
+\Sigma_{i}
+denote the means and covariances of the
+i
+​
+th
+i\textsuperscript{th}
+Gaussian splats and
+c
+i
+m
+c_{i}^{m}
+denotes its
+m
+​
+th
+m\textsuperscript{th}
+SH coefficients to describe view dependent colors.
+Following Kerbl et al.
+[
+27
+]
+, we can compute the value of a pixel
+img
+x
+,
+y
+j
+\textrm{img}_{x,y}^{j}
+by
+α
+\alpha
+-blending a depth ordered list of
+𝒩
+\mathcal{N}
+gaussian splats that overlap the pixel:
+img
+x
+,
+y
+j
+=
+∑
+i
+=
+1
+𝒩
+(
+∏
+k
+=
+1
+i
+−
+1
+(
+1
+−
+α
+k
+)
+)
+⏟
+occlusions
+​
+α
+i
+​
+C
+i
+​
+(
+d
+→
+)
+\textrm{img}_{x,y}^{j}=\sum_{i=1}^{\mathcal{N}}\underbrace{\left(\prod_{k=1}^{i-1}(1-\alpha_{k})\right)}_{\textrm{occlusions}}\alpha_{i}C_{i}(\vec{d})
+(2)
+Here,
+α
+i
+\alpha_{i}
+is the transparency of the
+i
+​
+th
+i\textsuperscript{th}
+Gaussian splat projected onto pixel
+(
+x
+,
+y
+)
+(x,y)
+and
+C
+i
+​
+(
+d
+→
+)
+C_{i}(\vec{d})
+is the color of the Gaussian from viewing direction
+d
+→
+\vec{d}
+.
+If we consider spherical harmonics up to a maximum degree of
+L
+L
+, there are
+(
+L
++
+1
+)
+2
+(L+1)^{2}
+SH basis functions
+Y
+m
+​
+(
+d
+→
+)
+Y_{m}(\vec{d})
+and the color of a Gaussian
+i
+i
+from a viewing direction
+d
+→
+\vec{d}
+can be computed as follows:
+C
+i
+​
+(
+d
+→
+)
+=
+∑
+m
+=
+1
+(
+L
++
+1
+)
+2
+c
+i
+m
+​
+Y
+m
+​
+(
+d
+→
+)
+C_{i}(\vec{d})=\sum_{m=1}^{(L+1)^{2}}c_{i}^{m}Y_{m}(\vec{d})
+(3)
+Note, that for the sake of clarity, we only consider a single channel here, however, by extending
+img
+x
+,
+y
+j
+,
+k
+\textrm{img}_{x,y}^{j,k}
+and
+c
+i
+m
+,
+k
+c_{i}^{m,k}
+with another channel index
+k
+k
+, all of the following derivations can be easily extended to multiple channels (e.g. RGB color channels, neural features or segmentation masks).
+Visibility
+The visibility
+V
+i
+,
+x
+,
+y
+j
+V_{i,x,y}^{j}
+of a Gaussian
+i
+i
+within a rendered pixel
+img
+x
+,
+y
+j
+\textrm{img}_{x,y}^{j}
+can be computed by taking the partial derivative of
+img
+x
+,
+y
+j
+\textrm{img}_{x,y}^{j}
+with respect to the Gaussian’s color
+C
+i
+​
+(
+d
+→
+)
+C_{i}(\vec{d})
+.
+As can be seen from
+Eq.
+2
+, this derivative automatically incorporates visibility-affecting factors, such as transparency
+α
+i
+\alpha_{i}
+and occlusions.
+By applying the chain rule and
+considering that the first spherical harmonic is constant (
+Y
+1
+​
+(
+d
+→
+)
+=
+1
+/
+4
+​
+π
+Y_{1}(\vec{d})=1/\sqrt{4\pi}
+), we obtain the following expression for
+V
+i
+,
+x
+,
+y
+j
+V_{i,x,y}^{j}
+:
+V
+i
+,
+x
+,
+y
+j
+=
+∂
+img
+x
+,
+y
+j
+∂
+C
+i
+​
+(
+d
+→
+)
+=
+∂
+img
+x
+,
+y
+j
+∂
+C
+i
+​
+(
+d
+→
+)
+​
+∂
+C
+i
+​
+(
+d
+→
+)
+∂
+c
+i
+1
+⏟
+=
+Y
+1
+​
+(
+d
+→
+)
+=
+1
+/
+4
+​
+π
+​
+4
+​
+π
+=
+∂
+img
+x
+,
+y
+j
+∂
+c
+i
+1
+​
+4
+​
+π
+V_{i,x,y}^{j}=\frac{\partial\textrm{img}_{x,y}^{j}}{\partial C_{i}(\vec{d})}=\frac{\partial\textrm{img}_{x,y}^{j}}{\partial C_{i}(\vec{d})}\underbrace{\frac{\partial C_{i}(\vec{d})}{\partial c_{i}^{1}}}_{=Y_{1}(\vec{d})=1/\sqrt{4\pi}}\sqrt{4\pi}=\frac{\partial\textrm{img}_{x,y}^{j}}{\partial c_{i}^{1}}\sqrt{4\pi}
+(4)
+Now, by summing over all pixels, we can compute the visibility of a Gaussian
+i
+i
+whithin the entire camera image
+j
+j
+:
+V
+i
+j
+=
+∑
+x
+,
+y
+V
+i
+,
+x
+,
+y
+j
+=
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+)
+∂
+c
+i
+1
+​
+4
+​
+π
+V_{i}^{j}=\sum_{x,y}V_{i,x,y}^{j}=\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\right)}{\partial c_{i}^{1}}\sqrt{4\pi}
+(5)
+The derivative
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+)
+∂
+c
+i
+1
+\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\right)}{\partial c_{i}^{1}}
+can be easily and efficiently calculated with existing differentiable GS renderers.
+Coloring
+Next, the visibility of a Gaussian
+i
+i
+from camera
+j
+j
+can be used to compute a visibility-weighted color average of the ground truth image
+img
+^
+x
+,
+y
+j
+\widehat{\textrm{img}}_{x,y}^{j}
+:
+C
+^
+i
+j
+=
+∑
+x
+,
+y
+V
+i
+,
+x
+,
+y
+j
+​
+img
+^
+x
+,
+y
+j
+∑
+x
+,
+y
+V
+i
+,
+x
+,
+y
+j
+=
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+​
+img
+^
+x
+,
+y
+j
+)
+∂
+c
+i
+1
+​
+4
+​
+π
+V
+i
+j
+\hat{C}_{i}^{j}=\frac{\sum_{x,y}V_{i,x,y}^{j}\widehat{\textrm{img}}_{x,y}^{j}}{\sum_{x,y}V_{i,x,y}^{j}}=\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\widehat{\textrm{img}}_{x,y}^{j}\right)}{\partial c_{i}^{1}}\frac{\sqrt{4\pi}}{V_{i}^{j}}
+(6)
+Here, we plugged in the previous results from Equations
+4
+and
+5
+into
+V
+i
+,
+x
+,
+y
+j
+V_{i,x,y}^{j}
+in the numerator and denominator.
+Again, the derivative
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+​
+img
+^
+x
+,
+y
+j
+)
+∂
+c
+i
+1
+\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\widehat{\textrm{img}}_{x,y}^{j}\right)}{\partial c_{i}^{1}}
+can be easily obtained using a differentiable GS renderer.
+If we neglect view-dependent effects (i.e. set
+L
+=
+0
+L=0
+),
+V
+i
+j
+V_{i}^{j}
+and
+C
+^
+i
+j
+\hat{C}_{i}^{j}
+already suffice to compute a visibility weighted color average
+c
+i
+1
+c_{i}^{1}
+for a Gaussian
+i
+i
+over all
+N
+c
+N_{c}
+cameras that can be used e.g. to colorize diffuse surfaces, project view-independent neural features or to segment a scene:
+c
+i
+1
+=
+∑
+x
+,
+y
+,
+j
+V
+i
+,
+x
+,
+y
+j
+​
+img
+^
+x
+,
+y
+j
+∑
+x
+,
+y
+,
+j
+V
+i
+,
+x
+,
+y
+j
+=
+∑
+j
+=
+1
+N
+c
+V
+i
+j
+​
+C
+^
+i
+j
+∑
+j
+=
+1
+N
+c
+V
+i
+j
+c_{i}^{1}=\frac{\sum_{x,y,j}V_{i,x,y}^{j}\widehat{\textrm{img}}_{x,y}^{j}}{\sum_{x,y,j}V_{i,x,y}^{j}}=\frac{\sum_{j=1}^{N_{c}}V_{i}^{j}\hat{C}_{i}^{j}}{\sum_{j=1}^{N_{c}}V_{i}^{j}}
+(7)
+To incorporate view dependent effects, however, we also have to incorporate higher order spherical harmonics. To start, we need an easy and efficient way to compute
+Y
+m
+​
+(
+d
+→
+)
+Y_{m}(\vec{d})
+. Again, we can make use of the chain rule to derive an expression for
+Y
+m
+​
+(
+d
+→
+)
+Y_{m}(\vec{d})
+as follows:
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+)
+∂
+c
+i
+m
+=
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+)
+∂
+C
+i
+​
+(
+d
+→
+)
+⏟
+=
+V
+i
+j
+​
+∂
+C
+i
+​
+(
+d
+→
+)
+∂
+c
+i
+m
+⏟
+=
+Y
+m
+​
+(
+d
+→
+)
+\displaystyle\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\right)}{\partial c_{i}^{m}}=\underbrace{\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\right)}{\partial C_{i}(\vec{d})}}_{=V_{i}^{j}}\underbrace{\frac{\partial C_{i}(\vec{d})}{\partial c_{i}^{m}}}_{=Y_{m}(\vec{d})}
+(8)
+⇒
+\displaystyle\Rightarrow
+Y
+m
+​
+(
+d
+→
+)
+=
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+)
+∂
+c
+i
+m
+​
+1
+V
+i
+j
+=
+:
+Y
+m
+,
+i
+j
+\displaystyle Y_{m}(\vec{d})=\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\right)}{\partial c_{i}^{m}}\frac{1}{V_{i}^{j}}=:Y_{m,i}^{j}
+(9)
+Since
+d
+→
+\vec{d}
+is the view direction pointing from camera
+j
+j
+to Gaussian
+i
+i
+, we introduce an indexed notation
+Y
+m
+,
+i
+j
+:=
+Y
+m
+​
+(
+d
+→
+)
+Y_{m,i}^{j}:=Y_{m}(\vec{d})
+.
+Here, the derivatives
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+)
+∂
+c
+i
+m
+\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\right)}{\partial c_{i}^{m}}
+can be obtained with little computational overhead since the derivatives of
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+)
+\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\right)
+need to be computed anyway to obtain the splat visibilities
+V
+i
+j
+V_{i}^{j}
+(see
+Eq.
+5
+).
+Now, to optimize view dependent effects, we aim to minimize the visibility-weighted squared differences between the ground truth images
+img
+^
+x
+,
+y
+j
+\widehat{\textrm{img}}_{x,y}^{j}
+and the view dependent Gaussian colors
+C
+i
+​
+(
+d
+→
+)
+C_{i}(\vec{d})
+:
+c
+i
+m
+=
+\displaystyle c_{i}^{m}=
+arg
+​
+min
+c
+i
+m
+∑
+x
+,
+y
+,
+j
+V
+i
+,
+x
+,
+y
+j
+(
+img
+^
+x
+,
+y
+j
+−
+C
+i
+(
+d
+→
+)
+)
+2
+\displaystyle\argmin_{c_{i}^{m}}\sum_{x,y,j}V_{i,x,y}^{j}\left(\widehat{\textrm{img}}_{x,y}^{j}-C_{i}(\vec{d})\right)^{2}
+(10)
+=
+\displaystyle=
+arg
+​
+min
+c
+i
+m
+∑
+x
+,
+y
+,
+j
+V
+i
+,
+x
+,
+y
+j
+(
+img
+^
+x
+,
+y
+j
+−
+∑
+m
+c
+i
+m
+Y
+m
+,
+i
+j
+)
+2
+\displaystyle\argmin_{c_{i}^{m}}\sum_{x,y,j}V_{i,x,y}^{j}\left(\widehat{\textrm{img}}_{x,y}^{j}-\sum_{m}c_{i}^{m}Y_{m,i}^{j}\right)^{2}
+(11)
+=
+\displaystyle=
+arg
+​
+min
+c
+i
+m
+∑
+j
+V
+i
+j
+(
+C
+^
+i
+j
+−
+∑
+m
+c
+i
+m
+Y
+m
+,
+i
+j
+)
+2
+\displaystyle\argmin_{c_{i}^{m}}\sum_{j}V_{i}^{j}\left(\hat{C}_{i}^{j}-\sum_{m}c_{i}^{m}Y_{m,i}^{j}\right)^{2}
+(12)
+To obtain
+Equation
+11
+, we first plug in
+Equation
+3
+into
+C
+i
+​
+(
+d
+→
+)
+C_{i}(\vec{d})
+and use
+Y
+m
+,
+i
+j
+Y_{m,i}^{j}
+from
+Equation
+9
+. Next, we decompose the weighted sum of squares using the visibility-weighted color averages
+C
+^
+i
+j
+\hat{C}_{i}^{j}
+obtained from
+Equation
+6
+to derive
+Equation
+12
+.
+This is a classical weighted least squares problem.
+To simplify the notation, in the following, we look at every Gaussian
+i
+i
+individually and introduce the diagonal matrix
+𝐕
+i
+∈
+ℝ
+N
+c
+×
+N
+c
+\mathbf{V}_{i}\in\mathbb{R}^{N_{c}\times N_{c}}
+containing
+(
+V
+i
+j
+)
+j
+=
+1
+,
+…
+,
+N
+c
+(V_{i}^{j})_{j=1,...,N_{c}}
+on its diagonal, the matrix
+𝐘
+i
+∈
+ℝ
+N
+c
+×
+(
+L
++
+1
+)
+2
+\mathbf{Y}_{i}\in\mathbb{R}^{N_{c}\times(L+1)^{2}}
+containing
+(
+Y
+m
+,
+i
+j
+)
+j
+=
+1
+,
+…
+,
+N
+c
+m
+=
+1
+,
+…
+,
+(
+L
++
+1
+)
+2
+(Y_{m,i}^{j})_{j=1,...,N_{c}}^{m=1,...,(L+1)^{2}}
+, the vector
+𝐂
+^
+i
+∈
+ℝ
+N
+c
+\hat{\mathbf{C}}_{i}\in\mathbb{R}^{N_{c}}
+containing
+(
+C
+^
+i
+j
+)
+j
+=
+1
+,
+…
+,
+N
+c
+(\hat{C}_{i}^{j})_{j=1,...,N_{c}}
+and the vector
+𝐜
+i
+∈
+ℝ
+(
+L
++
+1
+)
+2
+\mathbf{c}_{i}\in\mathbb{R}^{(L+1)^{2}}
+containing
+(
+c
+i
+m
+)
+m
+=
+1
+,
+…
+,
+(
+L
++
+1
+)
+2
+(c_{i}^{m})_{m=1,...,(L+1)^{2}}
+that we want to solve for. In this notation,
+Equation
+12
+can be rewritten in terms of a vector norm and solved by the normal equation:
+𝐜
+i
+=
+arg
+​
+min
+𝐜
+i
+⁡
+‖
+𝐕
+i
+1
+2
+​
+(
+𝐂
+^
+i
+−
+𝐘
+i
+​
+𝐜
+i
+)
+‖
+2
+=
+(
+𝐘
+i
+⊤
+​
+𝐕
+i
+​
+𝐘
+i
+)
+−
+1
+​
+𝐘
+i
+⊤
+​
+𝐕
+i
+​
+𝐂
+i
+^
+\mathbf{c}_{i}=\argmin_{\mathbf{c}_{i}}||\mathbf{V}_{i}^{\frac{1}{2}}(\hat{\mathbf{C}}_{i}-\mathbf{Y}_{i}\mathbf{c}_{i})||^{2}\\
+=(\mathbf{Y}_{i}^{\top}\mathbf{V}_{i}\mathbf{Y}_{i})^{-1}\mathbf{Y}_{i}^{\top}\mathbf{V}_{i}\hat{\mathbf{C}_{i}}
+(13)
+This corresponds to a small linear system of
+(
+L
++
+1
+)
+2
+(L+1)^{2}
+equations for every Gaussian that can be solved quickly in parallel on a GPU.
+Regularization
+If a Gaussian splat
+i
+i
+is seen only by a few cameras,
+Equation
+13
+can become under-determined or ill-posed, resulting in a non-invertible Matrix
+(
+𝐘
+i
+⊤
+​
+𝐕
+i
+​
+𝐘
+i
+)
+(\mathbf{Y}_{i}^{\top}\mathbf{V}_{i}\mathbf{Y}_{i})
+or strong visual artifacts. Thus, we apply Tikhonov regularization
+[
+55
+]
+to
+Equation
+13
+:
+𝐜
+i
+=
+(
+𝐘
+i
+⊤
+​
+𝐕
+i
+​
+𝐘
+i
++
+𝐰
+i
+​
+𝚲
+)
+−
+1
+​
+𝐘
+i
+⊤
+​
+𝐕
+i
+​
+𝐂
+i
+^
+\mathbf{c}_{i}=(\mathbf{Y}_{i}^{\top}\mathbf{V}_{i}\mathbf{Y}_{i}+\mathbf{w}_{i}\mathbf{\Lambda})^{-1}\mathbf{Y}_{i}^{\top}\mathbf{V}_{i}\hat{\mathbf{C}_{i}}
+(14)
+Here,
+𝚲
+\mathbf{\Lambda}
+is a diagonal matrix containing regularization weights
+λ
+m
+\lambda_{m}
+for the different SH coefficients and
+𝐰
+i
+=
+∑
+j
+V
+i
+j
+\mathbf{w}_{i}=\sum_{j}V_{i}^{j}
+denotes the total visibility of a Gaussian
+i
+i
+over all cameras.
+Solving this regularized
+Equation
+14
+corresponds to extending the minimization objective in
+Equation
+12
+by an extra penalty for high SH coefficients
+c
+i
+m
+c_{i}^{m}
+weighted by
+λ
+m
+\lambda_{m}
+:
+arg
+​
+min
+c
+i
+m
+∑
+j
+V
+i
+j
+(
+(
+C
+^
+i
+j
+−
+∑
+m
+c
+i
+m
+Y
+m
+,
+i
+j
+)
+2
++
+∑
+m
+λ
+m
+(
+c
+i
+m
+)
+2
+)
+\argmin_{c_{i}^{m}}\sum_{j}V_{i}^{j}\left(\left(\hat{C}_{i}^{j}-\sum_{m}c_{i}^{m}Y_{m,i}^{j}\right)^{2}+\sum_{m}\lambda_{m}(c_{i}^{m})^{2}\right)
+(15)
+Iterative Refinement
+So far, all Gaussian splats are colorized individually. Under the assumption that all Gaussians are rendered disjointly, this would lead to correct rendering results.
+In practice, however, most Gaussians are transparent, which allows colors from different splats to superimpose and significantly impacts the final rendering. To also cover such color-mixing interactions between Gaussians, we propose an iterative refinement scheme:
+As shown in lines 8-10 of
+Algorithm
+1
+, each refinement step works similarly to the initial colorization procedure (lines 1-6).
+However, instead of directly using the ground truth images (
+img
+^
+x
+,
+y
+j
+\widehat{\textrm{img}}_{x,y}^{j}
+in line 4) to compute the target colors
+C
+^
+i
+j
+\hat{C}_{i}^{j}
+, the difference between the ground truth images and the rendered images (
+img
+^
+x
+,
+y
+j
+−
+img
+x
+,
+y
+j
+​
+.detach()
+\widehat{\textrm{img}}_{x,y}^{j}-\textrm{img}_{x,y}^{j}\textrm{.detach()}
+in line 9) is used to update the SH coefficients in line 10. Note, that this refinement process only requires recomputing
+C
+^
+i
+j
+\hat{C}_{i}^{j}
+since the geometry (and thus
+V
+i
+j
+V_{i}^{j}
+,
+Y
+m
+,
+i
+j
+Y_{m,i}^{j}
+and
+𝐰
+i
+\mathbf{w}_{i}
+) remains fixed. Furthermore, since
+(
+𝐘
+i
+⊤
+​
+𝐕
+i
+​
+𝐘
+i
++
+𝐰
+i
+​
+𝚲
+)
+−
+1
+(\mathbf{Y}_{i}^{\top}\mathbf{V}_{i}\mathbf{Y}_{i}+\mathbf{w}_{i}\mathbf{\Lambda})^{-1}
+stays the same for all refinement steps and all color channels, we compute the inverse only once and reuse it.
+A more detailed derivation of the refinement steps is provided in our supplementary material.
+Algorithm 1
+Colorization algorithm
+Data:
+GT images:
+img
+^
+x
+,
+y
+j
+\widehat{\textrm{img}}_{x,y}^{j}
+,
+camera poses:
+P
+j
+P_{j}
+, regularization weights:
+λ
+m
+\lambda_{m}
+,
+Gaussian means and covariances:
+μ
+i
+\mu_{i}
+,
+Σ
+i
+\Sigma_{i}
+Result:
+Gaussian SH coefficients:
+c
+i
+m
+c_{i}^{m}
+1
+img
+x
+,
+y
+j
+←
+render
+​
+(
+P
+j
+,
+(
+μ
+→
+i
+,
+Σ
+i
+,
+c
+i
+m
+)
+)
+\textrm{img}_{x,y}^{j}\leftarrow\textrm{render}(P_{j},(\vec{\mu}_{i},\Sigma_{i},c_{i}^{m}))
+2
+V
+i
+j
+←
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+)
+∂
+c
+i
+1
+​
+4
+​
+π
+V_{i}^{j}\leftarrow\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\right)}{\partial c_{i}^{1}}\sqrt{4\pi}
+3
+Y
+m
+,
+i
+j
+←
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+)
+∂
+c
+i
+m
+​
+1
+V
+i
+j
+Y_{m,i}^{j}\leftarrow\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\right)}{\partial c_{i}^{m}}\frac{1}{V_{i}^{j}}
+4
+C
+^
+i
+j
+←
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+​
+img
+^
+x
+,
+y
+j
+)
+∂
+c
+i
+1
+​
+4
+​
+π
+V
+i
+j
+\hat{C}_{i}^{j}\leftarrow\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\widehat{\textrm{img}}_{x,y}^{j}\right)}{\partial c_{i}^{1}}\frac{\sqrt{4\pi}}{V_{i}^{j}}
+5
+𝐰
+i
+←
+∑
+j
+V
+i
+j
+\mathbf{w}_{i}\leftarrow\sum_{j}V_{i}^{j}
+6
+𝐜
+i
+←
+(
+𝐘
+i
+⊤
+​
+𝐕
+i
+​
+𝐘
+i
++
+𝐰
+i
+​
+𝚲
+)
+−
+1
+​
+𝐘
+i
+⊤
+​
+𝐕
+i
+​
+𝐂
+i
+^
+\mathbf{c}_{i}\leftarrow(\mathbf{Y}_{i}^{\top}\mathbf{V}_{i}\mathbf{Y}_{i}+\mathbf{w}_{i}\mathbf{\Lambda})^{-1}\mathbf{Y}_{i}^{\top}\mathbf{V}_{i}\hat{\mathbf{C}_{i}}
+7
+for
+step
+←
+1
+\textrm{step}\leftarrow 1
+to
+N
+refine
+N_{\textrm{refine}}
+do
+8
+img
+x
+,
+y
+j
+←
+render
+​
+(
+P
+j
+,
+(
+μ
+→
+i
+,
+Σ
+i
+,
+c
+i
+m
+)
+)
+\textrm{img}_{x,y}^{j}\leftarrow\textrm{render}(P_{j},(\vec{\mu}_{i},\Sigma_{i},c_{i}^{m}))
+9
+C
+^
+i
+j
+←
+∂
+(
+∑
+x
+,
+y
+img
+x
+,
+y
+j
+​
+(
+img
+^
+x
+,
+y
+j
+−
+img
+x
+,
+y
+j
+​
+.detach()
+)
+)
+∂
+c
+i
+1
+​
+4
+​
+π
+V
+i
+j
+\hat{C}_{i}^{j}\leftarrow\frac{\partial\left(\sum_{x,y}\textrm{img}_{x,y}^{j}\left(\widehat{\textrm{img}}_{x,y}^{j}-\textrm{img}_{x,y}^{j}\textrm{.detach()}\right)\right)}{\partial c_{i}^{1}}\frac{\sqrt{4\pi}}{V_{i}^{j}}
+10
+𝐜
+i
+←
+𝐜
+i
++
+(
+𝐘
+i
+⊤
+​
+𝐕
+i
+​
+𝐘
+i
++
+𝐰
+i
+​
+𝚲
+)
+−
+1
+​
+(
+𝐘
+i
+⊤
+​
+𝐕
+i
+​
+𝐂
+i
+^
+−
+𝐰
+i
+​
+𝚲
+​
+𝐜
+i
+)
+\mathbf{c}_{i}\leftarrow\mathbf{c}_{i}+(\mathbf{Y}_{i}^{\top}\mathbf{V}_{i}\mathbf{Y}_{i}+\mathbf{w}_{i}\mathbf{\Lambda})^{-1}(\mathbf{Y}_{i}^{\top}\mathbf{V}_{i}\hat{\mathbf{C}_{i}}-\mathbf{w}_{i}\mathbf{\Lambda}\mathbf{c}_{i})
+11
+return
+c
+i
+m
+c_{i}^{m}
+4
+Experiments
+We evaluated the novel colorization algorithm in three different scenarios: First, we tested its performance on a scene relighting task. Second, we used the algorithm to enrich a 3D scene with neural features from a DINOv2 model and third, we applied the algorithm to do efficient 3D semantic scene segmentation by mapping segmentation masks provided by the SAM 2 model onto the Gaussian splats.
+Implementation Details
+The recolorization algorithm is implemented in PyTorch based on the original Gaussian Splatting framework by Kerbl et al.
+[
+27
+]
+Following most works on Gaussian splatting, we chose the maximum SH order to be
+L
+=
+3
+L=3
+. Furthermore, we empirically found the following regularization values for
+λ
+m
+\lambda_{m}
+worked out best:
+λ
+1
+=
+10
+−
+5
+;
+λ
+2
+−
+4
+=
+10
+−
+4
+;
+λ
+5
+−
+9
+=
+10
+−
+3
+;
+λ
+10
+−
+16
+=
+10
+−
+2
+\lambda_{1}=10^{-5};\lambda_{2-4}=10^{-4};\lambda_{5-9}=10^{-3};\lambda_{10-16}=10^{-2}
+.
+All of our experiments were conducted on a machine based on a Intel Core i9-14900KF CPU with a NVIDIA GeForce RTX 4090 GPU and 64GB DDR5 RAM.
+4.1
+Relighting
+Relighting is a challenging task, in particular when considering complex illumination effects such as sub-surface scattering, caustics or intricate shadows that go beyond conventional approximations such as e.g. the Blinn-Phong model.
+Thus, following research on light stages
+[
+53
+,
+9
+]
+and BTF capture devices
+[
+49
+,
+12
+]
+, we apply our instant colorization algorithm to map images of the same scene under different lighting conditions onto a common scene representation consisting of gaussian splats.
+Because relighting involves high-frequency details and strong view-dependent effects, it is a demanding test bench for texture mapping algorithms.
+While there exist already datasets for relighting, we couldn’t find an open dataset that captures static real-world scenes under various lighting conditions from sufficiently many camera angles to perform 3DGS.
+Thus, we captured a new dataset (more details on the dataset are provided in the supplementary).
+Setup
+We captured several static scenes under different lighting conditions to provide a suitable testbed for relighting (see
+Fig.
+2
+).
+Each scene was recorded multiple times with similar camera trajectories on a smartphone but with varying illumination setups, such as different light sources or light directions.
+To ensure alignment of the captured photos with the Gaussian splat geometry that was reconstructed from the ”original” lighting condition (see
+Fig.
+1
+) we relied on COLMAP.
+For the subsequent colorization, we applied the proposed visibility-weighted least squares solver (see
+Sec.
+3
+) to map the images from different illumination conditions onto the Gaussian splats and compared its performance to gradient descent based alternatives like Adam, AdamW, Adagrad and RMSprop (see
+Figure
+6
+).
+(a)
+Duck scene, light 1
+(b)
+Duck scene, light 2
+(c)
+Food scene, light 1
+(d)
+Food scene, light 2
+(e)
+Bathroom scene, light 1
+(f)
+Bathroom scene, light 2
+Figure 2
+:
+Examples of our captured scenes under different lighting conditions.
+a, b, c: light 1. d, e, f: light 2.
+Qualitative results
+Figure
+3
+shows accurate scene appearances for different lighting variations mapped by our colorization algorithm. Since light fields are linear, the color (SH) coefficients of the gaussian splats from different colorizations can be combined (and filtered) to create novel scene lightings that were not contained in the dataset (see
+Fig.
+4
+).
+(a)
+Duck scene, relighted
+(b)
+Duck scene, relighted
+(c)
+Food scene, relighted
+(d)
+Food scene, relighted
+(e)
+Bathroom scene, relighted
+(f)
+Bathroom scene, relighted
+Figure 3
+:
+Qualitative results for 3 scenes with different relightings by the instant colorization algorithm.
+(a)
+Duck, combined relighting.
+(b)
+Duck, colored relighting.
+(c)
+Food, combined relighting.
+(d)
+Food, colored relighting.
+(e)
+Bathroom, combined relighting.
+(f)
+Bathroom, colored relighting.
+Figure 4
+:
+Light fields can be linearly combined. (left): equal-weight combination of three lighting conditions. (right): same combinations with additional RGB color filters applied.
+Quantitative results
+As can be seen in Table
+1
+and
+Figure
+6
+, our instant colorization approach achieves better test metrics while being up to an order of magnitude faster than gradient descent based alternatives like Adam
+[
+31
+]
+, AdamW
+[
+37
+]
+, Adagrad or RMSprop.
+Already after the first iteration (around 1s), our method achieves lower test losses than gradient descent based alternatives after 40-50s.
+This is also reflected in the perceived reconstruction quality over time as shown in
+Figure
+5
+and demonstrates that solving the color mapping analytically through the normal equation provides a highly efficient and stable alternative to gradient-descent based relighting.
+Figure 5
+:
+Top row: Results using ADAM optimization show gradual improvement but require significantly more iterations and time to achieve high-quality appearance.
+Bottom row: The instant colorization algorithm converges much faster, achieving high quality in just a few iterations, or seconds.
+Table 1
+:
+Test metric comparison of the instant colorization approach to established gradient descent methods
+Duck / Light 1
+L
+1
+(
+↓
+)
+L_{1}(\downarrow)
+L
+2
+(
+↓
+)
+L_{2}(\downarrow)
+PSNR
+(
+↑
+)
+(\uparrow)
+Adam
+3.379
+×
+10
+−
+2
+3.379{\times}10^{-2}
+2.777
+×
+10
+−
+3
+2.777{\times}10^{-3}
+25.98
+25.98
+AdamW
+3.394
+×
+10
+−
+2
+3.394{\times}10^{-2}
+2.794
+×
+10
+−
+3
+2.794{\times}10^{-3}
+25.95
+25.95
+RMSprop
+3.387
+×
+10
+−
+2
+3.387{\times}10^{-2}
+2.790
+×
+10
+−
+3
+2.790{\times}10^{-3}
+25.96
+25.96
+Adagrad
+3.366
+×
+10
+−
+2
+3.366{\times}10^{-2}
+2.775
+×
+10
+−
+3
+2.775{\times}10^{-3}
+26.01
+26.01
+Ours
+3.324
+×
+𝟏𝟎
+−
+𝟐
+\mathbf{3.324{\times}10^{-2}}
+2.709
+×
+𝟏𝟎
+−
+𝟑
+\mathbf{2.709{\times}10^{-3}}
+26.08
+\mathbf{26.08}
+(a)
+L
+2
+L_{2}
+Training loss (log scale, lower is better) comparison of our instant baseline with Adam (lr=0.0025), AdamW (lr=0.0025), RMSprop (lr=0.0025), and Adagrad (lr=0.1) over time.
+(b)
+L
+2
+L_{2}
+Test loss (log scale, lower is better) comparison of our instant baseline with Adam (lr=0.0025), AdamW (lr=0.0025), RMSprop (lr=0.0025), and Adagrad (lr=0.1) over time.
+Figure 6
+:
+Train and Test Loss curves for different optimizers. Our instant colorization approach achieves the lowest test loss in the shortest amount of time. Adam tends to overfit.
+4.2
+Feature Enrichment
+Beyond relighting, dense semantic feature maps can also be projected into a geometrically consistent 3D representation to enrich an existing scene geometry with feature embeddings. By aligning spatial information of latent feature spaces used e.g. in vision or vision-language models, such enriched representations are an important backbone of countless downstream applications such as making scenes queryable by multimodal data
+[
+24
+,
+52
+,
+29
+,
+46
+,
+38
+,
+30
+]
+.
+To demonstrate the potential of our instant colorization approach to accelerate these downstream applications, as a proof of concept, we apply it to quickly enrich a scene representation with neural image features.
+Specifically, DINOv2 features
+[
+44
+]
+are extracted from the input images, principal components are computed, and the resulting feature maps are projected into the 3D Gaussian scene representation.
+Figure
+7
+shows exemplary DINOv2 PCA visualizations (top row) and the corresponding feature-enriched 3D scenes (bottom row) on our relighting dataset as well as the Mip-NeRF 360 garden scene (right).
+We chose
+L
+=
+3
+L=3
+to capture the view dependence of neural features. Since the neural features are of fairly low resolution, no refinement steps were necessary and all of the shown feature mappings were computed in
+less than one second
+.
+Figure 7
+:
+Scenes colorized with 3 PCA components of DINOv2 features. Top: exemplary DINOv2 PCA images. Bottom: corresponding colorized 3DGS scenes with SH of order
+L
+=
+3
+L=3
+.
+4.3
+Segmentation
+We further evaluated the proposed colorization framework on a 3D scene segmentation task. In this experiment, 2D segmentation masks were generated using the Segment Anything Model 2 (SAM2)
+[
+47
+]
+and projected back onto the 3D Gaussian splats to produce a consistent 3D segmentation. Since segmentation masks should not depend on the viewing direction, we set
+L
+=
+0
+L=0
+and no refinement steps were necessary. After the mask projection, all gaussians whose mask-values fell below a predefined threshold (0.6) were filtered out.
+Setup
+Although the inputs consisted of still images of a static scene, they were processed as a pseudo-video sequence to leverage SAM2’s temporal tracking and ensure consistent segmentation across all views.
+We used the
+sam2_hiera_large.pt
+checkpoint and its associated configuration
+sam2_hiera_l.yaml
+, running on a single NVIDIA 4090 GPU.
+For initialization, points were placed manually on target objects in the first image (e.g., the T-Rex skeleton in
+Figure
+8
+). SAM2 then propagated this segmentation automatically through all remaining images.
+Each resulting frame was exported as a binary mask which was then used as the input for our instant colorization algorithm.
+Results
+We applied our segmentation approach to objects of various complexity in the LLFF dataset
+[
+39
+]
+and compared the results to ”Segment Any Gaussians” (SAGA)
+[
+1
+]
+, a state of the art segmentation approach for 3D gaussian splats.
+As can be seen in
+Figure
+8
+, for objects of low and medium complexity (see ”Minas Tirith” on the left and ”Triceratops skull” in the center), SAGA and our approach perform comparably. For objects of high complexity (see ”T-Rex” on the right), however, our method achieves more accurate segmentation results for fine structures such as the ribs or the feet of the skeleton - even when finetuning SAGA’s segmentation threshold and giving SAGA additional segmentation query points.
+Sometimes, our approach erroneously segments gaussians that penetrate the segmentation boundary.
+We believe this is mainly due to imperfections in the reconstruction and parts of the splats being invisible in the scene (see e.g. splats at the tail of the ”T-Rex” or below ”Minas Tirith” that would be usually covered by the table).
+While at inference time, SAGA is capable of producing segmentation masks in only 4ms, it requires an expensive contrastive learning step beforehand that takes about 20min on our machine. Our method on the other hand directly maps the segmentation masks of SAM2 onto the gaussian splats taking only around 1s.
+Additional segmentation results on our relighting dataset can be found in the supplementary.
+Figure 8
+:
+Segmentation results on LLFF dataset by SAGA
+[
+1
+]
+and our instant colorization approach. As can be seen by the T-Rex segmentation, our method excels at segmenting complex objects with fine structures.
+5
+Conclusion
+In this work, we introduced a novel algorithm for efficient texture projection onto gaussian splats. The algorithm makes use of the normal equation to minimize a least squares problem and can be easily implemented with existing differentiable GS renderers.
+Results on a new dataset of scenes under different lighting conditions and segmentation masks show that this algorithm can be effectively applied in various scene relighting, feature enrichment and semantic segmentation problems while significantly outperforming gradient descent based approaches such as Adam.
+The efficiency of the proposed method results in low execution latencies that could benefit numerous down-stream tasks, such as open-vocabulary localization
+[
+33
+]
+, articulated object tracking
+[
+28
+]
+, language-guided navigation
+[
+45
+]
+, semantic exploration
+[
+22
+]
+, and higher-level reasoning or scene completion
+[
+16
+]
+.
+Apart from scene relighting, feature enrichment and segmentation, we believe this algorithm might become useful for further texture projection tasks on gaussian splats such as scene stylization or texture painting.
+While our approach constitutes a significant acceleration for texture projections, it is not yet real-time capable. To gain further speed-ups, additional strategies could be employed such as reducing the number of projected camera images or clamping the number of Gaussians by considering their visibility to the observer.
+References
+[1]
+J. Cen, J. Fang, C. Yang, L. Xie, X. Zhang, W. Shen, and Q. Tian
+(2025)
+Segment any 3d gaussians
+.
+Proceedings of the AAAI Conference on Artificial Intelligence
+39
+(
+2
+),
+pp. 1971–1979
+.
+External Links:
+Document
+Cited by:
+§2
+,
+Figure 8
+,
+Figure 8
+,
+§4.3
+.
+[2]
+B. Chao, H. Tseng, L. Porzi, C. Gao, T. Li, Q. Li, A. Saraf, J. Huang, J. Kopf, G. Wetzstein, and C. Kim
+(2025)
+Textured Gaussians for enhanced 3d scene appearance modeling
+.
+In
+CVPR
+,
+Cited by:
+§2
+.
+[3]
+K. Chen, Y. Zhong, Z. Li, J. Lin, Y. Chen, M. Qin, and H. Wang
+(2025)
+Quantifying and alleviating co-adaptation in sparse-view 3d Gaussian splatting
+.
+arXiv preprint arXiv:2508.12720
+.
+Cited by:
+§2
+.
+[4]
+W. Chen, L. Ren, M. Zwicker, and H. Pfister
+(2004)
+Hardware-accelerated adaptive ewa volume splatting
+.
+In
+IEEE Visualization 2004
+,
+Vol.
+,
+pp. 67–74
+.
+External Links:
+Document
+Cited by:
+§2
+.
+[5]
+Y. Chen, J. Zhang, Z. Xie, W. Li, F. Zhang, J. Lu, and L. Zhang
+(2025)
+S-nerf++: autonomous driving simulation via neural reconstruction and generation
+.
+External Links:
+2402.02112
+,
+Link
+Cited by:
+§2
+.
+[6]
+J. Condor, S. Speierer, L. Bode, A. Bozic, S. Green, P. Didyk, and A. Jarabo
+(2025)
+Don’t splat your Gaussians: volumetric ray-traced primitives for modeling and rendering scattering and emissive media
+.
+ACM Trans. Graph.
+44
+(
+1
+).
+External Links:
+ISSN 0730-0301
+,
+Link
+,
+Document
+Cited by:
+§1
+,
+§2
+.
+[7]
+A. Dalal, D. Hagen, K. G. Robbersmyr, and K. M. Knausgård
+(2024)
+Gaussian splatting: 3d reconstruction and novel view synthesis: a review
+.
+IEEE Access
+12
+,
+pp. 96797–96820
+.
+External Links:
+ISSN 2169-3536
+,
+Link
+,
+Document
+Cited by:
+§2
+.
+[8]
+P. E. Debevec
+(1998)
+Rendering synthetic objects into real scenes: bridging traditional and image-based graphics with global illumination and high dynamic range photography
+.
+In
+Proceedings of ACM SIGGRAPH ’98
+,
+Orlando, FL, USA
+,
+pp. 189–198
+.
+External Links:
+Document
+Cited by:
+§2
+.
+[9]
+P. Debevec
+(2012)
+The light stages and their applications to photoreal digital actors
+.
+Cited by:
+§4.1
+.
+[10]
+J. Dihlmann, A. Engelhardt, A. Majumdar, R. Braun, and H. P.A. Lensch
+(2024)
+Subsurface scattering for 3d Gaussian splatting
+.
+In
+NeurIPS
+,
+Cited by:
+§2
+.
+[11]
+F. Engelmann, F. Manhardt, M. Niemeyer, K. Tateno, M. Pollefeys, and F. Tombari
+(2024)
+OpenNeRF: Open Set 3D Neural Scene Segmentation with Pixel-Wise Features and Rendered Novel Views
+.
+In
+International Conference on Learning Representations
+,
+Cited by:
+§2
+.
+[12]
+J. Filip, M. Kolafová, M. Havlíček, R. Vávra, M. Haindl, and R. H.
+(2018)
+Evaluating Physical and Rendered Material Appearance
+.
+The Visual Computer (Computer Graphics International 2018)
+(
+),
+pp.
+.
+External Links:
+Document
+Cited by:
+§4.1
+.
+[13]
+J. Gao, C. Gu, Y. Lin, Z. Li, H. Zhu, X. Cao, L. Zhang, and Y. Yao
+(2024)
+Relightable 3d Gaussians: realistic point cloud relighting with BRDF decomposition and ray tracing
+.
+In
+ECCV
+,
+pp. 73–89
+.
+Cited by:
+§2
+.
+[14]
+M. Günther, F. Igelbrink, O. Lima, L. Niecksch, M. Renz, and M. Atzmueller
+(2026)
+A scene graph backed approach to open set semantic mapping
+.
+External Links:
+2602.03781
+Cited by:
+§2
+.
+[15]
+J. Guo, X. Ma, Y. Fan, H. Liu, and Q. Li
+(2024)
+Semantic Gaussians: open-vocabulary scene understanding with 3d Gaussian splatting
+.
+External Links:
+2403.15624
+,
+Link
+Cited by:
+§2
+.
+[16]
+H. Ha and S. Song
+(2022)
+Semantic abstraction: open-world 3D scene understanding from 2D vision-language models
+.
+In
+Proceedings of the 2022 Conference on Robot Learning
+,
+Cited by:
+§5
+.
+[17]
+F. Hahlbohm, F. Friederichs, T. Weyrich, L. Franke, M. Kappel, S. Castillo, M. Stamminger, M. Eisemann, and M. Magnor
+(2025)
+Efficient perspective-correct 3d Gaussian splatting using hybrid transparency
+.
+Computer Graphics Forum
+44
+(
+2
+).
+External Links:
+Document
+,
+Link
+Cited by:
+§2
+.
+[18]
+L. Höllein, A. Božič, M. Zollhöfer, and M. Nießner
+(2025)
+3DGS-LM: faster Gaussian-splatting optimization with Levenberg-Marquardt
+.
+In
+ICCV
+,
+Cited by:
+§2
+.
+[19]
+B. Huang, Z. Yu, A. Chen, A. Geiger, and S. Gao
+(2024)
+2D Gaussian splatting for geometrically accurate radiance fields
+.
+In
+SIGGRAPH 2024 Conference Papers
+,
+External Links:
+Document
+Cited by:
+§1
+,
+§2
+,
+§2
+.
+[20]
+Z. Huang and M. Gong
+(2024)
+Textured-GS: Gaussian splatting with spatially defined color and opacity
+.
+External Links:
+2407.09733
+,
+Link
+Cited by:
+§2
+.
+[21]
+F. Igelbrink, L. Niecksch, M. Atzmueller, and J. Hertzberg
+(2026)
+DISC: dense integrated semantic context for large-scale open-set semantic mapping
+.
+External Links:
+2603.03935
+,
+Link
+Cited by:
+§2
+.
+[22]
+F. Igelbrink, L. Niecksch, M. Renz, M. Günther, and M. Atzmueller
+(2026)
+LIEREx: language-image embeddings for robotic exploration
+.
+KI - Künstliche Intelligenz
+,
+pp. 1610–1987
+.
+Cited by:
+§5
+.
+[23]
+Mitsuba 3 renderer
+Note:
+https://mitsuba-renderer.org
+Cited by:
+§2
+.
+[24]
+K. M. Jatavallabhula, A. Kuwajerwala, Q. Gu, M. Omama, T. Chen, S. Li, G. Iyer, S. Saryazdi, N. Keetha, A. Tewari, J. B. Tenenbaum, C. M. de Melo, M. Krishna, L. Paull, F. Shkurti, and A. Torralba
+(2023)
+ConceptFusion: open-set multimodal 3d mapping
+.
+Robotics: Science and Systems
+.
+Cited by:
+§2
+,
+§4.2
+.
+[25]
+M. Jurca, R. Royen, I. Giosan, and A. Munteanu
+(2024)
+RT-gs2: real-time generalizable semantic segmentation for 3d gaussian representations of radiance fields
+.
+External Links:
+2405.18033
+,
+Link
+Cited by:
+§2
+.
+[26]
+J. Kaleta, K. Kania, T. Trzciński, and M. Kowalski
+(2025)
+LumiGauss: relightable Gaussian splatting in the wild
+.
+In
+Proceedings of WACV 2025
+,
+Cited by:
+§2
+.
+[27]
+B. Kerbl, G. Kopanas, T. Leimkühler, and G. Drettakis
+(2023)
+3D Gaussian splatting for real-time radiance field rendering
+.
+ACM Transactions on Graphics
+42
+(
+4
+).
+External Links:
+Link
+Cited by:
+Figure 1
+,
+Figure 1
+,
+§1
+,
+§2
+,
+§3
+,
+§4
+.
+[28]
+J. Kerr, C. M. Kim, M. Wu, B. Yi, Q. Wang, K. Goldberg, and A. Kanazawa
+(2024)
+Robot see robot do: imitating articulated object manipulation with monocular 4d reconstruction
+.
+In
+8th Annual Conference on Robot Learning
+,
+Cited by:
+§5
+.
+[29]
+J. Kerr, C. M. Kim, K. Goldberg, A. Kanazawa, and M. Tancik
+(2023)
+LERF: language embedded radiance fields
+.
+In
+ICCV
+,
+Cited by:
+§2
+,
+§4.2
+.
+[30]
+C. M. Kim, M. Wu, J. Kerr, M. Tancik, K. Goldberg, and A. Kanazawa
+(2024)
+GARField: group anything with radiance fields
+.
+In
+Conference on Computer Vision and Pattern Recognition (CVPR)
+,
+Cited by:
+§2
+,
+§4.2
+.
+[31]
+D. P. Kingma and J. Ba
+(2017)
+Adam: a method for stochastic optimization
+.
+External Links:
+1412.6980
+,
+Link
+Cited by:
+§1
+,
+§4.1
+.
+[32]
+A. Kirillov, E. Mintun, N. Ravi, H. Mao, C. Rolland, L. Gustafson, T. Xiao, S. Whitehead, A. C. Berg, W. Lo, P. Dollár, and R. Girshick
+(2023)
+Segment anything
+.
+In
+ICCV
+,
+pp. 4015–4026
+.
+Cited by:
+§2
+.
+[33]
+E. Kruzhkov, R. Memmesheimer, and S. Behnke
+(2026)
+OMCL: open-vocabulary monte carlo localization
+.
+IEEE Robotics and Automation Letters
+(
+),
+pp.
+.
+Cited by:
+§5
+.
+[34]
+S. Laine, J. Hellsten, T. Karras, Y. Seol, J. Lehtinen, and T. Aila
+(2020)
+Modular primitives for high-performance differentiable rendering
+.
+External Links:
+2011.03277
+,
+Link
+Cited by:
+§2
+.
+[35]
+S. Liu, T. Li, W. Chen, and H. Li
+(2019)
+Soft rasterizer: a differentiable renderer for image-based 3d reasoning
+.
+ICCV
+.
+Cited by:
+§2
+.
+[36]
+S. Liu, M. Yang, T. Xing, and R. Yang
+(2025)
+A survey of 3d reconstruction: the evolution from multi-view geometry to nerf and 3dgs
+.
+Sensors
+25
+(
+18
+),
+pp. 5748
+.
+Cited by:
+§2
+.
+[37]
+I. Loshchilov and F. Hutter
+(2017)
+Fixing weight decay regularization in adam
+.
+CoRR
+abs/1711.05101
+.
+External Links:
+Link
+,
+1711.05101
+Cited by:
+§4.1
+.
+[38]
+D. Maggio, Y. Chang, N. Hughes, M. Trang, D. Griffith, C. Dougherty, E. Cristofalo, L. Schmid, and L. Carlone
+(2024)
+Clio: real-time task-driven open-set 3d scene graphs
+.
+IEEE Robotics and Automation Letters
+9
+(
+10
+),
+pp. 8921–8928
+.
+External Links:
+Document
+Cited by:
+§2
+,
+§4.2
+.
+[39]
+B. Mildenhall, P. P. Srinivasan, R. Ortiz-Cayon, N. K. Kalantari, R. Ramamoorthi, R. Ng, and A. Kar
+(2019)
+Local light field fusion: practical view synthesis with prescriptive sampling guidelines
+.
+ACM Transactions on Graphics (TOG)
+.
+Cited by:
+§4.3
+.
+[40]
+B. Mildenhall, P. P. Srinivasan, M. Tancik, J. T. Barron, R. Ramamoorthi, and R. Ng
+(2020)
+NeRF: representing scenes as neural radiance fields for view synthesis
+.
+In
+ECCV
+,
+Cited by:
+§2
+.
+[41]
+Y. Ming, X. Yang, W. Wang, Z. Chen, J. Feng, Y. Xing, and G. Zhang
+(2025)
+Benchmarking neural radiance fields for autonomous robots: an overview
+.
+Engineering Applications of Artificial Intelligence
+140
+,
+pp. 109685
+.
+External Links:
+ISSN 0952-1976
+,
+Link
+,
+Document
+Cited by:
+§2
+.
+[42]
+N. Moenne-Loccoz, A. Mirzaei, O. Perel, R. de Lutio, J. Martinez Esturo, G. State, S. Fidler, N. Sharp, and Z. Gojcic
+(2024)
+3D gaussian ray tracing: fast tracing of particle scenes
+.
+ACM Trans. Graph.
+43
+(
+6
+).
+External Links:
+ISSN 0730-0301
+,
+Link
+,
+Document
+Cited by:
+§2
+.
+[43]
+T. Müller, A. Evans, C. Schied, and A. Keller
+(2022)
+Instant neural graphics primitives with a multiresolution hash encoding
+.
+ACM Trans. Graph.
+41
+(
+4
+),
+pp. 102:1–102:15
+.
+External Links:
+Link
+,
+Document
+Cited by:
+§2
+.
+[44]
+M. Oquab, T. Darcet, T. Moutakanni, H. Vo, M. Szafraniec, V. Khalidov, P. Fernandez, D. Haziza, F. Massa, A. El-Nouby,
+et al.
+(2023)
+Dinov2: learning robust visual features without supervision
+.
+arXiv preprint arXiv:2304.07193
+.
+Cited by:
+Figure 1
+,
+Figure 1
+,
+§1
+,
+§4.2
+.
+[45]
+L. Peiqi, O. Yaswanth, V. Jay, P. Chris, S. Nur, and P. Lerrel
+(2024)
+Demonstrating ok-robot: what really matters in integrating open-knowledge models for robotics
+.
+Robotics: Science and Systems
+.
+External Links:
+Document
+Cited by:
+§5
+.
+[46]
+S. Peng, K. Genova, C. ”. Jiang, A. Tagliasacchi, M. Pollefeys, and T. Funkhouser
+(2023)
+OpenScene: 3d scene understanding with open vocabularies
+.
+In
+CVPR
+,
+Cited by:
+§2
+,
+§4.2
+.
+[47]
+N. Ravi, V. Gabeur, Y. Hu, R. Hu, C. Ryali, T. Ma, H. Khedr, R. Rädle, C. Rolland, L. Gustafson, E. Mintun, J. Pan, K. V. Alwala, N. Carion, C. Wu, R. Girshick, P. Dollar, and C. Feichtenhofer
+(2025)
+SAM 2: segment anything in images and videos
+.
+In
+ICLR
+,
+External Links:
+Link
+Cited by:
+Figure 1
+,
+Figure 1
+,
+§1
+,
+§2
+,
+§2
+,
+§4.3
+.
+[48]
+H. Rhodin, N. Robertini, C. Richardt, H. Seidel, and C. Theobalt
+(2015)
+A versatile scene model with differentiable visibility applied to generative pose estimation
+.
+In
+ICCV
+,
+Cited by:
+§2
+.
+[49]
+M. Rump, R. Sarlette, and R. Klein
+(2010)
+Groundtruth data for multispectral bidirectional texture functions
+.
+In
+CGIV 2010
+,
+pp. 326–330
+.
+Cited by:
+§4.1
+.
+[50]
+J. L. Schönberger and J. Frahm
+(2016)
+Structure-from-motion revisited
+.
+In
+CVPR
+,
+Cited by:
+Figure 1
+,
+Figure 1
+.
+[51]
+J. L. Schönberger, E. Zheng, M. Pollefeys, and J. Frahm
+(2016)
+Pixelwise view selection for unstructured multi-view stereo
+.
+In
+ECCV
+,
+Cited by:
+Figure 1
+,
+Figure 1
+.
+[52]
+N. M. M. Shafiullah, C. Paxton, L. Pinto, S. Chintala, and A. Szlam
+(2023)
+CLIP-fields: weakly supervised semantic fields for robotic memory
+.
+Robotics: Science and Systems
+.
+Cited by:
+§2
+,
+§4.2
+.
+[53]
+T. Sun, Z. Xu, X. Zhang, S. Fanello, C. Rhemann, P. Debevec, Y. Tsai, J. T. Barron, and R. Ramamoorthi
+(2020)
+Light stage super-resolution: continuous high-frequency relighting
+.
+ACM Trans. Graph.
+39
+(
+6
+).
+External Links:
+ISSN 0730-0301
+,
+Link
+,
+Document
+Cited by:
+§2
+,
+§4.1
+.
+[54]
+Y. Sun, C. Wang, S. Zheng, Z. Li, S. Zhang, and X. Ji
+(2025)
+Generalizable and relightable Gaussian splatting for human novel view synthesis
+.
+arXiv
+.
+Note:
+arXiv:2505.21502
+Cited by:
+§2
+.
+[55]
+A. N. Tikhonov
+(1977)
+Solutions of ill posed problems
+.
+Cited by:
+§3
+.
+[56]
+M. Wei, Q. Wu, J. Zheng, H. Rezatofighi, and J. Cai
+(2024)
+3D Gaussian splatting with normal-involved rendering
+.
+In
+NeurIPS
+,
+Cited by:
+§2
+.
+[57]
+L. Westover
+(1991)
+Splatting: a parallel, feed-forward volume rendering algorithm
+.
+External Links:
+Link
+Cited by:
+§2
+.
+[58]
+R. Xu, W. Chen, J. Wang, Y. Liu, P. Wang, L. Gao, S. Xin, T. Komura, X. Li, and W. Wang
+(2024)
+SuperGaussians: enhancing Gaussian splatting using primitives with spatially varying colors
+.
+arXiv
+.
+Cited by:
+§2
+.
+[59]
+Z. Yang, X. Gao, Y. Sun, Y. Huang, X. Lyu, W. Zhou, S. Jiao, X. Qi, and X. Jin
+(2024)
+Spec-Gaussian: anisotropic view-dependent appearance for 3d Gaussian splatting
+.
+NeurIPS
+.
+Cited by:
+§2
+.
+[60]
+V. Ye, R. Li, J. Kerr, M. Turkulainen, B. Yi, Z. Pan, O. Seiskari, J. Ye, J. Hu, M. Tancik, and A. Kanazawa
+(2025)
+Gsplat: an open-source library for Gaussian splatting
+.
+Journal of Machine Learning Research
+26
+(
+34
+),
+pp. 1–17
+.
+Cited by:
+§2
+,
+§2
+.
+[61]
+M. Zwicker, H. Pfister, J. van Baar, and M. Gross
+(2001)
+EWA volume splatting
+.
+In
+Proceedings of the Conference on Visualization ’01
+,
+VIS ’01
+,
+USA
+,
+pp. 29–36
+.
+External Links:
+ISBN 078037200X
+Cited by:
+§2
+.
+Experimental support, please
+view the build logs
+for errors. Generated by
+L
+A
+T
+E
+xml
+.
+Instructions for reporting errors
+We are continuing to improve HTML versions of papers, and your feedback helps enhance accessibility and mobile
+      support. To report errors in the HTML that will help us improve conversion and rendering, choose any of the
+      methods listed below:
+Click the "Report Issue"
+(
+)
+button, located in the page header.
+Tip:
+You can select the relevant text first, to include it in your report.
+Our team has already identified
+the following issues
+. We appreciate your time reviewing and reporting rendering errors we
+      may not have found yet. Your efforts will help us improve the HTML versions for all readers, because disability
+      should not be a barrier to accessing research. Thank you for your continued support in championing open access for
+      all.
+Have a free development cycle? Help support accessibility at arXiv! Our collaborators at LaTeXML maintain a
+list of packages that need conversion
+, and welcome
+developer contributions
+.
+We gratefully acknowledge support from
+        our
+major funders
+,
+member institutions
+,
+,
+        and all contributors.
+About
+·
+Help
+·
+Contact
+·
+Subscribe
+·
+Copyright
+·
+Privacy
+·
+Accessibility
+·
+Operational Status
+(opens in new tab)
+Major funding support from

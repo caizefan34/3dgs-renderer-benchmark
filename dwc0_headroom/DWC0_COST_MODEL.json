@@ -1,0 +1,75 @@
+{
+  "_timestamp_utc": "2026-10-01T15:40:12Z",
+  "gate": "Phase 2 — cost model: current (eager, compute-once+reuse) vs per-visit recompute",
+  "flop_weights": {
+    "projection_flop": 40.0,
+    "covariance_3d_2d_flop": 260.0,
+    "spherical_harmonics_flop": 150.0,
+    "eager_bundle_flop": 450.0,
+    "gaussian_weight_flop_excl_exp": 20.0,
+    "exp_flop_equiv_sfu": 8.0,
+    "gaussian_weight_flop_incl_exp": 28.0
+  },
+  "per_scene": {
+    "room": {
+      "n_gaussians": 1105873,
+      "pixel_visits": 14894848,
+      "current_eager_flop": 914698594.0,
+      "current_exp_count": 14894848,
+      "counterfactual_pervisit_flop": 7119737344.0,
+      "candidate_compute_once_reuse_flop": 914698594.0,
+      "reduction_vs_counterfactual_pervisit": 0.871526,
+      "reduction_vs_real_current": 0.0,
+      "storage_cost": {
+        "eager_buffers_bytes": 39811428,
+        "note": "eager buffers (points_xy_image, conic_opacity, features) ALREADY exist in canonical design; no NEW storage for compute-once (it IS the current design)."
+      },
+      "synchronization_cost": {
+        "note": "canonical pipeline already has a global barrier between preprocess and render (implicit via kernel boundary + radix sort). A compute-once cache adds no NEW sync; a per-visit recompute would also need none. Sync-neutral."
+      },
+      "cache_pressure": {
+        "note": "render already stages per-tile batches through shared memory (collected_xy/collected_conic_opacity, BLOCK_SIZE). Eager reuse REDUCES global traffic vs per-visit recompute (which would re-read scale/rot/shs per visit). Cache pressure is LOWER in the current eager design."
+      }
+    },
+    "garden": {
+      "n_gaussians": 874019,
+      "pixel_visits": 35872768,
+      "current_eager_flop": 1397746054.0,
+      "current_exp_count": 35872768,
+      "counterfactual_pervisit_flop": 17147183104.0,
+      "candidate_compute_once_reuse_flop": 1397746054.0,
+      "reduction_vs_counterfactual_pervisit": 0.918485,
+      "reduction_vs_real_current": 0.0,
+      "storage_cost": {
+        "eager_buffers_bytes": 31464684,
+        "note": "eager buffers (points_xy_image, conic_opacity, features) ALREADY exist in canonical design; no NEW storage for compute-once (it IS the current design)."
+      },
+      "synchronization_cost": {
+        "note": "canonical pipeline already has a global barrier between preprocess and render (implicit via kernel boundary + radix sort). A compute-once cache adds no NEW sync; a per-visit recompute would also need none. Sync-neutral."
+      },
+      "cache_pressure": {
+        "note": "render already stages per-tile batches through shared memory (collected_xy/collected_conic_opacity, BLOCK_SIZE). Eager reuse REDUCES global traffic vs per-visit recompute (which would re-read scale/rot/shs per visit). Cache pressure is LOWER in the current eager design."
+      }
+    },
+    "bicycle": {
+      "n_gaussians": 2589484,
+      "pixel_visits": 25459968,
+      "current_eager_flop": 1878146904.0,
+      "current_exp_count": 25459968,
+      "counterfactual_pervisit_flop": 12169864704.0,
+      "candidate_compute_once_reuse_flop": 1878146904.0,
+      "reduction_vs_counterfactual_pervisit": 0.845672,
+      "reduction_vs_real_current": 0.0,
+      "storage_cost": {
+        "eager_buffers_bytes": 93221424,
+        "note": "eager buffers (points_xy_image, conic_opacity, features) ALREADY exist in canonical design; no NEW storage for compute-once (it IS the current design)."
+      },
+      "synchronization_cost": {
+        "note": "canonical pipeline already has a global barrier between preprocess and render (implicit via kernel boundary + radix sort). A compute-once cache adds no NEW sync; a per-visit recompute would also need none. Sync-neutral."
+      },
+      "cache_pressure": {
+        "note": "render already stages per-tile batches through shared memory (collected_xy/collected_conic_opacity, BLOCK_SIZE). Eager reuse REDUCES global traffic vs per-visit recompute (which would re-read scale/rot/shs per visit). Cache pressure is LOWER in the current eager design."
+      }
+    }
+  }
+}

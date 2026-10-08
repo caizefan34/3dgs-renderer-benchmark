@@ -1,0 +1,26 @@
+{
+  "repo_id": "H-FasterGS",
+  "baseline_name": "Hahlbohm Faster-GS",
+  "repo_url": "https://github.com/nerficg-project/faster-gaussian-splatting",
+  "branch": "FasterGSFused",
+  "commit": "ae665af",
+  "focus_variant": "FasterGSFused",
+  "cuda_source_path": "FasterGSFusedCudaBackend/FasterGSFusedCudaBackend/rasterization",
+  "key_files": {
+    "forward": "src/forward.cu",
+    "backward": "src/backward.cu",
+    "api": "src/rasterization_api.cu",
+    "kernels_forward": "include/kernels_forward.cuh",
+    "kernels_backward": "include/kernels_backward.cuh",
+    "utils": "include/kernel_utils.cuh, include/sh_utils.cuh"
+  },
+  "mechanism": {
+    "projection": "2D Gaussian projection with covariance",
+    "instance_generation": "Tile-based instancing with depth sorting",
+    "sort": "Morton order depth sorting",
+    "forward_compositing": "Sequential alpha blending per tile (standard 3DGS)",
+    "backward_compositing": "Sequential alpha blending gradient (per-pixel loop)",
+    "optimizer_fusion": "Fused Adam optimizer",
+    "key_optimization": "Kernel fusion to reduce memory traffic; backward still sequential blend"
+  }
+}

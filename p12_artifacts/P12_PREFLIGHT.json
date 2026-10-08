@@ -1,0 +1,2211 @@
+{
+  "phase": "P12 preflight (required before 30K)",
+  "date_utc": "2026-09-26T13:22:24Z",
+  "protocol": {
+    "trainer": "/root/epic05_p12/publication_trainer_p12.py",
+    "iterations": 220,
+    "loss": "fused (P11-validated fused-ssim padding=same)",
+    "eval": "subset",
+    "scenes": [
+      "room",
+      "bicycle",
+      "garden"
+    ],
+    "arms": [
+      "GMAIN_FUSED",
+      "C0_FUSED",
+      "A0_FUSED",
+      "A1_FUSED"
+    ],
+    "scene_gpu": {
+      "room": 5,
+      "bicycle": 6,
+      "garden": 7
+    },
+    "no_tuning": "preflight is verification only; nothing is tuned"
+  },
+  "per_run": [
+    {
+      "arm": "gmain",
+      "arm_label": "GMAIN_FUSED",
+      "scene": "room",
+      "run_id": "pre_gmain_s42_room",
+      "returncode": 0,
+      "wall_s": 60.9,
+      "peak_vram_gb": 0.8717021942138672,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 7.080569157817147,
+          "median_ms": 7.060672044754028,
+          "min_ms": 3.2814719676971436,
+          "max_ms": 39.026817321777344
+        },
+        "loss": {
+          "mean_ms": 0.5095309089530599,
+          "median_ms": 0.5073759853839874,
+          "min_ms": 0.5007039904594421,
+          "max_ms": 0.7369599938392639
+        },
+        "backward": {
+          "mean_ms": 15.69679825522683,
+          "median_ms": 16.19711971282959,
+          "min_ms": 6.5763840675354,
+          "max_ms": 78.28562927246094
+        },
+        "densify": {
+          "mean_ms": 0.9411982563408938,
+          "median_ms": 0.7912319898605347,
+          "min_ms": 0.6397119760513306,
+          "max_ms": 29.520736694335938
+        },
+        "optimizer": {
+          "mean_ms": 1.4539242213422603,
+          "median_ms": 1.3215839862823486,
+          "min_ms": 1.2462400197982788,
+          "max_ms": 29.232255935668945
+        }
+      },
+      "mean_iter_ms": 25.806191143452782,
+      "final_psnr_subset": 15.27807657108824,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+            "expected": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+            "path": "/root/epic05_p8/build/torchext/gsplat_cuda/gsplat_cuda.so"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "gmain"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.2896811068058014,
+            "100": 0.19467034935951233,
+            "200": 0.17222777009010315
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 15.27807657108824,
+            "ssim": 0.5741259564052928,
+            "l1": 0.12729530916972595,
+            "lpips": 0.664860958402807
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.28968092799186707,
+              "p12": 0.2896811068058014,
+              "rel_diff": 6.172789336382965e-07,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.1946699023246765,
+              "p12": 0.19467034935951233,
+              "rel_diff": 2.2963736585733275e-06,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.17222744226455688,
+              "p12": 0.17222777009010315,
+              "rel_diff": 1.9034454785729143e-06,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {},
+            "got": {}
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "c0",
+      "arm_label": "C0_FUSED",
+      "scene": "room",
+      "run_id": "pre_c0_s42_room",
+      "returncode": 0,
+      "wall_s": 59.1,
+      "peak_vram_gb": 0.8717021942138672,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 7.711415229060433,
+          "median_ms": 7.266864061355591,
+          "min_ms": 3.3050239086151123,
+          "max_ms": 150.1513214111328
+        },
+        "loss": {
+          "mean_ms": 0.5200618169524452,
+          "median_ms": 0.5073759853839874,
+          "min_ms": 0.501151978969574,
+          "max_ms": 2.8532159328460693
+        },
+        "backward": {
+          "mean_ms": 11.558007829839534,
+          "median_ms": 11.759088039398193,
+          "min_ms": 4.872960090637207,
+          "max_ms": 75.42066955566406
+        },
+        "densify": {
+          "mean_ms": 0.8154728732325814,
+          "median_ms": 0.6607199907302856,
+          "min_ms": 0.5945919752120972,
+          "max_ms": 24.526880264282227
+        },
+        "optimizer": {
+          "mean_ms": 1.4578058183193208,
+          "median_ms": 1.2677599787712097,
+          "min_ms": 1.2257599830627441,
+          "max_ms": 37.540992736816406
+        }
+      },
+      "mean_iter_ms": 22.19670844550075,
+      "final_psnr_subset": 15.278071925191835,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "expected": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so"
+          }
+        },
+        {
+          "check": "core_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+            "expected": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "c0"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.2896811068058014,
+            "100": 0.19467025995254517,
+            "200": 0.172227680683136
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 15.278071925191835,
+            "ssim": 0.5741258805448358,
+            "l1": 0.12729542025110938,
+            "lpips": 0.6648615219376304
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.28968092799186707,
+              "p12": 0.2896811068058014,
+              "rel_diff": 6.172789336382965e-07,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.19466988742351532,
+              "p12": 0.19467025995254517,
+              "rel_diff": 1.9136448619592277e-06,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.17222748696804047,
+              "p12": 0.172227680683136,
+              "rel_diff": 1.1247629453942298e-06,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+              "HIGS_BWD_H8_MR": "1",
+              "HIGS_BWD_ABSGRAD": "1"
+            },
+            "got": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+              "HIGS_BWD_H8_MR": "1",
+              "HIGS_BWD_ABSGRAD": "1"
+            }
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "a0",
+      "arm_label": "A0_FUSED",
+      "scene": "room",
+      "run_id": "pre_a0_s42_room",
+      "returncode": 0,
+      "wall_s": 59.0,
+      "peak_vram_gb": 0.8717021942138672,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 7.375179791450501,
+          "median_ms": 7.262527942657471,
+          "min_ms": 3.3788158893585205,
+          "max_ms": 64.70166778564453
+        },
+        "loss": {
+          "mean_ms": 0.5190522189844738,
+          "median_ms": 0.5070080161094666,
+          "min_ms": 0.4986239969730377,
+          "max_ms": 2.7119040489196777
+        },
+        "backward": {
+          "mean_ms": 11.469872550530868,
+          "median_ms": 11.767727851867676,
+          "min_ms": 4.920864105224609,
+          "max_ms": 67.44751739501953
+        },
+        "densify": {
+          "mean_ms": 0.7851893823255193,
+          "median_ms": 0.686352014541626,
+          "min_ms": 0.6013759970664978,
+          "max_ms": 17.232959747314453
+        },
+        "optimizer": {
+          "mean_ms": 1.4258919190276753,
+          "median_ms": 1.2881119847297668,
+          "min_ms": 1.2416319847106934,
+          "max_ms": 28.06572723388672
+        }
+      },
+      "mean_iter_ms": 21.7008424049709,
+      "final_psnr_subset": 15.278077462640375,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "expected": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so"
+          }
+        },
+        {
+          "check": "core_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+            "expected": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "a0"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.2896811068058014,
+            "100": 0.19467027485370636,
+            "200": 0.172227680683136
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 15.278077462640375,
+            "ssim": 0.574126043102958,
+            "l1": 0.12729532271623611,
+            "lpips": 0.6648621234026822
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.28968092799186707,
+              "p12": 0.2896811068058014,
+              "rel_diff": 6.172789336382965e-07,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.1946699619293213,
+              "p12": 0.19467027485370636,
+              "rel_diff": 1.6074610688238284e-06,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.17222754657268524,
+              "p12": 0.172227680683136,
+              "rel_diff": 7.786817696321897e-07,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1",
+              "HIGS_BWD_SCALAR_ADJOINT": null,
+              "HIGS_BWD_H8_MR": null,
+              "HIGS_DISABLE_F9": "1"
+            },
+            "got": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1",
+              "HIGS_DISABLE_F9": "1"
+            }
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "a1",
+      "arm_label": "A1_FUSED",
+      "scene": "room",
+      "run_id": "pre_a1_s42_room",
+      "returncode": 0,
+      "wall_s": 59.3,
+      "peak_vram_gb": 0.8717021942138672,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 7.399378908764232,
+          "median_ms": 7.296191930770874,
+          "min_ms": 3.500607967376709,
+          "max_ms": 63.017311096191406
+        },
+        "loss": {
+          "mean_ms": 0.5192116343162276,
+          "median_ms": 0.5076639950275421,
+          "min_ms": 0.4970879852771759,
+          "max_ms": 2.78985595703125
+        },
+        "backward": {
+          "mean_ms": 11.432449611750515,
+          "median_ms": 11.772639751434326,
+          "min_ms": 4.891392230987549,
+          "max_ms": 67.81129455566406
+        },
+        "densify": {
+          "mean_ms": 0.8449013810266148,
+          "median_ms": 0.7499359846115112,
+          "min_ms": 0.6074560284614563,
+          "max_ms": 17.82316780090332
+        },
+        "optimizer": {
+          "mean_ms": 1.448483926599676,
+          "median_ms": 1.3139519691467285,
+          "min_ms": 1.2638399600982666,
+          "max_ms": 28.73855972290039
+        }
+      },
+      "mean_iter_ms": 21.768779506568205,
+      "final_psnr_subset": 15.27807789985922,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "expected": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so"
+          }
+        },
+        {
+          "check": "core_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+            "expected": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "a1"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.2896811068058014,
+            "100": 0.19467033445835114,
+            "200": 0.17222774028778076
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 15.27807789985922,
+            "ssim": 0.57412573966113,
+            "l1": 0.12729538773948496,
+            "lpips": 0.664862800728191
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.28968092799186707,
+              "p12": 0.2896811068058014,
+              "rel_diff": 6.172789336382965e-07,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.1946699470281601,
+              "p12": 0.19467033445835114,
+              "rel_diff": 1.9901900470748837e-06,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.17222744226455688,
+              "p12": 0.17222774028778076,
+              "rel_diff": 1.730404980520831e-06,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1",
+              "HIGS_BWD_SCALAR_ADJOINT": null,
+              "HIGS_BWD_H8_MR": null,
+              "HIGS_DISABLE_F9": null
+            },
+            "got": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1"
+            }
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "gmain",
+      "arm_label": "GMAIN_FUSED",
+      "scene": "bicycle",
+      "run_id": "pre_gmain_s42_bicycle",
+      "returncode": 0,
+      "wall_s": 73.0,
+      "peak_vram_gb": 0.4242401123046875,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 5.421777897531336,
+          "median_ms": 5.583312034606934,
+          "min_ms": 2.291167974472046,
+          "max_ms": 33.27686309814453
+        },
+        "loss": {
+          "mean_ms": 0.5106903276660225,
+          "median_ms": 0.5086880028247833,
+          "min_ms": 0.5017920136451721,
+          "max_ms": 0.7480000257492065
+        },
+        "backward": {
+          "mean_ms": 13.694248035821047,
+          "median_ms": 14.944544315338135,
+          "min_ms": 3.7653119564056396,
+          "max_ms": 70.05052947998047
+        },
+        "densify": {
+          "mean_ms": 0.8642007226293738,
+          "median_ms": 0.7025760114192963,
+          "min_ms": 0.5930879712104797,
+          "max_ms": 27.738527297973633
+        },
+        "optimizer": {
+          "mean_ms": 1.164306472919204,
+          "median_ms": 1.0290240049362183,
+          "min_ms": 0.9355840086936951,
+          "max_ms": 28.416288375854492
+        }
+      },
+      "mean_iter_ms": 21.779882958137684,
+      "final_psnr_subset": 14.74810324614545,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+            "expected": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+            "path": "/root/epic05_p8/build/torchext/gsplat_cuda/gsplat_cuda.so"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "gmain"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.20873187482357025,
+            "100": 0.22731643915176392,
+            "200": 0.2033926248550415
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 14.74810324614545,
+            "ssim": 0.36003548990596423,
+            "l1": 0.14277237518267197,
+            "lpips": 0.7247585491700606
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.208732008934021,
+              "p12": 0.20873187482357025,
+              "rel_diff": 6.425006467839845e-07,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.22731652855873108,
+              "p12": 0.22731643915176392,
+              "rel_diff": 3.9331485365344266e-07,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.2033928632736206,
+              "p12": 0.2033926248550415,
+              "rel_diff": 1.172207201689385e-06,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {},
+            "got": {}
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "c0",
+      "arm_label": "C0_FUSED",
+      "scene": "bicycle",
+      "run_id": "pre_c0_s42_bicycle",
+      "returncode": 0,
+      "wall_s": 75.9,
+      "peak_vram_gb": 0.4268035888671875,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 6.166560184955597,
+          "median_ms": 5.986304044723511,
+          "min_ms": 2.6822400093078613,
+          "max_ms": 90.31104278564453
+        },
+        "loss": {
+          "mean_ms": 0.5212466907772151,
+          "median_ms": 0.5089119970798492,
+          "min_ms": 0.4996800124645233,
+          "max_ms": 2.955967903137207
+        },
+        "backward": {
+          "mean_ms": 10.498621951450001,
+          "median_ms": 10.899999618530273,
+          "min_ms": 2.7291839122772217,
+          "max_ms": 108.34611511230469
+        },
+        "densify": {
+          "mean_ms": 1.0162203672257337,
+          "median_ms": 0.9771519899368286,
+          "min_ms": 0.638975977897644,
+          "max_ms": 18.448320388793945
+        },
+        "optimizer": {
+          "mean_ms": 1.2517380424521185,
+          "median_ms": 1.1313599944114685,
+          "min_ms": 0.9324480295181274,
+          "max_ms": 29.791648864746094
+        }
+      },
+      "mean_iter_ms": 19.567837220066313,
+      "final_psnr_subset": 14.748103539321674,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "expected": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so"
+          }
+        },
+        {
+          "check": "core_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+            "expected": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "c0"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.20873187482357025,
+            "100": 0.22731637954711914,
+            "200": 0.2033926546573639
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 14.748103539321674,
+            "ssim": 0.36003534360365436,
+            "l1": 0.14277240092104132,
+            "lpips": 0.7247624776580117
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.208732008934021,
+              "p12": 0.20873187482357025,
+              "rel_diff": 6.425006467839845e-07,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.2273164689540863,
+              "p12": 0.22731637954711914,
+              "rel_diff": 3.933149567845191e-07,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.20339295268058777,
+              "p12": 0.2033926546573639,
+              "rel_diff": 1.4652583580168315e-06,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+              "HIGS_BWD_H8_MR": "1",
+              "HIGS_BWD_ABSGRAD": "1"
+            },
+            "got": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+              "HIGS_BWD_H8_MR": "1",
+              "HIGS_BWD_ABSGRAD": "1"
+            }
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "a0",
+      "arm_label": "A0_FUSED",
+      "scene": "bicycle",
+      "run_id": "pre_a0_s42_bicycle",
+      "returncode": 0,
+      "wall_s": 71.4,
+      "peak_vram_gb": 0.4268035888671875,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 5.868458760868419,
+          "median_ms": 5.829216003417969,
+          "min_ms": 2.571712017059326,
+          "max_ms": 78.56591796875
+        },
+        "loss": {
+          "mean_ms": 0.521527853066271,
+          "median_ms": 0.5084159970283508,
+          "min_ms": 0.5021439790725708,
+          "max_ms": 2.785088062286377
+        },
+        "backward": {
+          "mean_ms": 10.056330510703,
+          "median_ms": 10.836048126220703,
+          "min_ms": 2.757472038269043,
+          "max_ms": 71.04374694824219
+        },
+        "densify": {
+          "mean_ms": 0.7652088715271517,
+          "median_ms": 0.6552800238132477,
+          "min_ms": 0.5882880091667175,
+          "max_ms": 17.627103805541992
+        },
+        "optimizer": {
+          "mean_ms": 1.1494686576453121,
+          "median_ms": 0.9931199848651886,
+          "min_ms": 0.9327679872512817,
+          "max_ms": 28.499135971069336
+        }
+      },
+      "mean_iter_ms": 18.49671936361119,
+      "final_psnr_subset": 14.748103048915182,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "expected": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so"
+          }
+        },
+        {
+          "check": "core_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+            "expected": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "a0"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.20873187482357025,
+            "100": 0.22731634974479675,
+            "200": 0.20339256525039673
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 14.748103048915182,
+            "ssim": 0.36003527316180145,
+            "l1": 0.14277240972627292,
+            "lpips": 0.7247594811699607
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.208732008934021,
+              "p12": 0.20873187482357025,
+              "rel_diff": 6.425006467839845e-07,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.2273164987564087,
+              "p12": 0.22731634974479675,
+              "rel_diff": 6.555248420316236e-07,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.20339280366897583,
+              "p12": 0.20339256525039673,
+              "rel_diff": 1.1722075452069165e-06,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1",
+              "HIGS_BWD_SCALAR_ADJOINT": null,
+              "HIGS_BWD_H8_MR": null,
+              "HIGS_DISABLE_F9": "1"
+            },
+            "got": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1",
+              "HIGS_DISABLE_F9": "1"
+            }
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "a1",
+      "arm_label": "A1_FUSED",
+      "scene": "bicycle",
+      "run_id": "pre_a1_s42_bicycle",
+      "returncode": 0,
+      "wall_s": 71.2,
+      "peak_vram_gb": 0.4268035888671875,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 5.806606112826954,
+          "median_ms": 5.8334081172943115,
+          "min_ms": 2.6400959491729736,
+          "max_ms": 63.693153381347656
+        },
+        "loss": {
+          "mean_ms": 0.5219495282931761,
+          "median_ms": 0.5085600018501282,
+          "min_ms": 0.49804800748825073,
+          "max_ms": 2.849247932434082
+        },
+        "backward": {
+          "mean_ms": 10.038790734247728,
+          "median_ms": 10.826496124267578,
+          "min_ms": 2.809920072555542,
+          "max_ms": 66.72557067871094
+        },
+        "densify": {
+          "mean_ms": 0.7536490164019845,
+          "median_ms": 0.6512959897518158,
+          "min_ms": 0.5890880227088928,
+          "max_ms": 18.04092788696289
+        },
+        "optimizer": {
+          "mean_ms": 1.1528397045352243,
+          "median_ms": 0.990336000919342,
+          "min_ms": 0.9400960206985474,
+          "max_ms": 27.999008178710938
+        }
+      },
+      "mean_iter_ms": 18.406540437982503,
+      "final_psnr_subset": 14.748103756311707,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "expected": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so"
+          }
+        },
+        {
+          "check": "core_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+            "expected": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "a1"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.20873187482357025,
+            "100": 0.22731631994247437,
+            "200": 0.20339259505271912
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 14.748103756311707,
+            "ssim": 0.360035468231548,
+            "l1": 0.14277233928442,
+            "lpips": 0.7247581644491716
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.208732008934021,
+              "p12": 0.20873187482357025,
+              "rel_diff": 6.425006467839845e-07,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.2273164689540863,
+              "p12": 0.22731631994247437,
+              "rel_diff": 6.555249279741985e-07,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.20339295268058777,
+              "p12": 0.20339259505271912,
+              "rel_diff": 1.7583100296201978e-06,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1",
+              "HIGS_BWD_SCALAR_ADJOINT": null,
+              "HIGS_BWD_H8_MR": null,
+              "HIGS_DISABLE_F9": null
+            },
+            "got": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1"
+            }
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "gmain",
+      "arm_label": "GMAIN_FUSED",
+      "scene": "garden",
+      "run_id": "pre_gmain_s42_garden",
+      "returncode": 0,
+      "wall_s": 229.1,
+      "peak_vram_gb": 14.110733032226562,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 10.07598646770824,
+          "median_ms": 9.897023677825928,
+          "min_ms": 5.052735805511475,
+          "max_ms": 38.50431823730469
+        },
+        "loss": {
+          "mean_ms": 0.512066615711559,
+          "median_ms": 0.5103999972343445,
+          "min_ms": 0.5034239888191223,
+          "max_ms": 0.7408000230789185
+        },
+        "backward": {
+          "mean_ms": 21.416049124977807,
+          "median_ms": 21.241631507873535,
+          "min_ms": 7.961919784545898,
+          "max_ms": 89.57839965820312
+        },
+        "densify": {
+          "mean_ms": 1.0601389036937194,
+          "median_ms": 0.9039680063724518,
+          "min_ms": 0.7153599858283997,
+          "max_ms": 29.585535049438477
+        },
+        "optimizer": {
+          "mean_ms": 5.729643620144238,
+          "median_ms": 5.597920179367065,
+          "min_ms": 5.4990081787109375,
+          "max_ms": 33.39254379272461
+        }
+      },
+      "mean_iter_ms": 38.922376448648386,
+      "final_psnr_subset": 13.717110035543124,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+            "expected": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+            "path": "/root/epic05_p8/build/torchext/gsplat_cuda/gsplat_cuda.so"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "gmain"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.2860952615737915,
+            "100": 0.3112240433692932,
+            "200": 0.28285539150238037
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 13.717110035543124,
+            "ssim": 0.299406728961251,
+            "l1": 0.1691670702262358,
+            "lpips": 0.7607063813643022
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.28609755635261536,
+              "p12": 0.2860952615737915,
+              "rel_diff": 8.0209661805857e-06,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.3112243413925171,
+              "p12": 0.3112240433692932,
+              "rel_diff": 9.575832743142842e-07,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.2828556299209595,
+              "p12": 0.28285539150238037,
+              "rel_diff": 8.428984749859342e-07,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {},
+            "got": {}
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "c0",
+      "arm_label": "C0_FUSED",
+      "scene": "garden",
+      "run_id": "pre_c0_s42_garden",
+      "returncode": 0,
+      "wall_s": 226.8,
+      "peak_vram_gb": 14.110733032226562,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 10.095222845944491,
+          "median_ms": 9.831743717193604,
+          "min_ms": 5.139520168304443,
+          "max_ms": 62.6363525390625
+        },
+        "loss": {
+          "mean_ms": 0.5230296725576574,
+          "median_ms": 0.5119680166244507,
+          "min_ms": 0.5025920271873474,
+          "max_ms": 2.753887891769409
+        },
+        "backward": {
+          "mean_ms": 17.122737297144802,
+          "median_ms": 17.227952003479004,
+          "min_ms": 6.262303829193115,
+          "max_ms": 82.8439712524414
+        },
+        "densify": {
+          "mean_ms": 0.8721697463230653,
+          "median_ms": 0.7689599990844727,
+          "min_ms": 0.6902719736099243,
+          "max_ms": 17.856544494628906
+        },
+        "optimizer": {
+          "mean_ms": 5.670385883071206,
+          "median_ms": 5.533632040023804,
+          "min_ms": 5.4885759353637695,
+          "max_ms": 32.365631103515625
+        }
+      },
+      "mean_iter_ms": 34.4200273854023,
+      "final_psnr_subset": 13.717069270029105,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "expected": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so"
+          }
+        },
+        {
+          "check": "core_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+            "expected": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "c0"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.2860952615737915,
+            "100": 0.311224102973938,
+            "200": 0.2828559875488281
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 13.717069270029105,
+            "ssim": 0.2994064851240678,
+            "l1": 0.16916785863312808,
+            "lpips": 0.760705747387626
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.28609755635261536,
+              "p12": 0.2860952615737915,
+              "rel_diff": 8.0209661805857e-06,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.3112242817878723,
+              "p12": 0.311224102973938,
+              "rel_diff": 5.745500746244789e-07,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.2828555107116699,
+              "p12": 0.2828559875488281,
+              "rel_diff": 1.6857976604500068e-06,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+              "HIGS_BWD_H8_MR": "1",
+              "HIGS_BWD_ABSGRAD": "1"
+            },
+            "got": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+              "HIGS_BWD_H8_MR": "1",
+              "HIGS_BWD_ABSGRAD": "1"
+            }
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "a0",
+      "arm_label": "A0_FUSED",
+      "scene": "garden",
+      "run_id": "pre_a0_s42_garden",
+      "returncode": 0,
+      "wall_s": 226.3,
+      "peak_vram_gb": 14.110733032226562,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 10.212688424370505,
+          "median_ms": 9.948335647583008,
+          "min_ms": 5.134975910186768,
+          "max_ms": 62.11363220214844
+        },
+        "loss": {
+          "mean_ms": 0.5240111993117766,
+          "median_ms": 0.5121760070323944,
+          "min_ms": 0.5064640045166016,
+          "max_ms": 2.7430078983306885
+        },
+        "backward": {
+          "mean_ms": 17.12838396809318,
+          "median_ms": 17.192447662353516,
+          "min_ms": 6.30291223526001,
+          "max_ms": 83.7166748046875
+        },
+        "densify": {
+          "mean_ms": 0.9364266167987477,
+          "median_ms": 0.8086880147457123,
+          "min_ms": 0.7018560171127319,
+          "max_ms": 18.04694366455078
+        },
+        "optimizer": {
+          "mean_ms": 5.707055874304338,
+          "median_ms": 5.5689918994903564,
+          "min_ms": 5.494751930236816,
+          "max_ms": 32.822689056396484
+        }
+      },
+      "mean_iter_ms": 34.630857503824785,
+      "final_psnr_subset": 13.717071702631284,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "expected": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so"
+          }
+        },
+        {
+          "check": "core_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+            "expected": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "a0"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.2860952615737915,
+            "100": 0.3112240731716156,
+            "200": 0.2828555107116699
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 13.717071702631284,
+            "ssim": 0.2994066693566062,
+            "l1": 0.16916788708079944,
+            "lpips": 0.7607052651318637
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.28609755635261536,
+              "p12": 0.2860952615737915,
+              "rel_diff": 8.0209661805857e-06,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.3112242817878723,
+              "p12": 0.3112240731716156,
+              "rel_diff": 6.703084203952254e-07,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.282855749130249,
+              "p12": 0.2828555107116699,
+              "rel_diff": 8.428981197471642e-07,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1",
+              "HIGS_BWD_SCALAR_ADJOINT": null,
+              "HIGS_BWD_H8_MR": null,
+              "HIGS_DISABLE_F9": "1"
+            },
+            "got": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1",
+              "HIGS_DISABLE_F9": "1"
+            }
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    },
+    {
+      "arm": "a1",
+      "arm_label": "A1_FUSED",
+      "scene": "garden",
+      "run_id": "pre_a1_s42_garden",
+      "returncode": 0,
+      "wall_s": 226.0,
+      "peak_vram_gb": 14.110733032226562,
+      "phase_ms_sample": {
+        "forward": {
+          "mean_ms": 10.230359415574508,
+          "median_ms": 9.796463966369629,
+          "min_ms": 5.129759788513184,
+          "max_ms": 83.92054748535156
+        },
+        "loss": {
+          "mean_ms": 0.524449745091525,
+          "median_ms": 0.5125440061092377,
+          "min_ms": 0.5056319832801819,
+          "max_ms": 2.907007932662964
+        },
+        "backward": {
+          "mean_ms": 17.137977201288397,
+          "median_ms": 17.231040000915527,
+          "min_ms": 6.173567771911621,
+          "max_ms": 86.5948486328125
+        },
+        "densify": {
+          "mean_ms": 0.9051677094264464,
+          "median_ms": 0.7872639894485474,
+          "min_ms": 0.6931840181350708,
+          "max_ms": 19.9935359954834
+        },
+        "optimizer": {
+          "mean_ms": 5.692408717762341,
+          "median_ms": 5.543456077575684,
+          "min_ms": 5.486752033233643,
+          "max_ms": 33.94966506958008
+        }
+      },
+      "mean_iter_ms": 34.624100133607335,
+      "final_psnr_subset": 13.717102020847573,
+      "checks": [
+        {
+          "check": "arm_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "expected": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+            "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so"
+          }
+        },
+        {
+          "check": "core_so_sha256",
+          "pass": true,
+          "detail": {
+            "got": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+            "expected": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+          }
+        },
+        {
+          "check": "arm_is_expected_arm",
+          "pass": true,
+          "detail": "a1"
+        },
+        {
+          "check": "loss_backend_is_fused",
+          "pass": true,
+          "detail": "fused-ssim"
+        },
+        {
+          "check": "fused_so_sha256_p11_lock",
+          "pass": true,
+          "detail": {
+            "got": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+            "expected": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+          }
+        },
+        {
+          "check": "padding_is_same",
+          "pass": true,
+          "detail": "same"
+        },
+        {
+          "check": "padding_same_probe_pass",
+          "pass": true,
+          "detail": {
+            "map_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "input_shape": [
+              1,
+              3,
+              192,
+              256
+            ],
+            "same_shape": true,
+            "sep_ssim_scalar": 0.01809912919998169,
+            "fused_ssim_scalar": 0.018099242821335793,
+            "abs_diff": 1.1362135410308838e-07,
+            "threshold": 0.0001,
+            "pass": true
+          }
+        },
+        {
+          "check": "status_success",
+          "pass": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "iterations_ge_200",
+          "pass": true,
+          "detail": 220
+        },
+        {
+          "check": "all_recorded_losses_finite",
+          "pass": true,
+          "detail": {
+            "1": 0.2860952615737915,
+            "100": 0.3112240433692932,
+            "200": 0.2828552722930908
+          }
+        },
+        {
+          "check": "final_eval_finite",
+          "pass": true,
+          "detail": {
+            "psnr": 13.717102020847573,
+            "ssim": 0.29940702698447486,
+            "l1": 0.16916725716807626,
+            "lpips": 0.760705519806255
+          }
+        },
+        {
+          "check": "loss_scale_comparable_to_frozen",
+          "pass": true,
+          "detail": {
+            "1": {
+              "frozen": 0.28609755635261536,
+              "p12": 0.2860952615737915,
+              "rel_diff": 8.0209661805857e-06,
+              "gate": 0.001
+            },
+            "100": {
+              "frozen": 0.3112242817878723,
+              "p12": 0.3112240433692932,
+              "rel_diff": 7.660667661659718e-07,
+              "gate": 0.01
+            },
+            "200": {
+              "frozen": 0.28285592794418335,
+              "p12": 0.2828552722930908,
+              "rel_diff": 2.3179683639463202e-06,
+              "gate": 0.02
+            }
+          }
+        },
+        {
+          "check": "switch_behavior_env",
+          "pass": true,
+          "detail": {
+            "expected": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1",
+              "HIGS_BWD_SCALAR_ADJOINT": null,
+              "HIGS_BWD_H8_MR": null,
+              "HIGS_DISABLE_F9": null
+            },
+            "got": {
+              "HIGS_PX_RUNTIME": "2",
+              "HIGS_BWD_ABSGRAD": "1"
+            }
+          }
+        },
+        {
+          "check": "renderer_dict_matches_arm",
+          "pass": true,
+          "detail": 0.3
+        }
+      ],
+      "ok": true
+    }
+  ],
+  "summary": {
+    "n_runs": 12,
+    "n_ok": 12,
+    "n_failed": 0,
+    "failed_run_ids": []
+  },
+  "verdict": "PREFLIGHT_PASS"
+}

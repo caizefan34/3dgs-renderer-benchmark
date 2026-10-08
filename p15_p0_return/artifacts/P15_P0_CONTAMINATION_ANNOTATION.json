@@ -1,0 +1,21 @@
+{
+  "phase": "P15-P0",
+  "artifact": "P15_P0_CONTAMINATION_ANNOTATION.json",
+  "status": "post-hoc verification of the pipeline contamination ledger (does NOT modify any measured field of P15_P0_CONTAMINATION.json or of the export summaries)",
+  "created_utc": "2026-09-27",
+  "question": "The pipeline ledger records exactly one 'foreign' compute app on the measurement GPU (GPU 4) in the 'after' inventory of every export (before: 0). Is that third-party compute, or a self-identification artifact?",
+  "finding": "SELF-IDENTIFICATION ARTIFACT - not third-party compute. The host runs the workload inside a container with a private PID namespace: os.getpid() inside the container differs from the host pid reported by nvidia-smi for the same process, so the export's own-process filter (pid != my_pid) cannot exclude the export's own CUDA context.",
+  "evidence": [
+    "Namespace probe (2026-09-27, GPU 4, gsplat env python): os.getpid()=972875 while nvidia-smi --query-compute-apps reported the same 0.25 GiB allocation on GPU-ff6ab27d (index 4) under host pid 1903896 - '[Not Found]' process name.",
+    "Pattern in the ledger: every cell shows before=0 / after=1; the single app's memory tracks the scene size (room cells 2616-2754 MiB, bicycle cells 8628-8652 MiB), matching the export's own model+context footprint, not an independent job.",
+    "Pids increase monotonically with the queue (room c0 1772384 ... bicycle c2 1855186), i.e. one new process per sequential export - consistent with the queue's own per-cell python process (host pids).",
+    "The before-inventory of every cell (taken prior to CUDA init, and, for cells >=2, after the previous export process had exited) shows zero foreign apps on GPU 4.",
+    "'[Not Found]' process names are the nvidia-smi query racing process teardown/namespace lookup, as reproduced by the namespace probe."
+  ],
+  "interpretation": "No third-party compute was observed on the measurement GPU (GPU 4) at any export boundary. The pipeline ledger's 'foreign_apps_on_measure_gpu' entries are the exports' own host-side pids. The measurement policy (one clean GPU queue, full inventory before/after) held; exports are correctness-only and no timing claim depends on the ledger.",
+  "root_cause_and_fix_for_future_phases": "Compare pids via /proc or map host<->container pids (e.g. match by used_memory + gpu_uuid, or run nvidia-smi inside the same PID namespace) before classifying an app as foreign.",
+  "untouched_artifacts": [
+    "artifacts/P15_P0_CONTAMINATION.json (pipeline-generated, unchanged)",
+    "summaries/p15_export_*.json (raw per-cell inventories, unchanged)"
+  ]
+}

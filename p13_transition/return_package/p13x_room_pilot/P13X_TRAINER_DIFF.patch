@@ -1,0 +1,326 @@
+--- /root/epic05_p12/publication_trainer_p12.py	2026-09-26 20:45:13.685650773 +0800
++++ publication_trainer_p13x_probe.py	2026-09-27 12:29:48.823099296 +0800
+@@ -1,6 +1,14 @@
+ #!/usr/bin/env python3
+ """PUBLICATION unified trainer: reference_v1 frozen recipe, multi-arm.
+ 
++P13-X INSTRUMENTED COPY (2026-09-27):
++  Byte copy of /root/epic05_p12/publication_trainer_p12.py (sha256
++  675b0267...) plus a strictly ADDITIVE P13-X X1/X2 diagnostic side channel
++  (see the "P13-X X1/X2 side channel" block below and --p13x-* flags).
++  With --p13x-diag absent the training path is unchanged: the only additions
++  are a no-op set-membership test at the top of the loop body and optional
++  side-channel file writes (source identity / per-iteration loss log).
++
+ P12 STRONG-BASELINE REVALIDATION EDIT (2026-09-26):
+   --loss fused : training-loss SSIM backend = the P11-validated fused-ssim
+                  (rahul-goel/fused-ssim @ a7c48d6d, padding="same",
+@@ -229,6 +237,74 @@
+             "binary_same_as": "c0 (ext 9baf8655 + core 361b216b)"}
+ 
+ 
++# ============================================================ P13-X X1/X2 side channel
++# Preregistered identity (P13X_X12_INTEGRATION.md). Asserted before any probe.
++P13X_P12_TRAINER = "/root/epic05_p12/publication_trainer_p12.py"
++P13X_P12_TRAINER_SHA256 = "675b0267f3a1a6a0fa63fadb37c8536481c1c7a6de37a4b7f6ffa98a449050c5"
++P13X_C0_EXT_SHA256 = "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11"
++P13X_C0_CORE_SHA256 = "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
++P13X_FUSED_SO_SHA256 = "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
++
++
++def p13x_anchor_indices(n_cameras, k=8):
++    """Evenly spaced deterministic TRUE COLMAP training-camera anchors."""
++    idx = np.linspace(0, n_cameras - 1, k).round().astype(np.int64)
++    out = []
++    for i in idx.tolist():
++        if int(i) not in out:
++            out.append(int(i))
++    return out
++
++
++def p13x_rng_fingerprint():
++    """Hash of every RNG stream the training loop can consume."""
++    h = hashlib.sha256()
++    h.update(torch.get_rng_state().numpy().tobytes())
++    if torch.cuda.is_available():
++        h.update(torch.cuda.get_rng_state().cpu().numpy().tobytes())
++    st = np.random.get_state()
++    h.update(st[0].encode())
++    h.update(np.asarray(st[1]).tobytes())
++    h.update(str(st[2:]).encode())
++    h.update(repr(random.getstate()).encode())
++    return h.hexdigest()
++
++
++def p13x_param_fingerprint(model):
++    """Hash of the raw optimization variables (bytes, no reconstruction)."""
++    h = hashlib.sha256()
++    for t in (model._xyz, model._rotation, model._scaling, model._opacity, model._shs):
++        v = t.detach().contiguous().cpu().numpy()
++        h.update(str(v.dtype).encode())
++        h.update(np.asarray(v.shape, dtype=np.int64).tobytes())
++        h.update(v.tobytes())
++    return h.hexdigest()
++
++
++def p13x_camera_fingerprint(cam):
++    m = (cam.viewmatrix.detach().cpu().numpy().tobytes()
++         + cam.K.detach().cpu().numpy().tobytes()
++         + f"{int(cam.image_width)}x{int(cam.image_height)}".encode())
++    return hashlib.sha256(m).hexdigest()
++
++
++# The ONLY transformation applied to renderer meta before snapshot_from_meta.
++# Evidence source remains renderer-produced state; no footprint reconstruction.
++P13X_META_ADAPTER_NOTE = {
++    "radii": "renderer meta['radii'] is [1,N,2] per-axis int32. Reduced with "
++             "min over the axis dim -> [N]. ProjectionEWA3DGSFused.cu writes both "
++             "axis values together ((0,0) when culled; the tile-intersect kernel "
++             "requires radius_x>0 AND radius_y>0), so min>0 is exactly the "
++             "renderer's intersect eligibility == radii.gt(0).all(-1) (C++ "
++             "validity predicate); n_mixed_axis_radii is audited per anchor.",
++    "depths": "passed through (camera dim squeezed inside snapshot_from_meta)",
++    "isect_offsets": "passed through (camera dim squeezed inside snapshot_from_meta)",
++    "flatten_ids": "passed through (reshape(-1) inside snapshot_from_meta)",
++    "isect_ids": "passed through (reshape(-1) inside snapshot_from_meta)",
++    "source": "unmodified renderer outputs; no approximation",
++}
++
++
+ # ================================================================ main
+ def main():
+     ap = argparse.ArgumentParser()
+@@ -253,6 +329,18 @@
+                          "byte-identical recipe); fused = P11-validated fused-ssim "
+                          "padding='same' (P12 strong baseline). The evaluation SSIM "
+                          "metric is SepSSIM in both cases (frozen eval procedure).")
++
++    # ---------------- P13-X X1/X2 flags (side channel; default off) ---------
++    ap.add_argument("--p13x-diag", action="store_true",
++                    help="enable the P13-X X1/X2 diagnostic side channel")
++    ap.add_argument("--p13x-diag-dir", default="/root/epic05_p13x/artifacts/x12_snapshots")
++    ap.add_argument("--p13x-diag-iters", default="15000,15250,15500",
++                    help="comma-separated diagnostic iterations (empty string disables)")
++    ap.add_argument("--p13x-anchors", type=int, default=8)
++    ap.add_argument("--p13x-source-identity", default=None,
++                    help="write P13X_SOURCE_IDENTITY.json to this path")
++    ap.add_argument("--p13x-iter-log", default=None,
++                    help="write per-iteration {iter,loss,n_gs} JSON to this path")
+     args = ap.parse_args()
+ 
+     os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(args.gpu))
+@@ -535,6 +623,169 @@
+     eval_indices = list(range(0, n_cameras, max(1, n_cameras // 10)))
+     eval_iterations = set(i for i in config.eval_iterations if i <= args.iterations)
+ 
++    # ---------------- P13-X X1/X2 diagnostic side channel -------------------
++    # Prereg: P13X_X12_INTEGRATION.md. Runs at the TOP of the loop body (state
++    # == end of iteration t-1: no optimizer/densify step for t has run yet, no
++    # HIGS scene-state call), outside the CUDA-event timing blocks, under
++    # torch.no_grad(), with byte-for-byte RNG save/restore + hash assertion.
++    p13x_diag_iters = set()
++    if args.p13x_diag_iters:
++        p13x_diag_iters = {int(x) for x in args.p13x_diag_iters.split(",") if x.strip()}
++    p13x_anchor_idx = p13x_anchor_indices(n_cameras, args.p13x_anchors)
++    p13x_diag_records = []
++    p13x_iter_log = [] if args.p13x_iter_log else None
++    p13x_snapshot_from_meta = None
++    p13x_rasterize = None
++    p13x_call_kwargs = None
++    if args.p13x_diag:
++        if args.arm != "c0":
++            raise SystemExit("P13-X diagnostics are implemented for arm=c0 only")
++        os.makedirs(args.p13x_diag_dir, exist_ok=True)
++        from p13x_probe_core import snapshot_from_meta as p13x_snapshot_from_meta
++        from gsplat.rendering import rasterization as p13x_rasterize
++        p13x_call_kwargs = {
++            "tile_size": 16, "packed": False, "radius_clip": 0.0, "eps2d": eps2d_eff,
++            "render_mode": "RGB", "rasterize_mode": "classic", "camera_model": "pinhole"}
++
++    p13x_call_record = {
++        "fn": "gsplat.rendering.rasterization (C0 worktree standard path)",
++        "kwargs": {"tile_size": 16, "packed": False, "radius_clip": 0.0,
++                   "eps2d": eps2d_eff, "render_mode": "RGB",
++                   "rasterize_mode": "classic", "camera_model": "pinhole",
++                   "sh_degree": "model.active_sh_degree <dynamic>",
++                   "viewmats": "cam.viewmatrix.unsqueeze(0)",
++                   "Ks": "cam.K.unsqueeze(0)",
++                   "width/height": "camera intrinsics (1080p)"},
++        "note": ("The C0 training renderer is the HIGS dynamic path, which does not "
++                 "return isect/tile meta. The preregistered identity block "
++                 "(packed=false, tile=16, eps2d=0.3, classic) designates this "
++                 "standard rasterization call on the identical frozen model state."),
++    }
++
++    def p13x_run_diagnostics(iteration):
++        st_torch, st_cuda = torch.get_rng_state(), torch.cuda.get_rng_state()
++        st_np, st_py = np.random.get_state(), random.getstate()
++        h_before = p13x_rng_fingerprint()
++        t_d = time.perf_counter()
++        rec = {
++            "scene": args.scene, "arm": args.arm, "iteration": int(iteration),
++            "seed": config.seed,
++            "capture_point": ("top of iteration body; model state == end of iteration "
++                              f"{int(iteration) - 1} (no optimizer/densify step for "
++                              f"iteration {int(iteration)} has run yet)"),
++            "n_gaussians": int(model._xyz.shape[0]),
++            "active_sh_degree": int(model.active_sh_degree),
++            "model_param_sha256": p13x_param_fingerprint(model),
++            "call": p13x_call_record,
++            "meta_adapter": P13X_META_ADAPTER_NOTE,
++            "snapshot_dir": args.p13x_diag_dir,
++            "anchors": [],
++        }
++        with torch.no_grad():
++            for aid, cam_idx in enumerate(p13x_anchor_idx):
++                cam, _gt = dataset.get_item(cam_idx)
++                _r, _alpha, meta = p13x_rasterize(
++                    means=model.get_xyz, quats=model.get_rotation,
++                    scales=model.get_scaling, opacities=model.get_opacity,
++                    colors=model.get_features,
++                    viewmats=cam.viewmatrix.unsqueeze(0), Ks=cam.K.unsqueeze(0),
++                    width=cam.image_width, height=cam.image_height,
++                    sh_degree=model.active_sh_degree, **p13x_call_kwargs)
++                radii2d = meta["radii"].detach().reshape(-1, 2)
++                vis_all = (radii2d > 0).all(dim=-1)
++                vis_any = (radii2d > 0).any(dim=-1)
++                probe_meta = {
++                    "radii": radii2d.min(dim=-1).values,
++                    "depths": meta["depths"],
++                    "isect_offsets": meta["isect_offsets"],
++                    "flatten_ids": meta["flatten_ids"],
++                    "isect_ids": meta["isect_ids"],
++                }
++                summary = p13x_snapshot_from_meta(
++                    probe_meta, iteration=iteration, scene=args.scene,
++                    anchor_id=aid, out_dir=args.p13x_diag_dir)
++                rec["anchors"].append({
++                    "anchor_id": int(aid),
++                    "camera_index": int(cam_idx),
++                    "camera_sha256": p13x_camera_fingerprint(cam),
++                    "n_visible_intersect_all": int(vis_all.sum()),
++                    "n_visible_trainer_any": int(vis_any.sum()),
++                    "n_mixed_axis_radii": int((vis_any & ~vis_all).sum()),
++                    "radii_raw_shape": list(meta["radii"].shape),
++                    "depths_raw_shape": list(meta["depths"].shape),
++                    "isect_offsets_raw_shape": list(meta["isect_offsets"].shape),
++                    "summary": summary,
++                })
++        torch.set_rng_state(st_torch)
++        torch.cuda.set_rng_state(st_cuda)
++        np.random.set_state(st_np)
++        random.setstate(st_py)
++        h_after = p13x_rng_fingerprint()
++        rec["rng_fingerprint_before"] = h_before
++        rec["rng_fingerprint_after_restore"] = h_after
++        rec["rng_restored_exactly"] = bool(h_after == h_before)
++        rec["model_param_sha256_after"] = p13x_param_fingerprint(model)
++        rec["model_params_unchanged"] = bool(
++            rec["model_param_sha256_after"] == rec["model_param_sha256"])
++        rec["wall_ms"] = (time.perf_counter() - t_d) * 1000.0
++        assert rec["rng_restored_exactly"], "P13-X RNG contamination: restore mismatch"
++        assert rec["model_params_unchanged"], "P13-X diagnostic mutated model params"
++        p13x_diag_records.append(rec)
++        with open(os.path.join(args.p13x_diag_dir, f"p13x_diag_record_i{iteration:05d}.json"),
++                  "w") as f:
++            json.dump(rec, f, indent=2)
++        a0 = rec["anchors"][0]
++        print(f"  [P13-X diag @{iteration}] anchors={len(rec['anchors'])} "
++              f"anchor0_visible={a0['n_visible_intersect_all']:,} "
++              f"mixed_axis={a0['n_mixed_axis_radii']} rng_restored="
++              f"{rec['rng_restored_exactly']} wall={rec['wall_ms']:.0f}ms", flush=True)
++
++    if args.p13x_source_identity or args.p13x_diag:
++        _src_sha = sha256_file(os.path.abspath(__file__))
++        ident_rec = {
++            "phase": "P13-X", "date": "2026-09-27",
++            "p12_trainer": {
++                "path": P13X_P12_TRAINER,
++                "sha256": sha256_file(P13X_P12_TRAINER)
++                if os.path.exists(P13X_P12_TRAINER) else None,
++                "expected_sha256": P13X_P12_TRAINER_SHA256,
++            },
++            "probe_trainer": {"path": os.path.abspath(__file__), "sha256": _src_sha},
++            "c0_extension": {"path": C0_SO, "sha256": ident.get("so_sha256"),
++                             "expected_sha256": P13X_C0_EXT_SHA256},
++            "c0_core": {"path": CORE_SO, "sha256": ident.get("core_sha256"),
++                        "expected_sha256": P13X_C0_CORE_SHA256},
++            "fused_ssim": {"so_path": loss_backend.get("so_path"),
++                           "so_sha256": loss_backend.get("so_sha256"),
++                           "expected_sha256": P13X_FUSED_SO_SHA256},
++            "gsplat_file": __import__("gsplat").__file__,
++            "c0_worktree": C0_WT,
++            "recipe_identity": {
++                "arm": args.arm, "loss": args.loss, "seed": config.seed,
++                "resolution": "1080p", "packed": False, "tile_size": 16,
++                "eps2d": eps2d_eff, "rasterize_mode": "classic",
++                "camera_model": "pinhole", "n_cameras": int(n_cameras),
++                "scene": args.scene, "iterations": config.iterations,
++            },
++            "higs_env": {k: v for k, v in os.environ.items() if k.startswith("HIGS_")},
++        }
++        ident_rec["p12_trainer"]["match"] = (
++            ident_rec["p12_trainer"]["sha256"] == P13X_P12_TRAINER_SHA256)
++        ident_rec["c0_extension"]["match"] = (
++            ident_rec["c0_extension"]["sha256"] == P13X_C0_EXT_SHA256)
++        ident_rec["c0_core"]["match"] = (
++            ident_rec["c0_core"]["sha256"] == P13X_C0_CORE_SHA256)
++        assert ident_rec["p12_trainer"]["match"], "P12 trainer source drifted"
++        assert ident_rec["c0_extension"]["match"], "C0 extension hash mismatch"
++        assert ident_rec["c0_core"]["match"], "C0 core hash mismatch"
++        if args.loss == "fused":
++            assert ident_rec["fused_ssim"]["so_sha256"] == P13X_FUSED_SO_SHA256, \
++                "fused SSIM hash mismatch"
++        if args.p13x_source_identity:
++            with open(args.p13x_source_identity, "w") as f:
++                json.dump(ident_rec, f, indent=2)
++            print(f"  P13-X source identity -> {args.p13x_source_identity}", flush=True)
++
+     # ---------------- recording structures ---------------------------------
+     per_iter = []           # every 100 iters: {iter, n_gs, loss, n_visible, nan_loss}
+     dens_events = []        # every densification event
+@@ -587,6 +838,8 @@
+     phase_ms = {k: [] for k in ("forward", "loss", "backward", "densify", "optimizer")}
+ 
+     for iteration in range(1, config.iterations + 1):
++        if p13x_diag_iters and iteration in p13x_diag_iters:
++            p13x_run_diagnostics(iteration)
+         model.update_learning_rate(iteration)
+         if iteration % config.sh_progress_interval == 0:
+             model.oneupSHdegree()
+@@ -700,6 +953,10 @@
+         vram = torch.cuda.max_memory_allocated() / (1024 ** 3)
+         peak_vram = max(peak_vram, vram)
+ 
++        if p13x_iter_log is not None:
++            p13x_iter_log.append([int(iteration), float(loss.item()),
++                                  int(model._xyz.shape[0])])
++
+         if iteration % 100 == 0 or iteration == 1:
+             lv = float(loss.item())
+             per_iter.append({"iter": iteration, "n_gs": int(model._xyz.shape[0]),
+@@ -855,6 +1112,24 @@
+     print(f"  WROTE {out_path} + final_status.json, timing.json, quality.json, "
+           f"training_results.json, training_curve.csv")
+ 
++    if p13x_iter_log is not None:
++        with open(args.p13x_iter_log, "w") as f:
++            json.dump({
++                "scene": args.scene, "arm": args.arm, "seed": config.seed,
++                "iterations": config.iterations,
++                "camera_sequence_sha256": sha256_file(
++                    os.path.join(args.outdir, "camera_sequence.npy")),
++                "final_model_param_sha256": p13x_param_fingerprint(model),
++                "final_N": int(model._xyz.shape[0]),
++                "iter_log": p13x_iter_log,
++            }, f)
++        print(f"  P13-X iter log -> {args.p13x_iter_log}")
++    if p13x_diag_records:
++        with open(os.path.join(args.p13x_diag_dir, "p13x_diag_records_all.json"), "w") as f:
++            json.dump(p13x_diag_records, f, indent=2)
++        print(f"  P13-X diag records ({len(p13x_diag_records)}) -> "
++              f"{os.path.join(args.p13x_diag_dir, 'p13x_diag_records_all.json')}")
++
+ 
+ if __name__ == "__main__":
+     main()

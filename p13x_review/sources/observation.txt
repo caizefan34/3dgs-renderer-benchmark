@@ -1,0 +1,7361 @@
+Only What Was Seen: Observation-Gram Compaction ofView-Dependent Appearance in 3D Gaussian Splatting
+Report GitHub Issue
+×
+Title:
+Content selection saved. Describe the issue below:
+Description:
+Submit without GitHub
+Submit in GitHub
+arXiv is now an independent nonprofit!
+Learn more
+×
+Back to arXiv
+Why HTML?
+Report Issue
+Back to Abstract
+Download PDF
+Abstract
+1
+Introduction
+2
+Related Work
+Gaussian splatting and view-dependent colour.
+Compact and compressed 3DGS.
+Image-space inner products for splat appearance.
+Weighted vector quantisation.
+3
+Method
+3.1
+Preliminaries
+3.2
+The observation Gram matrix
+Truncation is the uniform-observation special case.
+3.3
+Closed-form degree reduction
+3.4
+Rate–distortion optimal degree allocation
+3.5
+Gram-metric vector quantisation
+3.6
+Optional appearance refit when images are available
+3.7
+Complete pipeline and storage
+4
+Experiments
+Setup.
+4.1
+The metric as a drop-in: Compressed3D
+4.2
+Uniform degree reduction
+4.3
+Per-Gaussian allocation
+4.4
+Predicted versus measured error
+Ablations.
+4.5
+Vector quantisation and the full pipeline
+Vector quantisation.
+The metric alone: a training-free stack.
+Rendering, loading and training cost.
+How over-parameterised is trained appearance?
+5
+Limitations and Conclusion
+Disclosure of AI assistance.
+References
+A
+Implementation details
+Renderer.
+Validation against the reference CUDA rasteriser.
+Statistics and fitting.
+Metrics.
+B
+Derivations
+Proof of
+.
+Regularised projection.
+Generalised Lloyd update.
+Hardware.
+C
+Controlled test of
+D
+Rendering and training cost
+Rendering.
+Training.
+E
+Ablations
+F
+Appearance refit against fine-tuning
+G
+Geometry stage variants
+H
+Spectrum of the observation Gram matrices
+I
+Qualitative results
+J
+Drop-in experiment: per-scene results
+K
+Stage-by-stage ablation of the appearance pipeline
+L
+Entropy coder
+M
+Geometry quantisation under image-free sensitivities
+N
+Extrapolation protocol
+O
+Per-scene results
+License: CC BY-NC-SA 4.0
+arXiv:2609.28997v1 [cs.CV] 24 Sep 2026
+Only What Was Seen: Observation-Gram Compaction of
+View-Dependent Appearance in 3D Gaussian Splatting
+Krzysztof Pietroszek
+Affiliation:
+Moholo Inc.
+Email:
+founders@moholo.co
+Abstract
+Most of the memory of a 3D Gaussian Splatting model holds spherical-harmonic colour coefficients, yet each Gaussian is seen only from the narrow cone of directions of the training cameras. We turn this into a distortion metric that other compressors can adopt: a per-Gaussian
+observation Gram matrix
+, accumulated from viewing directions and blending weights, is the exact first-order map from coefficient changes to squared image error and needs only the model and the camera poses. Under it, degree reduction becomes a closed-form projection that generalises truncation, degree allocation a Lagrangian rate–distortion problem, and vector quantisation the matrix-weighted Lloyd algorithm, of which Compressed3D’s quantiser is the scalar case. Swapped into Compressed3D with everything else unchanged, the metric raises PSNR by +0.49 dB before fine-tuning, with SSIM and LPIPS following, and at matched rate still gains +0.32 dB without a single training image. A training-free stack built on the metric alone is 15 % smaller than the image-free GSICO at equal quality on Mip-NeRF 360.
+Figure 1
+:
+A trained Gaussian is only constrained where the cameras saw it.
+Colour function of one Gaussian of the pretrained
+garden
+model on the sphere of viewing directions (top, Mollweide projection; outside the white outline no training view observed it, shaded light) and zoomed on the observed cone (bottom; dots: the training views in which it contributed, size
+∝
+\propto
+blending-weight statistic). Truncation to degree 1 (middle) discards the bands that carry the colour gradient running
+through
+the observed cone. The closed-form observation-Gram projection to the same degree (right,
+Eq.
+8
+) reproduces the trained function where it was observed and is free elsewhere; its predicted image error is
+46
+×
+46\times
+lower at identical storage.
+1
+Introduction
+3D Gaussian Splatting (3DGS)
+[
+19
+]
+represents a scene by millions of anisotropic Gaussian primitives, each carrying a position, a covariance, an opacity and a view-dependent colour encoded by real spherical harmonics (SH) up to degree three. The representation renders in real time and reconstructs unbounded scenes with high fidelity, but it is memory-hungry: a typical outdoor scene occupies 0.7–1.5 GB, and
+48
+48
+of the
+59
+59
+floating-point attributes of every Gaussian—
+45
+45
+of them AC coefficients of the SH expansion—exist only to model how colour changes with viewing direction. A large body of work has therefore targeted the size of 3DGS models by pruning primitives, quantising attributes, hashing or entropy-coding them, or restructuring the representation altogether
+[
+9
+,
+22
+,
+31
+,
+32
+,
+14
+,
+5
+,
+29
+,
+41
+,
+2
+]
+. Almost all of these methods require access to the training images and either train from scratch with a modified objective or fine-tune the compressed model for thousands of iterations.
+This paper starts from a simple geometric fact about the trained representation. The colour function of Gaussian
+i
+i
+is a degree-three polynomial on the sphere,
+c
+i
+​
+(
+𝐝
+)
+=
+𝐘
+​
+(
+𝐝
+)
+⊤
+​
+𝐊
+i
+c_{i}(\mathbf{d})=\mathbf{Y}(\mathbf{d})^{\!\top}\mathbf{K}_{i}
+, but during optimisation it is only ever
+evaluated
+at the handful of directions
+𝐝
+i
+​
+j
+\mathbf{d}_{ij}
+from which the training cameras
+j
+j
+saw that Gaussian, and it only affects the loss in proportion to the blending weight with which the Gaussian contributed to those views. A Gaussian on a table top seen from a circular trajectory is evaluated in a cone of a few tens of degrees; one rasterised into two views is constrained by two directions; one that never contributed to any pixel is constrained by nothing at all. Its sixteen-dimensional coefficient vector contains, at best, a few degrees of freedom that the data determined, and the rest is whatever the optimiser left there. Any compaction method that treats the vector as sixteen equally meaningful numbers—truncation to a lower degree, or a Euclidean
+k
+k
+-means codebook—ignores this structure.
+We make the structure explicit through a single statistic. For every Gaussian we accumulate, over one forward pass through the training cameras, the
+observation Gram matrix
+𝐀
+i
+=
+∑
+j
+ω
+i
+​
+j
+​
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+​
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+⊤
+∈
+ℝ
+16
+×
+16
+,
+\mathbf{A}_{i}=\sum_{j}\omega_{ij}\,\mathbf{Y}(\mathbf{d}_{ij})\mathbf{Y}(\mathbf{d}_{ij})^{\!\top}\in\mathbb{R}^{16\times 16},
+(1)
+where
+ω
+i
+​
+j
+\omega_{ij}
+summarises the blending weights of Gaussian
+i
+i
+in view
+j
+j
+. We show (
+Sec.
+3.2
+) that
+𝐀
+i
+\mathbf{A}_{i}
+is precisely the first-order metric that turns a perturbation
+Δ
+​
+𝐊
+i
+\Delta\mathbf{K}_{i}
+of the coefficients into predicted squared image error,
+tr
+⁡
+(
+Δ
+​
+𝐊
+i
+⊤
+​
+𝐀
+i
+​
+Δ
+​
+𝐊
+i
+)
+\tr(\Delta\mathbf{K}_{i}^{\!\top}\mathbf{A}_{i}\Delta\mathbf{K}_{i})
+, both as an upper bound (Cauchy–Schwarz) and as an uncorrelated-error estimate. It is a
+metric
+, not a pipeline: any appearance compressor that measures distortion in coefficient space can measure it under
+𝐀
+i
+\mathbf{A}_{i}
+instead. The classical operations of appearance compaction then have principled, image-free solutions (
+Fig.
+1
+):
+Degree reduction
+becomes a
+9
+×
+9
+9\times 9
+(or
+4
+×
+4
+4\times 4
+,
+1
+×
+1
+1\times 1
+) linear solve per Gaussian, of which plain truncation is the special case that assumes uniform observation over the sphere;
+degree allocation
+uses the residual of that solve, which predicts the cost of every degree for every Gaussian, in a Lagrangian sweep—a closed-form, training-free distortion that makes the rate–distortion allocation of RDO-Gaussian
+[
+39
+]
+solvable without differentiable rendering; and
+vector quantisation
+uses the classical matrix-weighted generalised Lloyd algorithm
+[
+13
+]
+with
+𝐀
+i
+\mathbf{A}_{i}
+as the per-point metric, of which the sensitivity-aware quantiser of Compressed3D
+[
+31
+]
+is the scalar special case.
+None of the steps touches a training image or a gradient, and none needs fine-tuning; the statistics come from the rasteriser that every 3DGS pipeline already has, and the linear algebra takes seconds. Code, renderer, evaluation scripts and a plug-in module exposing the metric to other pipelines are available at
+https://github.com/moholo-founder/ogc-3dgs
+.
+The central experiment (
+Sec.
+4.1
+) treats the metric as a drop-in. Compressed3D is run unmodified on the official pretrained Mip-NeRF 360 models, then with only its colour-quantisation metric replaced—same keep mask, pruning, codebook size, covariance quantisation, fine-tuning schedule and container—and the replacement is split into its two ingredients so that “our image-free weights against their image gradients” and “a matrix against a scalar” are measured separately (
+Tab.
+1
+). We then evaluate the metric on its own: on the official pretrained models of Mip-NeRF 360, Tanks&Temples and Deep Blending the closed-form projection recovers most of the PSNR lost by truncation at the same number of coefficients, per-Gaussian allocation improves further at every budget, the Gram-metric quantiser has two to three times lower predicted distortion and about half the measured loss of importance-weighted
+k
+k
+-means with the same codebook, and the ordering of dozens of compressed configurations by measured test-view error is predicted almost perfectly by the metric. A training-free stack built on the metric alone, with contribution pruning, a standard geometry stage and an rANS coder, is placed on the rate–distortion plane against the current literature grouped by what each method needs (
+Tab.
+4
+,
+Fig.
+4
+); it is a reference point for what the metric achieves with no learned component, not a state-of-the-art claim. If the training images are at hand, the same linearity yields a closed-form appearance refit that repairs heavy pruning in about a minute (median 72 s). The Gram matrices also quantify how over-parameterised trained SH appearance is: a large fraction of the coefficient energy of typical models lies in directions that no training view observed.
+2
+Related Work
+Gaussian splatting and view-dependent colour.
+3DGS
+[
+19
+]
+rasterises anisotropic 3D Gaussians with a tile-based sorted alpha-compositing pipeline and represents colour by real SH up to degree three, following Plenoxels
+[
+12
+]
+; the SH of a Gaussian are evaluated at the direction from the camera centre to the Gaussian centre, constant over its footprint, a convention our statistics exploit. Low-order SH are a classical compact basis for smooth directional functions, from irradiance environment maps
+[
+34
+]
+to precomputed radiance transfer
+[
+36
+]
+, chosen for their orthonormality on the full sphere. Our central point is that a Gaussian’s SH are never constrained on the full sphere, so the orthonormality that makes truncation optimal for environment maps does not apply.
+Compact and compressed 3DGS.
+The memory footprint of 3DGS has motivated many compaction schemes; see
+[
+2
+]
+for a survey. We group them by what they need.
+Trained
+representations optimise the compressed form from scratch with the images: Compact3D
+[
+22
+]
+, CompGS
+[
+30
+]
+and EAGLES
+[
+14
+]
+learn codebooks or latent embeddings jointly with the scene, Reduced 3DGS
+[
+32
+]
+assigns a per-Gaussian SH degree during training by testing on the training views whether truncating a band changes the colour by more than a threshold, Self-Organising Gaussians
+[
+29
+]
+and CodecGS
+[
+23
+]
+re-order attributes into 2D grids or feature planes for image and video codecs, RDO-Gaussian
+[
+39
+]
+trains under an explicit rate–distortion objective with learnable per-Gaussian SH-degree masks and straight-through estimation, and gsplat
+[
+43
+]
+and Smol-GS
+[
+38
+]
+reach small files with budgeted or octree-structured training.
+Retrained-backbone
+methods replace the primitives by anchors with a learned entropy model: Scaffold-GS
+[
+26
+]
+, HAC
+[
+5
+]
+, HAC++
+[
+6
+]
+, ContextGS
+[
+40
+]
+and HEMGS
+[
+24
+]
+hold the best rate–distortion points on the standard benchmarks.
+Post-hoc
+methods start from a pretrained 3DGS model; most fine-tune with the images afterwards: LightGaussian
+[
+9
+]
+prunes by a global significance score, distils degree-3 SH into lower degrees through pseudo-views and vector-quantises the remainder, Niedermayr
+et al
+.
+[
+31
+]
+apply sensitivity-aware vector quantisation with a scalar per-Gaussian sensitivity from the gradient of the training loss followed by fine-tuning and entropy coding, and MesonGS
+[
+41
+]
+combines pruning, a RAHT attribute transform and quantisation with an optional fine-tuning stage. Post-hoc methods that never open the training images are the class of this paper: FlexGaussian
+[
+37
+]
+quantises and prunes a pretrained model by attribute-discriminative rules; FCGS
+[
+4
+]
+is a feed-forward compressor whose context models are learned once on many scenes and then applied without per-scene optimisation; GSICO
+[
+28
+]
+arranges the parameters of a pretrained model into spatially coherent 2D maps, transforms the SH coefficients to luminance and chrominance, discards the chrominance AC bands and codes the maps with JPEG XL, either from a 3DGS or from a Scaffold-GS model; NanoGS
+[
+42
+]
+merges Gaussian pairs without images under a moment-matching cost, leaving appearance untouched; Said and Rauwendaal
+[
+35
+]
+compress SH post-hoc with hardware texture codecs, a Euclidean quantiser that our metric could steer; DropAnSH
+[
+11
+]
+trains with SH-band dropout so that the model tolerates later truncation; and Zhou and Liu
+[
+45
+]
+observed that fitting SH is a linear least-squares problem whose Gram structure reveals the effective SH rank, using it to restrict the optimised variables during training. Mini-Splatting
+[
+10
+]
+, PUP 3D-GS
+[
+16
+]
+and “Trimming the fat”
+[
+1
+]
+prune primitives by contribution or by a Hessian-based sensitivity.
+Image-space inner products for splat appearance.
+Two concurrent works reach the same starting point as ours from different directions. Do, Chou and Cheung
+[
+8
+]
+identify, for sparse-voxel splats, an inner product on the coefficient space that induces the squared error on the rendered images, and orthonormalise the coefficients under it before scalar quantisation with RAHT and entropy coding. Their Gram matrix is global over all splats jointly, and to make it tractable they factorise it into a product of a spatial, a
+single shared
+16
+×
+16
+16\times 16
+directional, and a colour Gram, which by their own account replaces the joint measure on the observed (position, direction) pairs by a product measure. That factorisation removes exactly the per-primitive structure this paper keeps: the shared directional Gram is the global analogue of the uniform-observation assumption we argue against, and it is the per-Gaussian matrix that makes degree reduction, degree allocation and matrix-weighted quantisation possible. They do no degree reduction, allocation or vector quantisation and evaluate on sparse voxels rather than 3DGS. Han and Dumery
+[
+15
+]
+learn a per-Gaussian, SH-parameterised uncertainty with a loss that is low in the directions observed by the training cameras and high in the opposite directions: the closest published statement of our premise, reached by a learned heuristic rather than by measurement. Reduced 3DGS
+[
+32
+]
+already accumulates transmittance-weighted per-primitive colour statistics over all training viewpoints (a mean and a standard deviation per channel), which are the zeroth and first moments of the observation measure whose second moment in the SH basis is our
+𝐀
+i
+\mathbf{A}_{i}
+.
+Weighted vector quantisation.
+Lloyd’s algorithm with an input-weighted quadratic distortion,
+∑
+i
+(
+𝐱
+i
+−
+𝐜
+)
+⊤
+​
+𝐖
+i
+​
+(
+𝐱
+i
+−
+𝐜
+)
+\sum_{i}(\mathbf{x}_{i}-\mathbf{c})^{\!\top}\mathbf{W}_{i}(\mathbf{x}_{i}-\mathbf{c})
+, and its matrix-weighted centroid
+(
+∑
+i
+𝐖
+i
+)
+−
+1
+​
+∑
+i
+𝐖
+i
+​
+𝐱
+i
+(\sum_{i}\mathbf{W}_{i})^{-1}\sum_{i}\mathbf{W}_{i}\mathbf{x}_{i}
+are classical
+[
+13
+,
+25
+]
+. Choi
+et al
+.
+[
+7
+]
+use it with Hessian weights for network quantisation and diagonalise the Hessian for tractability; Niedermayr
+et al
+.
+[
+31
+]
+use the scalar special case
+𝐖
+i
+=
+s
+i
+​
+𝐈
+\mathbf{W}_{i}=s_{i}\mathbf{I}
+with a gradient-based
+s
+i
+s_{i}
+. We do not claim the update rule; our contribution is the per-Gaussian matrix
+𝐖
+i
+=
+𝐀
+i
+\mathbf{W}_{i}=\mathbf{A}_{i}
+, obtained without images or gradients, and the evidence that keeping it a matrix rather than a scalar is what matters (
+Sec.
+4
+).
+Our work differs from all of the above in deriving a single, image-free metric for appearance coefficients under which degree reduction, degree allocation and vector quantisation are closed-form or convex, and in showing that the metric improves an existing pipeline when swapped into it. Where Reduced 3DGS decides bands by a threshold during training and LightGaussian distils by optimisation, we solve the reduction in closed form after training and allocate degrees globally; where RDO-Gaussian learns the allocation with differentiable rendering, our closed-form distortion makes the same rate–distortion allocation solvable without it; where sensitivity-aware quantisation uses a scalar weight from image gradients, our quantiser uses a full matrix metric from geometry alone. Pruning and half-precision storage are standard and are included only to place the appearance compaction in a complete pipeline; entropy coding and hash-grid contexts are complementary. Other analyses of trained 3DGS concern the EWA projection error
+[
+18
+]
+, aliasing
+[
+44
+]
+or sorting artefacts
+[
+33
+]
+; ours concerns the appearance parameters and quantifies, through the spectrum of the observation Gram matrices, how much of the SH energy of a trained model lies in subspaces no training view observed.
+3
+Method
+3.1
+Preliminaries
+A 3DGS model is a set of
+N
+N
+Gaussians with centres
+𝝁
+i
+\boldsymbol{\mu}_{i}
+, covariances
+𝚺
+i
+\boldsymbol{\Sigma}_{i}
+, opacities
+o
+i
+o_{i}
+and SH coefficient matrices
+𝐊
+i
+∈
+ℝ
+16
+×
+3
+\mathbf{K}_{i}\in\mathbb{R}^{16\times 3}
+(one column per colour channel). Let
+𝐘
+⁡
+(
+𝐝
+)
+∈
+ℝ
+16
+\mathbf{Y}(\mathbf{d})\in\mathbb{R}^{16}
+be the real SH basis up to degree three, ordered by degree, so that the first
+m
+L
+=
+(
+L
++
+1
+)
+2
+m_{L}=(L{+}1)^{2}
+entries span degrees
+0
+.
+.
+L
+0..L
+. In view
+j
+j
+with camera centre
+𝐨
+j
+\mathbf{o}_{j}
+the colour of Gaussian
+i
+i
+is evaluated at the single direction
+𝐝
+i
+​
+j
+=
+(
+𝝁
+i
+−
+𝐨
+j
+)
+/
+‖
+𝝁
+i
+−
+𝐨
+j
+‖
+\mathbf{d}_{ij}=(\boldsymbol{\mu}_{i}-\mathbf{o}_{j})/\|\boldsymbol{\mu}_{i}-\mathbf{o}_{j}\|
+:
+𝐜
+i
+​
+(
+𝐝
+i
+​
+j
+)
+=
+max
+⁡
+(
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+⊤
+​
+𝐊
+i
++
+1
+2
+,
+0
+)
+.
+\mathbf{c}_{i}(\mathbf{d}_{ij})=\max\!\big(\mathbf{Y}(\mathbf{d}_{ij})^{\!\top}\mathbf{K}_{i}+\tfrac{1}{2},\,0\big).
+(2)
+The rasteriser sorts the Gaussians overlapping each tile by depth and composites front to back; the colour of pixel
+p
+p
+is
+𝐂
+p
+=
+∑
+i
+w
+i
+​
+p
+​
+𝐜
+i
+​
+(
+𝐝
+i
+​
+j
+)
++
+T
+p
+​
+𝐂
+bg
+,
+w
+i
+​
+p
+=
+α
+i
+​
+p
+​
+∏
+k
+<
+i
+(
+1
+−
+α
+k
+​
+p
+)
+,
+\mathbf{C}_{p}=\sum_{i}w_{ip}\,\mathbf{c}_{i}(\mathbf{d}_{ij})+T_{p}\,\mathbf{C}_{\text{bg}},\qquad w_{ip}=\alpha_{ip}\!\!\prod_{k<i}(1-\alpha_{kp}),
+(3)
+where
+α
+i
+​
+p
+\alpha_{ip}
+is the opacity of Gaussian
+i
+i
+times its 2D Gaussian falloff at
+p
+p
+, and
+∑
+i
+w
+i
+​
+p
+≤
+1
+\sum_{i}w_{ip}\leq 1
+. The blending weights
+w
+i
+​
+p
+w_{ip}
+depend on geometry and opacity only; the pixel colour is
+linear
+in the colours
+𝐜
+i
+\mathbf{c}_{i}
+.
+3.2
+The observation Gram matrix
+Consider replacing every
+𝐊
+i
+\mathbf{K}_{i}
+by
+𝐊
+i
++
+Δ
+​
+𝐊
+i
+\mathbf{K}_{i}+\Delta\mathbf{K}_{i}
+while keeping geometry and opacities fixed, and ignore the clamp in
+Eq.
+2
+(it is inactive for the vast majority of contributing Gaussians). By linearity, the change of pixel
+p
+p
+in view
+j
+j
+is
+Δ
+​
+𝐂
+p
+=
+∑
+i
+w
+i
+​
+p
+​
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+⊤
+​
+Δ
+​
+𝐊
+i
+\Delta\mathbf{C}_{p}=\sum_{i}w_{ip}\,\mathbf{Y}(\mathbf{d}_{ij})^{\!\top}\Delta\mathbf{K}_{i}
+.
+Proposition 1
+(Image-space error of an appearance perturbation)
+.
+For every view
+j
+j
+,
+∑
+p
+‖
+Δ
+​
+𝐂
+p
+‖
+2
+≤
+∑
+i
+(
+∑
+p
+w
+i
+​
+p
+)
+​
+‖
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+⊤
+​
+Δ
+​
+𝐊
+i
+‖
+2
+,
+\sum_{p}\|\Delta\mathbf{C}_{p}\|^{2}\;\leq\;\sum_{i}\Big(\sum_{p}w_{ip}\Big)\,\big\|\mathbf{Y}(\mathbf{d}_{ij})^{\!\top}\Delta\mathbf{K}_{i}\big\|^{2},
+(4)
+and if the per-Gaussian colour perturbations are modelled as zero-mean and uncorrelated across the Gaussians that share a pixel (an assumption about the compaction operator, not about the scene;
+Sec.
+4
+measures how far it holds),
+𝔼
+​
+∑
+p
+‖
+Δ
+​
+𝐂
+p
+‖
+2
+=
+∑
+i
+(
+∑
+p
+w
+i
+​
+p
+2
+)
+​
+‖
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+⊤
+​
+Δ
+​
+𝐊
+i
+‖
+2
+.
+\mathbb{E}\sum_{p}\|\Delta\mathbf{C}_{p}\|^{2}\;=\;\sum_{i}\Big(\sum_{p}w_{ip}^{2}\Big)\,\big\|\mathbf{Y}(\mathbf{d}_{ij})^{\!\top}\Delta\mathbf{K}_{i}\big\|^{2}.
+(5)
+The proof (supplement) is Cauchy–Schwarz with weights
+w
+i
+​
+p
+w_{ip}
+and
+∑
+i
+w
+i
+​
+p
+≤
+1
+\sum_{i}w_{ip}\leq 1
+for
+Eq.
+4
+, and dropping the vanishing cross terms for
+Eq.
+5
+.
+Both statements have the form
+∑
+i
+ω
+i
+​
+j
+​
+‖
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+⊤
+​
+Δ
+​
+𝐊
+i
+‖
+2
+=
+∑
+i
+tr
+⁡
+(
+Δ
+​
+𝐊
+i
+⊤
+​
+ω
+i
+​
+j
+​
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+​
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+⊤
+​
+Δ
+​
+𝐊
+i
+)
+\sum_{i}\omega_{ij}\|\mathbf{Y}(\mathbf{d}_{ij})^{\!\top}\Delta\mathbf{K}_{i}\|^{2}=\sum_{i}\tr\big(\Delta\mathbf{K}_{i}^{\!\top}\,\omega_{ij}\mathbf{Y}(\mathbf{d}_{ij})\mathbf{Y}(\mathbf{d}_{ij})^{\!\top}\Delta\mathbf{K}_{i}\big)
+with a scalar per-Gaussian-per-view weight
+ω
+i
+​
+j
+\omega_{ij}
+: the sum of blending weights
+S
+i
+​
+j
+(
+1
+)
+=
+∑
+p
+w
+i
+​
+p
+S^{(1)}_{ij}=\sum_{p}w_{ip}
+for the bound, the sum of squared weights
+S
+i
+​
+j
+(
+2
+)
+=
+∑
+p
+w
+i
+​
+p
+2
+S^{(2)}_{ij}=\sum_{p}w_{ip}^{2}
+for the uncorrelated estimate. Summing over the training views defines, for every Gaussian, the
+observation Gram matrix
+𝐀
+i
+=
+∑
+j
+ω
+i
+​
+j
+​
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+​
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+⊤
+∈
+ℝ
+16
+×
+16
+,
+\mathbf{A}_{i}=\sum_{j}\omega_{ij}\,\mathbf{Y}(\mathbf{d}_{ij})\,\mathbf{Y}(\mathbf{d}_{ij})^{\!\top}\ \in\mathbb{R}^{16\times 16},
+(6)
+and the predicted total squared error of an arbitrary appearance change is the quadratic form
+D
+⁡
+(
+Δ
+​
+𝐊
+)
+=
+∑
+i
+tr
+⁡
+(
+Δ
+​
+𝐊
+i
+⊤
+​
+𝐀
+i
+​
+Δ
+​
+𝐊
+i
+)
+.
+D(\Delta\mathbf{K})=\sum_{i}\tr\big(\Delta\mathbf{K}_{i}^{\!\top}\mathbf{A}_{i}\,\Delta\mathbf{K}_{i}\big).
+(7)
+𝐀
+i
+\mathbf{A}_{i}
+is symmetric positive semi-definite with rank at most
+min
+⁡
+(
+16
+,
+n
+i
+)
+\min(16,n_{i})
+, where
+n
+i
+n_{i}
+is the number of views in which Gaussian
+i
+i
+contributed. Its null space consists of coefficient directions that
+no
+training view can see: changing
+𝐊
+i
+\mathbf{K}_{i}
+along them leaves every training pixel unchanged, so the trained value along them carries no information about the scene. Note that all quantities in
+Eq.
+6
+are available from a forward rasterisation of the training cameras:
+𝐝
+i
+​
+j
+\mathbf{d}_{ij}
+from the poses,
+ω
+i
+​
+j
+\omega_{ij}
+from two per-Gaussian accumulators (of
+w
+w
+and
+w
+2
+w^{2}
+) added to the compositing loop. No image is read and no gradient is computed.
+Truncation is the uniform-observation special case.
+If a Gaussian were observed with equal weight from every direction,
+𝐀
+i
+∝
+∫
+𝕊
+2
+𝐘𝐘
+⊤
+=
+𝐈
+\mathbf{A}_{i}\propto\int_{\mathbb{S}^{2}}\mathbf{Y}\mathbf{Y}^{\!\top}=\mathbf{I}
+by orthonormality of the SH, and the degree-
+L
+L
+coefficients minimising
+Eq.
+7
+are the first
+m
+L
+m_{L}
+rows of
+𝐊
+i
+\mathbf{K}_{i}
+: standard truncation—the fallback of every compaction method that drops bands—is optimal exactly when the Gaussian was seen from the whole sphere, which no capture achieves.
+3.3
+Closed-form degree reduction
+Let
+S
+=
+{
+1
+.
+.
+m
+L
+}
+S=\{1..m_{L}\}
+index the basis functions of degrees
+≤
+L
+\leq L
+,
+𝐀
+S
+​
+S
+\mathbf{A}_{SS}
+the leading
+m
+L
+×
+m
+L
+m_{L}\times m_{L}
+block of
+𝐀
+i
+\mathbf{A}_{i}
+,
+𝐀
+S
+:
+\mathbf{A}_{S:}
+its first
+m
+L
+m_{L}
+rows, and
+𝐊
+i
+,
+S
+\mathbf{K}_{i,S}
+the first
+m
+L
+m_{L}
+rows of
+𝐊
+i
+\mathbf{K}_{i}
+(the truncated coefficients). The degree-
+L
+L
+coefficients
+𝐊
+′
+∈
+ℝ
+m
+L
+×
+3
+\mathbf{K}^{\prime}\in\mathbb{R}^{m_{L}\times 3}
+minimising the predicted error
+Eq.
+7
+, regularised towards truncation, are
+𝐊
+i
+′
+\displaystyle\mathbf{K}^{\prime}_{i}
+=
+arg
+​
+min
+𝐊
+′
+​
+tr
+​
+(
+(
+P
+​
+𝐊
+′
+−
+𝐊
+i
+)
+⊤
+​
+𝐀
+i
+​
+(
+P
+​
+𝐊
+′
+−
+𝐊
+i
+)
+)
++
+λ
+i
+​
+‖
+𝐊
+′
+−
+𝐊
+i
+,
+S
+‖
+F
+2
+\displaystyle=\argmin_{\mathbf{K}^{\prime}}\tr\big((P\mathbf{K}^{\prime}{-}\mathbf{K}_{i})^{\!\top}\mathbf{A}_{i}(P\mathbf{K}^{\prime}{-}\mathbf{K}_{i})\big){+}\lambda_{i}\|\mathbf{K}^{\prime}{-}\mathbf{K}_{i,S}\|_{F}^{2}
+=
+(
+𝐀
+S
+​
+S
++
+λ
+i
+𝐈
+)
+−
+1
+(
+𝐀
+S
+:
+𝐊
+i
++
+λ
+i
+𝐊
+i
+,
+S
+)
+,
+\displaystyle=(\mathbf{A}_{SS}+\lambda_{i}\mathbf{I})^{-1}\big(\mathbf{A}_{S:}\mathbf{K}_{i}+\lambda_{i}\mathbf{K}_{i,S}\big),
+(8)
+where
+P
+P
+zero-pads to 16 rows and
+λ
+i
+=
+λ
+​
+tr
+⁡
+(
+𝐀
+S
+​
+S
+)
+/
+m
+L
+\lambda_{i}=\lambda\,\tr(\mathbf{A}_{SS})/m_{L}
+makes the regulariser scale-free.
+λ
+→
+∞
+\lambda\to\infty
+recovers truncation exactly,
+λ
+→
+0
+\lambda\to 0
+gives the pure weighted least-squares projection, and Gaussians with
+𝐀
+i
+=
+𝟎
+\mathbf{A}_{i}=\mathbf{0}
+(never contributing to any training pixel) fall back to truncation for every
+λ
+>
+0
+\lambda>0
+. The solve is a batched
+m
+L
+×
+m
+L
+m_{L}\times m_{L}
+linear system, which costs a few seconds for millions of Gaussians on a CPU. The residual
+E
+i
+​
+L
+=
+tr
+⁡
+(
+(
+P
+​
+𝐊
+i
+′
+−
+𝐊
+i
+)
+⊤
+​
+𝐀
+i
+​
+(
+P
+​
+𝐊
+i
+′
+−
+𝐊
+i
+)
+)
+,
+E
+i
+​
+3
+=
+0
+,
+E_{iL}=\tr\big((P\mathbf{K}^{\prime}_{i}-\mathbf{K}_{i})^{\!\top}\mathbf{A}_{i}(P\mathbf{K}^{\prime}_{i}-\mathbf{K}_{i})\big),\qquad E_{i3}=0,
+(9)
+is the predicted image-space cost of storing Gaussian
+i
+i
+at degree
+L
+L
+. It is available for free from the solve and is the key quantity for allocation.
+3.4
+Rate–distortion optimal degree allocation
+Storing Gaussian
+i
+i
+at degree
+L
+L
+costs
+r
+L
+∈
+{
+0
+,
+9
+,
+24
+,
+45
+}
+r_{L}\in\{0,9,24,45\}
+AC floats. Because the predicted distortion
+Eq.
+7
+is additive over Gaussians, the allocation problem
+min
+⁡
+∑
+i
+L
+1
+.
+.
+L
+N
+⁡
+E
+i
+​
+L
+i
+s.t.
+∑
+i
+r
+L
+i
+≤
+R
+\min_{L_{1}..L_{N}}\ \sum_{i}E_{iL_{i}}\quad\text{s.t.}\quad\sum_{i}r_{L_{i}}\leq R
+(10)
+is separable, and its Lagrangian relaxation
+L
+i
+=
+arg
+​
+min
+L
+⁡
+E
+iL
++
+μ
+​
+r
+L
+L_{i}=\argmin_{L}E_{iL}+\mu\,r_{L}
+is solved independently per Gaussian for a multiplier
+μ
+\mu
+found by bisection on the budget
+R
+R
+. As in classical rate–distortion theory, the Lagrangian solution is optimal for every budget on the lower convex hull of the achievable (rate, distortion) points. The allocation uses the closed-form coefficients of
+Eq.
+8
+, so the two mechanisms compound: a Gaussian demoted to degree one keeps the best degree-one fit of its observed appearance rather than its truncation. A two-bit degree tag per Gaussian is the only overhead. The same machinery yields a post-hoc version of the Reduced-3DGS criterion
+[
+32
+]
+—demote when the maximum colour deviation of truncation over the observed views is below a threshold—which we use as a baseline; it differs from ours in using truncation instead of the projection, a worst-case instead of a weighted-energy criterion, and a threshold instead of a global budget.
+3.5
+Gram-metric vector quantisation
+Codebook quantisation of SH is the workhorse of compressed 3DGS
+[
+31
+,
+32
+,
+9
+,
+30
+]
+. Given per-Gaussian AC coefficients
+𝐱
+i
+∈
+ℝ
+q
+×
+3
+\mathbf{x}_{i}\in\mathbb{R}^{q\times 3}
+(with
+q
+=
+m
+L
+−
+1
+q=m_{L}-1
+AC basis functions,
+𝐆
+i
+\mathbf{G}_{i}
+the corresponding AC block of
+𝐀
+i
+\mathbf{A}_{i}
+) and a codebook
+{
+𝐜
+k
+}
+\{\mathbf{c}_{k}\}
+, the predicted distortion of assigning
+𝐱
+i
+↦
+𝐜
+k
+\mathbf{x}_{i}\mapsto\mathbf{c}_{k}
+is, again by
+Eq.
+7
+,
+D
+i
+​
+(
+𝐜
+k
+)
+=
+tr
+⁡
+(
+(
+𝐱
+i
+−
+𝐜
+k
+)
+⊤
+​
+𝐆
+i
+​
+(
+𝐱
+i
+−
+𝐜
+k
+)
+)
+,
+D_{i}(\mathbf{c}_{k})=\tr\big((\mathbf{x}_{i}-\mathbf{c}_{k})^{\!\top}\mathbf{G}_{i}(\mathbf{x}_{i}-\mathbf{c}_{k})\big),
+(11)
+a Mahalanobis distance with a
+different
+metric for every data point. Both steps of Lloyd’s algorithm remain tractable. Expanding the square, the assignment step is
+arg
+​
+min
+k
+⟨
+vec
+𝐆
+i
+,
+vec
+∑
+ch
+𝐜
+k
+,
+ch
+𝐜
+k
+,
+ch
+⊤
+⟩
+−
+2
+⟨
+𝐆
+i
+𝐱
+i
+,
+𝐜
+k
+⟩
+,
+\argmin_{k}\ \big\langle\operatorname{vec}\mathbf{G}_{i},\ \operatorname{vec}\textstyle\sum_{ch}\mathbf{c}_{k,ch}\mathbf{c}_{k,ch}^{\!\top}\big\rangle-2\,\langle\mathbf{G}_{i}\mathbf{x}_{i},\ \mathbf{c}_{k}\rangle,
+(12)
+two matrix products of size
+N
+×
+q
+2
+×
+K
+N\times q^{2}\times K
+and
+N
+×
+3
+​
+q
+×
+K
+N\times 3q\times K
+, and the update step for cluster
+k
+k
+is the matrix-weighted mean
+𝐜
+k
+=
+(
+∑
+i
+∈
+k
+𝐆
+i
+)
+−
+1
+​
+∑
+i
+∈
+k
+𝐆
+i
+​
+𝐱
+i
+,
+\mathbf{c}_{k}=\Big(\sum_{i\in k}\mathbf{G}_{i}\Big)^{-1}\sum_{i\in k}\mathbf{G}_{i}\mathbf{x}_{i},
+(13)
+a
+q
+×
+q
+q\times q
+solve per cluster. This is the classical input-weighted quadratic generalised Lloyd algorithm
+[
+13
+]
+instantiated with a derived per-point matrix; the update rule is not new, the metric is. Replacing
+𝐆
+i
+\mathbf{G}_{i}
+by
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+with a scalar
+s
+i
+s_{i}
+gives importance-weighted
+k
+k
+-means, which is exactly the sensitivity-aware quantiser of Niedermayr
+et al
+.
+[
+31
+]
+(distance
+s
+i
+​
+‖
+𝐱
+i
+−
+𝐜
+k
+‖
+2
+s_{i}\|\mathbf{x}_{i}-\mathbf{c}_{k}\|^{2}
+, centroid
+∑
+i
+s
+i
+​
+𝐱
+i
+/
+∑
+i
+s
+i
+\sum_{i}s_{i}\mathbf{x}_{i}/\sum_{i}s_{i}
+) with their gradient-based
+s
+i
+s_{i}
+replaced by
+tr
+⁡
+(
+𝐆
+i
+)
+/
+q
+\tr(\mathbf{G}_{i})/q
+; replacing it by
+𝐈
+\mathbf{I}
+recovers plain
+k
+k
+-means.
+Section
+4.1
+tests both substitutions inside their pipeline. We quantise each degree group of the allocation separately, so that the codebook dimension matches the stored coefficients.
+3.6
+Optional appearance refit when images are available
+Everything above uses only the model and its poses. When the training images
+are
+available, the same linearity gives a closed-form repair of the appearance after a geometry edit: for fixed geometry the rendered image is linear in the colours, so after removing Gaussians the coefficients minimising the photometric squared error over the training views,
+min
+⁡
+∑
+j
+𝐊
+⁡
+‖
+ℛ
+j
+​
+(
+𝐊
+)
+−
+𝐈
+j
+‖
+2
+,
+\min_{\mathbf{K}}\ \sum_{j}\big\|\mathcal{R}_{j}(\mathbf{K})-\mathbf{I}_{j}\big\|^{2},
+(14)
+solve a linear least-squares problem, which we solve by preconditioned conjugate gradients: an iteration costs one forward and one backward pass over the training views, and the block preconditioner is the observation Gram
+𝐀
+i
+\mathbf{A}_{i}
+itself, the diagonal block of the Gauss–Newton Hessian of
+Eq.
+14
+. A Levenberg damping of
+tr
+⁡
+(
+𝐀
+i
+)
+/
+16
+\tr(\mathbf{A}_{i})/16
+per Gaussian keeps the solve from exploiting weakly observed directions, colours clamped at zero are frozen between active-set restarts, and eight iterations with two restarts suffice. The refit is deterministic, has no learning rate, and precedes the compaction of
+Sec.
+3.7
+.
+3.7
+Complete pipeline and storage
+The full training-free compaction pipeline is: (1) one forward rasterisation pass over the training cameras that accumulates
+S
+i
+​
+j
+(
+1
+)
+S^{(1)}_{ij}
+,
+S
+i
+​
+j
+(
+2
+)
+S^{(2)}_{ij}
+and the Gram matrices; (2) pruning of Gaussians whose total blending weight
+∑
+j
+S
+i
+​
+j
+(
+1
+)
+\sum_{j}S^{(1)}_{ij}
+—their total contribution to all training pixels—falls below a quantile, as in contribution-based pruning
+[
+9
+,
+10
+,
+1
+]
+; (2b) optionally, when the training images are available, the appearance refit of
+Sec.
+3.6
+; (3) degree allocation with closed-form coefficients for a target average number of AC floats; (4) Gram-metric vector quantisation of each degree group with a 4096-entry codebook; (5) half-precision storage of scales, rotations, opacities and DC colours (positions stay in fp32). Sizes use this plain container (12-bit indices, 2-bit degree tags, fp16 codebooks) without entropy coding; all metrics are rendered from the rounded and quantised values.
+4
+Experiments
+Setup.
+We use the official pretrained 3DGS models
+[
+19
+]
+(30k iterations, degree-3 SH) of the nine Mip-NeRF 360
+[
+3
+]
+, two Tanks&Temples
+[
+20
+]
+and two Deep Blending
+[
+17
+]
+scenes, with the standard split (every eighth image held out) and resolutions. Statistics and renders come from a PyTorch re-implementation of the reference rasteriser, validated against the reference CUDA rasteriser in the supplement. Unless stated otherwise the Gram matrices use
+S
+(
+2
+)
+S^{(2)}
+and
+λ
+=
+10
+−
+3
+\lambda=10^{-3}
+; statistics are accumulated from the training cameras only, and all numbers are on the held-out test views.
+Host: Compressed3D
+[
+31
+]
+, colour VQ metric
+n
+n
+Size (MB)
+PSNR
+SSIM
+LPIPS
+time (s)
+published: their sensitivity, their VQ
+9
+28.8
+26.98
+0.801
+0.238
+–
+before fine-tuning
+reproduced: their sensitivity, their VQ
+9
+28.7
+26.30
+0.782
+0.258
+177
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+9
+29.4 (103%)
+26.51 (+0.21)
+0.788 (+0.006)
+0.251 (-0.007)
+128
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+9
+29.4 (102%)
+26.52 (+0.22)
+0.789 (+0.007)
+0.251 (-0.007)
+128
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+9
+30.3 (106%)
+26.79 (+0.49)
+0.799 (+0.017)
+0.238 (-0.019)
+127
+our matrix, 2048-entry codebook
+5
+28.1 (104%)
+28.27 (+0.51)
+0.863 (+0.015)
+0.212 (-0.017)
+180
+our matrix, 1024-entry codebook
+5
+27.7 (102%)
+28.21 (+0.45)
+0.862 (+0.014)
+0.214 (-0.015)
+171
+our matrix, 512-entry codebook
+9
+29.0 (101%)
+26.62 (+0.32)
+0.794 (+0.012)
+0.246 (-0.012)
+121
+after fine-tuning (their schedule)
+reproduced: their sensitivity, their VQ
+9
+28.8
+27.01
+0.803
+0.237
+177
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+9
+29.5 (103%)
+27.08 (+0.07)
+0.805 (+0.002)
+0.234 (-0.003)
+128
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+9
+29.5 (102%)
+27.07 (+0.06)
+0.805 (+0.002)
+0.234 (-0.003)
+128
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+9
+29.9 (104%)
+27.10 (+0.09)
+0.807 (+0.004)
+0.230 (-0.007)
+127
+our matrix, 2048-entry codebook
+5
+27.6 (102%)
+28.65 (+0.05)
+0.871 (+0.002)
+0.204 (-0.005)
+180
+our matrix, 1024-entry codebook
+5
+27.4 (101%)
+28.66 (+0.06)
+0.871 (+0.002)
+0.204 (-0.004)
+171
+our matrix, 512-entry codebook
+9
+28.9 (100%)
+27.02 (+0.01)
+0.804 (+0.001)
+0.234 (-0.003)
+121
+Table 1:
+The observation-Gram metric as a drop-in inside a published pipeline (Mip-NeRF 360). Compressed3D is run unmodified (reproduced row) and with only its colour vector-quantisation metric replaced: the same keep mask, pruning, 4096-entry codebook, covariance quantisation, fine-tuning schedule and container. Every variant row is a paired comparison against the reproduction on the
+n
+n
+scenes that have both; parentheses give the paired difference and the size ratio. Rows isolate the two claims: their gradient-based scalar sensitivity versus our image-free weight (scalar rows), and scalar versus full matrix; the first variant row is the algorithm control (their weights in our Lloyd iterations). Before fine-tuning the difference is what the metric alone determines, after fine-tuning what survives their 5000 image-based iterations. Time: the appearance metric plus the colour VQ on one RTX 4090, i.e. their backward pass over the training images plus their minibatch
+k
+k
+-means, or our forward pass over the training cameras (poses only, PyTorch rasteriser) plus the generalised Lloyd iterations. The published row is the dataset mean reported in the 3DGS.zip survey.
+4.1
+The metric as a drop-in: Compressed3D
+The claim that carries the paper is that the observation Gram matrix is a better distortion metric for an
+existing
+appearance compressor than the one it uses, and that the difference is available without images, gradients or fine-tuning. We test it on Compressed3D
+[
+31
+]
+, whose colour stage is the scalar special case of
+Sec.
+3.5
+: a per-Gaussian sensitivity
+s
+i
+=
+max
+d
+⁡
+|
+∂
+L
+/
+∂
+K
+i
+​
+d
+|
+s_{i}=\max_{d}|\partial L/\partial K_{id}|
+from a backward pass over the training images, then
+k
+k
+-means on the 48 colour features with importance-weighted centroids
+∑
+i
+s
+i
+​
+𝐱
+i
+/
+∑
+i
+s
+i
+\sum_{i}s_{i}\mathbf{x}_{i}/\sum_{i}s_{i}
+, followed by covariance quantisation, 5000 iterations of fine-tuning with the images, and an entropy-coded container. We run their released code unmodified on the official pretrained models (the
+reproduced
+rows of
+Tab.
+1
+) and then replace only the colour vector quantiser: the same keep mask and pruning from their sensitivity, the same 4096-entry codebook, the same covariance stage, fine-tuning schedule and container. Three replacements separate the two ingredients of our metric. Their scalar
+s
+i
+s_{i}
+in our generalised Lloyd iterations (row “
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+”) is the algorithm control: it isolates our implementation from theirs. Our image-free weight
+tr
+⁡
+(
+𝐀
+i
+)
+/
+16
+\tr(\mathbf{A}_{i})/16
+as a scalar (row “
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+”) swaps their image gradients for our poses-only statistic while keeping the metric isotropic. The full matrix
+𝐀
+i
+\mathbf{A}_{i}
+(last rows) adds the anisotropy. Metrics are recorded
+before
+fine-tuning, where the difference is entirely what the metric determines, and
+after
+their fine-tuning, where it is what survives 5000 image-based iterations. Over the nine Mip-NeRF 360 scenes (paired,
+Tab.
+1
+) the matrix metric changes PSNR by +0.49 dB before fine-tuning, with SSIM and LPIPS moving the same way, and by +0.09 dB after it. The two scalar rows separate the ingredients: our image-free weight and their gradient-based sensitivity are equivalent inside the same Lloyd iterations (+0.22 against +0.21 dB before fine-tuning), so the gain over the scalar rows is the anisotropy of the matrix, and the gain of the scalar rows over the reproduction is the full-batch generalised Lloyd algorithm against their minibatch EMA
+k
+k
+-means. The one thing the swap does not hold fixed is rate: their EMA
+k
+k
+-means leaves the 4096-entry codebook under-used, so its indices carry about two bits less per Gaussian in their zlib container than the near-uniform Lloyd assignment (supplement,
+Tab.
+13
+), and the containers of the “ours” rows are 104 % of theirs after fine-tuning. Smaller codebooks bring the rate down to theirs: with 512 entries the container is 100 % of theirs over all nine scenes, and the Gram metric still gains +0.32 dB before fine-tuning, but only +0.01 dB after it. At equal rate, then, the metric’s advantage is the image-free one: without a single training image it gains +0.32 dB, against the 0.71 dB that their 5000 image-based iterations add to their own quantiser (26.30 to 27.01 dB), and their fine-tuning, when the images are available, closes the remaining difference. Per-scene values are in the supplement (
+Tab.
+12
+). Every “ours” row costs one forward pass over the training cameras and seconds of linear algebra in place of their backward pass over the images (last column).
+Reduced3DGS criterion
+[
+32
+]
+, post-hoc
+AC floats
+same degrees
+same floats
+threshold
+τ
+\tau
+per Gaussian
+truncation (theirs)
+projection (ours)
+their criterion
+our allocation
+0.08
+23.4
+26.87
+27.21
+26.87
+27.28
+(23.4)
+0.12
+14.7
+26.32
+27.00
+26.32
+27.28
+(14.7)
+0.16
+8.9
+25.82
+26.72
+25.82
+27.25
+(8.9)
+0.24
+3.2
+25.11
+26.16
+25.11
+27.05
+(3.2)
+Table 2:
+Host B: the SH band-selection criterion of Reduced3DGS (demote a Gaussian when the maximum colour deviation of truncation over the observed views is below
+τ
+\tau
+), applied post-hoc to the official models (test PSNR, mean over 9 Mip-NeRF 360 scenes).
+Same degrees
+: the degrees it selects, with the bands truncated (theirs) or projected under the Gram metric (ours).
+Same floats
+: its criterion against our Lagrangian allocation at the same average number of AC floats (achieved value in parentheses).
+A second host tests the other two operations. Reduced3DGS
+[
+32
+]
+chooses a per-Gaussian SH degree during training by thresholding the maximum colour deviation that truncating a band causes over the observed views;
+Tab.
+2
+applies its criterion post-hoc to the official models (their training pipeline is not training-free, so we test the criterion, not the trained model) and makes the two substitutions the plug-in offers: at the degrees it selects, its truncation is replaced by the projection of
+Eq.
+8
+; and at the same average number of AC floats, its threshold is replaced by the Lagrangian allocation of
+Sec.
+3.4
+. Both substitutions are applied with
+plugin.project_degree
+and
+plugin.allocate
+from the statistics of one forward pass. Over 9 scenes, replacing their truncation by the projection at the degrees they select gains
++
+0.33
++0.33
+dB at their most conservative threshold (23.4 AC floats per Gaussian) and
++
+1.06
++1.06
+dB at their most aggressive one (3.2 floats); replacing their criterion by the Lagrangian allocation at the same number of floats gains
++
+0.41
++0.41
+and
++
+1.95
++1.95
+dB: a worst-case threshold cannot trade a rare large deviation against its weight, and it discards bands instead of re-fitting them.
+deg. 3
+degree 2 (24)
+degree 1 (9)
+degree 0 (0)
+Dataset
+full
+trunc.
+ours
+trunc.
+ours
+trunc.
+ours
+Mip-NeRF 360 (9)
+27.29
+26.16
+27.15
+25.08
+26.71
+24.22
+25.07
+Tanks&Temples (2)
+23.39
+22.65
+23.34
+21.80
+23.05
+21.22
+21.77
+Deep Blending (2)
+29.53
+29.17
+29.47
+28.38
+29.42
+27.81
+28.38
+Table 3:
+Uniform SH degree reduction of the official pretrained 3DGS models: test PSNR averaged over each dataset (number of scenes in parentheses; AC floats per Gaussian in the header). Truncation drops the higher bands; OGC replaces them by the closed-form projection of
+Eq.
+8
+. SSIM and LPIPS, which follow the same ordering, and per-scene numbers are in the supplement.
+4.2
+Uniform degree reduction
+Table
+3
+compares plain truncation with the closed-form projection when every Gaussian is reduced to the same degree (per-scene numbers in the supplement). Averaged over the nine Mip-NeRF 360 scenes, truncation to degrees 2, 1 and 0 loses
+1.13
+1.13
+,
+2.21
+2.21
+and
+3.07
+3.07
+dB against the uncompressed
+27.29
+27.29
+dB, whereas the projection loses
+0.14
+0.14
+,
+0.58
+0.58
+and
+2.22
+2.22
+dB; on Tanks&Temples the losses are
+0.74
+0.74
+/
+1.60
+1.60
+/
+2.17
+2.17
+dB for truncation against
+0.05
+0.05
+/
+0.34
+0.34
+/
+1.62
+1.62
+dB, and on Deep Blending
+0.35
+0.35
+/
+1.15
+1.15
+/
+1.72
+1.72
+against
+0.06
+0.06
+/
+0.10
+0.10
+/
+1.15
+1.15
+dB. At degree 2 the projection costs at most
+0.14
+0.14
+dB on any dataset and at degree 1—nine AC floats instead of 45—it recovers most of the truncation loss; SSIM and LPIPS follow the same ordering. Degree 0 remains costly for both methods because the scenes contain genuinely view-dependent surfaces, which motivates allocating degrees per Gaussian. End to end, statistics and projection take minutes for the 5.8M Gaussians and 161 training views of
+garden
+on one GPU, of which all but a minute is the forward pass of our PyTorch renderer; the reference CUDA rasteriser covers those views in seconds, so in a deployed pipeline the cost is the linear algebra alone.
+Across the thirteen scenes and three degrees, the projection improves on truncation at equal storage in 38 of 39 comparisons. The exception is instructive: on
+treehill
+, truncation to degree 2 (
+22.32
+22.32
+dB) beats both our projection (
+22.12
+22.12
+dB) and the
+uncompressed
+model (
+22.27
+22.27
+dB), because the trained degree-3 appearance of that scene does not generalise to the test views, so discarding the band regularises it. We optimise fidelity to the trained model
+as the training cameras saw it
+; where that model itself overfits, faithfulness and test quality diverge. The effect is confined to the highest band of this one scene (at degrees 1 and 0 the projection leads there by
+0.31
+0.31
+and
+0.16
+0.16
+dB).
+Figure 2
+:
+Rate–distortion curves (test PSNR against average AC floats per Gaussian). Uniform truncation and uniform projection have three operating points each (degrees 0, 1, 2); the post-hoc Reduced-3DGS criterion sweeps its threshold; our Lagrangian allocation sweeps the budget, with either truncated or projected coefficients.
+Figure 3
+:
+Predicted image-space error from the Gram metric against the measured increase of test-view MSE, over all configurations evaluated for a scene. Each point is one compressed model; hollow points lie at the noise floor of the test set.
+4.3
+Per-Gaussian allocation
+Figure
+3
+plots test PSNR against the average number of AC floats per Gaussian. Allocation is the larger of the two mechanisms: even with truncated coefficients, choosing degrees per Gaussian with the Lagrangian sweep reaches
+27.08
+27.08
+dB on
+garden
+at 9 floats, against
+24.85
+24.85
+dB for uniform truncation to degree 1 at the same budget. The two mechanisms compound: with projected coefficients the allocation is within
+0.01
+0.01
+dB of the uncompressed model at 9 floats, within
+0.03
+0.03
+dB at 6 floats and within
+0.11
+0.11
+dB at 3 floats—a
+15
+×
+15\times
+reduction of the appearance data—whereas truncated coefficients lose
+0.65
+0.65
+dB at 3 floats. At 3 floats,
+76
+76
+% of the Gaussians are stored as a single colour and only
+0.6
+0.6
+% keep all 45 coefficients. The post-hoc Reduced-3DGS criterion, which demotes a Gaussian only when the
+maximum
+colour deviation of truncation over the observed views is below a threshold, needs 28 floats to reach
+27.00
+27.00
+dB, a level our allocation exceeds with 3: a worst-case criterion cannot trade a rare large deviation against its weight, and it discards bands instead of re-fitting them.
+4.4
+Predicted versus measured error
+Figure
+3
+tests the analysis of
+Sec.
+3.2
+directly: for every compressed configuration of a scene we compare the distortion predicted by the Gram metric,
+D
+⁡
+(
+Δ
+​
+𝐊
+)
+D(\Delta\mathbf{K})
+from
+Eq.
+7
+normalised to a per-pixel MSE over the training views, with the measured increase of the test-view MSE. The ordering of configurations is predicted almost perfectly (Spearman rank correlation
+0.98
+0.98
+over the 26
+garden
+and
+0.98
+0.98
+over the 27
+kitchen
+configurations above the noise floor of the test set, spanning truncation, projection, allocation, the Reduced-3DGS criterion and quantisation), so the metric is a reliable objective for allocation and quantisation. The absolute level is under-predicted by a median factor of
+1.6
+1.6
+(
+garden
+) and
+2.9
+2.9
+(
+kitchen
+), as expected: the diagonal estimate of
+Eq.
+5
+drops the cross terms between neighbouring Gaussians, whose errors add coherently; the bound of
+Eq.
+4
+errs the other way, and the ordering, which is all that allocation and quantisation need, is unaffected. A controlled experiment on a synthetic scene (250 Gaussians, 8 cameras; supplement) confirms that this under-prediction is exactly the effect
+Eq.
+5
+assumes away: under
+independent
+coefficient perturbations the
+S
+(
+2
+)
+S^{(2)}
+estimate matches the measured squared image error to within
+7
+7
+%, the
+S
+(
+1
+)
+S^{(1)}
+bound holds with a factor of
+3.7
+3.7
+to spare, and perturbations along the null space of
+𝐀
+i
+\mathbf{A}_{i}
+change the training renders by a relative squared error of
+3
+×
+10
+−
+9
+3\times 10^{-9}
+. These checks run as part of the released test suite.
+Ablations.
+The supplement (
+Tab.
+9
+) varies the two choices the method makes. The per-view weight
+ω
+i
+​
+j
+\omega_{ij}
+orders as
+Sec.
+3.2
+predicts—
+S
+(
+2
+)
+S^{(2)}
+best,
+S
+(
+1
+)
+S^{(1)}
+marginally behind, pixel counts and a binary visibility flag progressively worse (
+26.60
+26.60
+,
+26.57
+26.57
+,
+26.46
+26.46
+,
+26.28
+26.28
+dB on
+garden
+at degree 1 against
+24.85
+24.85
+dB for truncation): most of the benefit comes from knowing
+which directions
+a Gaussian was seen from, and weighting them by contribution is worth the remaining
+0.3
+0.3
+dB. The regularisation
+λ
+\lambda
+is flat below
+10
+−
+3
+10^{-3}
+and converges to truncation as it grows; we use
+10
+−
+3
+10^{-3}
+.
+Method
+class
+Size (MB)
+PSNR
+SSIM
+LPIPS
+3DGS-30K (fp32)
+[
+19
+,
+2
+]
+reference
+734.0
+27.21
+0.815
+0.214
+HEMGS high-rate
+[
+24
+]
+retrained backbone
+21.0
+27.93
+0.813
+0.230
+HAC++ high-rate
+[
+6
+]
+retrained backbone
+19.4
+27.82
+0.811
+0.231
+HAC high-rate
+[
+5
+]
+retrained backbone
+22.9
+27.77
+0.811
+0.230
+HEMGS low-rate
+[
+24
+]
+retrained backbone
+12.5
+27.75
+0.806
+0.248
+ContextGS high-rate
+[
+40
+]
+retrained backbone
+19.3
+27.75
+0.811
+0.231
+ContextGS low-rate
+[
+40
+]
+retrained backbone
+13.3
+27.62
+0.808
+0.237
+HAC++ low-rate
+[
+6
+]
+retrained backbone
+8.7
+27.60
+0.803
+0.253
+HAC low-rate
+[
+5
+]
+retrained backbone
+16.0
+27.53
+0.807
+0.238
+Scaffold-GS
+[
+26
+]
+retrained backbone
+156.0
+27.50
+0.806
+0.252
+GSICO, Scaffold-GS input
+[
+28
+]
+c
+retrained backbone
+20.7
+27.27
+0.800
+0.232
+GSICO low-rate, Scaffold-GS input
+[
+28
+]
+c
+retrained backbone
+19.1
+27.07
+0.789
+0.238
+SmolGS large
+[
+38
+]
+trained
+10.4
+27.86
+0.812
+0.230
+SmolGS base
+[
+38
+]
+trained
+5.9
+27.76
+0.807
+0.248
+CodecGS
+[
+23
+]
+trained
+10.3
+27.30
+0.810
+0.236
+gsplat 1.00M
+[
+43
+]
+trained
+16.0
+27.29
+0.811
+0.229
+EAGLES
+[
+14
+]
+trained
+54.0
+27.23
+0.810
+0.240
+CompGS 32K
+[
+30
+]
+trained
+19.0
+27.12
+0.806
+0.240
+Reduced3DGS
+[
+32
+]
+trained
+29.0
+27.10
+0.809
+0.226
+Compact3DGS
+[
+22
+]
+trained
+48.8
+27.08
+0.798
+0.247
+SOG
+[
+29
+]
+trained
+40.3
+27.08
+0.799
+0.230
+RDO-Gaussian
+[
+39
+]
+trained
+23.5
+27.05
+0.802
+0.239
+MesonGS, fine-tuned
+[
+41
+]
+a
+post-hoc + fine-tuning
+18.4
+27.45
+0.827
+0.236
+LightGaussian
+[
+9
+]
+post-hoc + fine-tuning
+42.0
+27.28
+0.805
+0.243
+Compressed3D
+[
+31
+]
+post-hoc + fine-tuning
+28.8
+26.98
+0.801
+0.238
+FCGS high-rate
+[
+4
+]
+b
+post-hoc, no fine-tuning
+67.2
+27.39
+0.806
+0.226
+FCGS low-rate
+[
+4
+]
+b
+post-hoc, no fine-tuning
+36.3
+27.05
+0.798
+0.237
+MesonGS c3, no fine-tuning
+[
+41
+]
+a
+post-hoc, no fine-tuning
+25.9
+26.99
+0.797
+0.246
+GSICO, 3DGS input
+[
+28
+]
+c
+post-hoc, no fine-tuning
+27.6
+26.70
+0.798
+0.232
+FlexGaussian
+[
+37
+]
+d
+post-hoc, no fine-tuning
+40.8
+26.38
+0.780
+0.251
+OGC stack, 50% pruning
+post-hoc, image-free
+23.6
+26.71
+0.796
+0.234
++ appearance refit (
+Sec.
+3.6
+)
+post-hoc, images
+23.3
+26.97
+0.795
+0.235
+OGC stack, 60% pruning
+post-hoc, image-free
+19.0
+26.31
+0.790
+0.240
++ appearance refit (
+Sec.
+3.6
+)
+post-hoc, images
+18.8
+26.80
+0.791
+0.239
+OGC stack, 70% pruning
+post-hoc, image-free
+14.4
+25.41
+0.775
+0.254
++ appearance refit (
+Sec.
+3.6
+)
+post-hoc, images
+14.2
+26.36
+0.781
+0.251
+Table 4:
+Mip-NeRF 360, grouped by what a method needs. Published rows are dataset means from the 3DGS.zip survey
+[
+2
+]
+(retrieved 2026-09-16) unless noted; our rows are means over 9 scenes, sizes are the encoded bytes of the training-free stack of
+Sec.
+3.7
+with the standard geometry stage, and metrics are rendered from the decoded values. Within-class comparisons are against the post-hoc rows; the retrained-backbone and trained rows are cross-class references.
+a
+: MesonGS is post-hoc with an image-free importance score; the row without fine-tuning is the survey’s re-evaluation of its c3 configuration, the fine-tuned row is from the ablation table of its paper (its main table uses a different protocol).
+b
+: FCGS is a feed-forward compressor with a learned prior, applied post-hoc without per-scene optimisation.
+c
+: GSICO is post-hoc, uses no training images and no fine-tuning; its published high-rate operating point takes a retrained Scaffold-GS model as input (its Table III), so only its 3DGS-input row is in our class.
+d
+: numbers from the FlexGaussian paper (training-free).
+4.5
+Vector quantisation and the full pipeline
+Vector quantisation.
+Table
+18
+(supplement) quantises the AC coefficients with a single 4096-entry codebook (12 bits per Gaussian) under three metrics that differ only in how the same data are weighted. On the full degree-3 coefficients, plain
+k
+k
+-means loses
+0.71
+0.71
+/
+1.30
+1.30
+dB on
+garden
+/
+kitchen
+, importance-weighted
+k
+k
+-means (the training-free analogue of sensitivity-aware quantisation)
+0.54
+0.54
+/
+0.98
+0.98
+dB, and the Gram-metric quantiser
+0.26
+0.26
+/
+0.56
+0.56
+dB, at identical storage. The predicted distortion follows the same order. Quantising after allocation to 9 floats costs
+−
+0.08
+-0.08
+dB against quantising the full coefficients while coding only the Gaussians that keep AC coefficients, and the gap between the Gram and the scalar metric persists (
+0.36
+0.36
+/
+0.54
+0.54
+dB). The anisotropy matters because the metric of a Gaussian observed from a narrow cone is nearly singular: a codeword far from
+𝐱
+i
+\mathbf{x}_{i}
+in Euclidean terms can be indistinguishable in every training view.
+Configuration
+Size (MB)
+PSNR
+SSIM
+LPIPS
+Mip-NeRF 360
+(mean over 9 scenes)
+pretrained 3DGS, fp32
+793.5
+27.29
+0.812
+0.218
+OGC pipeline, 50% pruning (
+Tab.
+4
+)
+59.6
+26.81
+0.802
+0.231
++ geometry stage, 50% pruning
+23.6
+26.71
+0.796
+0.234
++ appearance refit with images (
+Sec.
+3.6
+)
+23.3
+26.97
+0.795
+0.235
++ geometry stage, 60% pruning
+19.0
+26.31
+0.790
+0.240
++ appearance refit with images (
+Sec.
+3.6
+)
+18.8
+26.80
+0.791
+0.239
++ geometry stage, 70% pruning
+14.4
+25.41
+0.775
+0.254
++ appearance refit with images (
+Sec.
+3.6
+)
+14.2
+26.36
+0.781
+0.251
+Tanks&Temples
+(mean over 2 scenes)
+HAC high-rate (retrained backbone)
+11.8
+24.40
+–
+–
+HAC++ high-rate (retrained backbone)
+7.3
+24.33
+–
+–
+GSICO, Scaffold-GS input
+c
+(retrained backbone)
+11.1
+24.03
+–
+–
+GSICO low-rate, Scaffold-GS input
+c
+(retrained backbone)
+9.1
+23.94
+–
+–
+GSICO, 3DGS input
+c
+(post-hoc, no fine-tuning)
+15.0
+23.50
+–
+–
+FCGS high-rate
+b
+(post-hoc, no fine-tuning)
+33.6
+23.62
+–
+–
+FCGS low-rate
+b
+(post-hoc, no fine-tuning)
+18.8
+23.48
+–
+–
+pretrained 3DGS, fp32
+421.0
+23.39
+0.842
+0.184
+OGC pipeline, 50% pruning (
+Tab.
+4
+)
+31.8
+23.16
+0.833
+0.194
++ geometry stage, 50% pruning
+12.8
+23.11
+0.830
+0.197
++ appearance refit with images (
+Sec.
+3.6
+)
+12.5
+23.43
+0.825
+0.203
+Deep Blending
+(mean over 2 scenes)
+HAC high-rate (retrained backbone)
+6.7
+30.34
+–
+–
+GSICO, Scaffold-GS input
+c
+(retrained backbone)
+6.3
+30.18
+–
+–
+GSICO low-rate, Scaffold-GS input
+c
+(retrained backbone)
+5.8
+30.10
+–
+–
+GSICO, 3DGS input
+c
+(post-hoc, no fine-tuning)
+11.3
+29.15
+–
+–
+FCGS high-rate
+b
+(post-hoc, no fine-tuning)
+54.5
+29.58
+–
+–
+FCGS low-rate
+b
+(post-hoc, no fine-tuning)
+30.1
+29.27
+–
+–
+pretrained 3DGS, fp32
+702.2
+29.53
+0.904
+0.246
+OGC pipeline, 50% pruning (
+Tab.
+4
+)
+52.8
+29.39
+0.900
+0.252
++ geometry stage, 50% pruning
+21.6
+29.38
+0.900
+0.252
++ appearance refit with images (
+Sec.
+3.6
+)
+21.0
+29.34
+0.897
+0.255
+garden
+, Taming-3DGS
+[
+27
+]
+(1.96M Gaussians; 3DGS: 5.83M)
+Taming-3DGS model, fp32
+463.4
+27.32
+0.855
+0.127
++ allocation 9 floats (fp16 container)
+102.6
+27.29
+0.855
+0.127
++ allocation + Gram VQ (fp16 container)
+69.6
+27.13
+0.851
+0.134
++ geometry stage, no pruning
+27.6
+26.73
+0.845
+0.138
++ geometry stage, 50% pruning
+14.1
+23.05
+0.747
+0.200
+kitchen
+, Taming-3DGS
+[
+27
+]
+(0.48M Gaussians; 3DGS: 1.85M)
+Taming-3DGS model, fp32
+113.9
+30.83
+0.921
+0.142
++ allocation 9 floats (fp16 container)
+25.2
+30.59
+0.918
+0.145
++ allocation + Gram VQ (fp16 container)
+17.3
+30.24
+0.914
+0.150
++ geometry stage, no pruning
+6.7
+29.53
+0.909
+0.152
++ geometry stage, 50% pruning
+3.5
+25.46
+0.861
+0.198
+Table 5:
+A
+standard
+geometry stage stacked on our appearance pipeline on all three datasets (published rows: 3DGS.zip survey, retrieved 2026-09-16, dataset means; classes as in
+Tab.
+4
+), and our pipeline applied to models whose primitive count was already reduced during training. The geometry stage is not a contribution of this paper: 16-bit fixed-point positions (Morton-sorted and delta-coded, as in
+[
+29
+]
+), 8-bit uniform quantisation of scales, rotations, opacities and DC colours (as in
+[
+31
+,
+32
+]
+) and zlib coding of every stream, applied without images or fine-tuning. Sizes are the encoded bytes; metrics are rendered from the decoded values. Bit-depth variants are in the supplement.
+Figure 4
+:
+Rate–distortion plane on the three datasets (dataset means). Grey: every point of the sweep over pruning fraction, SH budget and codebook size of our training-free stack; blue: its Pareto front. Published methods are plotted by class (marker), from the 3DGS.zip survey and the GSICO paper; the sizes of the trained and retrained-backbone methods are not achievable without the images and are shown as context.
+Dataset
+anchor
+BD-rate /
+Δ
+\Delta
+size
+BD-PSNR /
+Δ
+\Delta
+PSNR
+Mip-NeRF 360
+GSICO (3DGS input)
+∗
+Δ
+\Delta
+size -15%
++0.09
+Mip-NeRF 360
+FCGS
+–
+–
+Mip-NeRF 360
+HAC
+–
+-1.43
+Tanks&Temples
+GSICO (3DGS input)
+∗
+–
+-0.36
+Tanks&Temples
+FCGS
+–
+–
+Tanks&Temples
+HAC
+∗
+–
+-1.44
+Deep Blending
+GSICO (3DGS input)
+∗
+Δ
+\Delta
+size +46%
+-0.69
+Deep Blending
+FCGS
+-40.5%
++0.21
+Deep Blending
+HAC
+∗
+–
+–
+Table 6:
+Bjøntegaard metrics of the Pareto front of our training-free stack (sweep over pruning, SH budget and codebook size; dataset means) against published anchors with two operating points (piecewise-cubic on log-rate over the overlapping PSNR range). Negative BD-rate: ours needs fewer bytes at equal PSNR.
+∗
+Anchor with a single published point, compared at that point: our size at its PSNR and our PSNR at its size. –: the curves do not overlap in rate or quality. GSICO and FCGS are in our class (post-hoc, no images); HAC retrains its backbone.
+The metric alone: a training-free stack.
+Table
+4
+places a stack built on the metric alone—contribution pruning, allocation at 9 AC floats, Gram VQ, and a
+standard
+geometry stage (16-bit Morton-sorted delta-coded positions, 8-bit scales, rotations, opacities and DC colours, borrowed from prior work
+[
+29
+,
+31
+,
+32
+]
+) with an rANS coder whose models are matched to each stream (supplement)—among published methods grouped by what they need: trained representations, retrained anchor backbones with learned entropy models, post-hoc methods that fine-tune with the images, and post-hoc methods that never open them. The last group is our class. The stack is a reference point for what the metric achieves with no learned component, not a state-of-the-art claim: at equal size the retrained backbones (HAC, HAC++, ContextGS, HEMGS) are about a decibel better, which is the price of never opening the training images, Within the image-free class the comparison depends on the dataset. Against GSICO applied to a 3DGS model, the stack is
+15
+15
+% smaller with
++
+0.01
++0.01
+dB PSNR on Mip-NeRF 360,
+14
+14
+% smaller with
+−
+0.39
+-0.39
+dB on Tanks&Temples, and
+91
+91
+% larger with
++
+0.23
++0.23
+dB on Deep Blending, whose two indoor scenes GSICO’s image-codec mapping compresses particularly well; it is above FlexGaussian throughout and, on Deep Blending where the curves overlap, needs fewer bytes than FCGS at equal quality (
+Tab.
+6
+). On Mip-NeRF 360 and Tanks&Temples the curves do not overlap: the highest quality the stack reaches,
+26.90
+26.90
+and
+23.24
+23.24
+dB, lies below FCGS’s lowest published operating point, a ceiling set by the fixed 16/8-bit geometry stage rather than by the appearance compaction, since removing no Gaussians and keeping 24 AC floats does not raise it. The stage-by-stage ablation of the appearance pipeline in a plain container (fp16 attributes, allocation, Gram VQ against importance-weighted VQ, pruning) is in the supplement (
+Tab.
+14
+); the geometry stage, its bit-depth variants and the two entropy coders (byte-planed zlib, as in the first version of this work, and rANS) are in
+Tab.
+5
+and
+Tab.
+11
+.
+Figure
+4
+sweeps the stack’s three rate knobs on all three datasets and
+Tab.
+6
+reports Bjøntegaard metrics of its Pareto front against the within-class anchors (GSICO with 3DGS input, FCGS) and the cross-class anchor HAC. The indented rows of
+Tab.
+4
+and
+Tab.
+5
+add the optional appearance refit of
+Sec.
+3.6
+, which uses the training images for a closed-form least-squares solve before the appearance compaction; it adds
+0.27
+0.27
+,
+0.49
+0.49
+and
+0.95
+0.95
+dB on Mip-NeRF 360 at
+50
+50\text{\,}
+,
+60
+60\text{\,}
+and
+70
+%
+70\text{\,}\mathrm{\%}
+pruning and little on Deep Blending, where pruning cost little; against Adam fine-tuning of the coefficients on the official
+garden
+model (supplement,
+Tab.
+10
+) it reaches a higher PSNR in less time with no learning rate. The lower part of
+Tab.
+5
+applies the pipeline to Taming-3DGS
+[
+27
+]
+checkpoints, whose primitive count was already reduced
+during
+training: the stack composes with primitive reduction without interaction, which is the division of labour the metric suggests—primitive reduction belongs in training, and what a training-free method should add afterwards is the appearance and precision reduction provided here.
+Rendering, loading and training cost.
+A kernel that branches on the two-bit degree tag evaluates the SH stage
+4.5
+×
+4.5\times
+faster at the 9-float allocation and
+16
+×
+16\times
+at degree 0 (supplement,
+Tab.
+7
+); that stage is a small fraction of a frame in our rasteriser as in the reference one, so frame time does not change measurably, and the practical benefit is the
+5
+5
+–
+15
+×
+15\times
+smaller appearance footprint (9 to 3 AC floats instead of 45) in load, streaming and bus traffic. OGC leaves training unchanged; as a bound on a training-time variant, one optimisation step with 9 or 0 trainable AC coefficients is only
+4
+4
+% faster, but parameters plus Adam state fall from
+1.03
+1.03
+to
+0.40
+0.40
+and
+0.25
+0.25
+GB and the GPU working set halves from
+8.8
+8.8
+to
+4.5
+4.5
+GB (
+Tab.
+8
+).
+How over-parameterised is trained appearance?
+The Gram matrices also answer a question independent of compression. For the pretrained
+garden
+model (supplement,
+Fig.
+5
+),
+6.8
+6.8
+% of the Gaussians never contributed to a training pixel; among the rest the median numerical rank of
+𝐀
+i
+\mathbf{A}_{i}
+is
+8
+8
+, and
+14.9
+14.9
+% of the AC coefficient energy lies in directions no training view observed (
+9.2
+9.2
+% on
+kitchen
+). Rendering from far outside the capture with and without these components changes
+31
+31
+–
+41
+41
+% of the pixels by more than
+25
+/
+255
+25/255
+at three viewpoints outside the capture without either version looking more plausible: the components are arbitrary. They are also not what one would expect from gradient descent alone: the photometric gradient with respect to
+𝐊
+i
+\mathbf{K}_{i}
+in view
+j
+j
+is
+𝐘
+⁡
+(
+𝐝
+i
+​
+j
+)
+​
+𝐠
+i
+​
+j
+⊤
+\mathbf{Y}(\mathbf{d}_{ij})\mathbf{g}_{ij}^{\!\top}
+, which lies in the range of
+𝐀
+i
+\mathbf{A}_{i}
+, so plain gradient steps would never leave the observed subspace. The energy enters through the initialisation, through Adam’s per-coordinate rescaling, which does not preserve subspaces, and through densification, which clones and splits Gaussians whose observation cones then change; a regulariser that prevents it during training is a natural follow-up, and the extrapolation protocol of the supplement (
+Appendix
+N
+) measures what the post-hoc solutions of this paper do about it.
+5
+Limitations and Conclusion
+The observation Gram matrix is a first-order model: it ignores the clamp in
+Eq.
+2
+and the cross-terms between Gaussians that share a pixel (absorbed conservatively by the bound of
+Eq.
+4
+), and it does not model perceptual metrics, which follow PSNR in our experiments. It is only as good as the capture it summarises: a Gaussian seen from a narrow cone receives no information outside it, and on views far from the capture (supplement,
+Tab.
+16
+) its advantage over truncation disappears: on one of two scenes plain truncation generalises better than both the trained model and our projection, which preserves the trained model where it was observed. Such viewers are better served by a larger regularisation. Our contribution addresses only appearance, and the appearance is not what makes a compressed file small: after the geometry stage the view-dependent data are
+10
+10
+% of the bytes, so the training-free stack of
+Tab.
+4
+stays behind the retrained backbones at equal size, which is the price of never opening the images; the metric’s value is what it adds to a pipeline that already has the rest (
+Tab.
+1
+). Inside such a pipeline the gain is largest where no images are used: at matched rate it survives the host’s own image-based fine-tuning only within noise, so the practical case is a compressor that cannot or will not fine-tune, or that wants to skip it. We demonstrate no learned entropy model, and the method assumes a model with explicit per-primitive SH: anchor- and hash-based representations
+[
+5
+,
+26
+]
+predict colour from a feature and would need the metric to be pulled back through that predictor, which we have not done.
+We have shown that the view-dependent appearance of a trained 3DGS model is constrained by the capture only inside a low-dimensional subspace characterised by the observation Gram matrix, the exact first-order metric relating coefficient changes to image error, under which SH degree reduction, degree allocation and vector quantisation have closed-form or convex, training-free solutions needing only the model and its camera poses, and that swapping the metric into an existing compressor changes its results at identical rate without touching the rest of its pipeline. The same statistic can inform training itself, as a preconditioner, a regulariser or a criterion for SH densification.
+Disclosure of AI assistance.
+Large language model tooling (Claude, Anthropic) was used in the preparation of this work, including code, experiments and text, under the direction and review of the author.
+References
+[1]
+M. S. Ali, M. Qamar, S. Bae, and E. Tartaglione
+(2024)
+Trimming the fat: efficient compression of 3D gaussian splats through pruning
+.
+In
+BMVC
+,
+Cited by:
+§2
+,
+§3.7
+.
+[2]
+M. T. Bagdasarian, P. Knoll, Y. Li, F. Barthel, A. Hilsmann, P. Eisert, and W. Morgenstern
+(2025)
+3DGS.zip: a survey on 3D gaussian splatting compression methods
+.
+Computer Graphics Forum
+.
+Cited by:
+§1
+,
+§2
+,
+Table 4
+,
+Table 4
+.
+[3]
+J. T. Barron, B. Mildenhall, D. Verbin, P. P. Srinivasan, and P. Hedman
+(2022)
+Mip-NeRF 360: unbounded anti-aliased neural radiance fields
+.
+In
+CVPR
+,
+Cited by:
+§4
+.
+[4]
+Y. Chen, Q. Wu, M. Li, W. Lin, M. Harandi, and J. Cai
+(2025)
+Fast feedforward 3D Gaussian splatting compression
+.
+In
+International Conference on Learning Representations (ICLR)
+,
+Cited by:
+§2
+,
+Table 4
+,
+Table 4
+.
+[5]
+Y. Chen, Q. Wu, W. Lin, M. Harandi, and J. Cai
+(2024)
+HAC: hash-grid assisted context for 3D gaussian splatting compression
+.
+In
+ECCV
+,
+Cited by:
+§1
+,
+§2
+,
+Table 4
+,
+Table 4
+,
+§5
+.
+[6]
+Y. Chen, Q. Wu, W. Lin, M. Harandi, and J. Cai
+(2025)
+HAC++: towards 100X compression of 3D Gaussian splatting
+.
+IEEE Transactions on Pattern Analysis and Machine Intelligence
+.
+Note:
+arXiv:2501.12255
+Cited by:
+§2
+,
+Table 4
+,
+Table 4
+.
+[7]
+Y. Choi, M. El-Khamy, and J. Lee
+(2017)
+Towards the limit of network quantization
+.
+In
+International Conference on Learning Representations (ICLR)
+,
+Cited by:
+§2
+.
+[8]
+T. T. Do, P. A. Chou, and G. Cheung
+(2026)
+Transforming harmonic coefficients for 3D splat compression
+.
+arXiv preprint arXiv:2609.15735
+.
+Cited by:
+§2
+.
+[9]
+Z. Fan, K. Wang, K. Wen, Z. Zhu, D. Xu, and Z. Wang
+(2024)
+LightGaussian: unbounded 3D gaussian compression with 15x reduction and 200+ FPS
+.
+In
+NeurIPS
+,
+Cited by:
+§1
+,
+§2
+,
+§3.5
+,
+§3.7
+,
+Table 4
+.
+[10]
+G. Fang and B. Wang
+(2024)
+Mini-splatting: representing scenes with a constrained number of gaussians
+.
+In
+ECCV
+,
+Cited by:
+§2
+,
+§3.7
+.
+[11]
+S. Fang, I. Shen, X. Zhang, Z. Wang, Y. Wang, W. Ding, G. Yu, and T. Igarashi
+(2026)
+Dropping anchor and spherical harmonics for sparse-view gaussian splatting
+.
+In
+CVPR
+,
+Cited by:
+§2
+.
+[12]
+S. Fridovich-Keil, A. Yu, M. Tancik, Q. Chen, B. Recht, and A. Kanazawa
+(2022)
+Plenoxels: radiance fields without neural networks
+.
+In
+CVPR
+,
+Cited by:
+§2
+.
+[13]
+A. Gersho and R. M. Gray
+(1992)
+Vector quantization and signal compression
+.
+Kluwer Academic Publishers
+.
+Cited by:
+§1
+,
+§2
+,
+§3.5
+.
+[14]
+S. Girish, K. Gupta, and A. Shrivastava
+(2024)
+EAGLES: efficient accelerated 3D gaussians with lightweight encodings
+.
+In
+ECCV
+,
+Cited by:
+§1
+,
+§2
+,
+Table 4
+.
+[15]
+C. Han and C. Dumery
+(2025)
+View-dependent uncertainty estimation of 3D Gaussian splatting
+.
+arXiv preprint arXiv:2504.07370
+.
+Cited by:
+§2
+.
+[16]
+A. Hanson, A. Tu, V. Singla, M. Jayawardhana, M. Zwicker, and T. Goldstein
+(2025)
+PUP 3D-GS: principled uncertainty pruning for 3D gaussian splatting
+.
+In
+CVPR
+,
+Cited by:
+§2
+.
+[17]
+P. Hedman, J. Philip, T. Price, J. Frahm, G. Drettakis, and G. Brostow
+(2018)
+Deep blending for free-viewpoint image-based rendering
+.
+ACM Transactions on Graphics
+37
+(
+6
+).
+Cited by:
+§4
+.
+[18]
+L. Huang, J. Bai, J. Guo, Y. Li, and Y. Guo
+(2024)
+On the error analysis of 3D gaussian splatting and an optimal projection strategy
+.
+In
+ECCV
+,
+Cited by:
+§2
+.
+[19]
+B. Kerbl, G. Kopanas, T. Leimkühler, and G. Drettakis
+(2023)
+3D gaussian splatting for real-time radiance field rendering
+.
+ACM Transactions on Graphics
+42
+(
+4
+).
+Cited by:
+§1
+,
+§2
+,
+§4
+,
+Table 4
+.
+[20]
+A. Knapitsch, J. Park, Q. Zhou, and V. Koltun
+(2017)
+Tanks and temples: benchmarking large-scale scene reconstruction
+.
+ACM Transactions on Graphics
+36
+(
+4
+).
+Cited by:
+§4
+.
+[21]
+J. Kulhanek and T. Sattler
+(2024)
+NerfBaselines: consistent and reproducible evaluation of novel view synthesis methods
+.
+arXiv preprint arXiv:2406.17345
+.
+Cited by:
+Appendix A
+,
+Appendix A
+.
+[22]
+J. C. Lee, D. Rho, X. Sun, J. H. Ko, and E. Park
+(2024)
+Compact 3D gaussian representation for radiance field
+.
+In
+CVPR
+,
+Cited by:
+§1
+,
+§2
+,
+Table 4
+.
+[23]
+S. Lee, F. Shu, Y. Sanchez, T. Schierl, and C. Hellge
+(2025)
+Compression of 3D Gaussian splatting with optimized feature planes and standard video codecs
+.
+In
+IEEE/CVF International Conference on Computer Vision (ICCV)
+,
+Cited by:
+§2
+,
+Table 4
+.
+[24]
+L. Liu, Z. Chen, W. Jiang, W. Wang, and D. Xu
+(2024)
+HEMGS: a hybrid entropy model for 3D Gaussian splatting data compression
+.
+arXiv preprint arXiv:2411.18473
+.
+Cited by:
+§2
+,
+Table 4
+,
+Table 4
+.
+[25]
+S. P. Lloyd
+(1982)
+Least squares quantization in PCM
+.
+IEEE Transactions on Information Theory
+28
+(
+2
+).
+Cited by:
+§2
+.
+[26]
+T. Lu, M. Yu, L. Xu, Y. Xiangli, L. Wang, D. Lin, and B. Dai
+(2024)
+Scaffold-GS: structured 3D gaussians for view-adaptive rendering
+.
+In
+CVPR
+,
+Cited by:
+§2
+,
+Table 4
+,
+§5
+.
+[27]
+S. S. Mallick, R. Goel, B. Kerbl, M. Steinberger, F. V. Carrasco, and F. D. L. Torre
+(2024)
+Taming 3DGS: high-quality radiance fields with limited resources
+.
+In
+SIGGRAPH Asia
+,
+Cited by:
+§4.5
+,
+Table 5
+,
+Table 5
+.
+[28]
+P. Martin, A. Rodrigues, J. Ascenso, and M. P. Queluz
+(2026)
+Structured image-based coding for efficient Gaussian splatting compression
+.
+arXiv preprint arXiv:2601.14510
+.
+Cited by:
+§2
+,
+Table 4
+,
+Table 4
+,
+Table 4
+.
+[29]
+W. Morgenstern, F. Barthel, A. Hilsmann, and P. Eisert
+(2024)
+Compact 3D scene representation via self-organizing gaussian grids
+.
+In
+ECCV
+,
+Cited by:
+§1
+,
+§2
+,
+§4.5
+,
+Table 4
+,
+Table 5
+.
+[30]
+K. L. Navaneet, K. P. Meibodi, S. A. Koohpayegani, and H. Pirsiavash
+(2024)
+CompGS: smaller and faster gaussian splatting with vector quantization
+.
+In
+ECCV
+,
+Cited by:
+§2
+,
+§3.5
+,
+Table 4
+.
+[31]
+S. Niedermayr, J. Stumpfegger, and R. Westermann
+(2024)
+Compressed 3D gaussian splatting for accelerated novel view synthesis
+.
+In
+CVPR
+,
+Cited by:
+§1
+,
+§1
+,
+§2
+,
+§2
+,
+§3.5
+,
+§3.5
+,
+§4.1
+,
+§4.5
+,
+Table 1
+,
+Table 4
+,
+Table 5
+.
+[32]
+P. Papantonakis, G. Kopanas, B. Kerbl, A. Lanvin, and G. Drettakis
+(2024)
+Reducing the memory footprint of 3D gaussian splatting
+.
+Proceedings of the ACM on Computer Graphics and Interactive Techniques
+7
+(
+1
+).
+Cited by:
+§1
+,
+§2
+,
+§2
+,
+§3.4
+,
+§3.5
+,
+§4.1
+,
+§4.5
+,
+Table 2
+,
+Table 4
+,
+Table 5
+.
+[33]
+L. Radl, M. Steiner, M. Parger, A. Weinrauch, B. Kerbl, and M. Steinberger
+(2024)
+StopThePop: sorted gaussian splatting for view-consistent real-time rendering
+.
+ACM Transactions on Graphics
+43
+(
+4
+).
+Cited by:
+§2
+.
+[34]
+R. Ramamoorthi and P. Hanrahan
+(2001)
+An efficient representation for irradiance environment maps
+.
+In
+SIGGRAPH
+,
+Cited by:
+§2
+.
+[35]
+A. Said and R. Rauwendaal
+(2026)
+Compression of 3D gaussian splatting data using GPU-friendly graphics texture coding
+.
+arXiv preprint arXiv:2607.14513
+.
+Cited by:
+§2
+.
+[36]
+P. Sloan, J. Kautz, and J. Snyder
+(2002)
+Precomputed radiance transfer for real-time rendering in dynamic, low-frequency lighting environments
+.
+In
+SIGGRAPH
+,
+Cited by:
+§2
+.
+[37]
+B. Tian, Q. Gao, S. Xianyu, X. Cui, and M. Zhang
+(2025)
+FlexGaussian: flexible and cost-effective training-free compression for 3D gaussian splatting
+.
+In
+ACM Multimedia
+,
+Cited by:
+§2
+,
+Table 4
+.
+[38]
+H. Wang, M. H. Vali, and A. Solin
+(2025)
+Smol-GS: compact representations for abstract 3D Gaussian splatting
+.
+arXiv preprint arXiv:2512.00850
+.
+Cited by:
+§2
+,
+Table 4
+,
+Table 4
+.
+[39]
+H. Wang, H. Zhu, T. He, R. Feng, J. Deng, J. Bian, and Z. Chen
+(2024)
+End-to-end rate-distortion optimized 3D gaussian representation
+.
+In
+ECCV
+,
+Cited by:
+§1
+,
+§2
+,
+Table 4
+.
+[40]
+Y. Wang, Z. Li, L. Guo, W. Yang, A. C. Kot, and B. Wen
+(2024)
+ContextGS: compact 3D Gaussian splatting with anchor level context model
+.
+In
+Advances in Neural Information Processing Systems (NeurIPS)
+,
+Cited by:
+§2
+,
+Table 4
+,
+Table 4
+.
+[41]
+S. Xie, W. Zhang, C. Tang, Y. Bai, R. Lu, S. Ge, and Z. Wang
+(2024)
+MesonGS: post-training compression of 3D gaussians via efficient attribute transformation
+.
+In
+ECCV
+,
+Cited by:
+§1
+,
+§2
+,
+Table 4
+,
+Table 4
+.
+[42]
+B. Xiong, R. Liu, T. Zhou, M. Chen, Z. Fan, and A. Feng
+(2026)
+NanoGS: training-free gaussian splat simplification
+.
+In
+ECCV
+,
+Cited by:
+§2
+.
+[43]
+V. Ye, R. Li, J. Kerr, M. Turkulainen, B. Yi, Z. Pan, O. Seiskari, J. Ye, J. Hu, M. Tancik, and A. Kanazawa
+(2024)
+Gsplat: an open-source library for Gaussian splatting
+.
+arXiv preprint arXiv:2409.06765
+.
+Cited by:
+§2
+,
+Table 4
+.
+[44]
+Z. Yu, A. Chen, B. Huang, T. Sattler, and A. Geiger
+(2024)
+Mip-splatting: alias-free 3D gaussian splatting
+.
+In
+CVPR
+,
+Cited by:
+§2
+.
+[45]
+Q. Zhou and S. Liu
+(2025)
+Efficient color representation for 3D gaussian splatting via structured spherical harmonic optimization
+.
+In
+Applications of Digital Image Processing XLVIII, SPIE Optics + Photonics
+,
+Cited by:
+§2
+.
+Appendix A
+Implementation details
+Renderer.
+All renders in this paper use a PyTorch re-implementation of the reference
+diff-gaussian-rasterization
+forward pass (frustum culling, EWA projection with the
+1.3
+​
+tan
+1.3\tan
+clamp,
+0.3
+0.3
+px dilation,
+3
+​
+σ
+3\sigma
+tile radius,
+16
+×
+16
+16\times 16
+tiles, depth sorting by Gaussian centre, front-to-back compositing with the
+1
+/
+255
+1/255
+alpha cut-off and
+T
+<
+10
+−
+4
+T<10^{-4}
+early termination, SH evaluation with the
++
+0.5
++0.5
+offset and clamp). Like the reference, it ignores the COLMAP principal point (the reference maps NDC to integer pixel indices, which places the centre of projection at
+W
+/
+2
+W/2
+,
+H
+/
+2
+H/2
+in the pixel-centre convention used here) and rescales the focal lengths to the evaluation image size. Our metric code was verified by scoring the official CUDA renders published by NerfBaselines
+[
+21
+]
+for its own 3DGS run of
+garden
+: it reproduces their reported PSNR (27.342) and SSIM (0.866) to three decimals. All comparisons in this paper are between configurations rendered by the same code. The two accumulators
+∑
+p
+w
+i
+​
+p
+\sum_{p}w_{ip}
+and
+∑
+p
+w
+i
+​
+p
+2
+\sum_{p}w_{ip}^{2}
+are added to the compositing loop; in the reference CUDA rasteriser they are two atomic adds per Gaussian–pixel pair, and the released code includes a patch that adds them to
+diff-gaussian-rasterization
+(commit
+9c5c202
+).
+Validation against the reference CUDA rasteriser.
+Every number in this paragraph is generated from a stored artifact (
+results/validation/*.json
+, macros in
+tables/validation.tex
+). We ran the patched reference rasteriser on an NVIDIA GeForce RTX 4090 on the same models and test views. Its per-Gaussian accumulators agree with ours in total to 0.2 % (
+S
+(
+1
+)
+S^{(1)}
+:
+1.0417
+×
+10
+6
+1.0417\times 10^{6}
+vs.
+1.0433
+×
+10
+6
+1.0433\times 10^{6}
+on the first
+garden
+test view) and the conclusions of the paper are reproduced by the official kernel: on
+garden
+/
+kitchen
+the 9-float allocation costs
+0.01
+0.01
+/
+0.11
+0.11
+dB against the full model rendered by the same kernel, whereas truncation to degree 1 costs
+1.89
+1.89
+/
+2.88
+2.88
+dB (our renderer on the same views:
+0.01
+0.01
+/
+0.13
+0.13
+and
+2.35
+2.35
+/
+3.92
+3.92
+dB). The absolute PSNR of our thin wrapper around the official kernel differs from our renderer by
+1.06
+1.06
+/
+1.57
+1.57
+dB on the two scenes (mean absolute pixel difference
+0.015
+0.015
+/
+0.011
+0.011
+). Two further checks fix the absolute scale of our renderer. First, rendering the
+garden
+checkpoint published by NerfBaselines
+[
+21
+]
+with our code and comparing against the CUDA renders NerfBaselines published for the same checkpoint gives a mean PSNR of
+42.6
+42.6
+dB between the two renders over the 24 test views (mean absolute pixel difference
+0.005
+0.005
+), and test PSNRs against ground truth of
+27.23
+27.23
+(ours) against
+27.34
+27.34
+(reference), i.e. within
+0.11
+0.11
+dB. Second, the appearance-refit runs of
+Sec.
+3.6
+evaluate the uncompressed model of every scene with the official CUDA kernel through the official training code (
+results/<scene>@refit*/eval/refit.json
+); over the 39 runs on 13 scenes the official kernel’s full-model PSNR differs from ours by
++
+0.044
++0.044
+dB on average (range
+−
+0.000
+-0.000
+to
++
+0.165
++0.165
+;
+garden
++
+0.114
++0.114
+,
+kitchen
++
+0.120
++0.120
+,
+bicycle
++
+0.165
++0.165
+), so every gap reported in this paper is measured on a renderer whose absolute scale matches the reference to a few hundredths of a decibel.
+Statistics and fitting.
+The Gram matrices are accumulated in fp32 on the GPU as
+N
+×
+256
+N\times 256
+tensors from the per-view records (
+𝐝
+i
+​
+j
+\mathbf{d}_{ij}
+recomputed from the poses). The reduced coefficients are solved in fp64 in batches with
+torch.linalg.solve
+; for
+N
+=
+5.8
+N=5.8
+M Gaussians the three solves (
+L
+=
+0
+,
+1
+,
+2
+L=0,1,2
+) take under a minute on a CPU. Allocation is a bisection with
+60
+60
+steps over the Lagrange multiplier. Contribution pruning removes the Gaussians below the exact
+k
+k
+-th smallest total blending weight (
+torch.kthvalue
+; ties at the threshold, typically the never-observed Gaussians at zero, are removed too), so every run of the pipeline is reproducible bit for bit and no learning rate, seed or sampling enters it. The per-view records are accumulated on the GPU with atomic adds; the same 161 views of
+garden
+accumulated on two different GPUs give projection residuals (
+Eq.
+9
+, summed over the model) that agree to
+0.02
+0.02
+% (
+results/validation/crossmachine_garden.json
+). Vector quantisation runs
+12
+12
+–
+15
+15
+generalised Lloyd iterations with a
+4096
+4096
+-entry codebook per degree group; codewords are initialised by sampling data points with probability proportional to
+tr
+⁡
+𝐆
+i
+\tr\mathbf{G}_{i}
+, empty clusters are re-seeded at the points of largest distortion
+D
+i
+​
+(
+𝐜
+k
+⁡
+(
+i
+)
+)
+D_{i}(\mathbf{c}_{k(i)})
+under their current assignment, and the update step uses a ridge of
+10
+−
+6
+​
+tr
+⁡
+(
+∑
+i
+𝐆
+i
+)
+/
+q
+10^{-6}\tr(\sum_{i}\mathbf{G}_{i})/q
+.
+Metrics.
+PSNR, SSIM (
+11
+×
+11
+11\times 11
+Gaussian window,
+σ
+=
+1.5
+\sigma=1.5
+) and LPIPS (VGG; inputs in
+[
+0
+,
+1
+]
+[0,1]
+passed to the network’s scaling layer exactly as the 3DGS
+metrics.py
+script does, so that values are comparable with published tables) are computed following the 3DGS evaluation script on the standard test split (every eighth image) at the resolutions of the official models (
+images_4
+for outdoor and
+images_2
+for indoor Mip-NeRF 360 scenes, full resolution for Tanks&Temples and Deep Blending).
+Appendix B
+Derivations
+Proof of
+Proposition
+1
+.
+Write
+𝐞
+i
+=
+𝐘
+​
+(
+𝐝
+i
+​
+j
+)
+⊤
+​
+Δ
+​
+𝐊
+i
+\mathbf{e}_{i}=\mathbf{Y}(\mathbf{d}_{ij})^{\!\top}\Delta\mathbf{K}_{i}
+. For
+Eq.
+4
+, Cauchy–Schwarz with weights
+w
+i
+​
+p
+w_{ip}
+gives
+‖
+∑
+i
+w
+i
+​
+p
+​
+𝐞
+i
+‖
+2
+≤
+(
+∑
+i
+w
+i
+​
+p
+)
+​
+(
+∑
+i
+w
+i
+​
+p
+​
+‖
+𝐞
+i
+‖
+2
+)
+≤
+∑
+i
+w
+i
+​
+p
+​
+‖
+𝐞
+i
+‖
+2
+\|\sum_{i}w_{ip}\mathbf{e}_{i}\|^{2}\leq(\sum_{i}w_{ip})(\sum_{i}w_{ip}\|\mathbf{e}_{i}\|^{2})\leq\sum_{i}w_{ip}\|\mathbf{e}_{i}\|^{2}
+, using
+∑
+i
+w
+i
+​
+p
+≤
+1
+\sum_{i}w_{ip}\leq 1
+; sum over
+p
+p
+. For
+Eq.
+5
+, expand the square and drop the cross terms, whose expectation vanishes.
+Regularised projection.
+Setting the gradient of the objective in
+Eq.
+8
+with respect to
+𝐊
+′
+\mathbf{K}^{\prime}
+to zero gives
+P
+⊤
+​
+𝐀
+i
+​
+(
+P
+​
+𝐊
+′
+−
+𝐊
+i
+)
++
+λ
+i
+​
+(
+𝐊
+′
+−
+𝐊
+i
+,
+S
+)
+=
+0
+P^{\!\top}\mathbf{A}_{i}(P\mathbf{K}^{\prime}-\mathbf{K}_{i})+\lambda_{i}(\mathbf{K}^{\prime}-\mathbf{K}_{i,S})=0
+, i.e.
+(
+𝐀
+S
+​
+S
++
+λ
+i
+𝐈
+)
+𝐊
+′
+=
+𝐀
+S
+:
+𝐊
+i
++
+λ
+i
+𝐊
+i
+,
+S
+(\mathbf{A}_{SS}+\lambda_{i}\mathbf{I})\mathbf{K}^{\prime}=\mathbf{A}_{S:}\mathbf{K}_{i}+\lambda_{i}\mathbf{K}_{i,S}
+, since
+P
+⊤
+​
+𝐀
+i
+​
+P
+=
+𝐀
+S
+​
+S
+P^{\!\top}\mathbf{A}_{i}P=\mathbf{A}_{SS}
+and
+P
+⊤
+𝐀
+i
+=
+𝐀
+S
+:
+P^{\!\top}\mathbf{A}_{i}=\mathbf{A}_{S:}
+. The objective is strictly convex for
+λ
+i
+>
+0
+\lambda_{i}>0
+, so the solution is unique. For
+λ
+i
+→
+∞
+\lambda_{i}\to\infty
+the solution tends to
+𝐊
+i
+,
+S
+\mathbf{K}_{i,S}
+. For
+𝐀
+i
+=
+𝐈
+\mathbf{A}_{i}=\mathbf{I}
+(uniform observation) the unregularised solution is
+𝐀
+S
+​
+S
+−
+1
+𝐀
+S
+:
+𝐊
+i
+=
+𝐊
+i
+,
+S
+\mathbf{A}_{SS}^{-1}\mathbf{A}_{S:}\mathbf{K}_{i}=\mathbf{K}_{i,S}
+, which is the truncation.
+Generalised Lloyd update.
+For a fixed assignment, the cluster distortion
+∑
+i
+∈
+k
+tr
+⁡
+(
+(
+𝐱
+i
+−
+𝐜
+)
+⊤
+​
+𝐆
+i
+​
+(
+𝐱
+i
+−
+𝐜
+)
+)
+\sum_{i\in k}\tr((\mathbf{x}_{i}-\mathbf{c})^{\!\top}\mathbf{G}_{i}(\mathbf{x}_{i}-\mathbf{c}))
+is a convex quadratic in
+𝐜
+\mathbf{c}
+whose gradient
+−
+2
+∑
+i
+∈
+k
+𝐆
+i
+(
+𝐱
+i
+−
+𝐜
+)
+-2\sum_{i\in k}\mathbf{G}_{i}(\mathbf{x}_{i}-\mathbf{c})
+vanishes at
+𝐜
+=
+(
+∑
+i
+𝐆
+i
+)
+−
+1
+​
+∑
+i
+𝐆
+i
+​
+𝐱
+i
+\mathbf{c}=(\sum_{i}\mathbf{G}_{i})^{-1}\sum_{i}\mathbf{G}_{i}\mathbf{x}_{i}
+. Both Lloyd steps decrease the distortion monotonically, so the iteration converges to a local minimum.
+Hardware.
+All timings are measured on an Apple M1 Max (32 GPU cores, 32 GB unified memory; Metal reports a recommended working set of 26.8 GB). Unified memory has two consequences for the measurements we report. There is no host-to-device transfer, so the smaller appearance data cannot show a transfer benefit here that it would show on a discrete GPU, where the AC coefficients must cross the bus; we therefore report footprint and the cost of reading the model from disk rather than a transfer time. And the rasteriser’s working set competes with the optimiser state and with every other process for the same pool, which makes the memory saving of a training-time variant more consequential on this architecture than its iteration-time saving.
+Appendix C
+Controlled test of
+Proposition
+1
+The under-prediction is not a defect of the analysis but exactly the effect that
+Eq.
+5
+assumes away, as a controlled experiment on a synthetic scene confirms (250 Gaussians, 8 cameras, statistics accumulated by the same rasteriser;
+results/validation/controlled_test.json
+, written by the test suite). When the coefficients are perturbed by
+independent
+Gaussian noise—the hypothesis under which
+Eq.
+5
+is derived—the
+S
+(
+2
+)
+S^{(2)}
+estimate predicts the measured squared image error of the actual renders to within
+7
+7
+% at every magnitude we tried (measured/predicted
+=
+1.01
+=1.01
+,
+0.98
+0.98
+,
+0.93
+0.93
+for perturbations of standard deviation
+0.01
+0.01
+,
+0.05
+0.05
+,
+0.2
+0.2
+), and the
+S
+(
+1
+)
+S^{(1)}
+bound of
+Eq.
+4
+holds with a factor of
+3.7
+3.7
+–
+4.0
+4.0
+to spare. The median factor of
+1.6
+1.6
+–
+2.9
+2.9
+observed for real compressed models is therefore attributable to the correlation between the errors of neighbouring Gaussians, not to the metric. In the same setting, perturbing the coefficients along the null space of
+𝐀
+i
+\mathbf{A}_{i}
+—which for these cameras has mean dimension
+6.9
+6.9
+of
+16
+16
+—changes the rendered training views by a relative squared error of
+3
+×
+10
+−
+9
+3\times 10^{-9}
+, i.e. nothing beyond floating-point noise, despite a coefficient-space energy comparable to the model’s own.
+Appendix D
+Rendering and training cost
+layout
+AC floats
+SH data
+SH evaluation (ms)
+frame
+per Gaussian
+(MB, fp16)
+padded
+branching
+(s)
+garden
+degree 3
+45.0
+560
+76.0
+80.5
+8.9
+allocation, 9
+9.0
+140
+77.5
+17.3
+5.9
+allocation, 6
+6.0
+105
+75.9
+11.8
+6.4
+allocation, 3
+3.0
+70
+75.5
+8.5
+8.2
+degree 1
+9.0
+140
+77.9
+11.8
+9.4
+degree 0
+0.0
+35
+73.7
+4.6
+8.0
+kitchen
+degree 3
+45.0
+178
+24.0
+25.1
+6.5
+allocation, 9
+9.0
+44
+24.0
+5.4
+6.5
+allocation, 6
+6.0
+33
+23.8
+4.9
+6.5
+allocation, 3
+3.0
+22
+23.9
+3.3
+6.5
+degree 1
+9.0
+44
+23.8
+4.0
+6.6
+degree 0
+0.0
+11
+23.9
+1.5
+6.5
+Table 7:
+Rendering cost as a function of the SH layout in our PyTorch rasteriser (Apple M1 Max, one test view, median of repeated runs). SH evaluation: the colour stage with a zero-padded degree-3 kernel (no benefit) and with a kernel that branches on the per-Gaussian degree tag. Frame: complete frame including sorting and compositing, which dominates this implementation; its variation across rows is measurement noise.
+trainable SH
+params/Gauss.
+params+Adam (MB)
+GPU working set (GB)
+iteration (s)
+degree 3 (45 AC)
+59
+1033
+8.8
+9.19
+degree 1 (9 AC)
+23
+403
+4.5
+8.79
+degree 0 (none)
+14
+245
+4.5
+8.83
+Table 8:
+Cost of one training iteration (differentiable render, loss, backward, Adam step) in a pure PyTorch trainer on 1.46M Gaussians at 648
+×
+\times
+420 (Apple M1 Max, unified memory), as a function of the number of trainable SH coefficients. OGC itself is post-hoc and does not change training; this bounds what a training-time variant could gain: little time, substantial memory.
+Rendering.
+Compaction of the appearance data affects rendering through the colour-evaluation stage and through memory traffic, and
+Tab.
+7
+measures both in our rasteriser. Two kernels are compared: a zero-padded kernel that always evaluates the degree-3 basis (what a viewer does when it simply loads shorter coefficients into the standard layout), and a kernel that branches on the two-bit degree tag and evaluates each group with its own basis size. The padded kernel gains nothing—its cost is flat at
+76
+76
+ms on
+garden
+and
+24
+24
+ms on
+kitchen
+regardless of how many coefficients are zero—whereas the branching kernel is
+4.5
+×
+4.5\times
+faster at the 9-float allocation,
+6.4
+×
+6.4\times
+at 6 floats and
+16
+×
+16\times
+at degree 0. In this PyTorch implementation the stage is under
+1
+1
+% of a frame, which is dominated by tile sorting and compositing, so the whole-frame time does not change measurably (
+6.5
+6.5
+s on
+kitchen
+in every row). In the reference CUDA rasteriser the preprocess kernel that evaluates SH is likewise a minority of the frame, so we expect the end-to-end gain to be small in absolute terms; the practical benefits of the compaction are the
+5
+5
+–
+15
+×
+15\times
+smaller appearance footprint, which reduces model load and streaming time and, on a discrete GPU, the bytes that must cross the bus, not frame rate.
+Training.
+OGC is a post-processing method and leaves training unchanged. To bound what a training-time variant that optimised fewer coefficients could gain,
+Tab.
+8
+times one optimisation step of a pure PyTorch trainer with all 45, 9 or 0 AC coefficients trainable. Iteration time drops by only
+4
+4
+%: the SH coefficients are cheap to differentiate compared with rasterisation. What changes is memory: parameters plus Adam state fall from
+1.03
+1.03
+to
+0.40
+0.40
+GB (degree 1) and
+0.25
+0.25
+GB (degree 0), and the GPU working set of the step halves from
+8.8
+8.8
+to
+4.5
+4.5
+GB. On unified-memory hardware, where the rasteriser, the optimiser and every other process share one pool, that saving is what determines whether a scene fits; we report it as a bound and do not claim a training-time speed-up.
+Appendix E
+Ablations
+weight
+ω
+i
+​
+j
+\omega_{ij}
+deg. 0
+deg. 1
+λ
+\lambda
+deg. 0
+deg. 1
+truncation
+24.56
+25.83
+10
+−
+6
+10^{-6}
+25.60
+28.13
+S
+(
+2
+)
+S^{(2)}
+(ours)
+25.60
+28.09
+10
+−
+4
+10^{-4}
+25.60
+28.12
+S
+(
+1
+)
+S^{(1)}
+25.55
+28.05
+10
+−
+3
+10^{-3}
+25.60
+28.09
+pixel count
+25.29
+27.85
+10
+−
+2
+10^{-2}
+25.60
+27.98
+hit (0/1)
+24.99
+27.56
+10
+−
+1
+10^{-1}
+25.58
+27.69
+1
+1
+25.29
+27.15
+10
+10
+24.71
+26.28
+Table 9:
+Ablations (test PSNR, mean of
+garden
+and
+kitchen
+). Left: choice of the per-view weight in the Gram matrix (
+λ
+=
+10
+−
+3
+\lambda=10^{-3}
+). Right: regularisation strength with
+S
+(
+2
+)
+S^{(2)}
+weights;
+λ
+→
+∞
+\lambda\to\infty
+is truncation.
+Table
+9
+varies the two choices the method makes.
+Left
+: the per-view weight
+ω
+i
+​
+j
+\omega_{ij}
+in
+Eq.
+6
+. The ordering follows
+Sec.
+3.2
+: the squared blending weights
+S
+(
+2
+)
+S^{(2)}
+of the uncorrelated estimate are best, the plain weights
+S
+(
+1
+)
+S^{(1)}
+of the bound marginally behind, and the two weights that discard the compositing information—pixel count and a binary visibility flag—lose progressively more (
+26.60
+26.60
+,
+26.57
+26.57
+,
+26.46
+26.46
+and
+26.28
+26.28
+dB on
+garden
+at degree 1, against
+24.85
+24.85
+dB for truncation). Most of the benefit thus comes from knowing
+which directions
+a Gaussian was seen from at all: even the binary weighting recovers
+1.43
+1.43
+of the
+1.75
+1.75
+dB; weighting those directions by how strongly the Gaussian contributed is worth the remaining
+0.3
+0.3
+dB and costs one extra accumulator.
+Right
+: the regularisation
+λ
+\lambda
+, which interpolates between the pure weighted least-squares projection and truncation. PSNR is flat for
+λ
+≤
+10
+−
+3
+\lambda\leq 10^{-3}
+(within
+0.04
+0.04
+dB of the unregularised solution) and converges towards the truncation value as
+λ
+\lambda
+grows (
+25.24
+25.24
+dB at
+λ
+=
+10
+\lambda=10
+). We use
+λ
+=
+10
+−
+3
+\lambda=10^{-3}
+: it is on the flat part of the curve and keeps the truncated coefficients as a prior in the unobserved directions, which matters for viewpoints far outside the capture even though the test split cannot measure it.
+Appendix F
+Appearance refit against fine-tuning
+Table
+10
+compares the closed-form appearance refit of
+Sec.
+3.6
+with fine-tuning the SH coefficients by Adam on the pruned official
+garden
+model, without any compaction, on the standard test split. Eight conjugate-gradient iterations with two active-set restarts (sixteen forward–backward passes over the training views) reach a higher test PSNR than every Adam configuration we ran, at both pruning levels, in less wall-clock time than the Adam runs that come closest, with no learning rate or schedule. Adam with the official L1 + D-SSIM loss ends with a slightly higher SSIM, the quantity that loss contains; the refit minimises the squared error, so its advantage is in PSNR.
+pruned
+method
+PSNR before
+PSNR after
+SSIM after
+time (s)
+0%
+Adam, 1500 iterations
+27.32
+27.39
+0.867
+111
+50%
+Adam, 1500 iterations
+26.96
+27.26
+0.864
+65
+50%
+Adam, 2500 iterations
+26.96
+27.24
+0.864
+108
+50%
+Adam, 2500 iterations (MSE)
+26.97
+27.36
+0.862
+102
+50%
+Adam, 6000 iterations
+26.96
+27.26
+0.864
+256
+50%
+PCG, 12
+×
+\times
+3 iterations
+26.97
+27.48
+0.862
+184
+50%
+PCG, 8
+×
+\times
+2 iterations
+26.97
+27.47
+0.862
+87
+70%
+Adam, 1500 iterations
+24.51
+25.92
+0.838
+45
+70%
+Adam, 2500 iterations
+24.50
+26.00
+0.839
+76
+70%
+Adam, 6000 iterations (MSE)
+24.51
+26.30
+0.836
+165
+70%
+PCG, 8
+×
+\times
+2 iterations
+24.50
+26.34
+0.835
+62
+Table 10:
+Appearance refit on the official pretrained
+garden
+model (5.84M Gaussians, 27.32 dB uncompressed by the official rasteriser) after contribution pruning (no compaction), test split. The closed-form refit (
+Sec.
+3.6
+) against fine-tuning the SH coefficients with Adam at the official learning rates (L1 + D-SSIM loss unless marked MSE); times on one A100. Twelve-by-three PCG iterations add at most a few hundredths of a decibel over eight-by-two at twice the time. Adam with the official L1 + D-SSIM loss reaches a slightly higher SSIM, the metric it optimises.
+Appendix G
+Geometry stage variants
+Table
+11
+varies the bit depths of the geometry stage of
+Tab.
+5
+on
+garden
+and
+kitchen
+, and adds the stage without pruning: with every Gaussian kept,
+garden
+and
+kitchen
+occupy
+79.9
+79.9
+and
+25.0
+25.0
+MB at
+0.35
+0.35
+and
+0.71
+0.71
+dB below fp32, i.e.
+17
+×
+17\times
+smaller than the fp32 models before any primitive is removed.
+Configuration
+zlib (MB)
+rANS (MB)
+PSNR
+SSIM
+LPIPS
+garden
+appearance pipeline only, 50% pruning (fp16 container)
+103.3
+–
+26.57
+0.846
+0.129
++ geometry 16/8 bit, no pruning
+87.9
+79.9
+26.86
+0.853
+0.123
++ geometry 16/8 bit
+45.7
+41.7
+26.51
+0.844
+0.130
++ geometry 16/6 bit
+38.0
+33.7
+26.43
+0.839
+0.135
++ geometry 14/8 bit
+42.6
+39.2
+26.10
+0.821
+0.145
++ geometry 14/6 bit
+34.8
+31.1
+26.03
+0.817
+0.149
++ geometry 16/8 bit, 60% pruning
+36.9
+33.6
+25.75
+0.830
+0.142
++ geometry 16/8 bit, 70% pruning
+27.9
+25.6
+24.20
+0.796
+0.167
+kitchen
+appearance pipeline only, 50% pruning (fp16 container)
+33.0
+–
+29.38
+0.910
+0.145
++ geometry 16/8 bit, no pruning
+27.4
+25.0
+30.01
+0.914
+0.139
++ geometry 16/8 bit
+14.1
+12.7
+29.32
+0.908
+0.146
++ geometry 16/6 bit
+11.6
+10.1
+29.19
+0.905
+0.149
++ geometry 14/8 bit
+13.0
+12.0
+28.78
+0.891
+0.157
++ geometry 14/6 bit
+10.5
+9.4
+28.66
+0.888
+0.161
++ geometry 16/8 bit, 60% pruning
+11.3
+10.2
+28.39
+0.900
+0.153
++ geometry 16/8 bit, 70% pruning
+8.6
+7.8
+26.62
+0.883
+0.168
+Table 11:
+Bit-depth variants of the geometry stage of
+Tab.
+5
+(position bits / attribute bits) on
+garden
+and
+kitchen
+, with the size under both entropy coders (byte-planed zlib and the rANS coder of the supplement; the appearance-only row is the plain fp16 container). Fourteen-bit positions cost several tenths of a decibel and save little because the delta-coded positions are already cheap; six-bit attributes cost about a tenth of a decibel for a further sixth of the file.
+Appendix H
+Spectrum of the observation Gram matrices
+Figure 5
+:
+Spectral analysis of the observation Gram matrices of a pretrained model. Left: distribution of the numerical rank of
+𝐀
+i
+\mathbf{A}_{i}
+. Right: fraction of the AC coefficient energy
+‖
+𝐊
+i
+‖
+2
+\|\mathbf{K}_{i}\|^{2}
+that lies in the null space of
+𝐀
+i
+\mathbf{A}_{i}
+, i.e. in directions no training view observed.
+Figure
+5
+shows the rank and null-space energy distributions discussed in
+Sec.
+4
+for
+garden
+and
+kitchen
+: the indoor
+kitchen
+model, captured with 244 rather than 161 views, is better constrained (median rank
+15
+15
+,
+7.3
+7.3
+% unobserved Gaussians) but shows the same structure. A regulariser that prevents such energy from accumulating during training is future work.
+Appendix I
+Qualitative results
+Figure 6
+:
+Test-view crops: ground truth, uncompressed model, truncation and projection to degree 1, truncation and projection to degree 0.
+Figure
+6
+(supplement) shows crops where the projection gains most over truncation at degree 0: truncation replaces the dark, view-dependent table top of
+garden
+by a washed-out average with a grey haze, because the truncated DC term is the mean of the colour function over the whole sphere, most of which was never observed, whereas the projection keeps the colour that was actually seen; the degree-1 projection is visually indistinguishable from the full model.
+Appendix J
+Drop-in experiment: per-scene results
+Table
+12
+lists, per Mip-NeRF 360 scene, the size and the test PSNR before and after fine-tuning for every colour-VQ metric inside Compressed3D (
+Sec.
+4.1
+), and
+Tab.
+13
+where the size differences come from: the containers are identical except for the colour-index stream, and their minibatch
+k
+k
+-means leaves the codebook under-used, so its indices carry about two bits less per Gaussian than the generalised Lloyd assignment. The smaller codebooks of the main table are the rate-matched points.
+Scene
+their VQ
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+, Lloyd
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+, Lloyd
+𝐀
+i
+\mathbf{A}_{i}
+, Lloyd
+𝐀
+i
+\mathbf{A}_{i}
+, 2048
+𝐀
+i
+\mathbf{A}_{i}
+, 1024
+𝐀
+i
+\mathbf{A}_{i}
+, 512
+MB
+pre
+post
+MB
+pre
+post
+MB
+pre
+post
+MB
+pre
+post
+MB
+pre
+post
+MB
+pre
+post
+MB
+pre
+post
+bicycle
+47.3
+24.44
+25.04
+48.3
+24.53
+25.00
+48.3
+24.55
+25.00
+49.9
+24.78
+25.01
+49.1
+24.73
+25.01
+48.5
+24.68
+24.95
+47.9
+24.62
+24.96
+bonsai
+12.8
+30.35
+31.38
+13.1
+30.62
+31.41
+13.0
+30.63
+31.43
+13.0
+31.03
+31.60
+12.7
+30.95
+31.45
+12.6
+30.87
+31.55
+12.6
+30.77
+31.32
+counter
+13.8
+27.90
+28.66
+14.2
+28.16
+28.74
+14.2
+28.14
+28.73
+13.5
+28.34
+28.79
+13.3
+28.30
+28.66
+13.3
+28.24
+28.68
+13.3
+28.17
+28.68
+flowers
+31.2
+21.00
+21.22
+32.0
+21.09
+21.25
+31.9
+21.11
+21.29
+32.6
+21.23
+21.32
+–
+–
+–
+–
+–
+–
+31.4
+21.13
+21.22
+garden
+46.4
+25.88
+26.85
+47.6
+26.15
+26.97
+47.5
+26.15
+26.90
+48.5
+26.67
+27.01
+47.8
+26.60
+26.97
+47.3
+26.52
+26.94
+46.6
+26.42
+26.87
+kitchen
+18.8
+29.20
+30.34
+19.2
+29.48
+30.50
+19.2
+29.48
+30.51
+18.5
+29.88
+30.44
+–
+–
+–
+–
+–
+–
+18.0
+29.59
+30.38
+room
+15.0
+30.24
+31.06
+15.6
+30.60
+31.31
+15.6
+30.60
+31.18
+15.2
+30.82
+31.13
+15.3
+30.77
+31.17
+15.2
+30.74
+31.20
+15.2
+30.72
+31.20
+stump
+40.5
+25.57
+26.34
+41.6
+25.83
+26.33
+41.5
+25.87
+26.32
+43.0
+26.17
+26.38
+–
+–
+–
+–
+–
+–
+41.1
+26.00
+26.31
+treehill
+33.4
+22.09
+22.20
+34.2
+22.11
+22.20
+34.1
+22.16
+22.26
+34.7
+22.17
+22.25
+–
+–
+–
+–
+–
+–
+33.6
+22.13
+22.23
+Table 12:
+Per-scene results of
+Tab.
+1
+(Mip-NeRF 360): size after fine-tuning, test PSNR before and after fine-tuning for every colour-VQ metric inside Compressed3D.
+Scene
+colour VQ
+codes used
+index entropy (bit)
+index stream (MB)
+container (MB)
+bicycle
+their VQ
+85856
+9.72
+6.49
+47.27
+bicycle
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+86960
+11.53
+7.49
+48.25
+bicycle
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+86960
+11.42
+7.45
+48.26
+bicycle
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+86960
+11.84
+9.32
+49.89
+bicycle
+our matrix, 2048-entry codebook
+84912
+10.89
+8.67
+49.15
+bicycle
+our matrix, 1024-entry codebook
+83888
+9.92
+8.01
+48.54
+bonsai
+their VQ
+108990
+10.28
+1.45
+12.80
+bonsai
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+110509
+12.28
+1.69
+13.06
+bonsai
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+110509
+12.07
+1.67
+13.04
+bonsai
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+110509
+12.54
+1.95
+12.99
+bonsai
+our matrix, 2048-entry codebook
+108461
+11.68
+1.83
+12.74
+bonsai
+our matrix, 1024-entry codebook
+107437
+10.80
+1.69
+12.56
+counter
+their VQ
+115764
+9.83
+1.45
+13.78
+counter
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+118306
+12.33
+1.75
+14.18
+counter
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+118306
+12.22
+1.74
+14.16
+counter
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+118306
+12.72
+2.01
+13.49
+counter
+our matrix, 2048-entry codebook
+116258
+11.83
+1.87
+13.28
+counter
+our matrix, 1024-entry codebook
+115234
+10.95
+1.73
+13.26
+flowers
+their VQ
+80916
+9.55
+4.18
+31.16
+flowers
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+83434
+11.62
+4.92
+31.98
+flowers
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+83434
+11.25
+4.80
+31.85
+flowers
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+83434
+11.83
+5.86
+32.57
+garden
+their VQ
+77959
+9.86
+7.21
+46.44
+garden
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+80121
+11.58
+8.25
+47.55
+garden
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+80121
+11.45
+8.18
+47.45
+garden
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+80121
+11.82
+9.50
+48.48
+garden
+our matrix, 2048-entry codebook
+78073
+10.89
+8.86
+47.77
+garden
+our matrix, 1024-entry codebook
+77049
+9.96
+8.19
+47.32
+kitchen
+their VQ
+114586
+10.51
+2.40
+18.83
+kitchen
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+115783
+12.30
+2.79
+19.24
+kitchen
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+115783
+12.17
+2.77
+19.23
+kitchen
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+115783
+12.48
+3.06
+18.45
+room
+their VQ
+118250
+8.96
+1.58
+15.02
+room
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+121020
+12.09
+2.05
+15.59
+room
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+121020
+12.00
+2.04
+15.57
+room
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+121020
+12.49
+2.38
+15.21
+room
+our matrix, 2048-entry codebook
+118972
+11.63
+2.23
+15.26
+room
+our matrix, 1024-entry codebook
+117948
+10.74
+2.06
+15.18
+stump
+their VQ
+91588
+9.00
+5.48
+40.48
+stump
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+94376
+11.26
+6.54
+41.63
+stump
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+94376
+11.05
+6.43
+41.50
+stump
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+94376
+11.70
+7.98
+42.96
+treehill
+their VQ
+83836
+9.40
+4.28
+33.42
+treehill
+their sensitivity
+s
+i
+​
+𝐈
+s_{i}\mathbf{I}
+in generalised Lloyd
+85959
+11.74
+5.07
+34.23
+treehill
+our weight
+tr
+⁡
+(
+𝐀
+i
+)
+​
+𝐈
+/
+16
+\tr(\mathbf{A}_{i})\mathbf{I}/16
+in generalised Lloyd
+85959
+11.52
+5.00
+34.14
+treehill
+our matrix
+𝐀
+i
+\mathbf{A}_{i}
+in generalised Lloyd
+85959
+11.78
+6.06
+34.74
+Table 13:
+Where the size difference between the colour-VQ metrics of
+Tab.
+1
+comes from. Every array of the container is identical in kind and shape across variants; only the colour-index stream differs. Their minibatch EMA
+k
+k
+-means uses the 4096-entry codebook unevenly (about 10 bit of zero-order entropy per index), whereas the generalised Lloyd assignment uses it almost uniformly (about 12 bit), which is more rate for the same codebook; the smaller codebooks give the rate-matched points of the main table. Codes used counts codebook entries plus the Gaussians kept uncompressed.
+Appendix K
+Stage-by-stage ablation of the appearance pipeline
+Table
+14
+isolates every stage of the appearance pipeline in a plain fp16 container without entropy coding: half-precision storage is lossless to three decimals, allocation at 9 floats and Gram VQ each cost a few hundredths to a few tenths of a decibel, and the Gram quantiser is consistently better than importance-weighted quantisation at the same size.
+Configuration
+Size (MB)
+PSNR
+SSIM
+LPIPS
+3DGS-30K reproduced (fp32)
+793.5
+27.29
+0.812
+0.218
+fp16 attributes
+416.9
+27.29
+0.812
+0.218
++ allocation (9 AC floats)
+175.7
+27.26
+0.812
+0.219
++ Gram VQ
+118.1
+27.02
+0.806
+0.227
++ importance VQ (instead)
+118.1
+26.74
+0.797
+0.236
+prune 50% (fp16)
+208.5
+27.12
+0.810
+0.221
++ allocation (9 AC floats)
+87.8
+27.03
+0.808
+0.223
++ Gram VQ (OGC appearance pipeline)
+59.6
+26.81
+0.802
+0.231
++ importance VQ (instead)
+59.6
+26.51
+0.792
+0.242
+Table 14:
+Stage-by-stage ablation of the appearance pipeline on Mip-NeRF 360 (mean over 9 scenes), in a plain container without entropy coding (fp32 positions; fp16 scales, rotations, opacities, DC colours and codebooks; 12-bit codes; 2-bit degree tags); all rows are rendered from the rounded values. The geometry stage of
+Tab.
+4
+is applied on top of the last Gram-VQ row.
+Appendix L
+Entropy coder
+Every integer stream of the geometry stage is coded twice in every run and both sizes are stored with the result: byte-planed zlib (level 9), and rANS (
+constriction
+) with a model matched to the stream—a static categorical for the 8-bit attributes, the degree tags and the VQ indices, optionally conditioned on the Morton-neighbour or on the previous channel of the same Gaussian, and a clipped categorical or quantised Laplace for the delta-coded positions; every model parameter is written to the stream header, the streams round-trip exactly (released test suite), and the reported size is that of the decodable file. The rANS coder is smaller than zlib by about a tenth (
+Tab.
+11
+); the gain concentrates on positions, rotations and degree tags, while the 8-bit attribute streams are already close to their zero-order entropy under zlib. Sizes in the main text are the rANS sizes.
+Appendix M
+Geometry quantisation under image-free sensitivities
+The observation Gram is the colour block of the Gauss–Newton Hessian of the photometric loss; the blocks of the remaining attributes are available from the rasteriser’s backward pass without any image. For view
+j
+j
+draw a Rademacher probe
+𝐯
+\mathbf{v}
+over pixels and channels; one backward pass gives
+𝐠
+=
+J
+⊤
+​
+𝐯
+\mathbf{g}=J^{\!\top}\mathbf{v}
+per Gaussian, and
+𝔼
+⁡
+[
+𝐠𝐠
+⊤
+]
+=
+J
+⊤
+​
+J
+\mathbb{E}[\mathbf{g}\mathbf{g}^{\!\top}]=J^{\!\top}J
+. We accumulate the diagonal over the training views with four probes per view (opacity logit, log scales, quaternion, position: eleven numbers per Gaussian; minutes on one GPU, validated against the exact Jacobian in the released tests), which is what independent uniform quantisation noise couples to: a step
+Δ
+a
+\Delta_{a}
+on attribute
+a
+a
+of Gaussian
+i
+i
+costs
+h
+i
+​
+a
+​
+Δ
+a
+2
+/
+12
+h_{ia}\Delta_{a}^{2}/12
+. The sensitivities span five orders of magnitude between the 10th and 90th percentile of Gaussians, so bit depths can follow them: Gaussians are sorted into four classes by their range-weighted sensitivity (a 2-bit tag), and every attribute group and class receives the bit depth that minimises predicted distortion plus
+μ
+\mu
+times rate.
+Table
+15
+compares the resulting curve with uniform bit depths under the same appearance stage and coder. The gain is real but modest: 11 % and 2 % of the file at unchanged quality (
+garden
+41.7
+→
+37.2
+41.7\to 37.2
+MB,
+kitchen
+12.7
+→
+12.4
+12.7\to 12.4
+MB with PSNR within
+0.01
+0.01
+dB), and Bjøntegaard rate savings of
+−
+2.9
+-2.9
+% and
+−
+6.6
+-6.6
+% between the Pareto fronts. At coarse steps (two to four bits for rotations) the first-order model stops predicting the error and the sensitivity-driven curve rejoins the uniform one; closing the remaining gap to retrained representations needs a different parameterisation, not a better allocation of quantisation bits.
+Scene
+geometry quantisation
+Size (MB)
+PSNR
+SSIM
+LPIPS
+garden
+uniform 16/8 bit
+41.7
+26.51
+0.844
+0.130
+uniform 14/8 bit
+39.2
+26.10
+0.821
+0.145
+uniform 16/6 bit
+33.7
+26.43
+0.839
+0.135
+uniform 14/6 bit
+31.1
+26.03
+0.817
+0.149
+uniform 12/5 bit
+25.4
+22.90
+0.595
+0.285
+sensitivity-driven,
+μ
+=
+1
+​
+e
+−
+06
+\mu=1e-06
+47.6
+26.51
+0.844
+0.130
+sensitivity-driven,
+μ
+=
+3
+​
+e
+−
+06
+\mu=3e-06
+45.8
+26.51
+0.844
+0.130
+sensitivity-driven,
+μ
+=
+1
+​
+e
+−
+05
+\mu=1e-05
+43.6
+26.51
+0.844
+0.130
+sensitivity-driven,
+μ
+=
+3
+​
+e
+−
+05
+\mu=3e-05
+42.2
+26.51
+0.844
+0.130
+sensitivity-driven,
+μ
+=
+0.0001
+\mu=0.0001
+39.9
+26.51
+0.844
+0.130
+sensitivity-driven,
+μ
+=
+0.0003
+\mu=0.0003
+37.2
+26.51
+0.843
+0.131
+sensitivity-driven,
+μ
+=
+0.001
+\mu=0.001
+33.6
+26.45
+0.840
+0.134
+sensitivity-driven,
+μ
+=
+0.003
+\mu=0.003
+29.9
+25.87
+0.817
+0.159
+BD-rate / BD-PSNR of adaptive against uniform
+-2.9 % / +0.04 dB
+kitchen
+uniform 16/8 bit
+12.7
+29.32
+0.908
+0.146
+uniform 14/8 bit
+12.0
+28.78
+0.891
+0.157
+uniform 16/6 bit
+10.1
+29.19
+0.905
+0.149
+uniform 14/6 bit
+9.4
+28.66
+0.888
+0.161
+uniform 12/5 bit
+7.5
+23.82
+0.652
+0.311
+sensitivity-driven,
+μ
+=
+1
+​
+e
+−
+06
+\mu=1e-06
+15.0
+29.32
+0.908
+0.146
+sensitivity-driven,
+μ
+=
+3
+​
+e
+−
+06
+\mu=3e-06
+14.7
+29.32
+0.908
+0.146
+sensitivity-driven,
+μ
+=
+1
+​
+e
+−
+05
+\mu=1e-05
+14.3
+29.32
+0.908
+0.146
+sensitivity-driven,
+μ
+=
+3
+​
+e
+−
+05
+\mu=3e-05
+13.8
+29.33
+0.908
+0.146
+sensitivity-driven,
+μ
+=
+0.0001
+\mu=0.0001
+13.3
+29.32
+0.908
+0.146
+sensitivity-driven,
+μ
+=
+0.0003
+\mu=0.0003
+12.4
+29.32
+0.908
+0.146
+sensitivity-driven,
+μ
+=
+0.001
+\mu=0.001
+11.4
+29.31
+0.908
+0.146
+sensitivity-driven,
+μ
+=
+0.003
+\mu=0.003
+10.5
+29.24
+0.906
+0.149
+BD-rate / BD-PSNR of adaptive against uniform
+-6.6 % / +0.01 dB
+Table 15:
+Geometry quantisation under the image-free Gauss–Newton sensitivities (
+Appendix
+M
+) against uniform bit depths, on the 50%-pruned models with the same appearance stage and the same rANS coder. Adaptive: four sensitivity classes per Gaussian (2-bit tag), bit depth per attribute group and class from a Lagrangian sweep over
+μ
+\mu
+. Bjøntegaard metrics of the adaptive curve against the uniform curve over the overlapping PSNR range.
+Appendix N
+Extrapolation protocol
+The standard split measures interpolation inside the capture trajectory, where the unobserved SH directions are invisible by construction. To measure what the post-hoc solutions do outside it, we train
+garden
+and
+kitchen
+with the official trainer while holding out a contiguous
+90
+°
+90\text{\,}\mathrm{\SIUnitSymbolDegree}
+arc of the trajectory (camera centres expressed in the principal frame of their distribution; cameras within
+±
+45
+°
+\pm$45\text{\,}\mathrm{\SIUnitSymbolDegree}$
+of azimuth zero become test views), accumulate the statistics over the training cameras only, and report the held-out views by their angular distance to the nearest training camera (
+Tab.
+16
+). The result qualifies the rest of the paper. Close to the capture the ordering of the standard split holds and strengthens: on the near views the projection to degree 2 scores
+22.52
+22.52
+against
+22.45
+22.45
+dB for truncation on
+garden
+and
+28.17
+28.17
+against
+26.77
+26.77
+dB on
+kitchen
+, and at degree 1
+27.09
+27.09
+against
+25.46
+25.46
+dB. Far from the capture the advantage disappears. On
+garden
+truncation generalises better:
+21.61
+21.61
+dB at degree 2 against
+20.88
+20.88
+for the projection and
+21.02
+21.02
+for the uncompressed model, the
+treehill
+effect of
+Sec.
+4
+on a larger scale: the trained high bands do not generalise far from the capture, discarding them regularises the model, and the projection, optimised for fidelity to the trained model where the cameras saw it, preserves what the trained model does. On
+kitchen
+every configuration lies within a few tenths of a decibel of the uncompressed model (
+19.27
+19.27
+dB), the projection ahead at degree 1 (
+19.70
+19.70
+against
+19.47
+19.47
+) and truncation ahead at degree 2 (
+19.55
+19.55
+against
+19.33
+19.33
+). The null-space rows show that the unobserved components, although arbitrary, are not what limits the far views: removing them or doubling them changes far-view PSNR by less than a tenth of a decibel on either scene (
+20.98
+20.98
+and
+20.89
+20.89
+against
+21.02
+21.02
+dB on
+garden
+); the error there is dominated by geometry and appearance that the capture never constrained at all. The regularised and unregularised Lloyd updates are indistinguishable here, the regularisation matters inside a host quantiser (
+Sec.
+4.1
+), not on its own. For a viewer who leaves the capture far behind, a larger regularisation
+λ
+\lambda
+, which moves the projection towards truncation in the weakly observed directions, is the prudent choice; our default
+λ
+=
+10
+−
+3
+\lambda=10^{-3}
+is tuned for the standard split.
+Configuration
+garden
+: PSNR near / mid / far
+kitchen
+: PSNR near / mid / far
+uncompressed
+22.65
+22.66
+21.02
+28.41
+22.89
+19.27
+truncation, degree 1
+21.92
+22.40
+21.58
+25.46
+22.18
+19.47
+projection, degree 1
+22.40
+22.19
+20.74
+27.09
+22.99
+19.70
+truncation, degree 0
+21.22
+21.90
+21.31
+24.43
+21.54
+19.14
+projection, degree 0
+21.46
+21.74
+20.90
+25.24
+22.07
+19.38
+allocation (truncated), 9 floats
+22.71
+22.84
+21.38
+27.88
+22.86
+19.40
+allocation (projected), 9 floats
+22.62
+22.43
+20.80
+28.26
+22.99
+19.42
++ importance VQ
+22.45
+22.35
+20.83
+27.62
+22.85
+19.42
++ Gram VQ, unregularised update
+22.56
+22.49
+20.92
+27.94
+22.94
+19.51
++ Gram VQ, regularised update
+22.56
+22.49
+20.93
+27.95
+22.94
+19.50
+null-space components removed
+22.63
+22.55
+20.98
+28.41
+22.84
+19.20
+null-space components doubled
+22.64
+22.53
+20.89
+28.41
+22.86
+19.26
+Table 16:
+Extrapolation protocol. Models trained by the official 3DGS trainer with a contiguous
+90
+°
+90\text{\,}\mathrm{\SIUnitSymbolDegree}
+arc of the capture held out; statistics accumulated over the training cameras only; test PSNR on the held-out arc grouped by angular distance to the nearest training camera (near
+<
+10
+°
+<$10\text{\,}\mathrm{\SIUnitSymbolDegree}$
+, mid
+10
+10\text{\,}
+–
+25
+°
+25\text{\,}\mathrm{\SIUnitSymbolDegree}
+, far
+≥
+25
+°
+\geq$25\text{\,}\mathrm{\SIUnitSymbolDegree}$
+; garden: 4/17/28 views; kitchen: 12/25/44 views). The last two rows perturb the uncompressed model along the null space of
+𝐀
+i
+\mathbf{A}_{i}
+only.
+Appendix O
+Per-scene results
+Table
+17
+gives the dataset means of all three metrics and
+Tab.
+18
+the vector-quantisation comparison of
+Sec.
+4
+;
+Tab.
+19
+lists the per-scene PSNR of uniform degree reduction by truncation and by the closed-form projection for all scenes.
+degree 3
+degree 2 (24 AC floats)
+degree 1 (9 AC floats)
+degree 0 (0 AC floats)
+Dataset
+Metric
+full
+truncation
+OGC (ours)
+truncation
+OGC (ours)
+truncation
+OGC (ours)
+Mip-NeRF 360 (9/9)
+PSNR
+27.29
+26.16
+27.15
+25.08
+26.71
+24.22
+25.07
+SSIM
+0.812
+0.797
+0.811
+0.777
+0.804
+0.756
+0.777
+LPIPS
+0.218
+0.232
+0.219
+0.249
+0.224
+0.264
+0.245
+Tanks&Temples (2/2)
+PSNR
+23.39
+22.65
+23.34
+21.80
+23.05
+21.22
+21.77
+SSIM
+0.842
+0.830
+0.842
+0.814
+0.837
+0.799
+0.813
+LPIPS
+0.184
+0.194
+0.184
+0.209
+0.188
+0.221
+0.207
+Deep Blending (2/2)
+PSNR
+29.53
+29.17
+29.47
+28.38
+29.42
+27.81
+28.38
+SSIM
+0.904
+0.902
+0.903
+0.896
+0.902
+0.890
+0.896
+LPIPS
+0.246
+0.250
+0.247
+0.258
+0.248
+0.264
+0.257
+Table 17:
+Uniform SH degree reduction of the official pretrained 3DGS models, averaged over each dataset (number of scenes evaluated in parentheses). Truncation drops the higher bands; OGC replaces them by the closed-form observation-Gram projection (
+Eq.
+8
+). Same storage in each column pair; no training images, gradients or fine-tuning are used.
+coefficients
+VQ metric
+PSNR
+SSIM
+LPIPS
+pred.
+D
+D
+(
+×
+10
+3
+\times 10^{3}
+)
+degree 3 (45)
+none (uncompressed)
+28.96
+0.893
+0.119
+–
+degree 3 (45)
+Euclidean
+27.96
+0.875
+0.143
+156.5
+degree 3 (45)
+importance-weighted
+28.20
+0.877
+0.141
+129.3
+degree 3 (45)
+Gram (ours)
+28.55
+0.886
+0.130
+52.1
+allocated (9)
+none
+28.89
+0.892
+0.120
+–
+allocated (9)
+importance-weighted
+28.02
+0.874
+0.143
+145.7
+allocated (9)
+Gram (ours)
+28.47
+0.885
+0.131
+53.9
+Table 18:
+Vector quantisation of AC coefficients with a 4096-entry codebook (mean of
+garden
+and
+kitchen
+). The last column is the predicted distortion (
+Eq.
+7
+, summed over training views) of the quantised model.
+Scene
+#Gaussians
+full
+trunc. 2
+ours 2
+trunc. 1
+ours 1
+trunc. 0
+ours 0
+bicycle
+6.13M
+25.03
+24.36
+24.95
+23.67
+24.60
+23.06
+23.69
+bonsai
+1.24M
+32.06
+29.34
+31.78
+27.64
+30.84
+26.57
+28.06
+counter
+1.22M
+28.91
+27.13
+28.70
+25.69
+27.87
+24.64
+25.52
+flowers
+3.64M
+21.51
+21.24
+21.48
+20.77
+21.31
+20.22
+20.57
+garden
+5.83M
+27.20
+26.06
+27.04
+24.85
+26.60
+23.74
+24.62
+kitchen
+1.85M
+30.72
+28.69
+30.52
+26.81
+29.59
+25.37
+26.59
+room
+1.59M
+31.33
+30.22
+31.31
+28.91
+31.14
+27.97
+29.35
+stump
+4.96M
+26.54
+26.05
+26.46
+25.47
+26.20
+24.81
+25.49
+treehill
+3.78M
+22.27
+22.32
+22.12
+21.90
+22.21
+21.58
+21.75
+train
+1.03M
+21.79
+21.00
+21.73
+20.11
+21.44
+19.48
+20.01
+truck
+2.54M
+24.99
+24.31
+24.95
+23.48
+24.66
+22.96
+23.53
+drjohnson
+3.41M
+28.98
+28.61
+28.93
+27.92
+28.86
+27.37
+27.91
+playroom
+2.55M
+30.07
+29.74
+30.00
+28.83
+29.99
+28.24
+28.85
+Table 19:
+Per-scene test PSNR of uniform degree reduction (truncation vs. our projection).
+Experimental support, please
+view the build logs
+for errors. Generated by
+L
+A
+T
+E
+xml
+.
+Instructions for reporting errors
+We are continuing to improve HTML versions of papers, and your feedback helps enhance accessibility and mobile
+      support. To report errors in the HTML that will help us improve conversion and rendering, choose any of the
+      methods listed below:
+Click the "Report Issue"
+(
+)
+button, located in the page header.
+Tip:
+You can select the relevant text first, to include it in your report.
+Our team has already identified
+the following issues
+. We appreciate your time reviewing and reporting rendering errors we
+      may not have found yet. Your efforts will help us improve the HTML versions for all readers, because disability
+      should not be a barrier to accessing research. Thank you for your continued support in championing open access for
+      all.
+Have a free development cycle? Help support accessibility at arXiv! Our collaborators at LaTeXML maintain a
+list of packages that need conversion
+, and welcome
+developer contributions
+.
+We gratefully acknowledge support from
+        our
+major funders
+,
+member institutions
+,
+,
+        and all contributors.
+About
+·
+Help
+·
+Contact
+·
+Subscribe
+·
+Copyright
+·
+Privacy
+·
+Accessibility
+·
+Operational Status
+(opens in new tab)
+Major funding support from

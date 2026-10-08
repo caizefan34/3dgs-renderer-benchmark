@@ -1,0 +1,71 @@
+{
+  "timestamp": "2026-10-08T07:20:00Z",
+  "hypotheses": {
+    "H1_intersection_amplification": {
+      "prediction": "HiGS generates significantly more Gaussian-tile intersections, causing memory explosion in isect_tiles",
+      "evidence": [
+        "OOM always occurs in isect_tiles function (gaussian_inference.py:2094)",
+        "HiGS memory is 11.3x std_ll across all N values",
+        "Single allocation attempt of 37.74 GiB at 4.4M (with CUDA_LAUNCH_BLOCKING=1)",
+        "15.75 GiB allocation attempt at 2.5M",
+        "Linear memory scaling suggests per-Gaussian or per-intersection buffer"
+      ],
+      "test": "N-scaling memory measurement shows consistent 11.3x amplification",
+      "verdict": "SUPPORTED",
+      "confidence": "HIGH"
+    },
+    "H2_hierarchy_auxiliary": {
+      "prediction": "HiGS hierarchy, indices, or node states create large auxiliary memory structures",
+      "evidence": [
+        "Gaussian state itself only ~1 GB for 4.4M (measured)",
+        "std_ll uses ~8 GB total for 4.4M (measured)",
+        "HiGS requires ~45 GB estimated for 4.4M (extrapolated)",
+        "Additional ~36 GB cannot be explained by Gaussian state alone"
+      ],
+      "test": "Memory breakdown shows 11.3x amplification beyond Gaussian state",
+      "verdict": "SUPPORTED",
+      "confidence": "HIGH",
+      "note": "Hierarchy structures likely include tile intersection buffers, not just node metadata"
+    },
+    "H3_temporary_workspace": {
+      "prediction": "Sorting, scanning, or temporary copies create high memory peaks",
+      "evidence": [
+        "At OOM, only 1.76 GB allocated (before failing 37.74 GiB allocation)",
+        "PyTorch reserved matches allocated (no large temporary cache)",
+        "OOM occurs in kernel allocation, not Python-level temporary"
+      ],
+      "test": "Memory state at OOM shows minimal existing allocations",
+      "verdict": "REFUTED",
+      "confidence": "HIGH"
+    },
+    "H4_allocator_fragmentation": {
+      "prediction": "OOM due to allocator cache, fragmentation, or memory retention",
+      "evidence": [
+        "PyTorch reserved memory matches allocated memory",
+        "OOM is single large allocation, not cumulative fragmentation",
+        "Consistent behavior across different N values"
+      ],
+      "test": "Allocator statistics show no significant fragmentation",
+      "verdict": "REFUTED",
+      "confidence": "HIGH"
+    },
+    "H5_over_allocation": {
+      "prediction": "Buffers use excessive pre-allocation coefficients or redundant structures",
+      "evidence": [
+        "37.74 GiB single allocation at 4.4M suggests large pre-allocated buffer",
+        "Allocation size ~= N * 9 bytes (4.4M * 9 = 39.6M elements)",
+        "Consistent with per-Gaussian or per-intersection index buffer"
+      ],
+      "test": "Allocation pattern suggests fixed-size buffer allocation",
+      "verdict": "POSSIBLE",
+      "confidence": "MEDIUM",
+      "note": "May be intentional design (pre-allocation for performance) rather than bug"
+    }
+  },
+  "root_cause_summary": {
+    "primary": "H1 - Intersection Amplification",
+    "secondary": "H2 - Hierarchy Auxiliary Memory",
+    "tertiary": "H5 - Possible Over-allocation",
+    "refuted": ["H3 - Temporary Workspace", "H4 - Allocator Fragmentation"]
+  }
+}

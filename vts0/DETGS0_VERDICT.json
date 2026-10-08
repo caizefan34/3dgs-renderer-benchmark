@@ -1,0 +1,50 @@
+{
+  "label": "DetGS0 — Novelty Audit: deterministic dynamic 3DGS with exact optimizer/topology state consistency",
+  "date": "2026-10-01",
+  "verdict": "NO_PUBLIC_COLLISION__NOVEL_VS_PUBLIC__NOT_NOVEL_VS_INTERNAL_LAVOS0",
+  "idea": "Single training framework where both per-Gaussian optimizer state (theta,m,v) and topology lineage (clone/split/prune) are preserved bit-exactly across densification, with deterministic (cross-run/cross-GPU reproducible) training.",
+  "prior_art_coverage": "COMPLETE (3 arXiv sweeps + internal system characterization)",
+  "axes": ["optimizer_skipping", "topology_awareness", "exact_state_preservation"],
+  "comparison": {
+    "INRIA_3DGS":    {"optimizer_skipping": false, "topology_awareness": false, "exact_state_preservation": false},
+    "FastGS":        {"optimizer_skipping": false, "topology_awareness": false, "exact_state_preservation": false},
+    "GS_Scale":      {"optimizer_skipping": false, "topology_awareness": false, "exact_state_preservation": false},
+    "SparseAdam":    {"optimizer_skipping": true,  "topology_awareness": false, "exact_state_preservation": false},
+    "VOS":           {"optimizer_skipping": true,  "topology_awareness": "partial", "exact_state_preservation": "optimizer_only_SH_frozen_topology"},
+    "ReproTopo":     {"optimizer_skipping": false, "topology_awareness": true,  "exact_state_preservation": "topology_only"},
+    "DPC":           {"optimizer_skipping": false, "topology_awareness": false, "exact_state_preservation": "gradients_only"},
+    "LAVOS":         {"optimizer_skipping": true,  "topology_awareness": true,  "exact_state_preservation": "unified_synthetic"}
+  },
+  "public_gap": {
+    "deferred_virtual_per_gaussian_optimizer_state": "0 public hits",
+    "bit_exact_optimizer_state_across_densification": "0 public hits",
+    "exact_reproducible_dynamic_3dgs_training": "0 public hits",
+    "nearest_public": "Sparse Adam (modified sparse optimizer, no dense-equivalence); SkipGS (backward-compute skipping, not state); CAdam (modified moment estimator, no exactness)"
+  },
+  "internal_occupancy": {
+    "unified_idea_owner": "LAVOS0 (lineage-aware VOS into dynamic 0-15K phase)",
+    "single_axis_predecessors": ["VOS (optimizer)", "ReproTopo (topology)", "DPC (gradient determinism)"]
+  },
+  "determination": [
+    "vs PUBLIC prior art: NO COLLISION on either exactness axis (confirmed public gap).",
+    "vs INTERNAL prior art: the UNIFIED claim is OCCUPIED by LAVOS0.",
+    "DetGS0 is NOT a de-novo novelty; its contribution is UNIFICATION under one correctness contract."
+  ],
+  "may_claim": "First unified exact optimizer+topology state contract for dynamic 3DGS, subsuming VOS (optimizer) + ReproTopo (topology) + DPC (gradient determinism) under a single bitwise-correctness contract.",
+  "must_not_claim": [
+    "first exact optimizer state for 3DGS (VOS)",
+    "first deterministic 3DGS (DPC)",
+    "first topology-exact densification (ReproTopo)"
+  ],
+  "must_differentiate_from": "LAVOS0 (same unified idea; LAVOS0 is a headroom-promotion gate, DetGS0 is the exactness-contract positioning)",
+  "artifacts": [
+    "vts0/DETGS0_MATRIX.md",
+    "vts0/DETGS0_ARXIV_SWEEP.md",
+    "vts0/DETGS0_ARXIV_SWEEP_SUPPLEMENT.md",
+    "vts0/DETGS0_VERDICT.md"
+  ],
+  "evidence_labels": {
+    "public_gap": "OBSERVED (arXiv API, 3 sweeps)",
+    "internal_characterization": "MEASURED (VOS_VERDICT.json, REPROTOPO0_REPORT.md, DPC0_REPORT.md, LAVOS0_REPORT.md)"
+  }
+}

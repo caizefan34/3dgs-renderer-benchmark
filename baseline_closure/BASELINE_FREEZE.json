@@ -1,0 +1,322 @@
+{
+  "artifact": "BASELINE_FREEZE",
+  "freeze_date": "2026-09-25",
+  "frozen_by": "DSH baseline-closure preparation session",
+  "purpose": "Freeze the public baselines for the P8 (MATCHED_RENDERER) / P9 (SYSTEM_LEVEL_CONTEXT) / P10 (composition prep) campaign stages. No performance runs are launched by this freeze; P7 residual-attribution closure must complete first (see launch_gate).",
+  "launch_gate": {
+    "blocked_by": "P7 residual attribution closure (other DSH, in progress)",
+    "rule": "No official timing run, no GPU occupation, until P7 is confirmed complete and GPUs verified clean via the clean-GPU snapshot convention (two scans >=120s apart, zero processes, <500 MiB).",
+    "clean_gpu_policy": "scripts/publication/publication_scheduler.py convention: dynamic clean-GPU selection, sticky contamination flags, per-run nvidia-smi snapshot (harness/final30k/capture_provenance.py).",
+    "cohort_policy": "Never mix hardware cohorts (mx A100-PCIE-40GB vs EPIC-05 A100-SXM4-80GB). P8/P9 wall comparisons must stay within one cohort and one torch/CUDA env per arm family (docs/hardware.md, SKILL.md section 24)."
+  },
+  "verification_method": "Upstream HEADs verified 2026-09-25 via `git ls-remote <url> HEAD`; local shallow clones under public_baselines/ (CPU/disk only, no GPU).",
+  "label_taxonomy": {
+    "MATCHED_RENDERER": "All P8 controls literally satisfied (same scene split, 30K iterations, resolution, loss, camera sequence, optimizer, densification protocol, seed, eval metrics; eps2d recorded and matched to the maximum technically possible).",
+    "MATCHED_RENDERER_WITH_DISCLOSURE": "Runs under the unified matched trainer but carries >=1 disclosed, irreducible deviation (e.g. the method's own densification statistic, or a non-parameterizable rasterizer filter form). Renderer-level comparisons are permitted ONLY with the deviation disclosure attached. NOT a strict MATCHED_RENDERER label.",
+    "SYSTEM_LEVEL_CONTEXT": "The method's own training system is preserved end-to-end. No renderer-level winner claims may be derived from rows with this label."
+  },
+  "internal_frozen_references": {
+    "note": "These arms are already frozen in the authoritative registry; re-frozen here by pointer, never re-built or modified.",
+    "b1a": {
+      "definition": "gsplat v1.5.3 + true strip-based AccuTile (accutile=True, absgrad=True, eps2d=0.1), FINAL-30K baseline arm",
+      "binary_sha256": "0471fbd95cae4cfa658bc1e2e3f7abe801c6f58a36a2e681a6d16af84279986b",
+      "source_tree_remote": "/mnt/storage_pool/liaoyuanjun/gsplat-true-accutile-v153",
+      "build_script": "scripts/final30k/b1a_build.py",
+      "evidence": ["reports/publication/matched-baselines.md", "reports/higs/final-30k-c0-v3-vs-b1a.md", "b1a_13scene_train.py"]
+    },
+    "c0": {
+      "definition": "F9 + SCALAR_ADJOINT + H8-MR, PX=2, HIGS_BWD_ABSGRAD=1, eps2d=0.3, backward_mode=higs_native",
+      "binary_sha256": "9baf8655f859f3e0f456e99a2d8e5b3ddfe414fe17a1a3e9d8072e0afed95b91",
+      "source_worktree_remote": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_worktree",
+      "evidence": ["reports/higs/authoritative-experiment-registry.md", "reports/publication/cumulative-ablation.md"]
+    },
+    "a0": {
+      "definition": "Internal parent arm of the same 9baf8655 binary: HIGS_DISABLE_F9=1, scalar-adjoint off, H8-MR off; eps2d=0.3 (same frozen recipe as C0)",
+      "evidence": ["reports/publication/cumulative-ablation.md", "scripts/publication/make_publication_trainer.py"]
+    },
+    "h8_mr_patch_sha256": "8fb23acca9841ae4d24035de9b2d0ba7725742186b7db149c44cc656415fe312",
+    "registry": "reports/higs/authoritative-experiment-registry.md (machine mirror: artifacts/research-registry/)"
+  },
+  "baselines": {
+    "graphdeco_original_3dgs": {
+      "id": "b0",
+      "paper": "Kerbl et al., SIGGRAPH 2023 (frozen at the UPDATED official repo, not the SIGGRAPH-2023 tree)",
+      "repository": "https://github.com/graphdeco-inria/gaussian-splatting",
+      "commit_sha": "54c035f7834b564019656c3e3fcc3646292f727d",
+      "branch": "main",
+      "upstream_head_at_freeze": "54c035f7834b564019656c3e3fcc3646292f727d (unchanged)",
+      "submodules": {
+        "diff-gaussian-rasterization": "9c5c2028f6fbee2be239bc4c9421ff894fe4fbe0 (branch dr_aa)",
+        "simple-knn": "86710c2d4b46680c02301765dd79e465819c8f19",
+        "fused-ssim": "1272e21a282342e89537159e4bad508b19b34157",
+        "SIBR_viewers": "gitlab.inria.fr/sibr/sibr_core.git (viewer only, not needed for training)"
+      },
+      "local_checkout": ".c0-official-reference (verified HEAD == commit_sha)",
+      "cuda_pytorch_requirements": {
+        "native_environment_yml": "python=3.7.13, pytorch=1.12.1, torchaudio=0.12.1, torchvision=0.13.1, cudatoolkit=11.6",
+        "matched_protocol_build": "rebuilt against the frozen modern env (higs-13scene-env: torch 2.9.1+cu128, nvcc 12.8.93) per scripts/publication/b0_graphdeco_build.sh; native environment NOT used for P8"
+      },
+      "training_recipe": {
+        "iterations_default": 30000,
+        "densify_from_until": [500, 15000],
+        "densification_interval": 100,
+        "densify_grad_threshold": 0.0002,
+        "grad_statistic": "signed L2-norm of xy viewspace gradient (torch.norm(grad[:, :2])) averaged over views",
+        "percent_dense": 0.01,
+        "opacity_reset_interval": 3000,
+        "min_opacity_prune": 0.005,
+        "max_screen_size": 20,
+        "sh_progress_interval": 1000
+      },
+      "resolution_behavior": "-r default -1: auto-downsample to 1600px max width with warning; explicit -r 1/2/4/8 or -i images_2/images_4; full_eval.py convention: images_4 (MipNeRF360 outdoor) / images_2 (indoor)",
+      "loss_definition": "0.8*L1 + 0.2*(1-SSIM); SSIM 11x11 window sigma 1.5 (fused_ssim if the rasterizer exposes it)",
+      "eps2d_antialiasing": {
+        "form": "hardcoded covariance-diagonal low-pass: cov[0][0] += 0.3f; cov[1][1] += 0.3f (NOT a parameterizable eps2d)",
+        "eigenvalue_floor": "0.1f",
+        "antialiasing_flag": "PipelineParams antialiasing=False default (dr_aa option exists at this commit; off by default)"
+      },
+      "optimizer": "torch.optim.Adam(lr=0, eps=1e-15) per param group; xyz: expon schedule 1.6e-4 -> 1.6e-6 (delay_mult 0.01, max_steps 30000, scaled by cameras_extent); f_dc 2.5e-3; f_rest 2.5e-3/20; opacity 2.5e-2; scaling 5e-3; rotation 1e-3; optional SparseGaussianAdam",
+      "default_iterations": 30000,
+      "evaluation_protocol": "render.py + metrics.py: PSNR (20*log10(1/sqrt(mse))), SSIM (11x11), LPIPS-VGG (lpipsPyTorch net_type='vgg')",
+      "seed": "safe_state hardcodes seed 0 upstream; P8 uses patches/original-3dgs-seed.patch (--seed 42) under the unified matched trainer",
+      "final_gaussian_count_evidence": "P1 13-scene expansion complete; per-scene N recorded in frozen run trees + aggregates/p1_b0_vs_b1a.json (N ratio vs B1A spans 0.72x to 1.54x; bicycle/flowers/treehill under-densify, drjohnson over-densifies at 1.54x)",
+      "comparison_classification": "MATCHED_RENDERER_WITH_DISCLOSURE",
+      "disclosed_deviations": [
+        "Densification statistic is the ORIGINAL method's (signed-grad L2-norm >= 2e-4); forcing absgrad 8e-4 on B0 would not be B0 (wrapper policy, reports/publication/matched-baselines.md)",
+        "2D filter form: hardcoded cov-diagonal +0.3, not a parameterizable eps2d (irreducible API difference vs gsplat-family arms)"
+      ],
+      "integration_notes": "P1 wrapper fixes (make_publication_trainer.py P1-P20): opacities unsqueeze [N,1], radii reshape [1,N,1], means2D kwarg spelling, 3-tuple return; verified by 200-iter smoke then P1 gates",
+      "prior_evidence": ["reports/publication/matched-baselines.md (B0 gate PASS + 13-scene COMPLETE)", "aggregates/p1_b0_vs_b1a.json"]
+    },
+    "gsplat_main": {
+      "id": "gsplat_main",
+      "paper_repo": "https://github.com/nerfstudio-project/gsplat",
+      "commit_sha": "512d366b67073d77ca099ede742683c165dfc23b",
+      "branch": "main",
+      "version": "1.6.0 (gsplat/version.py)",
+      "upstream_head_at_freeze": "512d366b67073d77ca099ede742683c165dfc23b (= frozen commit; verified 2026-09-25)",
+      "local_clone": "public_baselines/gsplat",
+      "cuda_pytorch_requirements": {
+        "torch": ">=2.7 (pyproject build-system; Blackwell sm_120 needs >=2.7; torch>=2.11 wheels default to CUDA 13, cu126 wheels still available)",
+        "cuda_build": "JIT (gsplat/cuda/build.py) or prebuilt; arch list from TORCH_CUDA_ARCH_LIST; flags -O3 --use_fast_math -std=c++20; sm_80 covered",
+        "trainer_env_note": "P8 runs the library under the frozen higs-13scene-env (torch 2.9.1+cu128) after a JIT/prebuilt build identity is recorded"
+      },
+      "training_recipe_simple_trainer_defaults": {
+        "max_steps": 30000,
+        "strategy": "DefaultStrategy (gsplat/strategy/default.py)",
+        "grow_grad2d": 0.0002,
+        "absgrad": false,
+        "refine_start_iter": 500,
+        "refine_stop_iter": 15000,
+        "refine_every": 100,
+        "reset_every": 3000,
+        "opacity_reset_value": 0.01,
+        "prune_opa": 0.005,
+        "grow_scale3d": 0.01,
+        "grad_statistic": "running mean of L2 norm of NDC-scaled 2D position gradients (absgrad tensor if absgrad=True)",
+        "sh_degree_interval": 1000,
+        "loss": "torch.lerp(L1, 1-SSIM, 0.2); SSIM 11x11 sigma 1.5, fused_ssim if importable"
+      },
+      "resolution_behavior": "data_factor=4 (images_4 folder) by default for both train and eval; Parser factor = 1/data_factor; no auto-1600 logic",
+      "loss_definition": "0.8*L1 + 0.2*(1-SSIM) (torch.lerp with ssim_lambda=0.2)",
+      "eps2d_antialiasing": {
+        "library_default": "eps2d=0.3 (added to eigenvalues of projected 2D covariance; gsplat/rendering.py)",
+        "simple_trainer_behavior": "does NOT pass eps2d in train/eval (only the viewer exposes it) -> 0.3 default",
+        "antialiased": "Config antialiased=False default -> rasterize_mode='classic'",
+        "p8_controlled_value": 0.1,
+        "p8_control_rationale": "matched to B1A's frozen eps2d=0.1 so the gsplat-family arms (b1a, gsplat_main) are eps2d-matched; P4 (reports/publication/eps2d-sensitivity.md) quantifies the 0.1-vs-0.3 axis"
+      },
+      "optimizer": "Adam (or SparseAdam/SelectiveAdam), lr * sqrt(batch_size*world_size), eps=1e-15/sqrt(BS), betas scaled by BS, fused=True; means lr additionally x scene_scale, ExponentialLR gamma=0.01^(1/max_steps); lrs: means 1.6e-4, scales 5e-3, opacities 5e-2, quats 1e-3, sh0 2.5e-3, shN 2.5e-3/20",
+      "default_iterations": 30000,
+      "evaluation_protocol": "eval at [7000, 30000]; torchmetrics PeakSignalNoiseRatio + StructuralSimilarityIndexMeasure (data_range 1.0) + LPIPS (alex normalize=True default; vgg normalize=False option); test views = every test_every(8)-th index; rendered at training resolution factor",
+      "seed_camera_sequence": "set_random_seed(42 + local_rank); train DataLoader shuffle=True (NO fixed camera sequence upstream). P8 imposes the frozen camera sequence via the unified matched trainer (same mechanism as b0/b1/b1a arms)",
+      "final_gaussian_count_evidence": "none yet (TBD; produced by P8)",
+      "comparison_classification": "MATCHED_RENDERER",
+      "disclosed_deviations": [],
+      "integration_notes": "v1.6.0 restructured vs v1.5.3 (gsplat/strategy/ package; torch.library.register_autograd backend). P8 requires a publication_trainer arm wrapping rasterization() with eps2d=0.1, absgrad=True, tile_size=16, packed=False, rasterize_mode='classic'; 200-iter integration smoke required before any gate run.",
+      "prior_evidence": ["B1 gate lineage (v1.5.3 pristine, reports/publication/matched-baselines.md) provides the wrapper precedent"]
+    },
+    "taming_3dgs_rasterizer_only_exact": {
+      "id": "taming_rasterizer",
+      "paper": "Mallick*, Goel*, Kerbl, Carrasco, Steinberger, De La Torre - 'Taming 3DGS: High-Quality Radiance Fields with Limited Resources' (SIGGRAPH Asia 2024, arXiv 2406.15643)",
+      "repository": "https://github.com/nullptr81/3dgs-accel",
+      "commit_sha": "1207926e75a601c5d5134ae60c988340ea5c23d0",
+      "branch": "rasterizer (drop-in performance-optimization branch; densification-scheme changes are NOT in this branch by design)",
+      "upstream_head_at_freeze": "fd0f7d9edfe135eb4eefd3be82ee56dada7f2a16 (main branch, NOT used; rasterizer branch tip = frozen commit)",
+      "submodules": {
+        "diff-gaussian-rasterization": "in-tree (NOT a gitlink): the full modified rasterizer is committed at tree cec9e70; glm vendored in-tree",
+        "fused-ssim": "gitlink 84422e0da94c516220eb3acedb907e68809e9e01 (url git@github.com:rahul-goel/fused-ssim.git; NOTE SSH url in .gitmodules, needs https substitution on clone)",
+        "simple-knn": "in-tree (tree eb929f9)"
+      },
+      "local_clone": "public_baselines/taming-3dgs-rasterizer",
+      "cuda_pytorch_requirements": {
+        "native_environment_yml": "python=3.7.13, pytorch=1.12.1, torchaudio=0.12.1, torchvision=0.13.1, cudatoolkit=11.6",
+        "matched_protocol_build": "to be rebuilt against higs-13scene-env (torch 2.9.1+cu128, nvcc 12.8.93) like b0; build-system-only fixes allowed (pybind/nvcc compat), math changes forbidden"
+      },
+      "training_recipe": "stock Inria recipe on this branch (iterations 30000, densify 500-15000 interval 100, signed-grad 2e-4, opacity reset 3000); the branch README states densification-scheme changes are NOT included",
+      "resolution_behavior": "identical to original 3DGS (-r default -1 auto-1600px; images_2/images_4 conventions)",
+      "loss_definition": "identical to original 3DGS (0.8*L1 + 0.2*(1-SSIM)); adds fused_ssim CUDA kernels (conv.cu, hardcoded 11x11) used as fast_ssim",
+      "eps2d_antialiasing": {
+        "form": "hardcoded covariance-diagonal low-pass cov += 0.3f (identical to original graphdeco; NOT parameterizable)",
+        "eigenvalue_floor": "0.1f"
+      },
+      "optimizer": "stock torch.optim.Adam (lr=0, eps=1e-15) with Inria per-group lrs; OPTIONAL SparseGaussianAdam (--optimizer_type sparse_adam). Sparse Adam is NOT numerically equivalent to dense Adam: invisible Gaussians skip exp_avg/exp_avg_sq decay and no bias correction is applied (README: 'this can change the training behaviour'). P8 matched arm MUST use the dense default optimizer.",
+      "default_iterations": 30000,
+      "evaluation_protocol": "stock render.py + metrics.py (PSNR, SSIM 11x11, LPIPS-VGG)",
+      "rasterizer_modifications_vs_original": {
+        "exact_tile_culling": "max_contrib_power_rect_gaussian: a Gaussian/tile pair is dropped only when its max possible contribution <= 1/255, which the render loop skips anyway -> output-invariant (exact)",
+        "backward_parallelization": "sampled-state checkpointing (every 32nd splat) + warp-parallel per-Gaussian replay backward; recomputation, NOT a moment/bbox approximation; buckets past per-tile max_contrib are skipped, which is exact because last_contributor <= max_contrib",
+        "separate_dc_sh": "degree-0 SH split from higher SHs (pipe.separate_sh=True); API adapter required",
+        "quat_normalization_removed": "glm::length(rot) division removed in forward and the dnormvdv correction commented out in backward (paper claims numerical equivalence; MUST be verified by the P8 gradient-equivalence gate, not assumed)",
+        "fused_adam_kernel": "_C.adamUpdate CUDA Adam step (used only by sparse_adam path)",
+        "no_mode_switches": "no env vars / #ifdef selectable approximate paths in the rasterizer (verified by grep); only include guards"
+      },
+      "exactness_claim": "README: 'performance optimizations as drop-in replacements'; 'all other changes don't affect the numerical results' (sparse adam excepted). Classification as EXACT is conditional on the P8 pre-gate (forward/gradient equivalence) passing.",
+      "final_gaussian_count_evidence": "none yet (TBD; produced by P8)",
+      "comparison_classification": "MATCHED_RENDERER_WITH_DISCLOSURE",
+      "disclosed_deviations": [
+        "2D filter form: hardcoded cov-diagonal +0.3, not a parameterizable eps2d (same class as b0)",
+        "Quaternion normalization removed in forward/backward (claimed equivalent; gate-verified before any P8 run is labeled)",
+        "API deviations: separate dc/sh tensors, extra outputs (num_rendered, bucket_sum), forward stores pixel_colors/sample-state buffers"
+      ],
+      "integration_notes": "Wrapper differences vs b0: separate dc/sh channel plumbing, 3-tuple-style returns with bucket_sum, scores/sample-state args absent on this branch's render call (scores plumbing belongs to speedy/fastgs lineage, not here). Requires a publication_trainer arm + build under cu128 (unverified) + 200-iter smoke + gradient-equivalence gate.",
+      "prior_evidence": ["reports/phase-c17-c2/prior_art_boundary_audit.md (prior-art only; never evaluated in this repo before)"]
+    },
+    "faster_gs": {
+      "id": "faster_gs",
+      "paper_repo": "https://github.com/nerficg-project/faster-gaussian-splatting (NeRFICG-framework extension)",
+      "commit_sha": "117bdbacfd7df6c1f06d9d959b1f5ab02d4d3847",
+      "branch": "main",
+      "upstream_head_at_freeze": "117bdbacfd7df6c1f06d9d959b1f5ab02d4d3847 (= frozen commit; verified 2026-09-25)",
+      "prior_validated_pin": "3cb0b75 (P5 external-systems runs, reports/publication/external-systems.md); upstream has moved since; delta requires a 3-scene re-gate before P9",
+      "local_clone": "public_baselines/faster-gs",
+      "cuda_pytorch_requirements": {
+        "repo_stated": "Linux preferred; CUDA Toolkit 12.8 recommended; conda env from NeRFICG framework; no python/torch pin in this repo",
+        "validated_env_on_mx": "conda env nericfg: python 3.11, torch 2.7.1+cu118, CUDA 11.8 (reports/fastergs-c42-13scene-final.md)",
+        "cuda_backend": "FasterGSCudaBackend vendored in-tree (no gitlink); installed as PyTorch extension"
+      },
+      "training_recipe": {
+        "iterations": 30000,
+        "densification_window": [600, 14900],
+        "densification_interval": 100,
+        "densification_grad_threshold": 0.0002,
+        "grad_statistic": "NDC-scaled L2 xy-gradient norm accumulated per-Gaussian inside the CUDA backward, normalized by visibility count (clamp_min 1)",
+        "percent_dense": 0.01,
+        "opacity_reset_interval": 3000,
+        "extra_opacity_reset_iteration": 500,
+        "min_opacity_after_training": "1/255",
+        "ppisp": "USE: false",
+        "use_mcmc": "false (MAX_PRIMITIVES 1000000 applies only if MCMC enabled)",
+        "filter_3d_mip_splatting": "USE: false (FILTER_VARIANCE 0.2, ORIGINAL_FORMULATION false)",
+        "morton_ordering": "interval 5000, end 15000",
+        "speedy_pruning_module": "USE: false (imported feature, disabled in config)"
+      },
+      "resolution_behavior": "IMAGE_SCALE_FACTOR 0.25 for MipNeRF360 scenes, 1.0 for T&T/DB (using the MipNeRF360 loader) - per fastergs_garden.yaml and the c42 report",
+      "loss_definition": "0.8*L1 + 0.2*fused_dssim (NeRFICG Optim.Losses.DSSIM, deterministic); PPISP regularization weight 1.0 only when PPISP active",
+      "eps2d_antialiasing": {
+        "dilation": 0.3,
+        "dilation_proper_antialiasing": "0.1 (used when proper_antialiasing enabled)",
+        "min_cov2d_determinant": "1e-6",
+        "truncation_mode": "0 (3.33-sigma)",
+        "tile_size": "16x12"
+      },
+      "optimizer": "FusedAdam (custom CUDA Adam from FasterGSCudaBackend), lr=0, eps=1e-15; means 1.6e-4 (x cameras_extent) -> 1.6e-6 expon decay; sh0 2.5e-3; sh_rest 1.25e-4; opacity 2.5e-2; scales 5e-3; rotations 1e-3",
+      "default_iterations": 30000,
+      "evaluation_protocol": "NeRFICG built-in: renders test set (TEST_STEP 8 = every 8th view), PSNR/SSIM/LPIPS via torchmetrics; Gaussian count parsed from train.log 'final number of Gaussians'",
+      "seed": "RANDOM_SEED 0 in config",
+      "final_gaussian_count_evidence": "P5/c42 cohort (older pin 3cb0b75): native total 24,096,200 across 13 scenes, per-scene 767K - 3.29M; garden data caveat applies to that cohort (manually-created COLMAP)",
+      "comparison_classification": "SYSTEM_LEVEL_CONTEXT",
+      "disclosed_deviations": ["custom CUDA backend + densification statistic computed inside the backend", "densification window [600, 14900] vs official [500, 15000]", "system-level timing only; no renderer-level claims"],
+      "integration_notes": "Runs inside the NeRFICG framework tree (src/Methods/FasterGS); P9 uses the native framework scripts (create_config.py/train.py) with adapter-generated per-scene YAMLs pointing at the canonical 13-scene dataset.",
+      "prior_evidence": ["reports/publication/external-systems.md (P5 native+c42, 26/26 runs)", "reports/fastergs-c42-13scene-final.md"]
+    },
+    "fastgs": {
+      "id": "fastgs",
+      "paper_repo": "https://github.com/fastgs/FastGS",
+      "commit_sha": "44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f",
+      "branch": "main",
+      "upstream_head_at_freeze": "44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f (= frozen commit; verified 2026-09-25)",
+      "prior_pins_note": "P5 external-systems table cites d4d33b6f (an experiment/c42-on-fastgs branch commit); the c42 report's native baseline pin is 44e02a5 (main) = this freeze. New freeze supersedes both for P9; 3-scene re-gate required.",
+      "local_clone": "public_baselines/fastgs",
+      "cuda_pytorch_requirements": {
+        "native_environment_yml": "python=3.7.13, pytorch=1.12.1, torchaudio=0.12.1, torchvision=0.13.1, cudatoolkit=11.6",
+        "readme_tested": "CUDA SDK 11 compatible; conda CUDA 11.6; system nvcc 11.8.89; 24GB VRAM recommended (RTX4090 for paper quality)",
+        "validated_env_on_mx": "conda env strong_native: python 3.10, torch 2.1.0+cu118, CUDA 11.8"
+      },
+      "training_recipe": {
+        "iterations": 30000,
+        "densify_from_until": [500, 15000],
+        "densification_interval": 500,
+        "grad_thresh_clone": 0.0002,
+        "grad_abs_thresh_split": "per-scene (train_base.sh): bicycle 0.0012, flowers/stump 0.0015, garden/room/counter 0.0008, treehill 0.002, kitchen/bonsai 0.0006, truck 0.0009, train default, drjohnson 0.0012",
+        "mult_compact_box": "0.5 default (MipNeRF360); 0.7 for truck/train/playroom/drjohnson",
+        "loss_thresh": 0.1,
+        "importance_gate": "clone/split require importance_score > 5 (10 sampled views, per-Gaussian pixel-error counts)",
+        "prune_budget_sampling": "50% of opacity/size prune candidates removed per densification round",
+        "final_prune": "every 3000 iters in (15000, 30000): opacity < 0.1 OR pruning_score > 0.9",
+        "opacity_clamp": "Taming-style clamp opacity <= 0.8 each densification round",
+        "opacity_reset_interval": 3000,
+        "optimizer_step_schedule": "dense optimizer: step every iter <=15000 (SH every 16), every 32 for 15000<iter<=20000, every 64 above 20000"
+      },
+      "resolution_behavior": "-i images default with auto-1600px downsample (identical logic to vanilla 3DGS); render.py uses --mult (default 0.5)",
+      "loss_definition": "0.8*L1 + 0.2*(1-fused_ssim) (fused CUDA SSIM, 11x11 hardcoded; backward pass non-deterministic per the c42 loss-equivalence test)",
+      "eps2d_antialiasing": {
+        "form": "cov-diagonal += 0.3 (hardcoded, graphdeco lineage); eigenvalue floor 0.1",
+        "tile_assignment": "compact box with multiplier mult (t = mult * 2*log(255*opacity)); mult < 1 TRUNCATES contribution regions -> the render is approximate when mult < 1 (this is the method's design)"
+      },
+      "optimizer": "default: two torch Adam optimizers (lr=0, eps=1e-15); f_dc lowfeature_lr 0.0025, f_rest highfeature_lr/20 (per-scene highfeature_lr 0.0015-0.042); opacity_lr 0.025 (half of vanilla SIGGRAPH 0.05); scaling 0.005; rotation 0.001; xyz Inria schedule; optional sparse_adam",
+      "default_iterations": 30000,
+      "evaluation_protocol": "stock render.py + metrics.py: PSNR, SSIM 11x11, LPIPS-VGG; train_base.sh chains render.py --skip_train then metrics.py per scene",
+      "seed": "safe_state seed 0 (identical to vanilla)",
+      "final_gaussian_count_evidence": "c42 cohort: native total 4,043,531 across 13 scenes; P5 table N range 132K - 716K",
+      "comparison_classification": "SYSTEM_LEVEL_CONTEXT",
+      "disclosed_deviations": ["budgeted/pruning densification (importance gates, 50% budget sampling, final prune)", "approximate compact-box tile assignment when mult < 1", "fused-SSIM backward non-determinism", "densification_interval 500 vs 100", "opacity_lr 0.025 vs vanilla 0.05 at this lineage"],
+      "integration_notes": "Vendored rasterizer (diff-gaussian-rasterization_fastgs, in-tree, no gitlink). P9 adapter reuses strong_baseline_train.py::train_fastgs command shape with updated commit pin + canonical dataset paths.",
+      "prior_evidence": ["reports/publication/external-systems.md (P5)", "reports/fastgs-c42-13scene-final.md", "strong_baseline_train.py"]
+    },
+    "speedy_splat": {
+      "id": "speedy_splat",
+      "paper_repo": "https://github.com/j-alex-hanson/speedy-splat",
+      "commit_sha": "34c45c6d9b8bd6110231864f2f358b6d3abbf73d",
+      "branch": "speedy-splat (repo default branch)",
+      "upstream_head_at_freeze": "34c45c6d9b8bd6110231864f2f358b6d3abbf73d (= frozen commit; verified 2026-09-25)",
+      "prior_pins_note": "P5 external-systems table cites b9dd42d1 with submodules b38abb6d/44f76429/14199886. The b9dd42d1 superproject pin is NO LONGER RESOLVABLE upstream (404 on github.com/j-alex-hanson/speedy-splat/commit/b9dd42d1 as of 2026-09-25). The three submodule gitlinks at the new tip are IDENTICAL to the P5 pins (b38abb6d, 44f76429, 14199886), so the rasterizer/simple-knn/SIBR pointers are unchanged; only the superproject moved. New freeze = 34c45c6 (= also the c42 report's baseline pin). 3-scene re-gate required.",
+      "submodules": {
+        "diff-gaussian-rasterization": "https://github.com/j-alex-hanson/speedy-splat-rasterizer.git @ b38abb6da7a7217999f8c5ec0e9219284464ffe0 (SnugBox + AccuTile + prune-score plumbing; NOT stock graphdeco; cov += 0.3 hardcoded)",
+        "simple-knn": "44f764299fa305faf6ec5ebd99939e0508331503",
+        "SIBR_viewers": "14199886ae3f42358092c16ada909c1e0b1cba20"
+      },
+      "local_clone": "public_baselines/speedy-splat (submodules NOT checked out locally)",
+      "cuda_pytorch_requirements": {
+        "native_environment_yml": "python=3.7.13, pytorch=1.12.1, torchaudio=0.12.1, torchvision=0.13.1, cudatoolkit=11.6 (README defers setup to 3D-GS)",
+        "validated_env_on_mx": "conda env strong_native: python 3.10, torch 2.1.0+cu118, CUDA 11.8"
+      },
+      "training_recipe": {
+        "iterations": 30000,
+        "densification": "stock Inria (500-15000, interval 100, signed-grad 2e-4, size_threshold 20 after first opacity reset, opacity reset 3000)",
+        "pruning": "sensitivity-score pruning: extra backward pass per train camera (zero-init scores, image.sum().backward, accumulate score grads); prune_from_iter 6000, prune_until_iter 30000, prune_interval 3000; ratio 0.80 during the densification window, 0.30 after densify_until_iter; percentile-based keep by score"
+      },
+      "resolution_behavior": "train.sh uses plain `train.py -s <data> -m <out> --eval`: -i images default + auto-1600px; README (commit 34c45c6) notes this trains at HIGHER resolution than the original full_eval.py protocol (which uses images_4/images_2)",
+      "loss_definition": "0.8*L1 + 0.2*(1-SSIM), SSIM 11x11 sigma 1.5",
+      "eps2d_antialiasing": {
+        "form": "cov-diagonal += 0.3 hardcoded; eigenvalue floor 0.1",
+        "rasterizer_mods": "SnugBox (exact contribution-bound tile bounding), AccuTile, prune-score input and kernel-timing outputs; all exact wrt blending math"
+      },
+      "optimizer": "stock Inria Adam per-group (lr=0, eps=1e-15); Inria lr schedule",
+      "default_iterations": 30000,
+      "evaluation_protocol": "train.sh -> train.py --eval --test_iterations 30000; render.py + metrics.py (PSNR, SSIM 11x11, LPIPS-VGG); compute_scene_metrics.py adds FPS from rasterizer kernel_times (20 repeats)",
+      "seed": "safe_state seed 0 (identical to vanilla)",
+      "final_gaussian_count_evidence": "c42 cohort: native total 3,201,727 across 13 scenes; P5 table N range 81K - 512K; bicycle/kitchen wall entries were missing (0.0) in the P5 ledger and must be re-measured",
+      "comparison_classification": "SYSTEM_LEVEL_CONTEXT",
+      "disclosed_deviations": ["pruning integrated into the training loop (changes densification/pruning semantics)", "custom rasterizer fork (exact math but extra outputs)", "higher-resolution training than full_eval protocol"],
+      "integration_notes": "P9 adapter reuses strong_baseline_train.py::train_speedy_splat command shape with the updated superproject pin (submodules unchanged) + canonical dataset paths. native protocol = train.sh verbatim.",
+      "prior_evidence": ["reports/publication/external-systems.md (P5)", "reports/speedysplat-c42-13scene-final.md", "strong_baseline_train.py", "patches/speedy-splat-cfloat.patch", "patches/speedy-splat-seed.patch"]
+    }
+  },
+  "cross_baseline_notes": {
+    "eps2d_forms": "Two irreducible filter parameterizations exist: gsplat-family (eps2d added to covariance eigenvalues; parameterizable: B1A 0.1, C0/A0 0.3, gsplat_main library default 0.3) and graphdeco-family (hardcoded cov-diagonal += 0.3: b0, taming_rasterizer, fastgs, speedy_splat). Any cross-family table must state the form and value per arm; P4 (eps2d MATERIAL_CONFOUND on quality axis) applies to the 0.1-vs-0.3 axis within the gsplat family.",
+    "garden_data_caveat": "The P5/c42 external cohorts used a manually-created COLMAP garden variant; P9 must NOT reuse it. The adapters point every P9 system at the canonical 13-scene dataset layout, so the garden-collapse caveat is retired going forward (P5 numbers keep their caveat permanently).",
+    "lpips_variant": "graphdeco-family metrics.py uses LPIPS-VGG; gsplat-family uses torchmetrics LPIPS (alex default). P8 eval-side uses the frozen matched-protocol metrics (PSNR + SepSSIM + LPIPS per final30k trainer); P9 reports each system's native metrics with the variant recorded.",
+    "binary_identity": "Every P8/P9 arm must record its built-extension SHA-256 in provenance at build time (convention: b1a_accutile_build_identity.json / @_build_candidate_c_audit.py). Validation rejects any run whose binary or source commit differs from the frozen expectation."
+  }
+}

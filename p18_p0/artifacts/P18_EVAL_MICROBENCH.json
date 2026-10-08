@@ -1,0 +1,62 @@
+{
+  "phase": "P18-P0",
+  "artifact": "P18_EVAL_MICROBENCH",
+  "created_utc": "2026-09-28T03:43:18Z",
+  "S_eval_definition": "median T_DIRECT / median T_QSCAN over the captured real trace (CUDA events, 7 reps x 20 iters)",
+  "workload": "real captured (gaussian, pixel-x) rows; row-major 32 x per gaussian (matches forward inner loop); NOT all-lanes-active synthetic",
+  "results": {
+    "room": {
+      "exp2_forward": {
+        "n_items": 2170368,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_us": 0.030959999561309813,
+        "T_qscan4_us": 0.031513598561286923,
+        "T_qscan8_us": 0.03186880052089691,
+        "T_qscan16_us": 0.03178240060806274,
+        "S_eval_q4": 0.9824330122470627,
+        "S_eval_q8": 0.9714830509861461,
+        "S_eval_q16": 0.9741240110558452
+      },
+      "exp_backward": {
+        "n_items": 2170368,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_us": 0.031119999289512635,
+        "T_qscan4_us": 0.03196159899234772,
+        "T_qscan8_us": 0.03194240033626557,
+        "T_qscan16_us": 0.03198719918727875,
+        "S_eval_q4": 0.9736684105499046,
+        "S_eval_q8": 0.9742536240828706,
+        "S_eval_q16": 0.972889158169528
+      }
+    },
+    "bicycle": {
+      "exp2_forward": {
+        "n_items": 5869312,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_us": 0.07448319792747497,
+        "T_qscan4_us": 0.07810239791870117,
+        "T_qscan8_us": 0.07642560005187989,
+        "T_qscan16_us": 0.07722560167312623,
+        "S_eval_q4": 0.9536608338838262,
+        "S_eval_q8": 0.9745844046617056,
+        "S_eval_q16": 0.9644884120520153
+      },
+      "exp_backward": {
+        "n_items": 5869312,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_us": 0.07463359832763672,
+        "T_qscan4_us": 0.07823039889335633,
+        "T_qscan8_us": 0.0769599974155426,
+        "T_qscan16_us": 0.07716479897499084,
+        "S_eval_q4": 0.9540229806239034,
+        "S_eval_q8": 0.9697713206077103,
+        "S_eval_q16": 0.9671974698181423
+      }
+    }
+  },
+  "note": "S_eval is the isolated inner-loop proxy; integrated S_FB (protocol 14) is authoritative"
+}

@@ -1,0 +1,189 @@
+GSta: Efficient Training Scheme with Siestaed Gaussians for Monocular 3D Scene Reconstruction
+
+Gaussian Splatting (GS) is a popular approach for 3D reconstruction, mostly due to its ability to converge reasonably fast, faithfully represent the scene and render (novel) views in a fast fashion. However, it suffers from large storage and memory requirements, and its training speed still lags behind the hash-grid based radiance field approaches (e.g. Instant-NGP), which makes it especially difficult to deploy them in robotics scenarios, where 3D reconstruction is crucial for accurate operation. In this paper, we propose GSta that dynamically identifies Gaussians that have converged well during training, based on their positional and color gradient norms. By forcing such Gaussians into a siesta and stopping their updates ( freezing ) during training, we improve training speed with competitive accuracy compared to state of the art. We also propose an early stopping mechanism based on the PSNR values computed on a subset of training images. Combined with other improvements, such as integrating a learning rate scheduler, GSta achieves an improved Pareto front in convergence speed, memory and storage requirements, while preserving quality. We also show that GSta can improve other methods and complement orthogonal approaches in efficiency improvement; once combined with Trick-GS, GSta achieves up to 5 $\times$ faster training, 16 $\times$ smaller disk size compared to vanilla GS, while having comparable accuracy and consuming only half the peak memory. More visualisations are available at https://anilarmagan.github.io/SRUK-GSta .
+
+I Introduction
+
+3D reconstruction is an integral problem in computer vision, where the aim is to leverage one or multiple images of a scene/object, and lift it to 3D while representing geometry and textures faithfully. With applications in robotics [ 1 ] , edge devices [ 2 ] , multimedia [ 3 ] and virtual reality [ 4 ] , its industrial importance has also increased over the years. Despite the recent advances in the field, 3D reconstruction is inherently an ill-posed problem, as accurate disentanglement of geometry and texture from 2D images is required, as well as an accurate back-projection of images onto a 3D space is necessary, which is inherently ambiguous.
+
+Following the earlier photogrammetry [ 6 ] approaches, neural rendering methods have become popular for 3D reconstruction, particularly due to their success in novel view synthesis. Neural Radiance Fields (NeRF), where a scene is encoded into a small neural network, have shown promising results [ 7 ] , and its variants targeting faster convergence and rendering [ 8 , 9 , 10 ] have emerged as well. Most recently, Gaussian Splatting (GS) [ 5 ] has been proposed, where a scene is represented with many Gaussians, whose parameters are learned with gradient-based optimization. GS based methods are arguably leads the 3D representation/reconstruction technology at the moment, due to their fast rendering speed and reasonable convergence time.
+
+Despite its success, GS suffers from several shortcomings. First, since it represents the scenes with many Gaussians, ranging up to several millions, it has large storage requirements. Second, these many Gaussians lead to high maximum memory consumption during training, limiting the feasibility of training on devices with resource constraints. In the same vein, optimization of these many Gaussians lead to a somewhat acceptable, but definitely improvable training time. Several methods have been proposed targeting these shortcomings, such as ones reducing the number of Gaussians [ 11 , 12 , 13 , 14 , 15 ] , number of attributes [ 14 , 16 , 11 ] , and directly predicting Gaussians by leveraging diffusion priors [ 17 ] . However, there is still room for improvement on multiple axes regarding efficiency as well as fidelity.
+
+Our work aims to advance the Pareto front of efficiency in Gaussian Splatting methods, aiming to improve training time, storage and memory requirements, while keeping the accuracy competitive. First, based on the observation that each Gaussian has different convergence traits during training (e.g. some converging earlier than others), we exploit this to improve training efficiency. An insignificant number of Gaussians remain with high gradients after early stages of training. We infer this by visualising the mean gradient magnitude, Figure 1 , and the maximum gradient magnitudes over all Gaussians. While the mean gradient magnitudes converge around 5K iterations, we could measure the variance of the magnitudes varies in later stages of the training. Based on the norms of the color and positional gradients of Gaussians during training, we force some of the Gaussians (which have gradient norms below a threshold) to take a siesta , and freeze them for the next iterations of the training. This gradually decreases the overall gradient flow to calculate and optimize, improving training efficiency. Second, we introduce a simple but effective early stopping method for GS training. Unlike methods which use testing images for early stopping validation, we observe that using a subset of training images work equally well, if not slightly better. This facilitates a fairer early stopping as we do not tune model weights on the test images. Third, we introduce improvements for a more stable training, such as learning rate schedulers and using dynamic thresholds for gradient thresholding within adaptive densification and freezing. We also investigate the use of gradients from diffused colors together with the positional gradients which improve the overall effectiveness of the training wit a lower number of Gaussians.
+
+We evaluate GSta on multiple datasets and integrate it with other methods, showing that it can improve the vanilla model as well as another efficient GS method (Trick-GS [ 18 ] ). Our approach works well with orthogonal techniques for improving efficiency and our contributions are as follows:
+
+We propose GSta, a gradient-based method that dynamically identifies Gaussians that are close to convergence, and freezes them for the rest of the training. This helps improve training speed, without hurting accuracy.
+
+Alongside GSta, we introduce a global finetuning stage, where we force all Gaussians out of their siesta to globally align them for better results.
+
+We propose a training-set based early stopping method, where we end the training if performance on a randomly chosen subset of training images saturate. This helps improve the training speed.
+
+We show that GSta works well with existing GS methods, as well as other efficiency-improving techniques. Our results on three datasets show substantial gains in training time, disk size and peak memory consumption, while having competitive accuracy.
+
+II Related Work
+
+Neural 3D Reconstruction. NeRF approaches, where the appearance and geometry of a scene are encoded into the weights of a small neural network, have been popularized thanks to their compact representation as well as high-quality results. Despite the advances made in the efficiency of NeRF methods [ 8 , 9 , 10 ] , NeRFs rely on the expensive ray marching process, which inevitably increases the runtime. Gaussian Splatting methods [ 5 ] does away with ray marching; they represent the scene with 3D Gaussian primitives and perform blending in screen space, speeding up the rendering process quite significantly. Despite their popularity, GS methods suffer from high storage and training memory requirements, since scenes are represented with over million of Gaussian primitives. This also translates to sub-optimal training times, and rendering speeds that can still be improved.
+
+Improving Storage Efficiency. The storage footprint of GS methods rely on two major factors; number of Gaussians used to represent the scene and the 59 primitives that make up a Gaussian. There are several methods targeting to address the former by assigning a significance score [ 19 , 20 , 21 ] to each Gaussian to eliminate the insignificant ones; [ 11 ] computes significance on how frequently a Gaussian comes up in a training view, [ 16 ] learns a significance value during training, [ 22 ] removes Gaussians with significant overlap to its neighbors, [ 14 ] removes 3% of lowest-opacity Gaussians, [ 15 ] performs a fine-tuning stage for pruning and [ 23 ] explicitly enforces sparsity among Gaussians. Some methods address the latter, where [ 14 , 16 , 11 , 24 , 25 ] propose to reduce/mask/replace spherical harmonic bands and [ 16 ] leverages a hash-grid to compress color parameters. Parallel to these two lines of work, attribute compression via Vector Quantization [ 16 , 11 , 26 ] , bit-quantization [ 27 , 26 ] and leveraging entropy constraints [ 28 , 26 , 29 , 30 , 31 ] are shown to be effective for storage footprint reduction. A final line of work focus on structural relationships between Gaussians in a scene, and propose anchors [ 32 , 33 , 34 , 35 ] from which Gaussians can be derived efficiently. Mapping Gaussian attributes to 2D grids [ 13 ] , adopting efficient data structures like octrees [ 36 ] and tri-planes [ 37 ] , using Gaussians’ spatial positions for improved organization [ 38 , 24 ] and leveraging selective rendering [ 22 ] are some examples.
+
+Improving Training Efficiency. Similar to NeRFs, Gaussian Splatting methods often require per-scene training, which makes training efficiency a critical factor. Most methods that improve storage efficiency also tend to improve training efficiency, therefore we will not mention them separately here. Other methods, such as [ 39 ] accelerating atomic operations in raster-based differential rendering, separation of SH bands into different tensors to load to rasterizer separately [ 40 ] , densification based on position and appearance criteria [ 41 ] , organization of Gaussians into manageable groups [ 42 ] and introduction of visibility culling [ 43 ] have shown training speed improvements.
+
+A similar line of work to ours is [ 41 ] , where authors leverage positional or appearance gradients for densification. Our work differs from theirs in several key aspects; we i) use positional and appearance gradients jointly, ii) use them for freezing Gaussians during training, not just for densification, iii) propose a finetuning stage for global optimization of frozen Gaussians, iv) leverage PSNR values of a subset of training images for early stopping and v) propose other minor tricks, such as using new optimizers and learning rate schedulers. GSta is a plug-and-play improvement that can improve several GS methods and it complements other efficiency-improving approaches.
+
+III Methodology
+
+In this section, we first give preliminary information on 3DGS and later describe our method in detail.
+
+III-A Preliminaries
+
+3DGS performs 3D reconstruction by learning a number of 3D Gaussian primitives, which are rendered in a differentiable volume splatting rasterizer [ 44 ] . A scene/object is often represented with up to several millions of Gaussians, where each Gaussian consists of 59 parameters. The 2D Gaussian $G_{i}^{\prime}$ projected from a 3D Gaussian $G_{i}$ is defined as
+
+$G_{i}^{\prime}(x)=e^{-\frac{1}{2}(x-\mu_{i}^{\prime})^{T}{\Sigma_{i}^{\prime}}^{-1}(x-\mu_{i}^{\prime})},\vskip-6.00006pt$ (1)
+
+where $\mu_{i}$ is the 3D position, $x$ is the position vector, and $\Sigma_{i}$ is the 3D covariance matrix which is parameterized via a scaling matrix $S$ and a rotation matrix (represented in quaternions $q$ ). ′ indicates the 2D re-projection of respective parameters. Each Gaussian has an opacity ( $\alpha\in[0,1]$ ), a diffused color and a set of spherical harmonics (SH) coefficients (up to 3 bands) that represent view-dependent color information. Color $C$ of each pixel is determined by $N$ Gaussians contributing to that pixel, where their colors are blended in a sorted order within the volumetric rendering regime. Color C is calculated as
+
+$\small C=\sum_{i\in N}c_{i}\alpha_{i}\prod_{j=1}^{i-1}(1-\alpha_{j}),\vskip-5.55002pt$ (2)
+
+where $c_{i}$ and $\alpha_{i}$ are the view-dependent color and opacity of a Gaussian. respectively. The standard L1 reconstruction loss and SSIM loss is used for training, and Gaussians are pruned and densified based on their gradient norms and opacity values.
+
+Gaussians are initialized from a point-cloud calculated from $SfM$ [ 45 ] methods, and they are iteratively updated based on the gradient descent algorithm, where training views of a scene are rendered. The attributes of Gaussians are updated with the calculated gradients based on $\ell_{1}$ norm of the rendered output, $\mathcal{L}_{1}$ , and its structural similarity, $\mathcal{L}_{\text{D-SSIM }}$ with the ground-truth image. The final loss is calculated as in Eq. 3 to obtain a well represented scene reconstruction until $K^{th}$ training iteration. The overall loss is defined as
+
+$\mathcal{L}=(1-\lambda_{SSIM})\mathcal{L}_{1}+\lambda_{SSIM}\mathcal{L}_{\text{D-SSIM }},$ (3)
+
+where $\lambda_{SSIM}=0.2$ .
+
+III-B Efficient training scheme
+
+Our proposed scheme is based on the observation that Gaussians have different convergence rates during training. Figure 1 shows the mean magnitude of all Gaussians during the training of ”bicycle” scene of MipNeRF-360 [ 46 ] dataset. It can be observed that most Gaussians do converge early, however the densification stage still continues to add more Gaussians, due to some Gaussians (e.g. ones that did not yet converge) still having high gradients. This supports the fact that a large number of Gaussians do not need to be trained (e.g. frozen) further, and we can just continue training (e.g. unfrozen) the rest that have high gradients. The frozen Gaussians should ideally be unfrozen at some point, since the reconstruction quality will change with the updated Gaussians, and the frozen Gaussians might need to be updated to align with the new fitting. We detail our overall algorithm in Algorithm 1 .
+
+III-B 1 Leveraging gradients for efficient GS training
+
+Vanilla 3DGS uses positional parameters and their gradients for its densification process. In GSta, we use a similar strategy for efficient training, and take action depending on magnitude of the chosen parameters’ gradients. More specifically, GSta freezes the parameters of Gaussians’ during training, if the magnitude of the parameters’ gradient is lower than a threshold. We use positional and diffused color parameters’ gradients for this purpose. Additionally, we freeze Gaussians only when they have low magnitude gradients on both color and positional parameters, and not just one of them.
+
+Vanilla GS uses fixed threshold values to decide which Gaussians need to be densified or not, based on their gradient magnitudes. GSta, on the other hand, dynamically changes the thresholds that are used to decide which Gaussians to be frozen. We enforce the thresholds for color and positional parameters $p\in\{xyz,rgb\}$ to be between $\lambda_{freeze,1}*\epsilon^{p}_{k,freeze}$ and $\lambda_{freeze,2}*\epsilon^{p}_{k,freeze}$ , where $\lambda_{freeze,1}=0.5,\lambda_{freeze,2}=1.5$ . We gradually increase the thresholds proportional to current training iteration $k$ until the training hits an early stopping criteria (see Sec. III-B2 ) or until the adaptive densification stops, as we aim to freeze less Gaussians in early stages of the training and freeze more as the number of Gaussians increase.
+
+A Gaussian’s gradients are calculated during backpropagation and corresponding weights are updated only if Gaussian’s freeze criteria, $freeze^{p}_{i}$ is set to false, which is decided as
+
+$freeze^{p}_{i}=\left\{\begin{matrix}True,&\|grad^{p}_{i}\|<\epsilon^{p}_{k,freeze}\\
+False,&\textup{otherwise},\\
+\end{matrix}\right.$ (4)
+
+where $k$ is the current training iteration and $\|grad^{p}_{i}\|$ is magnitude of the gradient for $p^{th}$ parameter of $i^{th}$ Gaussian. $\epsilon^{p}_{k,freeze}$ is a threshold chosen for the current training iteration $k$ and for the specific Gaussian parameter $p$ , which is calculated as
+
+$\displaystyle\epsilon^{p}_{k,freeze}=\lambda_{freeze,1}*\epsilon^{p}_{k-1,freeze}+$ (5) $\displaystyle k/K*\lambda_{freeze,2}*\epsilon^{p}_{k-1,freeze}$
+
+During training, GSta freezes a Gaussian, $G_{i}$ only if both $freeze^{xyz}_{i}$ and $freeze^{rgb}_{i}$ is $True$ .
+
+$freeze_{i}=\left\{\begin{matrix}True,&freeze^{xyz}_{i}\ \text{and}\ freeze^{rgb}_{i}\\
+False,&\textup{otherwise},\\
+\end{matrix}\right.$ (6)
+
+where $freeze_{i}$ is the freeze map at iteration $i$ (see Figure 2 for a visualization).
+
+III-B 2 Early stopping
+
+Most GS models are trained with fixed number of training iterations. An efficient GS training strategy requires to be aware of convergence. Therefore, we adopt early stopping strategy based on accuracy metrics, such as $PSNR$ . We enforce the early stopping of GSta’s freezing strategy and enable all Gaussians to be updated for $K_{f}$ number of finetuning iterations. This early stopping is invoked if the change in $PSNR$ metric for the $k^{th}$ training iteration, $\Delta PSNR_{k}$ , is lower than a threshold, $\epsilon_{PSNR}$ value.
+
+However, calculating the $PSNR$ at every training iteration is costly and therefore, we update the metric every $K_{PSNR}$ iterations. We also use a patience factor (wait count) of 1 and require the early stopping criteria to be met twice to define a more reliable convergence criteria. We define the early stopping criteria as
+
+$\mathrm{early\_stop}=\begin{cases}\text{True,}&\Delta PSNR_{k}<\epsilon_{PSNR}\ \text{and}\\
+&\Delta PSNR_{k-K_{PSNR}}<\epsilon_{PSNR},\\
+\text{False,}&\text{otherwise},\end{cases}$ (7)
+
+Note that we do not use the test images for early stopping, which means we do not tune the model based on the test accuracy. Instead, we observe that using the training images for this purpose gives equally good results, which makes it fairer than tuning model parameters on the test set itself.
+
+III-B 3 Learning Rate Scheduling
+
+Vanilla GS is trained with a learning rate for the positional parameters with a cosine decay factor and fixed learning rates for the other parameters. We observe that the final accuracy is highly sensitive to the learning rates and their decay factor. Therefore, we use a learning rate scheduler, which helps us guarantee convergence with the early stopping criteria. More specifically, we use a plateau learning rate scheduler based on the $PSNR$ metric and decay the learning rate of the positional Gaussian parameter with a factor, $d$ . The plateau is decided based on threshold value of $\epsilon_{LR-PSNR}$ and a patience factor of 1.
+
+III-B 4 Rasterizer & optimizer
+
+The vanilla rasterizer in 3DGS is implemented to calculate gradients propagated from the pixels to the Gaussians. However, we need to propagate the gradients per Gaussian during the backward pass, since GSta adopts per splat based freezing strategy. Taming-3DGS [ 40 ] proposes a parallelization scheme per tile over the 2D splats. Their rasterizer makes better use of storing per-splat state and continually exchange per-pixel states between the threads. Hence, we make use of the per splat based rasterizer [ 40 ] and modify it to use our freeze maps. The modified rasterizer bypasses the gradient calculation in the backward pass, if the Gaussian’s, $G_{i}$ , freeze map label, $freeze_{i}$ , is set to $False$ .
+
+Since the gradients are not calculated for some Gaussians, the optimizer is not going to update any parameters of those Gaussians. Therefore, we can also make use of a modified optimizer [ 40 ] to only update the Gaussian parameters if $freeze_{i}$ is set to $True$ . Note that both these rasterizer and optimizer saves computational resources, which improves training efficiency and speed.
+
+III-C Adding Bag of Tricks for Increased Efficiency
+
+Our proposed algorithm can reduce the training time by $6\times$ , which includes the Gaussian freezing with early stopping strategy, learning rate scheduling and by using the proposed rasterizer and optimizer. We also make use of other, ideally orthogonal efficiency improvement methods along with GSta to push the frontier even further. We mostly use the tricks of Trick-GS [ 18 ] ; readers are referred to the original work for further details. We explain each trick briefly below.
+
+Pruning with Volume Masking. [ 13 ] learns masks for pruning the Gaussians with low scale and opacity. Hard masks, $M\in\{0,1\}^{N}$ , are learned for $N$ Gaussians and applied on their opacity and non-negative scale attributes by introducing a soft mask parameter, $m\in\mathbb{R}^{N}$ for each Gaussian. Introduced mask parameters are removed at the end of the training and do not add an extra storage cost. Hard masks can be extracted with $M_{n}=\operatorname*{sg}(\mathds{(}\sigma(m_{n})>\epsilon)-\sigma(m_{n}))+\sigma(m_{n})$ , where $sg$ is the stop gradient operator and $\sigma$ is the sigmoid function. Soft masks are learned as a logistic regression problem.
+
+Pruning with Significance of Gaussians. We adopt the significance based Gaussian pruning strategy proposed in [ 11 ] . Significance of the Gaussians are determined by considering all the rays passing through each training pixel and then by calculating how many times each Gaussian is hit. Scale and opacity of each Gaussian also contributes to the final score for each Gaussian. Finally, the scores are used to prune percentile of the whole set, starting with the Gaussians with lowest significance. This pruning strategy is applied only twice during training runs, since the score calculation for the whole set is costly.
+
+Spherical Harmonic (SH) Masking. Almost 76% of Gaussian parameters are SH parameters of 3 SH bands. Therefore, they represent the arguably biggest bottleneck for achieving low storage requirements. We choose a similar strategy to Gaussian masking [ 13 ] and SH bands pruning [ 27 ] for each Gaussian. Instead of learning a single soft mask parameter for each Gaussian, we learn 3 parameters corresponding to SH bands of a Gaussian. Instead of pruning SH bands, they are set to zero and used within the rasterizer. At the end of training, SH bands that are masked out are pruned and not saved, improving storage footprint. Note that we use SH masking only with $GSta+TrickGS+small$ (see Sec IV-B ).
+
+Progressive Training. Progressive training strategies help lower storage and training time by starting from a lower resolution image representation. Gradually increasing the resolution [ 47 , 28 ] lets the optimization focus on low frequency details first and high frequency details at later iterations. We adopt a similar trick and starting from a lower resolution, we increase the resolution size with a cosine scheduler until 6K iterations.
+
+Blur. Another way to make the optimization focus on low frequency details first is adding Gaussian blur [ 28 ] on the image. We add Gaussian blur on the original image by starting with a larger kernel size and gradually decay it with a cosine scheduler and remove the noise until 6K iterations.
+
+Accelerated SSIM loss calculation. Another trick for training time efficiency is to modify $SSIM$ loss calculation with optimized CUDA kernels [ 40 ] , where each 2D convolution kernels with in the calculation is replaced with two 1D kernels. Later a fused kernel from the output of 1D convolutions are used to calculate $SSIM$ .
+
+IV Experimental Results
+
+We first include details of our experimental setup and implementation, and then discuss our experimental evaluation and comparison with state of the art methods.
+
+IV-A Experimental Setup and Implementation Details
+
+Metrics and datasets. We evaluate our method on various bounded and unbounded indoor/outdoor scenes; Mip-NeRF-360 [ 46 ] , Tanks&Temples [ 48 ] and DeepBlending [ 49 ] are used in our experiments. Following [ 5 ] , we use the pre-computed point clouds and camera poses for training and use every $8^{th}$ image for evaluation. We use the commonly used PSNR, SSIM and LPIPS metrics [ 50 ] for evaluating GSta. We train and evaluate our method on a single NVIDIA RTX 3090 and use torch.cuda.Event function to report training time (including densification), and provide FPS values as the average of 50 runs using torch.utils.benchmark . Note that we measure training times and FPS values on the same hardware, including Mini-Splatting-v2 and Taming-3DGS [ 43 , 40 ] .
+
+Dataset Mip-NeRF 360 Tanks&Temples Method PSNR ↑ SSIM ↑ LPIPS ↓ Storage ↓ (MB) Time ↓ (min) Max-#GS ↓ $\times 1000$ #GS ↓ $\times 1000$ PSNR ↑ SSIM ↑ LPIPS ↓ Storage ↓ (MB) Time↓ (min) Max-#GS ↓ $\times 1000$ #GS ↓ $\times 1000$ * INGP-base [ 8 ] 25.30 0.671 0.371 13 5.62 - - 21.72 0.723 0.330 13 5.43 - - * INGP-big [ 8 ] 25.59 0.699 0.331 48 7.50 - - 21.92 0.745 0.305 48 6.98 - - * Turbo-GS [ 41 ] 27.38 0.812 0.210 240 5.47 - 490 23.49 0.841 0.176 - 4.35 - - 3DGS [ 5 ] 27.56 0.818 0.202 770 23.83 3265 3255 23.67 0.845 0.178 431 14.69 1824 1824 Mini-Splatting-v2 [ 43 ] 27.37 0.821 0.215 139 3.93 4744 618 23.16 0.842 0.185 84 2.35 3890 358 Taming-3DGS [ 40 ] 27.25 0.795 0.260 151 6.46 670 670 23.73 0.836 0.210 72 4.02 319 319 Trick-GS [ 18 ] 27.16 0.802 0.245 39 15.41 1369 830 23.48 0.830 0.209 20 10.56 696 443 GSta 27.21 0.812 0.227 304 7.89 2740 2699 22.90 0.833 0.203 165 3.99 1511 1468 GSta+Trick-GS+small 27.13 0.807 0.242 48 5.30 1774 1148 23.02 0.830 0.207 28 4.37 920 727 GSta+Trick-GS 27.14 0.807 0.241 130 4.84 1781 1159 23.13 0.832 0.202 103 2.89 1252 914
+
+Dataset Deep Blending Method PSNR ↑ SSIM ↑ LPIPS ↓ Storage ↓ (MB) Time ↓ (min) Max-#GS ↓ $\times 1000$ #GS ↓ $\times 1000$ * INGP-base [ 8 ] 23.62 0.797 0.423 13 6.52 - - * INGP-big [ 8 ] 24.96 0.817 0.390 48 8.00 - - * Turbo-GS [ 41 ] 30.41 0.910 0.240 - 3.24 - - 3DGS [ 5 ] 29.46 0.899 0.266 664 25.29 2808 2808 Mini-Splatting-v2 [ 43 ] 30.19 0.912 0.240 73 3.16 5255 651 Taming-3DGS [ 40 ] 30.07 0.904 0.270 33 4.52 294 294 Trick-GS [ 18 ] 29.46 0.899 0.260 25 13.11 1308 639 GSta 29.40 0.906 0.251 296 7.37 2629 2629 GSta+Trick-GS+small 29.33 0.905 0.260 48 4.44 1877 1399 GSta+Trick-GS 29.41 0.906 0.257 158 4.68 1887 1405
+
+G: Set of all Gaussian parameters, gt_image: ground-truth image, cam_pose: camera pose of gt_image.
+
+eval_image: evaluation images, eval_cam_pose: camera poses of eval_image, eval_freq: frequency of evaluation.
+
+total_iter: total train iterations, iter: current train iteration, psnrs: list of previous PSNRs.
+
+stop_p: early stopping patience, stop_eps: early stopping threshold, max_stop_it: early stopping max number of iterations.
+
+eps_f_xyz, eps_f_rgb: initial thresholds for xyz and rgb gradients for freezing.
+
+finetune: current finetuning state, ft_iter_rem: remaining finetuning iterations.
+
+GSta Details. GSta dynamically adjusts the thresholds used for the densification and freezing Gaussians. More specifically, thresholds are proportionally adjusted to the current training iteration and are scaled between $[0.5,1.5]$ starting with their initial values. Initial thresholds for the densification are set to $eps\_den\_xyz=0.0002$ and $eps\_den\_rgb=0.000001$ . Initial thresholds for freezing Gaussians are set to $eps\_f\_xyz=0.00003$ and $eps\_f\_rgb=0.0001$ . The thresholds are chosen once by observing the convergence of each parameters’ gradient magnitudes and applied the same on all scenes. Freeze map is updated according to the current parameters’ thresholds every $250$ iterations and frozen Gaussians are accumulated until our algorithm meets early stopping criteria. It implies that if a Gaussian is frozen in the previous iterations it will stay frozen in later iterations. GSta unfreezes some Gaussians only if they would be pruned within the densification stage. We also reset the freeze map at every $k_{f_{reset}}=2K$ iterations and do not start re-freezing until $k_{f_{wait}}=500$ iterations pass to give chance for some Gaussians to be unfrozen later.
+
+Our algorithm early stops and starts finetuning the representation if the change in PSNR is less than $0.2dB$ with a patience of $1$ PSNR calculations, and we update models’ current PSNR every $1K$ iterations until the freezing complete. GSta trains without freezing for $k_{warmup}=3K$ iterations and activates the freezing algorithm between $[3K,\min(10K,early\_stop\_iter)]$ iterations. Although we train in full fp32 precision, we save and evaluate our models in reduced fp16 precision, which allows us to lower the storage size for practically no loss in accuracy.
+
+GSta uses the same learning rates as the vanilla model, except the opacity learning rate which is $0.025$ . Plateau learning rate schedulers are implemented with a learning rate decay factor of $0.75$ , patience of $1$ and epsilon of $1$ .
+
+We densify every 100 iterations starting from iteration $(500,\min(10K,early\_stop\_iter))$ , and prune unnecessary Gaussians with the aforementioned pruning strategies. Similarly, opacity reset is applied from iterations $[3K,\min(10K,early\_stop\_iter)]$ with a step size of $3K$ .
+
+We additionally use a trick introduced in $Taming-GS$ [ 40 ] and replace the activation function of opacity from ”sigmoid” to ”absolute” activation function when finetuning of our method is activated. The regular capped Gaussian primitives are converted to high-opacity Gaussians which is shown to represent opaque surfaces with less number of Gaussians. Following Turbo-GS [ 41 ] , we adopt gradients from diffused color parameters together with positional parameters. They are used both for adaptive densification and in our case, also for freezing. Gradients from diffused colors are activated 20% of the time to be used in densification and they are always used together with the positional based gradients for freezing Gaussians.
+
+Trick-GS Details. We get inspiration from Trick-GS [ 18 ] for scheduling image resolutions, blurring and significance score based pruning. Starting from an image resolution with scale $0.175$ , we gradually increase it back to the original resolution until iteration $6K$ using a cosine scheduler. Similarly, Gaussian kernels are initialized to $5\times 5$ , and kernel size is adapted to correspond $0.25$ of the image scales. Kernel size is gradually lowered with a $\log$ scheduler to remove the noise until iteration $6K$ . Significance based pruning is applied at iterations $4K$ and $7K$ with $75\%$ of removal factor and a decay of $0.8$ . SH masks are learned only during finetuning iterations. We learn adaptive GS mask pruning from iteration 1K to 10K and prune Gaussians every 1K iterations. Please refer to [ 18 ] for the rest of the parameters as we keep the rest of settings the same.
+
+IV-B Performance Evaluation
+
+We compare GSta with four state of the art approaches, Mini-Splatting-v2 [ 43 ] , Taming-GS [ 40 ] , Trick-GS [ 18 ] and finally Turbo-GS [ 41 ] . We run all approaches on our system except Turbo-GS [ 41 ] , as the implementation was not available on the day of this submission. We propose three variants of our model, $GSta$ , $GSta+TrickGS$ and $GSta+TrickGS+small$ , where the first is GSta applied on vanilla 3DGS, second is GSta combined with Trick-GS, and the third is essentially the second but with SH masking for even lower storage. The results are shown in Tables I and II .
+
+Results. $GSta$ achieves competitive accuracy, while reducing the storage requirements and training times $\sim$ 3 fold and improving peak number of Gaussians by 50% compared to vanilla GS. The results show that $GSta$ achieves faster training than $Trick-GS$ and has half the peak number of Gaussians of $Mini-Splatting-v2$ . It has better accuracy (e.g. LPIPS) than $Taming-3DGS$ , but exhibits slightly worse storage and peak memory performance. These results show that $GSta$ does improve the current state-of-the-art, and is preferable over others in different aspects; e.g. lower training memory than $Mini-Splatting-v2$ , faster than $Trick-GS$ and more accurate than $Taming-3DGS$ .
+
+Combining with Trick-GS. $GSta+TrickGS$ presents further gains over $GSta$ , where storage, training time and peak memory requirements are all reduced, with little to no drop in accuracy. Compared to vanilla GS on MipNeRF-360, $GSta+TrickGS$ reduces the storage by $\sim$ 5, training time by $\sim$ 5 and improves peak memory by up to a relative 60%. Similar to before, $GSta+TrickGS$ now converges even faster than $Trick-GS$ , has less than half the peak memory of $Mini-Splatting-v2$ and now trains faster than $Taming-3DGS$ . These trends also hold for the other two datasets, where the results show that $GSta$ not only is accurate itself, but also can also leverage orthogonal efficiency improvement methods, such as $Trick-GS$ , to achieve even further gains.
+
+$GSta+TrickGS+small$ presents our smallest model, to see how far we can go in achieving efficient GS. At the cost of some drop in accuracy, it introduces some drastic compression rates; it achieves 16 $\times$ reduction in storage, 5 $\times$ reduction in training time and 2 $\times$ reduction in peak memory compared to vanilla 3DGS on MipNerf-360, and similar rates of improvements on other datasets. $GSta+TrickGS+small$ has much less storage size than $Taming-3DGS$ and $Mini-Splatting-v2$ , better training time than $Taming-3DGS$ and significantly lower peak memory consumption than $Mini-Splatting-v2$ . In overall, the results show that GSta advances the efficiency-fidelity frontier further and takes a decisive step towards edge-friendly GS systems.
+
+Qualitative Results. Images in Figure 3 show that our method is highly accurate. $Taming-3DGS$ , and $MiniSplatting-v2$ to a certain extent, fail to capture high-frequency details (e.g. tree leaves in both images), whereas our method successfully captures complex details and has no visible difference in quality compared to vanilla 3DGS.
+
+IV-C Ablation Study
+
+We now analyze the impact of GSta and its components. We do so by progressively removing components from GSta, and see their individual effect. The results of our analysis are shown in Table III .
+
+Freezing strategies. We first analyse whether our freezing strategy does improve on two naive approaches; randomly freezing 25% ( random ) of Gaussians or freezing ones with lowest 25% gradients ( mingrad ). The results (rows 3, 8 and 9) show that our freezing strategy (GSta) has the best training time. Furthermore, random introduces drops in accuracy, as it tends to end training with fewer Gaussians than others because it randomly freezes Gaussians with high gradient magnitudes. Row 3 shows that not using any freezing has the worst training time among others, showing the value of our Gaussian freezing approach. Finally, we evaluate the GSta model without the freeze module trains even slower than using a freeze module with random selections.
+
+LR scheduler and dynamic thresholding. The addition of LR scheduler (rows 5) shortens the training time by 2 minutes but has no tangible effect on other metrics. The introduction of dynamic thresholding (row 7) in our freezing strategy and densification strategy shows improvements in training time as well, showing its practical usefulness.
+
+Gradient information. We now analyse the need both $rgb$ and $xyz$ gradients in our freezing approach. Rows 6 shows that only using $xyz$ both harms training time, storage and peak memory. This shows the practical value of rgb gradients in being a proxy for a Gaussian’s usefulness.
+
+Trick-GS. $Trick-GS$ techniques synergizes very well with our GSta (see rows 2 and 3), where huge gains in storage and peak memory are observed, as well as slight gains in training time, with virtually no drop in accuracy metrics.
+
+Dataset MipNeRF360 - bicycle Method PSNR ↑ SSIM ↑ LPIPS ↓ Storage ↓ (MB) Time ↓ (min) Max-#GS ↓ $\times 1000$ #GS ↓ $\times 1000$ GSta+TrickGS 25.23 0.758 0.248 223 5.0 2512 1982 GSta+Trick-GS+small 25.20 0.756 0.248 82 5.6 2507 1981 GSta 25.12 0.759 0.235 457 6.4 4075 4060 GSta-freezing 25.16 0.764 0.212 427 15.7 3974 3795 GSta-lrscheduler 25.17 0.762 0.229 454 11.3 4041 4036 GSta-rgb 25.18 0.755 0.239 509 8.9 4542 4520 GSta-dynamic 25.15 0.758 0.239 443 7.8 3933 3933 GSta+mingrad 25.25 0.765 0.223 434 9.0 3981 3855 GSta+random 25.02 0.748 0.241 353 13.1 3323 3140 3DGS 25.21 0.767 0.205 713 37.6 6331 6331
+
+V Conclusion
+
+On device learning of GS is costly and it requires efforts on multiple evaluation metrics, such as accuracy, training time, storage requirement. In this work, we propose GSta, a generic training scheme for 3DGS that can be used as a plug-and-play module for any GS-based method. Consisting of a novel Gaussian freezing scheme, early stopping mechanism and improved hyper-parameter selections, GSta advances the frontier of efficient GS methods on multiple fronts, such as training memory, time and storage requirements, while preserving competitive accuracy.
+
+References

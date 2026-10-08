@@ -1,0 +1,22 @@
+{
+  "experiment": "VRIR2-P0",
+  "verdict": "DROP_NO_E2E_HEADROOM",
+  "question": "can raster tile membership be incrementally repaired instead of fully rebuilt?",
+  "answer": "NO (bit-exact repair achieved, but no E2E headroom)",
+  "gates": {
+    "G1_correctness": "PASS",
+    "G2_changeset": "PASS",
+    "G3_performance": "FAIL"
+  },
+  "key_numbers": {
+    "correctness_all_exact": true,
+    "r_g_mean_all": 0.8818786772803778,
+    "r_t_mean_all": 1.0,
+    "membership_speedup_500": 0.09877248312480937,
+    "e2e_speedup_500": 0.09877248312480937,
+    "gate_membership": 1.5,
+    "gate_e2e": 1.1
+  },
+  "decision_rule": "DROP_CORRECTNESS if any membership mismatch; elif empty changeset DROP_NO_CHANGESET; elif membership<1.5x or E2E<1.1x DROP_NO_E2E_HEADROOM; else KEEP_VRIR2",
+  "scope_freeze_respected": "only Gaussian->tile membership update; no change to sorting/blending/backward/optimizer/densification/schedule"
+}

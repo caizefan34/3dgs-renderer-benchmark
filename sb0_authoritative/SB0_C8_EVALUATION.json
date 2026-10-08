@@ -1,0 +1,113 @@
+{
+  "task": "SB0-FGS",
+  "deliverable": "SB0_C8_EVALUATION",
+  "date": "2026-09-30",
+  "component": "C8",
+  "name": "Morton/Z-order densification (locality-preserving param+optimizer reordering)",
+  "faster_gs_ref": "src/Methods/FasterGS/Trainer.py:141-145 morton_ordering @ MORTON_ORDERING_INTERVAL=5000, END=15000; Model.py apply_morton_ordering via CudaUtils.MortonEncoding.morton_encode + argsort(means)",
+  "c0_status": "C0 has NO morton ordering. ORIGINAL_METHOD_PROTOCOL clone/split/prune densification (config: densify_from=500, until=15000, interval=100, opacity_reset=3000). No param/optimizer reordering anywhere in C0.",
+  "classification": "DISTINCT_AND_EXACT",
+  "classification_note": "Pure memory-layout change. C0 forward is per-tile (depth)sorted (HigsNativeBackward.cu header: 'per-tile sorted'), so global morton order does NOT alter alpha-blend output => output-preserving / exact. Not bit-exact (FP kernel re-launch identical; only memory layout differs) => ALGEBRAIC_EXACT_FP_REASSOCIATED at most, but render output is bit-identical (same kernels, same math).",
+  "verdict": "DROP",
+  "no_cuda_modified": true,
+  "gate_compliance": "No production CUDA modification. Microbench used pinned C0 .so READ-ONLY. Component audit + opportunity oracle gate satisfied (returned to reviewer before any CUDA mod).",
+  "method": {
+    "type": "NO-CUDA microbench on pinned C0 .so (zero source modification)",
+    "python": "/root/miniforge3/envs/gsplat/bin/python (torch 2.9.1+cu128)",
+    "gpu": "A100-SXM4-80GB, CUDA_VISIBLE_DEVICES=0",
+    "so_sha256": {
+      "ext_d26cccf4": "matches task pin",
+      "core_935ea6c0": "matches task pin"
+    },
+    "ckpt": "/root/epic05_p16rb/runs/P12_C0/{room,garden,bicycle}/ckpt_30000.pt (C0 30K, arm=c0)",
+    "render_path": "rasterize_gaussian_higs_dynamic(backward_mode=higs_native, enable_culling=True) -- identical to trainer c0 arm render_with_meta",
+    "timed_per_iter": "render + L1-loss + loss.backward (morton-sensitive) ; optimizer.step (morton-invariant control)",
+    "design": "c8_microbench3.py: interleaved A/B/A/B rounds with inverse-perm restore (apply perm, measure B, apply argsort(perm), measure A) to cancel GPU clock drift; 50 iters/round; 4-5 rounds/scene; median aggregation",
+    "morton_key": "3D 20-bit bit-interleaved Z-order from means; argsort; in-place permute of _xyz/_shs/_scaling/_rotation/_opacity + optimizer exp_avg/exp_avg_sq",
+    "e2e_conversion": "saved_ms_per_iter / authoritative C0 profile mean_iter (SB0_C0_PROFILE.json). full_train = apply-once-post-densification (iters 15000-30000) saving / (30000 * mean_iter)."
+  },
+  "measurements": {
+    "room": {
+      "N": 852651,
+      "A_fwd_bwd_median_ms": 11.836,
+      "B_fwd_bwd_median_ms": 11.676,
+      "raster_fwd_bwd_speedup_pct": 1.35,
+      "saved_ms_per_iter": 0.159,
+      "reorder_overhead_ms": 191,
+      "profile_iter_ms": 29.441,
+      "e2e_per_iter_pct": 0.54,
+      "e2e_full_train_pct": 0.27,
+      "rounds_B_faster": "4/4"
+    },
+    "garden": {
+      "N": 2570469,
+      "A_fwd_bwd_median_ms": 24.42,
+      "B_fwd_bwd_median_ms": 24.293,
+      "raster_fwd_bwd_speedup_pct": 0.52,
+      "saved_ms_per_iter": 0.127,
+      "reorder_overhead_ms": 634,
+      "profile_iter_ms": 37.867,
+      "e2e_per_iter_pct": 0.34,
+      "e2e_full_train_pct": 0.17,
+      "rounds_B_faster": "2/4 (early rounds B faster ~1.5%; late rounds sign-flipped B slower under clock drift)"
+    },
+    "bicycle": {
+      "N": 3695973,
+      "A_fwd_bwd_median_ms": 25.812,
+      "B_fwd_bwd_median_ms": 24.957,
+      "raster_fwd_bwd_speedup_pct": 3.31,
+      "saved_ms_per_iter": 0.854,
+      "reorder_overhead_ms": 981,
+      "profile_iter_ms": 41.058,
+      "e2e_per_iter_pct": 2.08,
+      "e2e_full_train_pct": 1.04,
+      "rounds_B_faster": "5/5 (1.88-5.87%)"
+    }
+  },
+  "measurement_caveats": {
+    "noise_floor": "absolute fwd+bwd varies ~\u00b12ms round-to-round (garden level-shifted +2ms in later rounds from thermal/clock drift); this ~8% fwd+bwd noise EXCEEDS the room/garden effect size, so room/garden benefit is within noise.",
+    "clock_lock_denied": "nvidia-smi -lgc denied (shared GPU); mitigated by interleaved A/B/A/B with inverse-perm restore.",
+    "block_design_artifact": "an earlier block-separated A-then-B design (c8_microbench2.py) produced a spurious -0.39% on bicycle (A and B in different clock states); interleaved design (v3) is authoritative."
+  },
+  "evidence": {
+    "OBSERVED": "C0 has no morton ordering; Faster-GS applies it only 2x in 30K (iter 5000,10000). On pinned C0, morton reordering changes raster fwd+bwd by +1.35%/+0.52%/+3.31% (room/garden/bicycle, interleaved median); optimizer step ~0% (layout-invariant, sequential access). One-time reorder overhead 191/634/981ms.",
+    "EVIDENCE": "bicycle 5/5 rounds B<A; room 4/4 B<A; garden 2/4 B<A (sign-flipped late). Per-iter E2E = saved/profile_iter = 0.54/0.34/2.08%. Full-training (apply once post-densification) = 0.27/0.17/1.04%. Periodic reorder during densification is net-NEGATIVE for bicycle (10 reorders x0.98s=9.8s overhead > 0.854ms x10000=8.5s saving).",
+    "HYPOTHESIS": "Morton can only help C0's backward atomicAdd scatter cache locality. C0's backward processes in TILE-SORTED order (not global order), so global morton coherence is weak vs Faster-GS's fused per-primitive backward (processing order = global order). Forward producer + optimizer step are sequential-access => layout-invariant. Hence small, N-dependent, noise-confounded benefit that does NOT reproduce Faster-GS's reported gain.",
+    "TEST": "c8_microbench3.py on gsplat env (torch 2.9.1), A100, pinned .so, interleaved A/B/A/B inverse-perm restore, 50 iters/round x4-5 rounds/scene. E2E via authoritative C0 profile mean_iter.",
+    "CONCLUSION": "C8 realistic O_net = 0.17-1.04% full-training E2E (0.34-2.08% per-iter), BELOW the 3% implementation bar on ALL scenes and below the 2% DROP floor on a full-training basis. Benefit confined to backward scatter, scales with N, within measurement noise for room/garden, erased by reorder overhead during densification. Per Oracle rule (implement only if realistic O_net >=3% E2E), C8 -> DROP. This empirically validates the task warning that Faster-GS's speedup does not transfer to C0's tile-based H8_MR backward."
+  },
+  "decision": "DROP (realistic full-training O_net 0.17-1.04% E2E << 3% bar; per-iter 0.34-2.08% < 3%; within measurement noise for room/garden; reorder overhead during densification net-negative)",
+  "success_criteria_impact": {
+    "criterion_A_c0_plus": "NOT advanced -- C8 dropped, no component clears the >=3% E2E implementation gate",
+    "criterion_B_stronger_external_baseline": "NOT SUPPORTED (see SB0_FASTERGS_REFERENCE.json.iso_protocol_experiment; C0 garden/bicycle deficit was a 1920x1080 stretch protocol artifact)"
+  },
+  "idealized_ceiling_analysis": {
+    "purpose": "Convert the C8 microbench ESTIMATE into a rigorous UPPER BOUND. Even under the most favorable assumptions (ZERO reorder overhead + measured speedup applied to ALL 30000 iters), C8 cannot reach the 3% E2E implementation gate on ANY scene.",
+    "method": "idealized_e2e_ceiling = measured_fwd_bwd_speedup% * microbench_fwd_bwd_ms * 30000 / (30000 * profile_iter_ms). This is an UPPER BOUND: it assumes free reorder and all-iter application, both of which are impossible (reorder costs 191-981ms one-time; densification 500-15000 perturbs layout every 100 iters so the speedup is only cleanly present post-15000).",
+    "per_scene": {
+      "room": {
+        "measured_fwd_bwd_speedup_pct": 1.35,
+        "idealized_save_ms_per_iter": 0.1598,
+        "idealized_e2e_ceiling_pct": 0.543,
+        "realistic_full_train_e2e_pct": 0.25,
+        "passes_3pct_gate": false
+      },
+      "garden": {
+        "measured_fwd_bwd_speedup_pct": 0.52,
+        "idealized_save_ms_per_iter": 0.127,
+        "idealized_e2e_ceiling_pct": 0.335,
+        "realistic_full_train_e2e_pct": 0.112,
+        "passes_3pct_gate": false
+      },
+      "bicycle": {
+        "measured_fwd_bwd_speedup_pct": 3.31,
+        "idealized_save_ms_per_iter": 0.8544,
+        "idealized_e2e_ceiling_pct": 2.081,
+        "realistic_full_train_e2e_pct": 0.961,
+        "passes_3pct_gate": false
+      }
+    },
+    "max_observed_round_caveat": "bicycle round3 hit 5.87% fwd+bwd (single round); median of 5 rounds = 3.31%. Even using 5.87%, idealized ceiling = 3.69%, but the realistic full-train number (1.04%) far falls below, and 4/5 rounds were <4%. The DROP rests on the robust median.",
+    "conclusion": "C8 idealized E2E ceiling = 0.54/0.34/2.08% (room/garden/bicycle) < 3% gate on ALL scenes. The DROP is a proven upper-bound result, not a soft estimate. Criterion A is unreachable via C8 (and all other exact components are DROP/ALREADY_IN_C0)."
+  }
+}

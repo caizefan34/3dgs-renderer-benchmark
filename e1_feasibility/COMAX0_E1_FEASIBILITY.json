@@ -1,0 +1,93 @@
+{
+  "schema": "comax0.e1feasibility.v1",
+  "date": "2026-10-06",
+  "scene": "room",
+  "seed": 17,
+  "experiment": "E1_FULL_QUALITY_FEASIBILITY",
+  "measured_on_mx": true,
+  "hostname": "bms-39468022-001",
+  "gpu_used_for_probe": {
+    "index": 2,
+    "uuid": "GPU-25086196-7911-cc05-1452-1885d070d710",
+    "state_at_probe": "fully_idle_0MiB_0pct"
+  },
+  "budget": {
+    "cap_gpu_hours": 12,
+    "charged_s": 35412.6,
+    "charged_h": 9.84,
+    "remaining_s": 7787.4,
+    "remaining_min": 129.8,
+    "runs_counted": 49,
+    "note": "Probe was standalone (not via run_on_mx.py) and charged NO budget."
+  },
+  "determinism_prerequisite": {
+    "status": "PASS",
+    "evidence": "COMAX0_E1_CLAMP_DETERMINISM/run/DETERMINISM.json",
+    "detail": "CLAMP production renderer bitwise-deterministic + NaN-free on 5/5 views under shared-GPU amendment."
+  },
+  "probe": {
+    "script": "probe_e1_stepcost.py",
+    "method": "Self-contained per-step timing probe; inlines build_optimizer/position_lr/eta_at from run_e1.py; uses comax_render_eta_ckpt (checkpointed twin) exactly as run_e1_ckpt.py monkeypatches it. 6 baseline + 6 comax training steps at 1080p on frozen room checkpoint (924550 gaussians).",
+    "renderer_comax": "comax_render_eta_ckpt (checkpointed reference twin; numerics-only oracle)",
+    "renderer_baseline": "gsplat rasterization (common.render_baseline)",
+    "elapsed_before_kill_s": 266,
+    "setup_incl_GTcache_and_gsplat_compile_s": 90,
+    "timing_loop_elapsed_s": 176,
+    "baseline_steps_completed": 6,
+    "comax_steps_completed": 0,
+    "comax_lower_bound_step_s": 29.3,
+    "comax_lower_bound_basis": "6 comax steps not completed in 176s of timing loop (0 of 6 done); pure-compute lower bound >29.3s/step, before disk-stall overhead.",
+    "killed_reason": "manual kill after conclusive lower bound; further waiting would not change the budget-infeasibility decision.",
+    "note": "GPU util stayed low (0-33%) because the ckpt reference comax renderer per-Kmax torch.where loop is CPU-bound; this is inherent to the unoptimized reference oracle, not a GPU-idle artifact."
+  },
+  "feasibility_analysis": {
+    "full_e1_work": "determinism_check (2x50=100 comax steps) + baseline 1000 steps + comax 1000 steps + eval on frozen test split",
+    "comax_steps_total": 1100,
+    "comax_step_s_lower_bound": 29.3,
+    "comax_time_lower_bound_s": 32230,
+    "comax_time_lower_bound_h": 8.95,
+    "baseline_step_s_estimate": 2,
+    "baseline_time_s_estimate": 2000,
+    "eval_time_s_estimate": 300,
+    "full_e1_lower_bound_s": 34530,
+    "full_e1_lower_bound_h": 9.6,
+    "budget_remaining_min": 129.8,
+    "verdict": "BUDGET_INFEASIBLE",
+    "margin": "Full E1 lower bound (~9.6h) exceeds remaining budget (2.16h) by ~4.4x even with zero baseline/eval cost; the comax reference oracle alone (~8.95h) exceeds budget by ~4.1x."
+  },
+  "environmental_blocker": {
+    "root_filesystem": "/dev/sda1 mounted at /",
+    "root_usage": "100% full (434G/439G, 0 bytes free)",
+    "impact": "Kernel cannot flush dirty page-cache pages to the full root; processes intermittently stall in State D even with all writable paths redirected to the storage pool. GT images are read from root, so page-cache pressure from other tenants stalls even reads.",
+    "attribution": "Shared multi-tenant node; bulk of root usage is other tenants data. NOT safe to delete foreign files.",
+    "mitigation_applied": "Redirected all task writable paths to /mnt/storage_pool (68G free); cleared only the task own caches (pip 301M, torchinductor 790M) - insufficient.",
+    "effect_on_e1": "Adds intermittent I/O stalls to any root-reading process; would further slow/reliability-degrade a multi-hour E1 run."
+  },
+  "additional_finding": {
+    "non_ckpt_comax_oom": "The non-checkpoint comax_render_eta OOMs at 1080p on a CLEAN idle GPU (39.4 GiB used, full-graph retention ~30-40 GB). The checkpointed twin (comax_render_eta_ckpt) is REQUIRED for any 1080p E1 run; matches module docstring and prior co-residency OOM root cause.",
+    "significance": "Confirms the ckpt twin is not merely a shared-GPU mitigation but a necessity at 1080p regardless of co-residency."
+  },
+  "h0_headroom_context": {
+    "prior_h0_verdict": "MARGINAL_HEADROOM (~2.0x ceiling, realistic <2x) per COMAX0_H0",
+    "e2_outlook": "Even if a fast comax renderer existed, prior H0 measured ceiling is marginal against the >=2.0x render gate; E2 speed PASS is not established."
+  },
+  "future_hypothesis": {
+    "id": "VECTORIZED_COMAX_REFERENCE",
+    "note": "The reference comax renderer per-Kmax Python torch.where loop is the throughput bottleneck. A segmented-scan/vectorized equivalent (as the CUDA envelope implements) would be orders of magnitude faster. This is a METHOD CHANGE and is NOT pursued in this budget-constrained pass; recorded only as a FUTURE_HYPOTHESIS for paper-level optimization. It must preserve bitwise-exactness vs the current depth-order oracle to remain valid."
+  },
+  "master_verdict": {
+    "value": "INCONCLUSIVE_BUDGET",
+    "changed": false,
+    "reason": "No new preregistered scientific (performance/quality) evidence was produced. E1 full quality is budget-infeasible (reference oracle too slow); E2/E3 remain NOT_RUN. Per directive, master verdict is NOT altered by a feasibility/diagnostic analysis."
+  },
+  "provenance": {
+    "shared_gpu_numerics_only": true,
+    "performance_evidence_valid": false,
+    "timing_claim_made": false,
+    "foreign_process_killed": false,
+    "sudo_used": false,
+    "gpu_reset_done": false,
+    "co_resident_train_jobs_touched": false,
+    "note": "Feasibility probe on a fully idle GPU (no co-resident job). NO timing/performance claim; this is a cost/feasibility measurement, not an E2 result."
+  }
+}

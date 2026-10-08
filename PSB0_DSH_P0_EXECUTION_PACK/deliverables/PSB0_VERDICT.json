@@ -1,0 +1,35 @@
+{
+  "_timestamp_utc": "2026-10-01T11:30:00Z",
+  "packet": "PSB0-DSH-P0",
+  "question": "Can front-to-back alpha compositing backward state be recovered by associative prefix/suffix scan instead of checkpoint+replay?",
+  "verdict": "DROP_OPERATION_COUNT",
+  "verdict_basis": "First failing gate in prereg order = Gate 4 (operation model).",
+  "gates": {
+    "gate0_remote": "PASS",
+    "gate1_algebra": "PASS",
+    "gate2_prior_art": "PASS",
+    "gate3_state_size": "PASS",
+    "gate4_operation_model": "FAIL_BORDERLINE",
+    "gate5_numerical": "PASS",
+    "gate6_economics": "FAIL"
+  },
+  "gate_evidence": {
+    "gate1": "PSB0_ALGEBRA.md / PSB0_REFERENCE_ORACLE.json — associativity max err 3.4e-7, closure B∈[0,1]",
+    "gate2": "PSB0_PRIOR_ART.md — no direct collision on EPIC-05 arxiv search",
+    "gate3": "summary (A,B)=4 floats == native float4 checkpoint=4 floats",
+    "gate4": "PSB0_OPERATION_MODEL.json — reduction (exp-6)/(exp+8), scene-independent; breakeven exp≈9.5 FMA-equiv; 12-37% at realistic expf; -13% at fast-exp",
+    "gate5": "worst grad cosine 0.99999994, relL2 5.2e-7 (<=1e-6, >=0.9999999)",
+    "gate6": "PSB0_AMDAHL.json — E2E ceiling ~1.02x < 1.05x"
+  },
+  "key_findings": [
+    "Associative segment transform (A,B) with (A1,B1)⊗(A2,B2)=(A1+B1·A2, B1·B2) is exact and recovers all backward state (Gate 1/5 PASS).",
+    "No prior-art collision for backward-scan state recovery (Gate 2 PASS).",
+    "Scan state size equals native checkpoint (Gate 3 PASS).",
+    "Scan compose (14 flop/visit) > native replay recurrence (10-11 flop/visit); only saving is eliminating backward expf, which is borderline/hardware-dependent (Gate 4 FAIL).",
+    "E2E ceiling from state-recovery ~1.02x < 1.05x (Gate 6 FAIL)."
+  ],
+  "scope": "THEORY/SOURCE/TRACE/CPU-ORACLE ONLY. No CUDA built or run.",
+  "remote": "EPIC-05 dsw-933622-64cc845c7d-lqswc, A100-SXM4-80GB, git abfa6c3",
+  "next": "PSB1: seek a compose-cheaper-than-replay scan lattice, or a fused fwd/bwd that fully eliminates backward expf, before revisiting.",
+  "_note": "gate4 recorded FAIL_BORDERLINE because the >=20% reduction is not robust across the realistic expf cost range and P0 forbids measuring it; per prereg a non-pass at Gate 4 yields DROP_OPERATION_COUNT."
+}

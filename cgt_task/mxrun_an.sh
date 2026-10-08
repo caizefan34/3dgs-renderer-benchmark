@@ -1,0 +1,2 @@
+cd /home/liaoyuanjun/cgt_realscene/src
+/mnt/storage_pool/liaoyuanjun_mx0qual/bin/python analyze_g1.py --inputs /home/liaoyuanjun/cgt_realscene/logs/smoke.json --out /home/liaoyuanjun/cgt_realscene/logs/g1_test.json 2>&1

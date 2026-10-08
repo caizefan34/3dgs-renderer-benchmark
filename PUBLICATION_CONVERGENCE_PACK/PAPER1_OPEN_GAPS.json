@@ -1,0 +1,105 @@
+{
+  "artifact": "PAPER1_OPEN_GAPS",
+  "schema": "paper1-open-gaps/v1",
+  "generated_utc": "2026-10-02T09:05:49Z",
+  "gap_vocabulary": [
+    "BLOCKER",
+    "HIGH",
+    "MEDIUM",
+    "LOW"
+  ],
+  "gaps": [
+    {
+      "id": "G1",
+      "gap": "Only K50-B1 has a real full-training-step speedup; TFC/DFC/CGC/KFC/AGS are renderer-local (frozen PLY) and MUST NOT be presented as training speedups.",
+      "severity": "BLOCKER",
+      "methods": [
+        "TFC",
+        "DFC",
+        "CGC",
+        "KFC",
+        "AGS",
+        "DFC_optimization_family"
+      ]
+    },
+    {
+      "id": "G2",
+      "gap": "No method has a measured TOTAL-training-time speedup end-to-end (only per-iter / renderer-step). TFC_FC0/DFC_FC0/Pub0 total-time fields required.",
+      "severity": "BLOCKER",
+      "methods": [
+        "TFC",
+        "DFC_optimization_family",
+        "K50-B1"
+      ]
+    },
+    {
+      "id": "G3",
+      "gap": "TFC_FC0 production convergence/timing pending (RUNNING). Total 30K wall-clock and Gaussian-count trajectory not yet measured.",
+      "severity": "HIGH",
+      "methods": [
+        "TFC"
+      ]
+    },
+    {
+      "id": "G4",
+      "gap": "K50-B1 NEEDS_REVALIDATION: canonical current-pipeline revalidation, multi-seed CI, LPIPS, measured total training wall-time, Stage4B-only evidence required before MAIN_CANDIDATE->confirmed.",
+      "severity": "HIGH",
+      "methods": [
+        "K50-B1"
+      ]
+    },
+    {
+      "id": "G5",
+      "gap": "DFC family PENDING: DFC2 DOES_NOT_GENERALIZE_UNIVERSALLY (no fixed threshold meets quality<=0.05dB AND workload>=10% on all 6 held-out scenes); DFC_FC0 train_dfc.py unverified scaffold; DFC1-R2 dense-scene Amdahl-bound (garden 1.140x, bicycle 1.061x FAIL).",
+      "severity": "HIGH",
+      "methods": [
+        "DFC_optimization_family",
+        "DFC2",
+        "DFC_FC0"
+      ]
+    },
+    {
+      "id": "G6",
+      "gap": "VOS ANALYSIS: Amdahl-bound (optimizer ~15-19% of step, SparseGaussianAdam O(N)); measured wall ~1.004x; no economic win; room seed-0 instability.",
+      "severity": "MEDIUM",
+      "methods": [
+        "VOS"
+      ]
+    },
+    {
+      "id": "G7",
+      "gap": "IGF/CGC/KFC/AGS DROP: real CUDA but failing economic/fidelity gates (IGF no kernel slower E2E; CGC fidelity gates fail all thresholds; KFC cannot launch on real workload 804KB shared>>164KB; AGS 0% tile reuse 2.18x slower).",
+      "severity": "MEDIUM",
+      "methods": [
+        "IGF",
+        "CGC",
+        "KFC",
+        "AGS"
+      ]
+    },
+    {
+      "id": "G8",
+      "gap": "Renderer-local 'pixel-identical' claim withdrawn -> 'numerically indistinguishable' (PBR0: maxabs_AB 3.2e-4, B==C bitwise, PSNR loss 0.0 dB). Legacy 1.3564x is footprint-stage fwd+bwd; reconciled native full-step 1.1988x; current-cohort 1.0317x.",
+      "severity": "MEDIUM",
+      "methods": [
+        "TFC"
+      ]
+    },
+    {
+      "id": "G9",
+      "gap": "Historical failed/superseded gates must be preserved (KFC0/AGS0/CGC0/IGF0/DFC0/VOS0/TFC0) - do not silently drop.",
+      "severity": "MEDIUM",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "id": "G10",
+      "gap": "Single hardware cohort (EPIC-05 A100 remote-only); no cross-GPU/cross-vendor validation; K50-B1 is multi-GPU HISTORICAL (not per-run comparable).",
+      "severity": "MEDIUM",
+      "methods": [
+        "ALL"
+      ]
+    }
+  ]
+}

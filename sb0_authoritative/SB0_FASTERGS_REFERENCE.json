@@ -1,0 +1,289 @@
+{
+  "task": "SB0-FGS",
+  "deliverable": "SB0_FASTERGS_REFERENCE",
+  "date": "2026-09-30",
+  "status": "COMPLETE (matched 1080p, seed42, 30K x3 on EPIC-05) + CORRECTED unseen-view comparison (true holdout both sides).",
+  "evidence_class": "OBSERVED (full 30K train+eval on EPIC-05 A100) + OBSERVED (true-holdout C0 retrain, zero leakage) + CORRECTION of prior invalid comparison",
+  "correction_note": "Prior Windows-session判'blocked'是环境错位。EPIC-05 上重建 Faster-GS 后端(py3.12/torch2.10)成功，跑通完整 30K x3。",
+  "environment": "EPIC-05 A100-SXM4-80GB; Faster-GS backend rebuilt for py3.12.13/torch2.10.0+cu128; NeRFICG @ e458ac6; deps installed (munch/kornia/torchmetrics/lpips/simple_knn/ppisp/fused-ssim/pycolmap).",
+  "reference": {
+    "repo": "nerficg-project/faster-gaussian-splatting",
+    "paper": "arxiv 2602.09999 (CVPR2026)",
+    "local_clone": "/root/codex_nerficg_benchmark_20260927",
+    "branches": [
+      "main",
+      "FasterGSTestbed",
+      "FasterGSFused"
+    ]
+  },
+  "protocol_match": {
+    "resolution": "BOTH 1080p. C0 GTDataset 1080p=resize to 1920x1080 (STRETCH, non-uniform). Faster-GS IMAGE_SCALE_FACTOR aspect-preserve: room .5205->1621x1080, garden .3213->1667x1080, bicycle .3287->1626x1080. CAVEAT: aspect handling differs (stretch vs preserve).",
+    "iterations": 30000,
+    "seed": 42,
+    "loss": "0.8*L1+0.2*(1-SSIM) both",
+    "sh_degree": 3,
+    "background": "black both",
+    "densification": "C0 500..15000 grad0.0008; Faster-GS 600..14900 grad0.0002 (both adaptive, non-MCMC)",
+    "eval_SSIM_metric": "C0 SepSSIM (eval) vs Faster-GS DSSIM-based — DIFFERS; PSNR/LPIPS comparable"
+  },
+  "fastergs_matched_30k": {
+    "room": {
+      "psnr": 32.05,
+      "ssim": 0.936,
+      "lpips": 0.243,
+      "n_gaussians": 1148197,
+      "train_wall_s": 228.72,
+      "peak_vram_gib": 6.9,
+      "resolution": "1621x1080",
+      "run_dir": "output/FasterGS/codex_sb0_fastergs_room_30k_1080p_s42_2026-09-30-00-35-35"
+    },
+    "garden": {
+      "psnr": 32.45,
+      "ssim": 0.947,
+      "lpips": 0.176,
+      "n_gaussians": 1054944,
+      "train_wall_s": 150.42,
+      "peak_vram_gib": null,
+      "resolution": "1667x1080",
+      "run_dir": "output/FasterGS/codex_sb0_fastergs_garden_30k_1080p_s42_2026-09-30-00-42-23"
+    },
+    "bicycle": {
+      "psnr": 32.44,
+      "ssim": 0.947,
+      "lpips": 0.178,
+      "n_gaussians": 1097330,
+      "train_wall_s": 155.25,
+      "peak_vram_gib": null,
+      "resolution": "1626x1080",
+      "run_dir": "output/FasterGS/codex_sb0_fastergs_bicycle_30k_1080p_s42_2026-09-30-00-42-23"
+    }
+  },
+  "c0_authoritative_30k": {
+    "source": "/root/3dgs-publication-epic05/full30k/c0_s4{2,3,4}_{scene} (torch2.9.1+cu128, timing_grade=PUBLICATION, ext d26cccf/core 935ea6c0 IDENTITY_MATCH)",
+    "room": {
+      "psnr_mean": 32.347,
+      "ssim_mean": 0.9281,
+      "lpips_mean": 0.3016,
+      "mean_iter_ms": 29.441,
+      "total_wall_s_mean": 937.5
+    },
+    "garden": {
+      "psnr_mean": 24.044,
+      "ssim_mean": 0.7287,
+      "lpips_mean": 0.3226,
+      "n_gaussians_mean": 2415093,
+      "mean_iter_ms": 37.867,
+      "total_wall_s_mean": 1177.1
+    },
+    "bicycle": {
+      "psnr_mean": 26.402,
+      "ssim_mean": 0.8358,
+      "lpips_mean": 0.2473,
+      "n_gaussians_mean": 3663216,
+      "mean_iter_ms": 41.058,
+      "total_wall_s_mean": 1273.8
+    }
+  },
+  "comparison_observed": {
+    "room": "C0 32.19 vs FasterGS 32.05 PSNR — TIED (cleanest comparison). LPIPS C0 0.302 vs FGS 0.243 (FGS better).",
+    "garden": "C0 24.04 vs FasterGS 32.45 — 8.4 dB gap. C0 anomalously LOW (3DGS garden typically 27-29). ANOMALY.",
+    "bicycle": "C0 26.40 vs FasterGS 32.44 — 6.0 dB gap. C0 low. ANOMALY.",
+    "wall_clock": "Faster-GS 30K 150-229s vs C0 880-1280s on same A100. FGS ~4-8x faster. CAVEAT: resolution aspect-handling differs (C0 stretch 1920x1080 vs FGS preserve ~1620-1670x1080); not perfectly iso-resolution."
+  },
+  "anomaly_investigation": {
+    "observation": "C0 room ties Faster-GS, but C0 garden/bicycle are 6-8 dB low. Same data source, same 1080p, same seed.",
+    "hypothesis": "C0 garden/bicycle PSNR likely depressed by (a) non-uniform 1920x1080 STRETCH on high-aspect scenes, and/or (b) H8_MR renderer issue on large/high-res scenes, and/or (c) eval-protocol difference. NOT evidence that Faster-GS is a better model.",
+    "required_before_criterion_B": [
+      "re-run C0 garden/bicycle with aspect-preserve 1080p to confirm whether 24/26 is a stretch artifact",
+      "align eval SSIM metric (SepSSIM vs DSSIM)",
+      "confirm C0 eval GT resolution matches FGS"
+    ],
+    "status": "RESOLVED",
+    "resolution": {
+      "finding": "C0 garden/bicycle low PSNR is a PROTOCOL ARTIFACT of C0's 1920x1080 non-uniform stretch, NOT a C0 H8_MR renderer weakness. Under the SAME stretch, Faster-GS drops equally (garden -5.56 dB, bicycle -7.70 dB vs aspect-preserve) and over-densifies (4.8M gaussians).",
+      "consequence": "The earlier 'Faster-GS 8.4 dB stronger than C0 on garden' was an apples-to-oranges protocol comparison (FGS aspect-preserve vs C0 stretch). Under the same protocol the comparison is MIXED (C0 wins room+bicycle, FGS wins garden) — NOT a significant/consistent Faster-GS advantage.",
+      "caveat": "SSIM metric differs (C0 SepSSIM vs FGS DSSIM); SSIM values not directly comparable. PSNR/LPIPS comparable. Garden C0 is single-seed (s42)."
+    }
+  },
+  "wall_clock_note": "Faster-GS 30K measured on EPIC-05 A100 (this run). This is OUR measurement, NOT upstream paper number. C0 wall from PUBLICATION timing.json. Resolution-aspect caveat applies.",
+  "success_criteria": {
+    "A_c0_plus": "C7 sole candidate; awaiting reviewer go-ahead before C0 CUDA edit.",
+    "B_stronger_external_baseLINE": "FASTER-GS REFERENCE ESTABLISHED (matched 30K x3 reproducible). But 'significantly stronger than C0' NOT yet claimable: C0 garden/bicycle PSNR anomaly must be resolved first (room ties). FGS IS faster in wall-clock (measured)."
+  },
+  "c0_per_scene_evidence": {
+    "native_res": {
+      "room": "3114x2075 asp1.501",
+      "garden": "5187x3361 asp1.543",
+      "bicycle": "4946x3286 asp1.505"
+    },
+    "c0_n_gaussians": {
+      "room": 834693,
+      "garden": 2415093,
+      "bicycle": 3663216
+    },
+    "fgs_n_gaussians": {
+      "room": 1148197,
+      "garden": 1054944,
+      "bicycle": 1097330
+    },
+    "c0_psnr": {
+      "room": 32.35,
+      "garden": 24.04,
+      "bicycle": 26.4
+    },
+    "fgs_psnr": {
+      "room": 32.05,
+      "garden": 32.45,
+      "bicycle": 32.44
+    },
+    "observation": "Deficit is RESOLUTION-CORRELATED: room (lowest native res, fewest C0 Gaussians) ties FGS; the two highest-native-res scenes (garden,bicycle) fail with 2-4x more C0 Gaussians yet LOWER PSNR. Anisotropic 1920x1080 stretch is ~equal across scenes so cannot alone explain the split.",
+    "c0_garden_provenance": "SINGLE SEED s42 only (s43/s44 absent); std=0.0 was replication artifact."
+  },
+  "iso_protocol_experiment": {
+    "purpose": "Resolve C0 garden/bicycle PSNR anomaly: re-run Faster-GS under C0's EXACT 1920x1080 non-uniform stretch (reference-side only; frozen C0 untouched).",
+    "method": {
+      "dataset": "Pre-stretched 1920x1080 (PIL LANCZOS, == C0 GTDataset) images in images_2/ + native sparse/0 symlink; IMAGE_SCALE_FACTOR=0.5 so FGS reads actual 1920x1080 dims and scales intrinsics by 1920/native_W, 1080/native_H (== C0 resize_cameras fx=1920/(2tanfovx), fy=1080/(2tanfovy)).",
+      "loader_patch": "FGS Datasets/utils.py load_image + load_image_simple patched to PIL content-based decode (lossless; supports PNG-content-in-JPG name). Backup: src/Datasets/utils.py.sb0_bak.",
+      "protocol": "30K, seed42, black bg, lambda_dssim 0.2, sh3, densify 600..14900 (Faster-GS defaults, NOT C0 500..15000 grad0.0002 — minor protocol diff noted).",
+      "native_res": {
+        "room": "3114x2075",
+        "garden": "5187x3361",
+        "bicycle": "4946x3286"
+      }
+    },
+    "fastergs_stretched_1920x1080_s42": {
+      "room": {
+        "psnr": 31.63,
+        "ssim": 0.9197,
+        "lpips": 0.295,
+        "n_gaussians": 1271726,
+        "train_wall_s": 396,
+        "resolution": "1920x1080",
+        "run_dir": "output/FasterGS/codex_sb0_fastergs_room_stretch1920x1080_s42_2026-09-30-01-13-28"
+      },
+      "garden": {
+        "psnr": 26.89,
+        "ssim": 0.8394,
+        "lpips": 0.1582,
+        "n_gaussians": 4816000,
+        "train_wall_s": 651,
+        "resolution": "1920x1080",
+        "run_dir": "output/FasterGS/codex_sb0_fastergs_garden_stretch1920x1080_s42_2026-09-30-01-13-27"
+      },
+      "bicycle": {
+        "psnr": 24.74,
+        "ssim": 0.7293,
+        "lpips": 0.2869,
+        "n_gaussians": 4771987,
+        "train_wall_s": 579,
+        "resolution": "1920x1080",
+        "run_dir": "output/FasterGS/codex_sb0_fastergs_bicycle_stretch1920x1080_s42_2026-09-30-01-13-27"
+      }
+    },
+    "comparison_same_protocol_1920x1080_stretch": {
+      "room": {
+        "fgs_stretched": 31.63,
+        "c0": 32.35,
+        "winner": "C0",
+        "delta_db": -0.72
+      },
+      "garden": {
+        "fgs_stretched": 26.89,
+        "c0": 24.04,
+        "winner": "FGS",
+        "delta_db": 2.85
+      },
+      "bicycle": {
+        "fgs_stretched": 24.74,
+        "c0": 26.4,
+        "winner": "C0",
+        "delta_db": -1.66
+      },
+      "_note": "C0 column here (24.04/26.40) came from publication_trainer.py (NON-pinned, SepSSIM, no --loss fused). Authoritative C0 is P12_C0. Even with P12_C0, those were in-training-subset numbers, not unseen-view. Superseded by corrected_unseen_view_comparison."
+    },
+    "stretch_damage_vs_aspect_preserve": {
+      "room": {
+        "aspect_preserve": 32.05,
+        "stretched": 31.63,
+        "delta_db": -0.42
+      },
+      "garden": {
+        "aspect_preserve": 32.45,
+        "stretched": 26.89,
+        "delta_db": -5.56
+      },
+      "bicycle": {
+        "aspect_preserve": 32.44,
+        "stretched": 24.74,
+        "delta_db": -7.7
+      }
+    },
+    "evidence_class": "OBSERVED (full 30K train+eval on EPIC-05 A100, matched geometry, metrics_8bit.txt on disk)",
+    "_SUPERSEDED": "Used C0 in-training-subset numbers as 'held-out' (invalid). See corrected_unseen_view_comparison. The 'MIXED' conclusion is void."
+  },
+  "CORRECTION_2026-09-30": {
+    "what_was_wrong": "Prior 'same-protocol' comparison used C0 numbers computed on the ALL-camera-trained P12_C0 checkpoint evaluated on every-8th cameras (metrics_common + c0_unseen_eval.py). Those every-8th cameras were IN C0 training, so they are TRAIN-VIEW subset numbers, NOT unseen-view. Comparing them to Faster-GS's true held-out (-s test) was apples-to-oranges.",
+    "root_cause": "The 'train-test gap ~ 0' observation compared two subsets that were BOTH in training (all-cams vs every-8th); it is trivial and says nothing about generalization. The real generalization gap (true-holdout vs train-view) is 1.36/2.60/4.72 dB.",
+    "fix": "Built publication_trainer_p12_holdout8.py (derived from pinned publication_trainer_p12.py; 3-line change) that EXCLUDES every-8th camera from C0 training and evaluates on them = true unseen-view. Verified zero leakage via camera_sequence.npy.",
+    "status": "RESOLVED"
+  },
+  "corrected_unseen_view_comparison": {
+    "protocol": "1920x1080 non-uniform stretch (== C0 GTDataset 1080p), 30K iters, seed42, black bg, 0.8*L1+0.2*(1-SSIM) fused, TRUE holdout: every-8th camera excluded from TRAINING on BOTH sides, evaluated on the same physical held-out cameras (C0 cameras.json img_name order == FGS sorted filename order).",
+    "c0_true_holdout": {
+      "room": {
+        "psnr": 30.7982,
+        "ssim": 0.9155,
+        "lpips": 0.307,
+        "n_eval": 39,
+        "n_gaussians": 853453
+      },
+      "garden": {
+        "psnr": 26.0088,
+        "ssim": 0.8199,
+        "lpips": 0.1981,
+        "n_eval": 24,
+        "n_gaussians": 2548992
+      },
+      "bicycle": {
+        "psnr": 21.6952,
+        "ssim": 0.6766,
+        "lpips": 0.3143,
+        "n_eval": 25,
+        "n_gaussians": 3703162
+      }
+    },
+    "fastergs_stretch_heldout": {
+      "room": {
+        "psnr": 31.63
+      },
+      "garden": {
+        "psnr": 26.89
+      },
+      "bicycle": {
+        "psnr": 24.74
+      }
+    },
+    "c0_trainview_allcameras": {
+      "room": 32.158,
+      "garden": 28.605,
+      "bicycle": 26.41
+    },
+    "c0_generalization_gap_db": {
+      "room": 1.36,
+      "garden": 2.596,
+      "bicycle": 4.715
+    },
+    "delta_fgs_minus_c0_db": {
+      "room": 0.832,
+      "garden": 0.881,
+      "bicycle": 3.045
+    },
+    "winner": {
+      "room": "Faster-GS",
+      "garden": "Faster-GS",
+      "bicycle": "Faster-GS"
+    },
+    "conclusion": "Faster-GS is stronger on ALL THREE scenes under a valid true-unseen-view iso-protocol; decisive on bicycle (+3.04 dB). C0's H8_MR renderer overfits more (generalization gap grows 1.36->2.60->4.72 dB with scene complexity). Faster-GS also trains faster (396/651/579s vs C0 516/816/869s).",
+    "evidence_class": "OBSERVED (full 30K true-holdout C0 train+eval on EPIC-05 A100, zero leakage verified; FGS stretch -s test eval logs)"
+  }
+}

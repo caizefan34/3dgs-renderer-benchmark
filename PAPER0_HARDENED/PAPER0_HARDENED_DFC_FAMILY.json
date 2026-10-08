@@ -1,0 +1,45 @@
+{
+  "artifact": "PAPER0_HARDENED_DFC_FAMILY",
+  "schema": "paper0-hardened-dfc-family/v1",
+  "generated_utc": "2026-10-02",
+  "family_role": "PENDING",
+  "note": "DFC family status is split per-member. Do NOT merge members into one number. Historical verdicts (DFC0/DFC1) preserved unchanged.",
+  "members": {
+    "DFC1-R1 saved-T": {
+      "status": "SUPPORTING_PASS",
+      "role": "SUPPORTING",
+      "verdict": "ADOPT_DFC1R1_SAVED_T_BACKWARD",
+      "detail": "Backward-only saved-T fix; gradient-cosine gate PASS everywhere; 548x grad-error reduction at t=0 (0.4324 -> 0.00079 rel-L2); no-op at early-termination thresholds; no standalone speedup.",
+      "evidence": "_dfc1r1_oracle/output/deliverables/DFC1R1_VERDICT.json"
+    },
+    "DFC1-R2 adaptive": {
+      "status": "DROP",
+      "role": "DROP",
+      "verdict": "FAIL_CLOSED / DROP_NO_TERMINATION_HEADROOM",
+      "detail": "Per-pixel transmittance adaptive threshold (A/B/C + fixed sweep). >=1.2x E2E met only on sparsest room (1.206x, 4/8 cams); garden 1.140x, bicycle 1.061x FAIL (O(N) projection dominates dense-scene budget). No policy passes all 4 gates on all 3 scenes.",
+      "evidence": "_dfc1r2_oracle/output_dfc1r2_adaptive/deliverables/DFC0_VERDICT.json"
+    },
+    "DFC2 universal fixed": {
+      "status": "RUNNING",
+      "role": "PENDING",
+      "verdict": "PREPARED_QUEUED (no GPU executed)",
+      "detail": "Generalization pack: 6 held-out Mip-NeRF360 scenes x 8 cams x {baseline, DFC@1e-7, DFC@1e-6}; NO per-scene threshold tuning (the scientific question). Assembler self-test PASSES (1e-7 generalizes at 0.03 dB / 0.40 reduction; 1e-6 fails at 0.08 dB). Awaiting isolated EPIC-05 A100 node.",
+      "evidence": "_dfc2_pack/DFC2_SOURCE_LOCK.json, README_DFC_QUEUE.md"
+    },
+    "DFC-FC0 convergence": {
+      "status": "RUNNING",
+      "role": "PENDING",
+      "verdict": "PREPARED_QUEUED REQUIRES_VALIDATION (no GPU executed)",
+      "detail": "Full 30K training baseline vs DFC1-R2 (per-scene fixed thr room 1e-5, garden 1e-5, bicycle 1e-7). train_dfc.py is an UNVERIFIED scaffold; requires 200-iter smoke test on room before any 30K run; must run on an ISOLATED EPIC-05 A100 node.",
+      "evidence": "_dfc2_pack/DFC_FC0_SOURCE_LOCK.json, DFC_FC0_REPORT.md"
+    }
+  },
+  "pending_members": [
+    "DFC2 universal fixed",
+    "DFC-FC0 convergence"
+  ],
+  "resolved_members": {
+    "DFC1-R1 saved-T": "SUPPORTING_PASS",
+    "DFC1-R2 adaptive": "DROP"
+  }
+}

@@ -1,0 +1,565 @@
+{
+  "artifact": "PAPER0_EVIDENCE_MATRIX",
+  "schema": "paper0-evidence-matrix/v1",
+  "generated_utc": "2026-10-02",
+  "mode": "read-only synthesis; NO GPU work; NO new runs; NO cohort merging",
+  "source_of_truth": "per-method *_VERDICT.json / *_REPORT.md / *_SOURCE_LOCK.json deliverables in the worktree",
+  "role_vocabulary": [
+    "MAIN",
+    "SUPPORTING",
+    "ANALYSIS",
+    "DROP",
+    "NEEDS_REVALIDATION"
+  ],
+  "speedup_semantics": {
+    "forward_pipeline_speedup": "renderer forward-pass speedup (render/intersect/projection only)",
+    "forward_backward_speedup": "renderer forward+backward (single training-step renderer) speedup",
+    "full_training_step_speedup": "speedup of a FULL training step (projection+footprint+rasterize fwd+bwd, and for K50-B1 the whole 30K training iteration incl. densify+optimizer)",
+    "total_training_time_speedup": "end-to-end total wall-clock training-time speedup",
+    "rule": "renderer-local speedup MUST NOT be converted into training-step or total-training-time speedup; each is recorded separately and only where measured"
+  },
+  "methods": {
+    "TFC": {
+      "method": "TFC",
+      "full_name": "Tight/ellipse-exact tile footprint (EWA projected-ellipse footprint tightening)",
+      "hypothesis": "Current EWA projected-ellipse bounding boxes (per-axis AABB) generate unnecessary tile intersections; an ellipse-exact / tighter footprint removes intersections with no image degradation.",
+      "oracle_status": {
+        "verdict": "TFC0_TILE_FOOTPRINT_TIGHTENING_CERTIFIED -> TFC2_CERTIFIED",
+        "note": "TFC0 (CPU/analytic oracle) certified Strategy A removes 42.41% of tile intersections bit-exact. TFC2 (real A100 kernel) CONFIRMED the ellipse-exact footprint removes 38.2% pooled intersections."
+      },
+      "real_cuda_implementation": true,
+      "implementation_detail": "Independent kernel tfc2_ablation.cu (3 modes: circular/axis-AABB/ellipse) on EPIC-05 A100; TFC1 rowwise kernel kept byte-identical and NOT imported by TFC2.",
+      "hardware_cohort": "EPIC-05 A100-SXM4-80GB, remote-only (no local CUDA); gsplat 1.5.3 fork gsplat-b1-clean-v153; CUDA 12.8, torch 2.9.1+cu128; tile_size=16, eps2d=0.3, SH=3.",
+      "scenes": [
+        "room",
+        "garden",
+        "bicycle",
+        "bonsai",
+        "counter",
+        "kitchen",
+        "stump",
+        "flowers",
+        "treehill",
+        "truck",
+        "train"
+      ],
+      "camera_count": 88,
+      "camera_count_note": "11 scenes x 8 cameras = 88 per-camera entries (TFC2_BENCHMARK.json).",
+      "full_convergence_evidence": {
+        "status": "NO",
+        "note": "Renderer-local microbench on FROZEN trained PLYs (single forward+backward pass per camera). No 30K full-training convergence run. Do NOT present as training speedup."
+      },
+      "psnr_ssim_lpips": {
+        "status": "SUPPORTED",
+        "note": "Renders pixel-identical: max dPSNR 2.59e-07 dB across 88 cameras; SSIM/LPIPS deltas <1e-6. Per-camera PSNR/SSIM/LPIPS present in TFC2_BENCHMARK.json."
+      },
+      "gradient_correctness": {
+        "status": "SUPPORTED_WITH_CAVEAT",
+        "note": "min grad-cosine 0.999954 (train). Self-imposed proxy gate grad_cosine>=0.99999 FAILS but proven by 6-run determinism analysis to sit at the CUDA atomic-add noise floor (stdev 1.8e-5 > gate gap 7.3e-6), not a correctness regression. PSNR pixel-identical."
+      },
+      "workload_reduction": {
+        "status": "SUPPORTED",
+        "value": "38.2% pooled tile-intersection reduction (per-scene 28.8-41.9%)"
+      },
+      "forward_pipeline_speedup": {
+        "status": "SUPPORTED",
+        "value": "intersect kernel 1.38x faster; per-scene fwd render 1.15-1.42x"
+      },
+      "forward_backward_speedup": {
+        "status": "SUPPORTED",
+        "value": "E2E (fwd+bwd) 1.17-1.51x per scene; measured e2e 1.3564x"
+      },
+      "full_training_step_speedup": {
+        "status": "NOT_MEASURED",
+        "note": "Renderer-local only; no full-training-step measurement. MUST NOT be converted from renderer speedup."
+      },
+      "total_training_time_speedup": {
+        "status": "NOT_MEASURED"
+      },
+      "provenance_source_lock_quality": {
+        "status": "STRONG",
+        "note": "TFC2_SOURCE_LOCK.json pins gsplat fork/version, python/torch/cuda/gpu, eps2d/alpha_threshold, footprint kernel SHA256 (3c9b2e0a...), k-sigma model, TFC1 kernel SHA256 (a44e4ee6...). TFC1 mode0 bit-exact vs gsplat baseline (120 dB)."
+      },
+      "unresolved_blockers": [
+        "grad_cosine>=0.99999 self-imposed proxy gate at measurement noise floor (documented, not a regression)",
+        "No full-convergence (30K) training evidence; renderer-local only",
+        "Single hardware cohort (EPIC-05 A100 remote)"
+      ],
+      "role": "MAIN",
+      "role_rationale": "Real-CUDA, 11-scene/88-camera, bit-exact quality, 38.2% intersection + 1.36x e2e renderer speedup. Strongest renderer-level positive result."
+    },
+    "K50-B1": {
+      "method": "K50-B1",
+      "full_name": "Densification-safe predictive sparse backward (skip gradient computation for bottom-50% by previous-gradient norm)",
+      "hypothesis": "Skipping ALL gradient computation for masked (low previous-iteration gradient-norm) Gaussians inside the CUDA backward kernel accelerates the training step while preserving quality and densification.",
+      "oracle_status": {
+        "verdict": "C51-R simulation oracle -> Stage 4A/4B real CUDA",
+        "note": "C51-R simulated sparse backward then masked gradients in Python. Stage 4A/4B implement the mask inside RasterizeToPixels3DGSBwd.cu (real CUDA)."
+      },
+      "real_cuda_implementation": true,
+      "implementation_detail": "6 gsplat 1.5.3 files patched (RasterizeToPixels3DGSBwd.cu mask branch do_full_grad/do_densify_only/skip; Rasterization.h/.cpp, Ops.h, _wrapper.py, rendering.py). importance_mask uniform across warp (no divergence).",
+      "hardware_cohort": {
+        "stage4a": "A100-PCIE-40GB, 8 GPUs SM80, gsplat 1.5.3, CUDA 11.8 build, MipNeRF360 room 1920x1080 (311 cams)",
+        "stage4b": "A100-80GB (gpu_id 1/3), gsplat 1.5.3, room/garden/bicycle 30K",
+        "note": "STAGE4A and STAGE4B ARE SEPARATE COHORTS. Never merge their numbers."
+      },
+      "scenes": [
+        "room",
+        "garden",
+        "bicycle"
+      ],
+      "camera_count": {
+        "room": "311 (MipNeRF360 room 1920x1080)",
+        "garden": "MipNeRF360 garden",
+        "bicycle": "MipNeRF360 bicycle"
+      },
+      "full_convergence_evidence": {
+        "status": "YES_30K",
+        "note": "Stage 4A: 5K + 30K full training (baseline vs k50_b1). Stage 4B: 30K full training per scene (baseline vs k50_b1) with densification_events + mask_stats."
+      },
+      "psnr_ssim_lpips": {
+        "status": "SUPPORTED_NO_LPIPS",
+        "note": "Stage 4B 30K: room 30.239 vs base 29.209 (+1.030 dB, SSIM +0.0058); bicycle 21.742 vs 21.244 (+0.498, SSIM +0.0101); garden 23.101 vs 23.064 (+0.037, SSIM +0.0099). LPIPS NOT measured (framework lacks it). Stage 4A 30K: k50_b1 27.078 vs baseline 26.494.",
+        "warning": "Stage 4A 5K baseline had a low absolute PSNR (~29) due to a prune_and_reset shape bug + no SSIM loss + opacity reset disabled; stage4b is the clean cohort."
+      },
+      "gradient_correctness": {
+        "status": "SUPPORTED",
+        "note": "Microbench (K=80): selected cosine 1.000000, rel_l2 0.0, skipped gradients exactly 0 for xyz/opacity/scales/rot/shs. Gate A (cosine>=0.999, skipped=0) PASS."
+      },
+      "workload_reduction": {
+        "status": "SUPPORTED",
+        "value": "Gaussian count reduced ~30% (gs_ratio room 0.698, bicycle 0.694, garden 0.643); clone/split ratios <1 (fewer densification events)."
+      },
+      "forward_pipeline_speedup": {
+        "status": "NOT_APPLICABLE",
+        "note": "Backward-only change; forward is bit-exact (forward max diff 0.0)."
+      },
+      "forward_backward_speedup": {
+        "status": "MICROBENCH_ONLY",
+        "note": "Stage 4A single-camera kernel fwd+bwd: K50 1.113x, K70 1.074x, K80 1.048x (B1/B3); B2 lower (1.070x at K50). Single camera, 1.59M G, NOT training-step."
+      },
+      "full_training_step_speedup": {
+        "status": "SUPPORTED_30K",
+        "note": "Stage 4B 30K per-iter mean_ms baseline/k50_b1: room 57.254/52.900 = 1.082x (+8.23%); bicycle 120.476/96.821 = 1.244x (+24.43%); garden 119.452/92.699 = 1.289x (+28.86%). This is the ONLY method with a real full-training-step speedup."
+      },
+      "total_training_time_speedup": {
+        "status": "IMPLIED_POSITIVE",
+        "note": "30K runs completed; per-iter speedup implies total wall reduction (room 8.2%, bicycle 24.4%, garden 28.9%). No separate total-time field; derived from per-iter mean_ms."
+      },
+      "provenance_source_lock_quality": {
+        "status": "STRONG",
+        "note": "Source audit (source_audit.json) + per-file .orig_stage4a backups + patch_cuda.py + verify_build. 6 files backed up."
+      },
+      "unresolved_blockers": [
+        "Single seed; no multi-seed CI",
+        "LPIPS not measured (framework limitation)",
+        "Stage 4A 5K cohort had config bugs (prune_and_reset shape, no SSIM loss, opacity reset off) - stage4b supersedes but both retained",
+        "Two cohorts (stage4a room-only, stage4b 3-scene) must not be merged",
+        "Mask predicted from previous-iteration gradient norm (EMA decay 0.9 + eps 1e-6); other predictors untested"
+      ],
+      "role": "MAIN",
+      "role_rationale": "Only method with a REAL full-training-step speedup (8-29%) at 30K with quality-neutral-to-positive PSNR across 3 scenes. Backward-only CUDA change with exact skipped-gradient correctness."
+    },
+    "DFC": {
+      "method": "DFC",
+      "full_name": "Per-pixel transmittance early-termination (DFC1-R2 adaptive threshold) + DFC1-R1 saved-T backward fix",
+      "hypothesis": "Many pixels reach sufficient opacity that subsequent Gaussian contribution ~0 (transmittance T->0); a per-pixel transmittance threshold can safely stop compositing and skip splats. Separately, the saved-T backward fix corrects catastrophic gradient cancellation in the full-render (T->0) regime.",
+      "oracle_status": {
+        "verdict": "DFC0_PASS_EARLY_TERMINATION_HEADROOM -> DFC1_R1 backward fix ADOPT -> DFC1_R2_ADAPTIVE FAIL_CLOSED -> DFC2_GENERALIZATION (amended quality-only gate) UNIVERSAL_QUALITY_PASS but NO training-step speedup (production_full_training_step=NOT_MEASURED)",
+        "note": "DFC0 oracle certified headroom. DFC1-R1 validated the saved-T backward fix (ADOPT_DFC1R1_SAVED_T_BACKWARD). DFC1-R2 adaptive-threshold pack is FAIL_CLOSED (DROP_NO_TERMINATION_HEADROOM on dense scenes). DFC2_GENERALIZATION_PACK (POST_PBR0_H1 amendment: gate changed to quality-only, 10% workload floor removed) reaches UNIVERSAL_QUALITY_PASS (dPSNR<=0.05dB on all 6 held-out MipNeRF360 scenes at t=1e-07 and 1e-06) but with negligible renderer speedup (min fwd-pipe ~1.0007x, splat reduction ~6-8%) and production_full_training_step=NOT_MEASURED; the amended verdict does NOT change the method-level DROP role (no usable full-training-step speedup). Historical pre-amendment DFC2 verdict (FAIL_CLOSED with workload floor) preserved in source."
+      },
+      "real_cuda_implementation": true,
+      "implementation_detail": "gsplat-dfc1r2adapt: rasterize_to_pixels(..., dfc1_pixel_threshold[T]) forward+backward; backward UNCHANGED (uses saved last_ids/render_T). DFC1-R1 = backward-only fix (save render_T in fwd, use saved_T in bwd).",
+      "hardware_cohort": "EPIC-05 A100-80GB, CUDA 12.8, torch 2.10.0+cu128, gsplat 1.5.3 (gsplat-dfc1r2adapt); CPU float64 oracle reference (dfc1r2_ref.py) used in prior validation. mipnerf360 official PLY, down=2.",
+      "scenes": [
+        "room",
+        "garden",
+        "bicycle"
+      ],
+      "camera_count": "8 cameras/scene (24 total); resolution room 1557x1037, garden 2593x1680, bicycle 2473x1643 (down=2).",
+      "full_convergence_evidence": {
+        "status": "PARTIAL_RENDERER_STEP",
+        "note": "E2E speedup = full training-step (projection+footprint+rasterize fwd+bwd) baseline/policy on FROZEN PLYs. NOT a 30K convergence run. Scene-level aggregate over 8 cameras."
+      },
+      "psnr_ssim_lpips": {
+        "status": "SUPPORTED_ROOM_GARDEN",
+        "note": "Best quality-preserving policy: room B (dPSNR 0.00008 dB, grad cos 0.9999996, splat red 0.2877, E2E 1.206x); garden B (dPSNR 0.00008, 0.2072, 1.140x); bicycle fixed_1e-5 (dPSNR -0.00003, 0.1706, 1.061x). SSIM/LPIPS vs GT recorded. DFC1-R1 quality gate bicycle FAILS at t>=1e-5 (4.19 dB; sparse 501-Gaussian scene needs t<1e-5)."
+      },
+      "gradient_correctness": {
+        "status": "SUPPORTED_R1",
+        "note": "DFC1-R1 saved-T fix: at t=0 grad rel-L2 reduced 0.4324 -> 0.00079 (548x), cosine 0.99050 -> 0.99999985, matching stock gsplat + float64 ref. DFC1-R2 adaptive: grad cos 0.9999994-0.9999996 at operating thresholds."
+      },
+      "workload_reduction": {
+        "status": "SUPPORTED",
+        "value": "splat reduction room 0.2877, garden 0.2072, bicycle 0.1706 (best quality-preserving policy)."
+      },
+      "forward_pipeline_speedup": {
+        "status": "SUPPORTED",
+        "note": "compositing-only speedup room 1.280x, garden 1.172x, bicycle 1.104x (policy B / fixed_1e-5)."
+      },
+      "forward_backward_speedup": {
+        "status": "SUPPORTED",
+        "note": "raster speedup room 1.172x, garden 1.172x, bicycle 1.104x; compositing speedup also reported."
+      },
+      "full_training_step_speedup": {
+        "status": "ROOM_ONLY",
+        "note": "E2E (full train step) speedup: room 1.206x (PASS, policy B, 4/8 cams), garden 1.140x (FAIL), bicycle 1.061x (FAIL). >=1.2x gate met ONLY on sparsest scene room; camera-dependent (4/8)."
+      },
+      "total_training_time_speedup": {
+        "status": "NOT_MEASURED",
+        "note": "Frozen-PLY per-step timing; no total-training-time measurement."
+      },
+      "provenance_source_lock_quality": {
+        "status": "STRONG",
+        "note": "DFC0_SOURCE_LOCK.json pins source_sha256 for RasterizeToPixels3DGSFwd.cu/Bwd.cu, Rasterization.cpp/.h, _backend.py, _wrapper.py; dataset + aggregation + fail_closed=true. DFC1-R1 verdict pins env + premise."
+      },
+      "unresolved_blockers": [
+        ">=1.2x E2E gate fails on dense scenes (garden 1.140x, bicycle 1.061x): O(N) projection (untouched) dominates 39-50% of budget; dense pixels leave little transmittance headroom",
+        "room pass marginal & camera-dependent (4/8 cameras pass all gates)",
+        "bicycle fails PSNR quality gate at t>=1e-5 (sparse scene)",
+        "More aggressive thresholds (1e-3) raise E2E to 1.10-1.27x but violate PSNR (<=0.05dB) and grad-cos (>=0.99999) gates",
+        "LPIPS in original matrix run failed (batch-dim permute bug); recomputed from saved projections",
+        "DFC2_GENERALIZATION amended quality-only gate passes quality universally but yields no usable speedup (min renderer fwd-pipe ~1.0007x, splat reduction ~6-8%, production_full_training_step=NOT_MEASURED); the amendment removed the 10% workload floor, so universal quality-pass now coexists with negligible workload reduction."
+      ],
+      "role": "DROP",
+      "role_rationale": "DFC1-R2 adaptive termination is FAIL_CLOSED (no policy satisfies all 4 gates on all 3 scenes; dense scenes Amdahl-bound by O(N) projection). The DFC1-R1 saved-T backward fix is a real SUPPORTING correctness contribution (ADOPT) but is a no-op at early-termination thresholds and delivers no standalone speedup. Method-level role DROP; backward fix noted as SUPPORTING sub-result.",
+      "supporting_subresult": "DFC1-R1 saved-T backward fix: ADOPT_DFC1R1_SAVED_T_BACKWARD (gradient-cosine gate PASS everywhere; 548x grad-error reduction at t=0). Backward-only; forward/threshold/sorting/params/optimizer unchanged."
+    },
+    "VOS": {
+      "method": "VOS",
+      "full_name": "Visibility-aware optimizer scheduling (skip updates for invisible/cold Gaussians)",
+      "hypothesis": "Invisible (radii=0) Gaussians carry near-zero position-gradient, so skipping their optimizer updates reduces workload with no quality loss.",
+      "oracle_status": {
+        "VOS0": "KEEP (SH-only virtual optimizer state, active iters 15001-30000)",
+        "VOS1_hardened": "QUALITY_FAIL (device-side compaction, corrected unseen true-holdout eval, 3 seeds, same-15K-prefix fork)",
+        "vos1_pack": "VIABLE (k=2) by pooled-mean gate letter"
+      },
+      "real_cuda_implementation": false,
+      "implementation_detail": "No custom CUDA kernel. SparseGaussianAdam (pure-PyTorch active-subset Adam); VOS1 adds device-side compaction to remove per-step torch.nonzero host syncs. FasterGSFused backend, seed 42, 30000 iters, graphdeco pipeline.",
+      "hardware_cohort": "A100 (EPIC-05 remote for VOS1 hardened); FasterGSFused C0; graphdeco pipeline; 3 seeds {0,1,42}; 18 runs (3 scenes x 2 schedulers x 3 seeds) x 30000 iters.",
+      "scenes": [
+        "room",
+        "garden",
+        "bicycle"
+      ],
+      "camera_count": "room/garden/bicycle @1920x1080 (MipNeRF360).",
+      "full_convergence_evidence": {
+        "status": "YES_30K_MULTISEED",
+        "note": "Full 30K training, 3 seeds, 2 schedulers (k=1 baseline, k=2 VOS). VOS1 hardened uses corrected unseen true-holdout eval, same-15K-prefix fork, in-process replay oracle vs single-tensor Adam A_s."
+      },
+      "psnr_ssim_lpips": {
+        "status": "SUPPORTED_MULTISEED",
+        "note": "VOS1 multi-seed: room k=2 PSNR mean 31.944 (delta -0.077, std 0.173 - seed 0 drops -0.271 dB); garden 27.557 (+0.025, std 0.019); bicycle 25.391 (+0.030, std 0.019). SSIM/LPIPS near-neutral. VOS0 SH-only: room/bicycle/garden PSNR loss -0.08/+0.08/+0.14 dB (all-cam eval)."
+      },
+      "gradient_correctness": {
+        "status": "EXACTNESS_ORACLE_PASS",
+        "note": "VOS1 exactness vs single-tensor Adam A_s by in-process replay oracle: PASS. VOS0 exactness vs A_s: A_s PASS; foreach A_f not claimed."
+      },
+      "workload_reduction": {
+        "status": "SUPPORTED_LOGICAL_ONLY",
+        "note": "Geometric-mean optimizer update reduction 40.2% (k=2): room 42.0%, garden 37.2%, bicycle 41.8%. LOGICAL workload reduction only."
+      },
+      "forward_pipeline_speedup": {
+        "status": "NOT_APPLICABLE",
+        "note": "Optimizer-level change; no renderer change."
+      },
+      "forward_backward_speedup": {
+        "status": "NOT_APPLICABLE"
+      },
+      "full_training_step_speedup": {
+        "status": "NONE",
+        "note": "No full-training-step speedup. Optimizer is 14.8% of wall (mean); SparseGaussianAdam kernel is O(N) regardless of mask (persistent asystep accumulator + full-N pass), so ~40% update reduction yields ~0% optimizer-time reduction. Amdahl ceiling 1.183x < 1.2x. Measured wall speedup geomean ~1.004x."
+      },
+      "total_training_time_speedup": {
+        "status": "NONE",
+        "note": "No wall-clock benefit. VOS0 clean 30K wall reduction: room 2.5%, bicycle 10.7%, garden 7.9% (SH-only leg). VOS1: no wall-clock benefit."
+      },
+      "provenance_source_lock_quality": {
+        "status": "STRONG",
+        "note": "VOS1_SOURCE_LOCK.json pins source_bundle (user vos.zip), frozen VOS0 evidence hashes (12 files), vos0_frozen_result (KEEP, stage speedups 1.66/2.45/1.98), execution=EPIC-05 A100 only. VOS1 verdict + multi-seed results recorded."
+      },
+      "unresolved_blockers": [
+        "Amdahl-bound: optimizer only ~15% of wall; 1.2x gate structurally unreachable by optimizer-only changes",
+        "SparseGaussianAdam is O(N); update-count reduction does not reduce optimizer time",
+        "room k=2 seed-0 instability (-0.271 dB) - not uniformly seed-stable; stricter per-seed gate would FAIL",
+        "VOS1 compaction microbench geomean 0.891x (< VOS0 torch.nonzero) - STRONG-only speed consideration",
+        "VOS0 used all-camera (not true-holdout) eval + torch.nonzero host sync - superseded by VOS1 hardening",
+        "VOS0 foreach-Adam A_f equivalence not claimed"
+      ],
+      "role": "DROP",
+      "role_rationale": "VOS1 hardened = QUALITY_FAIL (room seed-0 outlier) with NO wall-clock speedup (Amdahl-bound <1.2x, kernel O(N)). The 40% update reduction is a logical/energy workload reduction, not training-time. VOS0 SH-only KEEP is a superseded-generation result. Net publication role DROP (negative/diagnostic)."
+    },
+    "IGF": {
+      "method": "IGF",
+      "full_name": "Importance-guided sparse Adam freezing (freeze low-importance Gaussians in optimizer)",
+      "hypothesis": "Under importance model I3 (mean2D-absgrad x visible_ratio x contribution), importance-ranked freezing of low-importance Gaussians cuts optimizer-update workload with negligible quality loss.",
+      "oracle_status": {
+        "IGF0": "IMPORTANCE_FREEZE_HEADROOM_CERTIFIED (modeled dPSNR 0.0021 dB, 45.8% workload cut) but candidate-dependent (I1/I2 fail) and population frozen from step 20000",
+        "IGF1": "DROP_NO_IMPORTANCE_FREEZE_HEADROOM (real training)"
+      },
+      "real_cuda_implementation": false,
+      "implementation_detail": "No custom CUDA kernel. SparseAdam = pure-PyTorch active-subset Adam; inactive rows bit-frozen; active rows bit-identical math to torch.optim.Adam. FasterGSFused (C0), seed 42, 30000 iters.",
+      "hardware_cohort": "A100 (EPIC-05 remote); FasterGSFused C0; warmup 0..15000 dense (densify_until_iter=15000), scheduled phase 15000..30000 (population frozen); room/garden/bicycle.",
+      "scenes": [
+        "room",
+        "garden",
+        "bicycle"
+      ],
+      "camera_count": "room/garden/bicycle (MipNeRF360).",
+      "full_convergence_evidence": {
+        "status": "YES_30K",
+        "note": "Full 30K training, real live backward for importance I3, tertile ranking. Checkpoint-replay used for quality comparison."
+      },
+      "psnr_ssim_lpips": {
+        "status": "MEASURED_BUT_FAILS",
+        "note": "Mean dPSNR across candidates: A 0.0101, B 0.0756, C2 0.0878, C 0.1517, C4 0.1317 dB. Quality gate (dPSNR<=0.05 AND dSSIM<=0.001) passed by NONE. Real degradation >> IGF0 frozen-checkpoint model (C2 real mean 0.0878 vs modeled 0.002)."
+      },
+      "gradient_correctness": {
+        "status": "N/A_OPTIMIZER_LEVEL",
+        "note": "Optimizer-level method; active rows bit-identical to torch.optim.Adam. No renderer gradient claim."
+      },
+      "workload_reduction": {
+        "status": "SUPPORTED_BUT_INSUFFICIENT",
+        "note": "Optimizer workload reduction: A/B 15.0%, C2 26.2%, C 45.8%, C4 41.7%. >=40% reached only by C/C4 which fail quality gate."
+      },
+      "forward_pipeline_speedup": {
+        "status": "NOT_APPLICABLE"
+      },
+      "forward_backward_speedup": {
+        "status": "NOT_APPLICABLE"
+      },
+      "full_training_step_speedup": {
+        "status": "NEGATIVE",
+        "note": "Every candidate SLOWER end-to-end: speedup 0.46x-0.92x. SparseAdam gather/scatter overhead exceeds savings on a launch-bound optimizer stage."
+      },
+      "total_training_time_speedup": {
+        "status": "NEGATIVE",
+        "note": "No candidate yields net wall-clock speedup; all slower."
+      },
+      "provenance_source_lock_quality": {
+        "status": "STRONG",
+        "note": "IGF1 verdict + per-scene detail (dPSNR/dSSIM/speedup/workload_red per candidate per scene); FasterGSFused C0, seed 42, 30000 iters, real training (checkpoint_replay_used_for_quality=false). fail_closed=true."
+      },
+      "unresolved_blockers": [
+        "No CUDA kernel allowed (pure-PyTorch sparse step); gather/scatter overhead makes it slower end-to-end",
+        "Quality/economic tension: mild schedules (A/B) preserve quality but cut only ~15% workload; aggressive (C/C4) reach >=40% but fail quality (dPSNR up to 0.2743 dB, dSSIM up to 0.01066 on bicycle)",
+        "Importance model does not transfer across scene complexity (room near-noiseless, bicycle 3.6M G severe)",
+        "IGF0 certification was candidate-dependent and used a frozen population (20k-30k leg already a no-op)"
+      ],
+      "role": "DROP",
+      "role_rationale": "DROP_NO_IMPORTANCE_FREEZE_HEADROOM: no candidate passes both quality and economic gates; workload reduction does not become wall-clock speedup; pure-PyTorch sparse step is slower end-to-end."
+    },
+    "CGC": {
+      "method": "CGC",
+      "full_name": "Contribution-aware Gaussian culling (drop low-contribution (tile,Gaussian) candidates at emission)",
+      "hypothesis": "A significant fraction of Gaussian-tile intersections are evaluated by raster kernels but contribute negligible pixel gradients/color; culling them at emission preserves quality while cutting candidates.",
+      "oracle_status": {
+        "CGC0": "CGC0_CANDIDATE (CPU oracle: wasted_candidate_ratio 0.542, combined-oracle reduction 0.519, Amdahl upper 2.054, PSNR loss 1.06e-4 dB)",
+        "CGC1": "DROP_PRUNING_FIDELITY (real CUDA kernel)"
+      },
+      "real_cuda_implementation": true,
+      "implementation_detail": "CGC1 patched IntersectTile.cu (candidate emission): drop (tile,Gaussian) when peak_alpha=min(0.999,opac*exp(-sigma_min))<threshold. Both passes. rendering.py reads CGC1_CULL_THRESHOLD env (<=0 disables = byte-identical baseline).",
+      "hardware_cohort": "EPIC-05 A100-SXM4-80GB, gsplat 1.5.3 (git 937e299, frozen /root/epic05_frozen/gsplat-b1-clean-v153), torch 2.9.1+cu128, CUDA 12.8; tile_size=16, sh_degree=3, seed 42; CUDA events WARMUP=3 ITERS=10 median.",
+      "scenes": [
+        "room",
+        "garden",
+        "bicycle"
+      ],
+      "camera_count": "8 eval cameras/scene; room 1,593,376 G (58.15M candidates), garden 5,834,784 G (89.34M), bicycle 6,131,954 G (63.85M).",
+      "full_convergence_evidence": {
+        "status": "NO",
+        "note": "Renderer-level fidelity timing on init PLY per scene (EPIC-05 canonical; NO trained checkpoint for garden/bicycle on EPIC-05). Not a 30K convergence run."
+      },
+      "psnr_ssim_lpips": {
+        "status": "FAILS_FIDELITY",
+        "note": "Per-pair fidelity bounds (pruned-vs-baseline, GT-independent) do NOT control per-pixel accumulated error. SSIM loss <=0.001 FAILS at ALL 9 scene-thresholds; LPIPS <=0.005 fails 6/9; grad-cos >=0.99999 fails 9/9. PSNR-introduced >=40dB passes 1/9."
+      },
+      "gradient_correctness": {
+        "status": "FAIL",
+        "note": "grad_cosine >=0.99999 gate FAILS at all 9 scene-thresholds (thresholds 1e-5/1e-4/1e-3)."
+      },
+      "workload_reduction": {
+        "status": "SUPPORTED_BUT_INSUFFICIENT",
+        "note": "Candidate reduction 29.6-55.2% per scene (room 0.296, garden 0.416, bicycle 0.456 at 1e-5). But direct raster-time reduction only 13.7-26.6% (rasterize kernel is overhead-bound; pair-count savings do not fully translate to time)."
+      },
+      "forward_pipeline_speedup": {
+        "status": "PARTIAL",
+        "note": "Raster-time reduction room 0.137, garden 0.203, bicycle 0.212 at 1e-5 (below candidate reduction)."
+      },
+      "forward_backward_speedup": {
+        "status": "PARTIAL_BELOW_GATE",
+        "note": "E2E speedup room 1.119x, garden 1.181x, bicycle 1.194x at 1e-5 - all below 1.2x gate. Amdahl upper bound 1.41/1.70/1.82 (passes >=1.1) but not achievable."
+      },
+      "full_training_step_speedup": {
+        "status": "NOT_MEASURED",
+        "note": "Renderer-level; no full-training-step measurement."
+      },
+      "total_training_time_speedup": {
+        "status": "NOT_MEASURED"
+      },
+      "provenance_source_lock_quality": {
+        "status": "STRONG",
+        "note": "CGC1_SOURCE_LOCK.json pins gsplat version/commit/frozen-source, csrc.so sha256 (64b8be21...) + symbol check, per-file original/patched SHA256+MD5 for 7 files, patch_surface, scene_data (N/resolution/cameras/baseline_candidate_count), evaluation_protocol, seed."
+      },
+      "unresolved_blockers": [
+        "Image-fidelity gates fail at every threshold on every scene (SSIM loss, grad-cos; LPIPS on most)",
+        "Per-pair bounds do not control per-pixel accumulated error",
+        "rasterize kernel overhead-bound: candidate reduction (29-55%) does not translate to time (13-27% raster reduction)",
+        "No trained checkpoint for garden/bicycle on EPIC-05 (init PLY used)",
+        "p_candidate_dependent 0.988 (reduction is candidate-count-driven)"
+      ],
+      "role": "DROP",
+      "role_rationale": "DROP_PRUNING_FIDELITY: real CUDA cull achieves candidate reduction + some speed but FAILS image-fidelity gates (SSIM/grad-cos/LPIPS) at every tested threshold on every scene; rasterize kernel overhead-bound. CGC0 oracle headroom (0.542 wasted) preserved as negative/diagnostic."
+    },
+    "KFC": {
+      "method": "KFC",
+      "full_name": "Kernel fusion (fuse rasterize_fwd + gradient_preparation bwd attribute-fetch)",
+      "hypothesis": "Fusing forward and backward per-tile so the backward reuses the forward shared-memory fetch of per-isect attributes (means2d/conics/colors/opacities) eliminates redundant global memory traffic and yields speedup.",
+      "oracle_status": {
+        "KFC0": "KFC0_CANDIDATE (oracle: C3 eliminates 1437 MB = 25.0% pipeline / 62.78% 4-kernel traffic, Amdahl E2E upper 1.48x - but based on overcounted 1.51GB DRAM)",
+        "KFC1": "DROP_NO_KERNEL_GAIN (real CUDA)"
+      },
+      "real_cuda_implementation": true,
+      "implementation_detail": "KFC1 added rasterize_fused_fwd_bwd.cu (declared bindings.h:493, bound ext.cpp:41). Per-tile block loads all isect attrs into shared memory once, runs forward alpha-blend then backward gradient reusing the fetch, replicating warpSum reduction before atomicAdd. Compiled 0 errors, symbol present for CDIM 1/3/4. Fixed 3 bugs (warpSum template args, early-termination last_ids semantics, device-pointer deref for max_isects).",
+      "hardware_cohort": "A100-SXM4-80GB, gsplat 1.5.3 (EPIC-05 canonical, repo SHA abfa6c3e), torch 2.10.0+cu128, CUDA 12.8; room_iter10000, 1920x1080, tile_size=32.",
+      "scenes": [
+        "room"
+      ],
+      "camera_count": "1 workload (room_iter10000 single camera microbenchmark).",
+      "full_convergence_evidence": {
+        "status": "NO",
+        "note": "Kernel microbenchmark on a single frozen trained checkpoint (room_iter10000). No 30K convergence run."
+      },
+      "psnr_ssim_lpips": {
+        "status": "NUMERICAL_ONLY",
+        "note": "Math identical to baseline on launchable workloads: relL2 ~5-7e-08 (<=1e-6), cosine >=0.999999, zero NaN, CDIM in {1,3,4}. No image-quality (PSNR/SSIM/LPIPS) claim."
+      },
+      "gradient_correctness": {
+        "status": "SUPPORTED_LAUNCHABLE",
+        "note": "On all launchable workloads: relL2 ~6e-08 <=1e-6, cosine >=0.999999, zero NaN. Real room workload cannot launch (shared-memory overflow)."
+      },
+      "workload_reduction": {
+        "status": "ANALYTICAL_ONLY",
+        "note": "50% analytical attribute-traffic reduction on paper, but KFC0's 1.51GB 'DRAM' is an overcount: attrs for N=1,004,935 is ~36.4MB, fits A100 40MB L2 (re-read is L2-served, not DRAM). 50% traffic reduction yields <1.0x speedup."
+      },
+      "forward_pipeline_speedup": {
+        "status": "FAIL",
+        "note": "Best launchable fused speedup 0.98x < 1.2x requirement. Real room workload cannot launch (804KB shared >> 164KB A100 max)."
+      },
+      "forward_backward_speedup": {
+        "status": "FAIL",
+        "note": "Fused fwd+bwd SLOWER (best 0.98x) on launchable workloads. bwd is compute-bound (flat 102.03->102.83ms for N 100K->2M, <1% change for 20x more Gaussians)."
+      },
+      "full_training_step_speedup": {
+        "status": "NOT_RUN",
+        "note": "P4 E2E training NOT RUN: autograd boundary (loss between fwd and bwd in Python) prevents single-launch fusion without moving loss into kernel (forbidden)."
+      },
+      "total_training_time_speedup": {
+        "status": "NOT_MEASURED"
+      },
+      "provenance_source_lock_quality": {
+        "status": "STRONG",
+        "note": "KFC1_SOURCE_LOCK.json (frozen gsplat 1.5.3, matches KFC0) + remote_identity.json (hostname/GPU/CUDA/torch/repo SHA/working dir). KFC0 verdict + KFC1 evidence (correctness/kernel-timing/memory-profile/e2e/resource)."
+      },
+      "unresolved_blockers": [
+        "Shared-memory overflow: fused kernel needs 804KB >> A100 164KB opt-in / 48KB default; never calls cudaFuncSetAttribute; launch fails with invalid argument on real workloads",
+        "bwd is compute-bound (alpha blending + atomicAdd), not memory-bound; eliminated attribute re-read is L2-resident, not a DRAM bottleneck",
+        "Autograd boundary makes single-launch fwd+bwd fusion architecturally impossible without moving the loss into the kernel (changes math, forbidden)",
+        "KFC0's 1.51GB DRAM traffic prediction disproven (L2-resident)"
+      ],
+      "role": "DROP",
+      "role_rationale": "DROP_NO_KERNEL_GAIN: correctness PASS but fused kernel is SLOWER (0.98x) on launchable workloads and cannot launch on real room workload (shared-memory overflow); bwd compute-bound; autograd boundary blocks E2E integration. KFC0 traffic claim disproven."
+    },
+    "AGS": {
+      "method": "AGS",
+      "full_name": "Adaptive/incremental Gaussian tile sorting (repair previous-iteration tile order instead of radix sort)",
+      "hypothesis": "Previous-iteration tile depth ordering can be repaired incrementally instead of rebuilding the CUB radix sort every iteration.",
+      "oracle_status": {
+        "AGS0": "SORT_HEADROOM_CERTIFIED (CPU oracle: median cpr=0.0077, tau=0.9847, agg cpr=0.0140 - but measured rank stability WITHIN the tiny persistent set, not reusable element count)",
+        "AGS1": "DROP_SORT_KERNEL_GAIN (real CUDA)"
+      },
+      "real_cuda_implementation": true,
+      "implementation_detail": "AGS1 captured REAL gsplat sort I/O for 12 consecutive COLMAP room cameras through frozen ckpt (projection+intersect+CUB radix). Baseline A = cub::DeviceRadixSort::SortPairs over 48 bits. Incremental B = per-tile repair seeded from O_prev (count_tiles -> ExclusiveSum(offsets) -> scatter -> per-tile bitonic sort keyed by composite(depth_id,flatten_id)) with prev-segment reuse check (splitmix hash).",
+      "hardware_cohort": "EPIC-05 A100-SXM4-80GB (dsw-933622-64cc845c7d-lqswc), CUDA 12.8, torch 2.9.1+cu128, repo abfa6c3e, gsplat fork b1-clean-v153; scene=room, frozen ckpt m3_sh3_step30000.pt (N_sub=704,726, sh_degree=3).",
+      "scenes": [
+        "room"
+      ],
+      "camera_count": "12 consecutive COLMAP room cameras (sort I/O captured); garden/bicycle frozen step30000 checkpoints MISSING on EPIC-05 (only room m3_sh3 exists).",
+      "full_convergence_evidence": {
+        "status": "NO",
+        "note": "Microbenchmark on a single frozen step30000 checkpoint (room). No 30K convergence run."
+      },
+      "psnr_ssim_lpips": {
+        "status": "N/A_SORT_STAGE",
+        "note": "Sort-stage method; correctness is bit-exactness vs CUB radix, not image quality. Incremental repair == CUB radix bit-exactly on isect_ids/flatten_ids/offsets for all 11 consecutive frame pairs (Phase2 ALL_OK=True)."
+      },
+      "gradient_correctness": {
+        "status": "N/A_SORT_STAGE",
+        "note": "Not a gradient method; sort-order correctness verified bit-exact (all 15,848 tie runs strictly ascending)."
+      },
+      "workload_reduction": {
+        "status": "FAIL",
+        "note": "Reuse 0% across all temporal gaps (1-10); 0/25350 tiles reusable; 0% of persistent (flatten,tile) elements keep depth-order. Tile-membership Jaccard ~0.001. Nothing to repair."
+      },
+      "forward_pipeline_speedup": {
+        "status": "FAIL",
+        "note": "Sort-stage speedup B/A=0.460x (noReuse); incremental repair 2.18x SLOWER than radix (requirement >=2.0x)."
+      },
+      "forward_backward_speedup": {
+        "status": "NOT_REACHED",
+        "note": "Phase 4 E2E NOT REACHED (Phase 3 failed). Sort stage = 0.69ms = 29.9% of upstream, 13.9% of forward pass; even a hypothetical 2x sort gain saves only ~7% of forward (<5% E2E gate)."
+      },
+      "full_training_step_speedup": {
+        "status": "NOT_REACHED",
+        "note": "Not reached (sort-stage gain fails first)."
+      },
+      "total_training_time_speedup": {
+        "status": "NOT_MEASURED"
+      },
+      "provenance_source_lock_quality": {
+        "status": "STRONG",
+        "note": "AGS1_SOURCE_LOCK.json (tile_sort_kernel=cub::DeviceRadixSort::SortPairs, depth_key=(depth_id<<0)|(tile_id<<32), bit-exact target defined) + AGS1_CORRECTNESS.json (11 frame pairs ALL_OK) + remote_identity.json."
+      },
+      "unresolved_blockers": [
+        "Consecutive cameras 0.05-0.34m apart; fx~3172 shifts footprints by hundreds of pixels = many tiles; tile-membership Jaccard ~0.001, 0/25350 tiles reusable",
+        "0% of persistent (flatten,tile) elements keep depth-order; reuse 0% across all temporal gaps (1-10); no cadence (500/1000/2000) recovers reuse",
+        "Incremental repair 2.18x slower than CUB radix; radix sort cannot be profitably replaced on this workload",
+        "garden/bicycle frozen step30000 checkpoints MISSING on EPIC-05 (only room m3_sh3 exists)",
+        "AGS0 headroom measured rank stability within the tiny persistent set (~0.2% of elements), not reusable element count"
+      ],
+      "role": "DROP",
+      "role_rationale": "DROP_SORT_KERNEL_GAIN: incremental tile-sort repair is bit-exact correct but 2.18x SLOWER than CUB radix with 0% tile reuse across all frames and temporal gaps. AGS0 'headroom' mis-measured (rank stability within tiny persistent set, not reusable count)."
+    }
+  },
+  "role_summary": {
+    "MAIN": [
+      "TFC",
+      "K50-B1"
+    ],
+    "SUPPORTING": [
+      "DFC (DFC1-R1 saved-T backward fix sub-result)"
+    ],
+    "ANALYSIS": [
+      "CGC0 oracle (0.542 wasted-candidate)",
+      "IGF0 oracle (modeled headroom)",
+      "VOS0 SH-only (superseded)",
+      "AGS0 oracle (mis-measured headroom)",
+      "KFC0 (disproven traffic claim)"
+    ],
+    "DROP": [
+      "DFC (DFC1-R2 adaptive)",
+      "VOS (VOS1 hardened)",
+      "IGF (IGF1)",
+      "CGC (CGC1)",
+      "KFC (KFC1)",
+      "AGS (AGS1)"
+    ],
+    "NEEDS_REVALIDATION": []
+  },
+  "cohort_integrity_rules": [
+    "Never merge results from different cohorts into one number.",
+    "Never convert renderer-local speedup into training-step speedup.",
+    "Preserve historical failed gates (KFC0, AGS0, CGC0, IGF0, DFC0, VOS0, TFC0 superseded generations retained).",
+    "K50-B1 stage4a (room-only, A100-PCIE-40GB, CUDA 11.8, config-buggy 5K) and stage4b (3-scene, A100-80GB, clean 30K) are SEPARATE cohorts."
+  ]
+}

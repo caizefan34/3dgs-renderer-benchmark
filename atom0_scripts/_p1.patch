@@ -1,0 +1,11 @@
+*** Begin Patch
+*** Update File: atom0_blend_backward.cuh
+@@
+         const uint bucket_idx = chunk_first_bucket + block.group_index().x;
+         const uint lane_idx = warp.thread_rank();
+ 
++        // chunk_base = instance offset of the first bucket's tile within this chunk.
++        // Computed on-device: the host launcher cannot dereference device pointers.
++        const int chunk_base = static_cast<int>(tile_instance_ranges[bucket_tile_index[chunk_first_bucket]].x);
+         const uint tile_idx = bucket_tile_index[bucket_idx];
+*** End Patch

@@ -1,0 +1,106 @@
+{
+  "audit_type": "VJS0_LINEARIZATION_PARITY",
+  "authority": "VJS0_PREREG.md section 2 (J@delta vs FD, median<=1e-3,p95<=5e-3)",
+  "allowed_operators": [
+    "exact_autograd_jvp",
+    "exact_autograd_vjp",
+    "custom_cached_jacobian"
+  ],
+  "n_dirs": 32,
+  "fd_h": 0.001,
+  "scale": 0.25,
+  "cells": {
+    "room@10000": {
+      "source_cam": 20,
+      "adam_grad_norm": 0.02648465543742067,
+      "fd_reference_norm": 0.4417753517627716,
+      "operators": {
+        "jvp": {
+          "ok": false,
+          "err": "RuntimeError: In order to use an autograd.Function with functorch transforms (vmap, grad, jvp, jacrev, ...), it must override the setup_context staticmethod. For more details, please see https://pytorch.org/docs/main/notes/extending.func.html"
+        },
+        "vjp": {
+          "ok": false,
+          "err": "RuntimeError: In order to use an autograd.Function with functorch transforms (vmap, grad, jvp, jacrev, ...), it must override the setup_context staticmethod. For more details, please see https://pytorch.org/docs/main/notes/extending.func.html"
+        }
+      },
+      "any_allowed_operator_available": false,
+      "costs": {
+        "exact_render_backward_ms": 14.388590794987977,
+        "fd_reference_ms": 8.006202918477356,
+        "fd_inner_cost_fraction": 0.5564271743182927,
+        "fd_predicted_speed_k4": 1.7971803789510299
+      },
+      "note": "JVP/VJP blocked at autograd.Function level (no jvp/setup_context); cached-Jacobian infeasible (6.2M x ~42M sparse, not materializable); double-backward yields 2nd-order only, not first-order J@delta."
+    },
+    "room@15000": {
+      "source_cam": 20,
+      "adam_grad_norm": 0.02472325622164334,
+      "fd_reference_norm": 1.1552566289901733,
+      "operators": {
+        "jvp": {
+          "ok": false,
+          "err": "RuntimeError: In order to use an autograd.Function with functorch transforms (vmap, grad, jvp, jacrev, ...), it must override the setup_context staticmethod. For more details, please see https://pytorch.org/docs/main/notes/extending.func.html"
+        },
+        "vjp": {
+          "ok": false,
+          "err": "RuntimeError: In order to use an autograd.Function with functorch transforms (vmap, grad, jvp, jacrev, ...), it must override the setup_context staticmethod. For more details, please see https://pytorch.org/docs/main/notes/extending.func.html"
+        }
+      },
+      "any_allowed_operator_available": false,
+      "costs": {
+        "exact_render_backward_ms": 12.7217180095613,
+        "fd_reference_ms": 7.938227988779545,
+        "fd_inner_cost_fraction": 0.6239902490224501,
+        "fd_predicted_speed_k4": 1.6025891455300956
+      },
+      "note": "JVP/VJP blocked at autograd.Function level (no jvp/setup_context); cached-Jacobian infeasible (6.2M x ~42M sparse, not materializable); double-backward yields 2nd-order only, not first-order J@delta."
+    },
+    "bicycle@10000": {
+      "source_cam": 12,
+      "adam_grad_norm": 0.08927260409104017,
+      "fd_reference_norm": 5.006217956542969,
+      "operators": {
+        "jvp": {
+          "ok": false,
+          "err": "RuntimeError: In order to use an autograd.Function with functorch transforms (vmap, grad, jvp, jacrev, ...), it must override the setup_context staticmethod. For more details, please see https://pytorch.org/docs/main/notes/extending.func.html"
+        },
+        "vjp": {
+          "ok": false,
+          "err": "RuntimeError: In order to use an autograd.Function with functorch transforms (vmap, grad, jvp, jacrev, ...), it must override the setup_context staticmethod. For more details, please see https://pytorch.org/docs/main/notes/extending.func.html"
+        }
+      },
+      "any_allowed_operator_available": false,
+      "costs": {
+        "exact_render_backward_ms": 19.89064011722803,
+        "fd_reference_ms": 14.935840014368296,
+        "fd_inner_cost_fraction": 0.7508979060674776,
+        "fd_predicted_speed_k4": 1.3317389646711006
+      },
+      "note": "JVP/VJP blocked at autograd.Function level (no jvp/setup_context); cached-Jacobian infeasible (6.2M x ~42M sparse, not materializable); double-backward yields 2nd-order only, not first-order J@delta."
+    },
+    "bicycle@15000": {
+      "source_cam": 12,
+      "adam_grad_norm": 0.11073437815362766,
+      "fd_reference_norm": 5.357767581939697,
+      "operators": {
+        "jvp": {
+          "ok": false,
+          "err": "RuntimeError: In order to use an autograd.Function with functorch transforms (vmap, grad, jvp, jacrev, ...), it must override the setup_context staticmethod. For more details, please see https://pytorch.org/docs/main/notes/extending.func.html"
+        },
+        "vjp": {
+          "ok": false,
+          "err": "RuntimeError: In order to use an autograd.Function with functorch transforms (vmap, grad, jvp, jacrev, ...), it must override the setup_context staticmethod. For more details, please see https://pytorch.org/docs/main/notes/extending.func.html"
+        }
+      },
+      "any_allowed_operator_available": false,
+      "costs": {
+        "exact_render_backward_ms": 20.751641993410885,
+        "fd_reference_ms": 16.314882203005254,
+        "fd_inner_cost_fraction": 0.7861971697558005,
+        "fd_predicted_speed_k4": 1.271945560819824
+      },
+      "note": "JVP/VJP blocked at autograd.Function level (no jvp/setup_context); cached-Jacobian infeasible (6.2M x ~42M sparse, not materializable); double-backward yields 2nd-order only, not first-order J@delta."
+    }
+  }
+}

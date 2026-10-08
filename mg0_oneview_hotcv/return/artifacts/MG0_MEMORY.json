@@ -1,0 +1,122 @@
+{
+  "campaign": "MG0_OneView_GS_HotCV",
+  "stage": "5_isolated_cost",
+  "protocol": {
+    "warmups": 10,
+    "repeats": 1000,
+    "timing": "CUDA-event pairs per repeat + host wall",
+    "normalization": "ratio vs native A1 iteration wall median (N1_ACTION_TIMING_*.json)",
+    "note": "isolated control-buffer ops ONLY; no renderer, no optimizer step, no param update"
+  },
+  "cells": {
+    "room|15000|2048": {
+      "peak_extra_gpu_mem_mb": 1.84375
+    },
+    "room|15000|8192": {
+      "peak_extra_gpu_mem_mb": 7.67431640625
+    },
+    "room|15000|32768": {
+      "peak_extra_gpu_mem_mb": 29.853515625
+    },
+    "room|20000|2048": {
+      "peak_extra_gpu_mem_mb": 1.84375
+    },
+    "room|20000|8192": {
+      "peak_extra_gpu_mem_mb": 7.673828125
+    },
+    "room|20000|32768": {
+      "peak_extra_gpu_mem_mb": 29.5
+    },
+    "room|25000|2048": {
+      "peak_extra_gpu_mem_mb": 1.84375
+    },
+    "room|25000|8192": {
+      "peak_extra_gpu_mem_mb": 8.31396484375
+    },
+    "room|25000|32768": {
+      "peak_extra_gpu_mem_mb": 29.87255859375
+    },
+    "bicycle|15000|2048": {
+      "peak_extra_gpu_mem_mb": 1.84375
+    },
+    "bicycle|15000|8192": {
+      "peak_extra_gpu_mem_mb": 8.26611328125
+    },
+    "bicycle|15000|32768": {
+      "peak_extra_gpu_mem_mb": 29.5
+    },
+    "bicycle|20000|2048": {
+      "peak_extra_gpu_mem_mb": 1.84375
+    },
+    "bicycle|20000|8192": {
+      "peak_extra_gpu_mem_mb": 7.375
+    },
+    "bicycle|20000|32768": {
+      "peak_extra_gpu_mem_mb": 29.5
+    },
+    "bicycle|25000|2048": {
+      "peak_extra_gpu_mem_mb": 1.84375
+    },
+    "bicycle|25000|8192": {
+      "peak_extra_gpu_mem_mb": 8.23095703125
+    },
+    "bicycle|25000|32768": {
+      "peak_extra_gpu_mem_mb": 30.29736328125
+    }
+  },
+  "projected_table_memory": {
+    "room": {
+      "N_cameras": 311,
+      "K": {
+        "2048": {
+          "fp16_camera_table_bytes": 75157504,
+          "fp32_cbar_bytes": 483328,
+          "int64_hot_ids_bytes": 16384,
+          "total_bytes": 75657216,
+          "total_gib": 0.07046127319335938
+        },
+        "8192": {
+          "fp16_camera_table_bytes": 300630016,
+          "fp32_cbar_bytes": 1933312,
+          "int64_hot_ids_bytes": 65536,
+          "total_bytes": 302628864,
+          "total_gib": 0.2818450927734375
+        },
+        "32768": {
+          "fp16_camera_table_bytes": 1202520064,
+          "fp32_cbar_bytes": 7733248,
+          "int64_hot_ids_bytes": 262144,
+          "total_bytes": 1210515456,
+          "total_gib": 1.12738037109375
+        }
+      }
+    },
+    "bicycle": {
+      "N_cameras": 194,
+      "K": {
+        "2048": {
+          "fp16_camera_table_bytes": 46882816,
+          "fp32_cbar_bytes": 483328,
+          "int64_hot_ids_bytes": 16384,
+          "total_bytes": 47382528,
+          "total_gib": 0.04412841796875
+        },
+        "8192": {
+          "fp16_camera_table_bytes": 187531264,
+          "fp32_cbar_bytes": 1933312,
+          "int64_hot_ids_bytes": 65536,
+          "total_bytes": 189530112,
+          "total_gib": 0.176513671875
+        },
+        "32768": {
+          "fp16_camera_table_bytes": 750125056,
+          "fp32_cbar_bytes": 7733248,
+          "int64_hot_ids_bytes": 262144,
+          "total_bytes": 758120448,
+          "total_gib": 0.7060546875
+        }
+      }
+    }
+  },
+  "projection_note": "bytes = N_cameras*K*59*2 (FP16 table) + K*59*4 (FP32 cbar) + K*8 (int64 hot ids); FP16 table scaled to the FULL training-camera count of the scene"
+}

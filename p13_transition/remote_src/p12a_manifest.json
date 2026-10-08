@@ -1,0 +1,449 @@
+{
+  "campaign_id": "P12A_SYSTEM_ENDPOINT_FUSED",
+  "preregistered_at_utc": "2026-09-26T13:29:16Z",
+  "question": "Under the P11-validated fused-loss baseline, is frozen C0 still faster than current gsplat main under the strict matched 13-scene 30K protocol?",
+  "primary_ratio": "R_sys(scene) = wall_GMAIN_FUSED / wall_C0_FUSED",
+  "alternation_rule": "scene order alphabetical; even index -> [X, Y]; odd index -> [Y, X]",
+  "pairing_rule": "fresh pair per scene; back-to-back on ONE physical GPU; no other publication pair interleaved on that GPU; clean-GPU gate before each pair",
+  "gpu_assignment": {
+    "bicycle": 2,
+    "bonsai": 3,
+    "counter": 2,
+    "drjohnson": 5,
+    "flowers": 5,
+    "garden": 3,
+    "kitchen": 6,
+    "playroom": 2,
+    "room": 3,
+    "stump": 5,
+    "train": 7,
+    "treehill": 6,
+    "truck": 7
+  },
+  "excluded_gpus": {
+    "0": "foreign co-tenant host PID 2858677 (32746 MiB) since ~2026-09-26 20:50 UTC",
+    "1": "foreign co-tenant host PID 2858678 (32746 MiB) since ~2026-09-26 20:50 UTC",
+    "4": "foreign co-tenant host PID 121642 (65672 MiB) present before P12 start"
+  },
+  "loss": "fused (P11-validated fused-ssim padding=same; P12_FUSED_LOSS_LOCK.json)",
+  "recipe": "eps2d=0.3, seed=42, 30000 iters, reference_v1 frozen recipe, eval SSIM metric = SepSSIM (frozen procedure)",
+  "host": "dsw-933622-64cc845c7d-lqswc",
+  "groups": [
+    {
+      "group_id": "p12a_pair_bicycle",
+      "gpu": 2,
+      "pair_arm_order": [
+        "GMAIN_FUSED",
+        "C0_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_gmainf_s42_bicycle",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "bicycle",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_c0f_s42_bicycle",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "bicycle",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_bonsai",
+      "gpu": 3,
+      "pair_arm_order": [
+        "C0_FUSED",
+        "GMAIN_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_c0f_s42_bonsai",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "bonsai",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_gmainf_s42_bonsai",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "bonsai",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_counter",
+      "gpu": 2,
+      "pair_arm_order": [
+        "GMAIN_FUSED",
+        "C0_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_gmainf_s42_counter",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "counter",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_c0f_s42_counter",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "counter",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_drjohnson",
+      "gpu": 5,
+      "pair_arm_order": [
+        "C0_FUSED",
+        "GMAIN_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_c0f_s42_drjohnson",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "drjohnson",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_gmainf_s42_drjohnson",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "drjohnson",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_flowers",
+      "gpu": 5,
+      "pair_arm_order": [
+        "GMAIN_FUSED",
+        "C0_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_gmainf_s42_flowers",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "flowers",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_c0f_s42_flowers",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "flowers",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_garden",
+      "gpu": 3,
+      "pair_arm_order": [
+        "C0_FUSED",
+        "GMAIN_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_c0f_s42_garden",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "garden",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_gmainf_s42_garden",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "garden",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_kitchen",
+      "gpu": 6,
+      "pair_arm_order": [
+        "GMAIN_FUSED",
+        "C0_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_gmainf_s42_kitchen",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "kitchen",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_c0f_s42_kitchen",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "kitchen",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_playroom",
+      "gpu": 2,
+      "pair_arm_order": [
+        "C0_FUSED",
+        "GMAIN_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_c0f_s42_playroom",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "playroom",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_gmainf_s42_playroom",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "playroom",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_room",
+      "gpu": 3,
+      "pair_arm_order": [
+        "GMAIN_FUSED",
+        "C0_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_gmainf_s42_room",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "room",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_c0f_s42_room",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "room",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_stump",
+      "gpu": 5,
+      "pair_arm_order": [
+        "C0_FUSED",
+        "GMAIN_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_c0f_s42_stump",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "stump",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_gmainf_s42_stump",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "stump",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_train",
+      "gpu": 7,
+      "pair_arm_order": [
+        "GMAIN_FUSED",
+        "C0_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_gmainf_s42_train",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "train",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_c0f_s42_train",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "train",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_treehill",
+      "gpu": 6,
+      "pair_arm_order": [
+        "C0_FUSED",
+        "GMAIN_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_c0f_s42_treehill",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "treehill",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_gmainf_s42_treehill",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "treehill",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    },
+    {
+      "group_id": "p12a_pair_truck",
+      "gpu": 7,
+      "pair_arm_order": [
+        "GMAIN_FUSED",
+        "C0_FUSED"
+      ],
+      "jobs": [
+        {
+          "run_id": "p12a_gmainf_s42_truck",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "gmain",
+          "arm_label": "GMAIN_FUSED",
+          "scene": "truck",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        },
+        {
+          "run_id": "p12a_c0f_s42_truck",
+          "stage": "P12A_SYSTEM_ENDPOINT_FUSED",
+          "arm": "c0",
+          "arm_label": "C0_FUSED",
+          "scene": "truck",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000,
+          "loss": "fused"
+        }
+      ]
+    }
+  ]
+}

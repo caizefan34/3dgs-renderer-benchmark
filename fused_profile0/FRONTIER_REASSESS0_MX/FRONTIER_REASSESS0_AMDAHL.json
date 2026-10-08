@@ -1,0 +1,29 @@
+{
+  "schema": "FRONTIER_REASSESS0_AMDAHL",
+  "date": "2026-10-07",
+  "question": "If expf were completely free, what is the maximum renderer-level speedup under the current measured workload?",
+  "O20_expf_free_ceiling": {
+    "S_backward_geomean": 1.1856,
+    "S_renderer_geomean": 1.1116,
+    "per_scene_S_renderer": {
+      "room": 1.1153,
+      "bicycle": 1.1462,
+      "garden": 1.0744
+    },
+    "per_scene_S_backward": {
+      "room": 1.2032,
+      "bicycle": 1.2275,
+      "garden": 1.1283
+    },
+    "caveat": "O20 is an APPROXIMATE oracle (expf->linear). It bounds the expf-removal upside but is NOT exactly realizable: the only exact way to reuse a stored G is the ARITH1 cache, which is traffic-dominated (S_backward 0.791)."
+  },
+  "exactly_realizable_expf_removal": {
+    "F1_cache_G": "ARITH1: S_backward 0.791 (REGRESSION - traffic-dominated)",
+    "F2_exact_SFU": "no exact faster variant (expf already MUFU.EX2+poly)",
+    "F3_exact_skip": "no exact skip (exact_skip_fraction_new=0)",
+    "conclusion": "The O20 1.1116x renderer ceiling is NOT exactly realizable. The exactly-realizable exact renderer ceiling is <5% (essentially the residual after non-expf costs)."
+  },
+  "exact_renderer_ceiling_upper_bound": "<1.05 (no exact mechanism reaches 5%)",
+  "approx_expf_free_ceiling_upper_bound": 1.1116,
+  "verdict": "If expf were completely free, max renderer speedup ~= 1.1116x (O20). But NO exact mechanism realizes it: caching G is traffic-dominated (ARITH1), exact SFU is already optimal, and no exact skip exists. Therefore the exactly-realizable exact renderer ceiling is <5% => terminate exact micro-optimization."
+}

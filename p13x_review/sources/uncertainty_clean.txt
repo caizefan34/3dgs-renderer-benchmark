@@ -1,0 +1,358 @@
+Predictive Photometric Uncertainty in Gaussian Splatting for Novel View Synthesis
+
+Recent advances in 3D Gaussian Splatting have enabled impressive photorealistic novel view synthesis. However, to transition from a pure rendering engine to a reliable spatial map for autonomous agents and safety-critical applications, knowing where the representation is uncertain is as important as the rendering fidelity itself. We bridge this critical gap by introducing a lightweight, plug-and-play framework for pixel-wise, view-dependent predictive uncertainty estimation. Our post-hoc method formulates uncertainty as a Bayesian-regularized linear least-squares optimization over reconstruction residuals. This architecture-agnostic approach extracts a per-primitive uncertainty channel without modifying the underlying scene representation or degrading baseline visual fidelity. Crucially, we demonstrate that providing this actionable reliability signal successfully translates 3D Gaussian splatting into a trustworthy spatial map, further improving state-of-the-art performance across three critical downstream perception tasks: active view selection, pose-agnostic scene change detection, and pose-agnostic anomaly detection. Code is available at github.io/3DGS-Uncertainty .
+
+1 Introduction
+
+Radiance fields [ 23 , 40 ] have evolved from novel view synthesis (NVS) engines into foundational spatial maps for autonomous agents [ 39 , 63 , 11 ] . However, constructing a radiance field from 2D images is an inherently ill-posed inverse problem [ 55 ] . To function reliably in real-world deployments, where severe occlusions, unobserved regions, and geometric ambiguities are inevitable, these systems must be capable of rigorously quantifying their predictive uncertainty [ 54 ] . 3D Gaussian Splatting (3DGS) [ 23 ] has rapidly emerged as the leading representation for these tasks, combining the expressiveness of volumetric rendering with the efficiency of rasterization. While recent advancements have drastically improved 3DGS visual fidelity [ 25 , 61 ] , geometric consistency [ 9 , 24 ] , and efficiency [ 16 , 38 ] , equipping these models with robust, system-level uncertainty estimation (UE) remains a critical, underexplored challenge.
+
+Existing UE methods for 3DGS fall into two complementary families, depending on whether they quantify uncertainty in the learned representation , i.e . , the Gaussian parameters, or in the rendered radiance field , i.e . , the rendered pixels. Most prior work targets the learned representation. Stochastic formulations [ 52 , 1 , 33 , 37 ] model distributions over Gaussian parameters, but rely on sampling-based optimization or complex inference that introduces prohibitive latency, requires architectural modifications degrading baseline visual fidelity, and lacks modularity with the rapidly expanding ecosystem of 3DGS variants. Post-hoc alternatives instead estimate epistemic uncertainty in parameter space via Hessian approximations [ 21 , 58 ] . However, as shown in our experiments (Sec. 4.1 ), these parameter-centric methods capture view-dependent uncertainty poorly, hindering their use in downstream perception tasks.
+
+In contrast, we model uncertainty directly in the rendered radiance field [ 15 ] , introducing an efficient, plug-and-play system that estimates pixel-wise predictive uncertainty for NVS. Our approach generates view-dependent uncertainty maps alongside RGB images, with areas of high uncertainty reflecting regions of low rendering fidelity in the novel view (see Fig. 1 ). This yields a single, actionable reliability signal that is particularly valuable for NVS, where downstream tasks consume and act directly upon the rendered pixels. We demonstrate this utility across three perception tasks, leveraging our uncertainty estimates to improve performance for next-best-view planning [ 43 ] , pose-agnostic scene change detection [ 13 ] , and pose-agnostic anomaly detection [ 31 ] .
+
+Our approach exploits a simple but powerful observation: regions that exhibit high reconstruction residual often correspond to areas where 3DGS fails to accurately represent the scene (see Fig. 2 ).
+We leverage this signal to guide the learning of a dedicated uncertainty channel within each 3DGS primitive, correlating representation error with high uncertainty.
+Yet reconstruction residuals alone are not a reliable proxy for uncertainty – in sparse-view settings, the highly parameterized nature of 3DGS enables the model to overfit to the training views, driving residuals toward zero (thus signaling zero predictive uncertainty). To mitigate this, we introduce a Bayesian prior within our linear least-squares formulation of uncertainty estimation. This prior encourages uncertainty estimates to revert toward a maximal uncertainty level when insufficient multi-view evidence is available. This process is entirely post-hoc: it requires zero modifications to the base architecture or its optimization pipeline, ensuring preservation of the original rendering fidelity and compatibility with any 3DGS variant.
+
+In summary, we make the following claims:
+
+We introduce a lightweight, plug-and-play system for view-dependent UE for novel view synthesis in 3DGS. We achieve state-of-the-art performance for UE while strictly preserving rendering fidelity (see Sec. 4.1 ).
+
+We formulate this estimation as a (Bayesian-inspired) regularized linear least-squares problem, which ensures robust uncertainty predictions across both dense and sparse capture settings (see Sec. 4.2 ).
+
+Beyond state-of-the-art UE in 3DGS, our uncertainty maps can be practically utilized in downstream tasks to improve state-of-the-art performance in active view selection (Sec. 4.3 ), pose-agnostic scene change detection (Sec. 4.4 ), and pose-agnostic anomaly detection (Sec. 4.5 ).
+
+2 Related Work
+
+2.1 Uncertainty Estimation in Gaussian Splatting
+
+UE in NeRFs [ 40 ] has been extensively explored through stochastic sampling [ 50 ] , ensemble models [ 53 ] , conditional normalizing flows [ 51 ] , and provenance modeling [ 41 ] . Bayes’ Rays [ 14 ] interprets uncertainty as allowable volumetric variation to identify under-constrained regions. While foundational, these designs remain tightly coupled to neural volumetric representations, making direct application to 3DGS [ 23 ] non-trivial due to its explicit, non-neural parameterization.
+
+Existing UE techniques for 3DGS primarily rely on stochastic formulations.
+Continuous Semantic Splatting [ 59 ] learns semantic distributions over Gaussian primitives, interpreting their variance as a measure of semantic uncertainty.
+Several stochastic extensions [ 1 , 33 , 37 ] derive pixel-level uncertainty from multi-sample variance.
+Stochastic-GS [ 1 ] learns probabilistic distributions over Gaussian parameters, while Variational-3DGS [ 33 ] leverages multi-scale Gaussian hierarchies to construct a diversified sampling space.
+Lyu et al . [ 37 ] propose a low-dimensional manifold constraint to reduce the heavy sampling cost inherent in stochastic rendering.
+Despite their advances, these stochastic methods are computationally expensive and demand substantial architectural or optimization modifications. This lacks plug-and-play applicability across 3DGS variants and
+often compromises
+rendering fidelity.
+
+Current post-hoc approaches for uncertainty estimation in 3DGS predominantly focus on the parameter space of the model. FisherRF [ 21 ] uses Fisher information to quantify confidence in the learned representation. POp-GS [ 58 ] extends this via optimal experimental design while also modeling inter-parameter correlations.
+Similar to PRIMU [ 15 ] , our approach operates directly in image space. However, rather than relying on hand-crafted features and a regressor trained on hold-out views, we introduce a lightweight linear least-squares formulation. This allows us to directly learn primitive-level, view-dependent uncertainty that efficiently aggregates into pixel-wise maps from arbitrary viewpoints, entirely bypassing the need for a regressor.
+
+A parallel line of work assigns error-based scores to primitives to guide pruning and densification. PUP 3D-GS [ 17 ] and Speedy-Splat [ 16 ] compute pruning scores based on $L^{2}$ loss sensitivity. Rota Bulò et al . [ 44 ] derive a scalar densification score directly from the rendering error.
+However, their per-pixel formulation ignores interactions between overlapping Gaussians, assigning elevated scalar scores to all contributing primitives even if only one is responsible for an artifact. While this heuristic suits densification, where over-densification is corrected in subsequent optimization, it falsely penalizes reliable primitives in frozen models. By analyzing all views simultaneously through our least-squares formulation, we disentangle these interactions to consistently identify correct Gaussians, even when they contribute to localized artifacts.
+
+2.2 Active View Selection in Gaussian Splatting
+
+Active view selection (AVS) seeks the optimal next viewpoint to maximize reconstruction quality under a constrained acquisition budget [ 21 , 43 , 37 , 53 , 29 ] .
+Standard approaches select a candidate view from a predefined pool to either minimize the overall uncertainty [ 53 , 37 ] or maximize the expected information gain [ 21 , 43 ] .
+Within 3DGS specifically, FisherRF [ 21 ] optimizes information gain between candidate and training views, whereas Lyu et al . [ 37 ] reduce reconstruction uncertainty via low-dimensional manifold sampling.
+In contrast, we adopt a deterministic strategy that selects the next view to maximally reduce the per-primitive uncertainty estimated from our least-squares residual formulation, achieving state-of-the-art results in AVS.
+
+2.3 Pose-Agnostic Scene Change Detection
+
+Scene change detection (SCD) has been widely studied as a bi-temporal comparison problem, where changes are identified between two aligned images [ 2 , 10 , 48 , 7 , 56 , 32 , 47 , 46 , 34 ] . Such methods rely on strict viewpoint alignment and extensive supervision, limiting scalability in real-world applications such as robotic inspection [ 13 ] .
+Recent studies [ 26 , 8 , 22 , 3 ] explore zero-shot SCD using large visual foundation models [ 27 , 42 ] ; however, they still assume paired captures with minimal viewpoint disparity.
+
+The emergence of high-fidelity 3D scene representations [ 23 , 60 ] has enabled pose-agnostic SCD, where pre-change scenes are reconstructed and rendered into post-change viewpoints for comparison [ 13 , 36 , 20 , 12 ] .
+However, they remain highly sensitive to reconstruction inaccuracies and view-dependent artifacts, which are frequently misclassified as true scene changes. We address this critical flaw by leveraging our predicted per-pixel uncertainty to suppress unreliable regions, effectively filtering out rendering-induced false positives.
+To the best of our knowledge, this is the first work to apply uncertainty estimation to pose-agnostic SCD.
+We further demonstrate that incorporating our uncertainty maps improves state-of-the-art pose-agnostic SCD methods [ 13 ] , as our UE accurately captures erroneous regions in novel-view renderings.
+
+2.4 Pose-Agnostic Anomaly Detection
+
+Traditional visual anomaly detection (AD) methods [ 5 , 45 ] excel at localizing defects but typically require strictly controlled, fixed camera viewpoints. To relax this constraint, recent approaches leverage 3D scene representations [ 40 , 23 ] to enable pose-agnostic AD [ 62 , 31 , 35 ] , allowing query captures from arbitrary viewpoints to be directly compared against novel-view renderings of a reconstructed reference model of an object. However, much like in pose-agnostic SCD, this direct comparison introduces a critical vulnerability: systemic rendering artifacts and geometric ambiguities are frequently misclassified as physical defects. By explicitly quantifying the reliability of the reference model, our view-dependent uncertainty maps provide a principled mechanism to mask these inherently ambiguous regions. This effectively suppresses rendering-induced false positives, significantly enhancing the robustness of the AD pipeline.
+
+3 Method
+
+An overview of our approach is illustrated in Fig. 3 .
+The goal of this work is to predict pixel-wise, view-dependent uncertainty maps for novel views while preserving the rendering fidelity of 3DGS.
+We begin by revisiting the fundamentals of volumetric rendering in 3DGS ( Sec. 3.1 ) and reformulate the rendering process to predict uncertainty rather than color ( Sec. 3.2 ).
+Subsequently, we describe our learning formulation ( Sec. 3.3 ) and introduce a Bayesian-inspired regularization ( Sec. 3.4 ) that improves uncertainty consistency in highly novel viewpoints.
+
+3.1 3D Gaussian Splatting
+
+In 3DGS [ 23 ] , a radiance field is represented using a set of 3D Gaussian primitives, each defined by a mean $\mu$ , covariance matrix $\Sigma$ , scalar opacity factor $a$ , and view-dependent color $c(d)$ modeled via spherical harmonics (SH). Given a camera with position, viewing direction $d$ , and intrinsic parameters, a view can be rendered by projecting the 3D Gaussians onto the image plane and $\alpha$ -blending their contributions to obtain the final pixel color. This projection, also referred to as splatting [ 64 ] , employs a local affine approximation of the projective transformation, such that 3D Gaussians are mapped to 2D Gaussians on the image plane.
+The opacity of a Gaussian at pixel $x$ is given by $\alpha(x)=a\cdot\Phi(x,\mu^{\mathrm{2D}},\Sigma^{\mathrm{2D}})$ ,
+where $\mu^{\mathrm{2D}}$ and $\Sigma^{\mathrm{2D}}$ denote the mean and covariance of the projected 2D Gaussian, and $\Phi(x,\mu^{\mathrm{2D}},\Sigma^{\mathrm{2D}})$ is its density at pixel $x$ . The pixel-wise color is computed as a weighted sum over the primitives’ color values along the viewing ray:
+
+$C(x)=\sum_{k=1}^{K}c_{k}(d)\alpha_{k}(x)T_{k}(x),$ (1)
+
+where $c_{k}(d)$ and $\alpha_{k}(x)$ denote the color and opacity of the $k$ -th Gaussian, and $T_{k}(x)=\prod_{l=1}^{k-1}(1-\alpha_{l}(x))$ is the transmittance up to the $(k-1)$ -th Gaussian.
+
+3.2 Per-primitive Uncertainty
+
+We estimate pixel-wise, view-dependent uncertainty by learning per-primitive uncertainty channels from training-view reconstruction residuals.
+Since uncertainty may vary with the viewing direction, it is modeled using SH, analogously to color. For any view, a pixel-wise uncertainty map can be rendered in the same manner (and as fast) as an RGB image:
+
+$U(x)=\sum_{k=1}^{K}u_{k}(d)\alpha_{k}(x)T_{k}(x),$ (2)
+
+where $u_{k}(d)$ denotes the uncertainty of Gaussian $k$ from direction $d$ .
+
+We hypothesize that (in dense capture settings 2 2 2 As in typical 3DGS datasets, e.g . Mip-NeRF360. ) reconstruction residuals serve as a reliable proxy for predictive uncertainty: just as 3DGS generalizes color to novel views, a well-fit residual channel approximates the expected photometric error there. This proxy aggregates aleatoric, epistemic, and optimization-related effects into a single, actionable signal.
+
+While any discrepancy metric $L$ could serve as the target residual, we explicitly employ the same combination of $L^{1}$ loss and DSSIM used to train the base 3DGS model [ 23 ] .
+To learn the primitive-level uncertainty channel $u_{k}$ , we freeze all other representation parameters. This ensures the original reconstruction fidelity is perfectly preserved while the new uncertainty parameters are optimized to best explain the observed training errors.
+
+We formulate the post-hoc estimation of the uncertainty channel as a least-squares problem. Given a well-reconstructed scene with $K$ primitives $G_{1},\dotsc,G_{K}$ , we enumerate all pixels across all training views as $x_{1},\dotsc,x_{M}$ , each corresponding to a viewing ray determined by its camera pose and pixel location. For simplicity, we initially assume $u_{k}$ to be view-independent and later describe how directional dependence can be incorporated. For each pixel $x_{j}$ , depth-sorting the primitives front-to-back along its viewing ray defines a permutation $\sigma_{j}$ , where $\sigma_{j}(k)$ denotes the index of the $k$ -th primitive along the ray.
+In this setting, Eq. 2 can be expressed as
+
+$U(x_{j})=\sum_{k=1}^{K}u_{k}\,\alpha_{k}(x_{j})\,\hat{T}_{k}(x_{j}),$ (3)
+
+where $\hat{T}_{k}(x_{j})=\prod_{l=1}^{\sigma_{j}(k)-1}(1-\alpha_{\sigma_{j}(l)}(x_{j}))$ and $u_{k}\in\mathbb{R}$ is the uncertainty of primitive $G_{k}$ .
+By gathering these volumetric blending weights into a matrix $A\in\mathbb{R}^{M\times K}$ such that $A_{jk}=\alpha_{k}(x_{j})\,\hat{T}_{k}(x_{j})$ , the rendered uncertainties for all pixels become the matrix-vector product $Au$ , where $u=(u_{1},\dotsc,u_{K})^{\top}$ . Let $y\in\mathbb{R}^{M}$ be the vector of corresponding pixel-wise reconstruction losses, such that $y_{j}=L_{x_{j}}$ .
+Estimating the primitive uncertainties that best explain these residuals amounts to solving the linear least-squares problem:
+
+$\arg\min_{u}\|y-Au\|_{2}^{2}.$ (4)
+
+Incorporating view-dependency for $u$ via SH preserves this linearity; the SH basis functions are simply absorbed into A, and u expands to contain the concatenated SH coefficients across all primitives (see App. A for the explicit formulation).
+
+3.3 Optimization
+
+Due to the massive scale of typical scenes, a direct solution to this problem is computationally intractable. Specifically, for the normal equations $A^{T}Au=A^{T}y$ , the dimension of the matrix $A^{T}A$ scales with the number of primitives (often in the millions) times the 16 SH coefficients per Gaussian. Despite the sparsity of this matrix, its size renders direct solvers impractical.
+Instead, we approximate the solution using stochastic gradient descent (SGD), following the same optimization procedure employed for the other Gaussian parameters. The convexity of the linear least-square objective ensures efficient and stable convergence.
+
+After reconstruction is completed, for each pixel $x$ in the view, we first calculate the residual error $L_{x}$ for all training viewpoints. We adopt 3DGS’s photometric error and keep $\lambda=0.2$ following 3DGS [ 23 ] : $L_{x}=(1-\lambda)L^{1}_{x}+\lambda L^{\text{DSSIM}}_{x}$ .
+The overall training objective is then minimizing the $L^{2}$ loss of the residual $L_{x}$ and the rendered uncertainty $U_{x}$ ,
+
+$L=\sum_{x}(L_{x}-U_{x})^{2}.$ (5)
+
+Gradients are backpropagated exclusively to the uncertainty channels $u_{k}$ , leaving the matrix $A$ fixed, thus ensuring linearity.
+
+3.4 Bayesian-Inspired Regularization
+
+The least-squares formulation in Eq. 4 learns directional uncertainty only from viewing directions that are present in the training data.
+Consequently, directions absent from the training data provide no supervisory signal.
+Furthermore, in sparse-view scenarios, a trivially low rendering error on the training views often masks a poorly reconstructed underlying 3D geometry.
+As a result, uncertainty estimates for highly novel viewpoints can become unstable or unintuitive.
+
+To this end, we introduce an $L^{2}$ regularization that imposes a prior over the directional uncertainty functions. In directions unsupported by training views, the learned uncertainty $u_{k}(d)$ is encouraged to default to a maximal uncertainty level $b\in\mathbb{R}$ .
+This approach is grounded in the well-known interpretation of $L^{2}$ -regularized linear regression as Bayesian inference with a Gaussian prior [ 6 ] centered at the maximal uncertainty value $b$ .
+
+For a Gaussian $G_{k}$ , the SH coefficients of its uncertainty feature define a function $u_{k}:S^{2}\to\mathbb{R}$ on the unit sphere that encodes directional uncertainty. The difference of $u_{k}$ and the constant $b$ (which encodes maximal and isotropic uncertainty) is quantified by their $L^{2}$ distance:
+
+$l_{k}=\int_{S^{2}}(b-u_{k}(r))^{2}\mathrm{d}r.$ (6)
+
+This integral is approximated by evaluating $u_{k}(d)$ at discrete points on the sphere using Gauss-Legendre sampling [ 30 ] .
+Summing over all $K$ Gaussian primitives yields the global regularization loss: $L_{\mathrm{reg}}=\sum_{k=1}^{K}l_{k}$ .
+The final training objective regularizes the base loss $L$ from Eq. 5 :
+
+$L^{\prime}=L+\lambda_{\mathrm{reg}}L_{\mathrm{reg}},$ (7)
+
+where $\lambda_{\mathrm{reg}}\geq 0$ controls the influence of the prior.
+The choice of $\lambda_{\mathrm{reg}}$ and conditions under which this regularization is beneficial are discussed in Sec. 4.2 .
+
+4 Experiments
+
+Datasets: We follow the exact evaluation protocol established in 3DGS [ 23 ] and assess our UE performance on three standard benchmarks:
+Mip-NeRF360 [ 4 ] ,
+Tanks & Temples [ 28 ] ,
+and Deep Blending [ 18 ] .
+
+Baselines: We evaluate against representative state-of-the-art 3DGS UE approaches, including the post-hoc method FisherRF [ 21 ] and the variational inference-based methods of Lyu et al. [ 37 ] (Manifold) and Li et al. [ 33 ] (Var3DGS).
+The latter two modify the 3DGS framework by learning distributions over Gaussian parameters, which slightly reduces rendering fidelity.
+A detailed comparison of their rendering quality against standard 3DGS is provided in App. D.
+
+Metrics: To evaluate how well predicted uncertainty maps correspond to actual reconstruction errors in NVS, we follow prior work [ 37 , 21 , 33 ] and report
+Area Under the Sparsification Error curve (AUSE) [ 19 ] and Pearson correlation.
+
+We report both metrics using two error formulations: the standard intensity difference $L^{1}$ , and DSSIM. DSSIM is particularly important for evaluating errors in NVS, as these often arise from structural artifacts such as geometric misalignment, blur, or floaters rather than simple pixel-wise deviations. Since DSSIM is sensitive to luminance, contrast, and structural inconsistencies, it provides a more perceptually meaningful measure of NVS error than $L^{1}$ .
+
+Method Mip-NeRF360 [ 4 ] Tanks&Temples [ 28 ] Deep Blending [ 18 ] AUSE $(\downarrow)$ Pearson $(\uparrow)$ OH $(\downarrow)$ AUSE $(\downarrow)$ Pearson $(\uparrow)$ OH $(\downarrow)$ AUSE $(\downarrow)$ Pearson $(\uparrow)$ OH $(\downarrow)$ $L^{1}$ DSSIM $L^{1}$ DSSIM ( $\%$ ) $L^{1}$ DSSIM $L^{1}$ DSSIM ( $\%$ ) $L^{1}$ DSSIM $L^{1}$ DSSIM ( $\%$ ) FisherRF [ 21 ] 0.708 0.606 -0.055 0.009 14.2 0.691 0.709 -0.087 -0.145 19.3 0.751 0.853 -0.116 -0.190 19.7 Manifold [ 37 ] 0.520 0.559 0.070 -0.005 30.2 0.574 0.654 0.053 0.008 23.6 0.503 0.548 0.095 0.074 48.1 Var3DGS [ 33 ] 0.558 0.495 0.118 0.160 $>$ 100 0.539 0.567 0.161 0.176 $>$ 100 0.588 0.671 0.106 0.006 $>$ 100 Ours 0.328 0.214 0.369 0.547 12.8 0.299 0.233 0.427 0.571 14.0 0.376 0.356 0.243 0.244 13.0
+
+4.1 Uncertainty Estimation in NVS
+
+Analysis of results: Tab. 1 reports UE comparison on the hold-out (novel) views; here we set $\lambda_{\mathrm{reg}}=0$ , as our Bayesian-inspired regularization yields only marginal gains in dense capture and is instead designed for sparse-view regimes (analyzed in Sec. 4.2 ). Our method consistently outperforms all baselines by a substantial margin. Notably, our method demonstrates particularly strong performance when evaluated using DSSIM error maps, indicating superior alignment with human perceptual error relative to existing methods. For instance, we achieve more than 3 $\times$ higher Pearson correlation and less than half the AUSE (DSSIM) compared to our best competitor Var3DGS [ 33 ] on Mip-NeRF360. Additionally, we achieve minimal training overhead (measured as percentage of additional time required for UE compared to vanilla 3DGS [ 23 ] training time).
+Memory overhead is likewise minimal: we add only $(\text{SH degree}+1)^{2}$ scalars per Gaussian ( $16$ at degree $3$ ), and freezing the base parameters keeps training memory below standard 3DGS.
+App. B further shows that our method is fully plug-and-play across different 3DGS variants, yielding similar or improved UE performance.
+In Fig. 4 , our method is visually compared to the baselines, demonstrating a much higher correlation with the true error.
+
+Analysis on View-Dependence: We ablate the view-dependence of our uncertainty channel $u_{k}$ by constraining the SH degree used to model it ( Tab. 2(a) ). Similar to view-dependent color, the best performances are obtained with a degree of 3, while reducing the capacity degrades UE.
+
+Method AUSE $(\downarrow)$ Pearson $(\uparrow)$ L1 DSSIM L1 DSSIM No View-Dependence 0.391 0.310 0.217 0.356 SH Degree = 1 0.352 0.245 0.327 0.498 SH Degree = 2 0.331 0.218 0.353 0.535 SH Degree = 3 0.328 0.214 0.369 0.547
+
+Method PSNR SSIM LPIPS $(\uparrow)$ $(\uparrow)$ $(\downarrow)$ FisherRF [ 21 ] 20.266 0.593 0.363 Manifold [ 37 ] 19.732 0.595 0.373 Manifold † 20.088 0.611 0.350 Ours 20.676 0.615 0.344
+
+4.2 UE on Highly Novel Views
+
+Experiment Setup: We investigate the contribution of our Bayesian-inspired regularization on highly novel views by adopting a sparse setup using four well-distributed training views. These four views are selected by maximizing pairwise camera center distances. We retain the test views in the standard setting (as in Sec. 4.1 and 3DGS [ 23 ] ) for fair comparison. The train-test split is visualized in Fig. 5(a) . Due to the sparse coverage of the scene, most test views observe the scene from highly novel viewing directions.
+
+We evaluate on Mip-NeRF360 [ 4 ] , training the base 3DGS model for 4,000 iterations and our uncertainty channel for 400 iterations to account for the sparse view count.
+For experiments with Bayesian-inspired regularization, we set the maximal uncertainty level to $b=1$ .
+This choice follows naturally from our training objective, as uncertainty is regressed toward the photometric reconstruction residual, whose magnitude is bounded by the normalized image intensity range.
+Thus, a value of $1$ corresponds to maximal reconstruction error and provides a principled prior.
+In these experiments, background regions are treated as maximally uncertain and assigned an uncertainty value of 1.
+No explicit background prior is imposed when Bayesian regularization is disabled.
+As a baseline, we compare against FisherRF [ 21 ] , the only publicly available post-hoc method that can be directly applied to the same splatting outputs as ours.
+
+Analysis of Results: In Fig. 5(b) , we study the effect of the regularization weight $\lambda_{\mathrm{reg}}$ by evaluating values from $0$ (no regularization) to $20.48$ , doubling the weight from $0.02$ onward.
+UE is assessed on both $L^{1}$ and DSSIM error maps.
+Our approach consistently outperforms FisherRF across all $\lambda_{\mathrm{reg}}$ values in this challenging setting. Compared to the standard UE study, AUSE scores are generally higher, likely due to reduced splatting quality and fewer UE training views, which can make the residual error maps inconsistent and harder to learn. Overall, the Bayesian-inspired regularization improves performance in this regime, though its effect differs between error metrics.
+For $L^{1}$ error, the best AUSE scores are achieved for $0.16\leq\lambda_{\mathrm{reg}}\leq 0.32$ , while for DSSIM, optimal performance occurs at $\lambda_{\mathrm{reg}}=10.24$ , with marginal changes beyond.
+Notably, these optimal ranges are largely scene-independent; scene-wise AUSE plots are provided in App. C.
+A qualitative comparison of predicted uncertainty maps for different $\lambda_{\mathrm{reg}}$ values is shown in Fig. 6 .
+
+4.3 UE in Active View Selection
+
+Experiment Setup: We follow the AVS setup proposed by FisherRF [ 21 ] and evaluate on the Mip-NeRF360 dataset [ 4 ] . Following prior work [ 21 , 33 , 37 ] , we report PSNR, SSIM, and LPIPS on the holdout views after reconstruction. Strictly adhering to the 3DGS evaluation protocol [ 23 ] , we evaluate at full resolution across all methods; while this naturally lowers metrics compared to downscaled versions in prior work [ 21 ] , it guarantees a fair comparison.
+
+We benchmark our approach against state-of-the-art AVS baselines FisherRF [ 21 ] and the method by Lyu et al . [ 37 ] (Manifold), which employs a stochastic variant of 3DGS. Because Manifold’s variational optimization may degrade the visual fidelity of the underlying 3DGS representation, direct comparison is unfair. Therefore, we introduce Manifold † , a variant that uses Manifold’s view predictions to guide a vanilla 3DGS [ 23 ] .
+
+We initialize the AVS procedure with four training views selected by maximizing pairwise camera distances, consistent with our sparse-view setup. Each AVS method then sequentially selects 16 further views, resulting in a total of 20 training views. Between selections, the base 3DGS is trained for $100\times N_{\mathrm{views}}$ iterations, where $N_{\mathrm{views}}$ is the current training view count.
+For ours, we train the uncertainty channel for $50\times N_{\mathrm{views}}$ iterations (ablated in App. E) prior to each selection, then selecting the candidate view with highest total uncertainty.
+
+Quantitative results: As reported in Tab. 2(b) , our method consistently outperforms all baselines across all metrics. This demonstrates that our predicted view-dependent uncertainty maps provide a highly reliable signal for identifying informative viewpoints, substantially improving downstream AVS performance.
+
+4.4 UE in Pose-Agnostic Scene Change Detection
+
+Experiment Setup: Given multi-view captures of a pre-change ( reference ) scene and a post-change ( inference ) scene, pose-agnostic SCD first reconstructs a 3DGS representation of the reference scene $\mathcal{R}_{\text{ref}}$ using reference images $\mathcal{I}_{\text{ref}}$ and their SfM poses $\mathcal{P}_{\text{ref}}$ [ 49 ] .
+For each inference image $I_{\text{inf}}^{k}$ with pose $P_{\text{inf}}^{k}$ , a corresponding rendered view $I_{\text{ren}}^{k}$ is generated by querying $\mathcal{R}_{\text{ref}}$ , producing aligned image pairs $(I_{\text{ren}}^{k},I_{\text{inf}}^{k})$ for change detection.
+Per-pixel change maps $M^{k}$ are obtained in a label-free manner, either by comparing dense DINOv2 features [ 42 ] , direct pixel-level similarity [ 57 ] , or a combination of both. A threshold is applied to produce binary masks $M_{\text{bin}}^{k}$ [ 13 ] .
+The state-of-the-art MV3DCD [ 13 ] further aggregates the predictions $\{M^{k}\}$ into a 3D change representation, improving robustness via multi-view consistency.
+
+However, the rendered views $I_{\text{ren}}^{k}$ often contain artifacts ( Fig. 7 ), caused by incomplete scene coverage, large capture pose discrepancies, or inherent 3DGS limitations.
+These inconsistencies lead to false positives, as differences between $I_{\text{ren}}^{k}$ and $I_{\text{inf}}^{k}$ may arise from rendering errors rather than actual scene changes.
+
+Leveraging uncertainty for pose-agnostic SCD: We first apply our UE method from Sec. 3 to estimate uncertainties for the reference scene $\mathcal{R}_{\text{ref}}$ .
+Using these per-primitive values, we render an uncertainty map $M^{k}_{\text{unc}}$ alongside the RGB image $I_{\text{ren}}^{k}$ for each queried inference pose $P_{\text{inf}}^{k}$ .
+The standard change detection pipeline remains unchanged; however, before thresholding, we attenuate high-uncertainty pixels in the predicted change map $M^{k}$ , obtaining an uncertainty-guided change map $\tilde{M}^{k}=M^{k}\odot(1-M^{k}_{\text{unc}})$ , where $\odot$ denotes Hadamard multiplication. Following standard practice [ 12 , 13 ] , thresholding this map at the midpoint to obtain the final binary mask $M_{\text{bin}}^{k}$ effectively filters out false positives induced by rendering artifacts rather than genuine scene changes.
+
+Quantitative Results: We evaluate our approach on the PASLCD [ 13 ] benchmark following MV3DCD [ 13 ] and adopt four baselines for comparison.
+First, we include the Feature Diff. baseline, which infers a change mask from differences between dense DINOv2 [ 42 ] features.
+Second, we use MV3DCD’s zero-shot variant (MV3DCD-ZS), which fuses cues from feature- and structure-aware masks [ 13 ] .
+We further incorporate our uncertainty guidance into MV3DCD’s multi-view fusion framework and finally couple it with the existing state-of-the-art online pose-agnostic SCD approach, Online-SCD [ 12 ] .
+As shown in Tab. 3 , uncertainty-guidance consistently improves pose-agnostic SCD performance, yielding higher F1 scores and mean Intersection-over-Union (mIoU) across all baselines.
+
+4.5 UE in Pose-Agnostic Anomaly Detection
+
+Experiment Setup: Given multi-view captures of a fault-free object, pose-agnostic AD first reconstructs a 3DGS reference model, denoted as $\mathcal{R}_{\text{ref}}$ . During inference, for a given query image $I_{\text{inf}}^{k}$ , its camera pose $P_{\text{inf}}^{k}$ is estimated on-the-fly [ 31 , 35 ] . Rendering $\mathcal{R}_{\text{ref}}$ at $P_{\text{inf}}^{k}$ yields a corresponding fault-free view, $I_{\text{ren}}^{k}$ . The resulting aligned image pair $(I_{\text{ren}}^{k},I_{\text{inf}}^{k})$ is compared within the feature space of a pre-trained vision encoder [ 62 ] to generate a spatial anomaly score map $S^{k}$ .
+
+Leveraging Uncertainty for Pose-Agnostic AD: We apply our UE framework (described in Sec. 3 ) to the optimized reference model $\mathcal{R}_{\text{ref}}$ , rendering a per-pixel uncertainty map $M^{k}_{\text{unc}}$ along with $I_{\text{ren}}^{k}$ . Crucially, we leave the underlying anomaly scoring pipeline untouched. Instead, we perform a post-hoc attenuation of the raw score map $S^{k}$ using our UE to produce an uncertainty-guided anomaly map: $\tilde{S}^{k}=S^{k}\odot(1-M^{k}_{\text{unc}})$ . This suppresses anomalous score activations in regions where the reference 3DGS model lacks confidence.
+
+Quantitative Results: We evaluate our approach on the MAD-Real benchmark [ 62 ] , reporting AUROC and AUPRO metrics following prior work [ 62 , 35 , 31 ] . By seamlessly integrating our uncertainty-guided attenuation into existing 3DGS-based AD baselines SplatPose [ 31 ] and SplatPosePlus [ 35 ] , we demonstrate a consistent improvement in AD across both architectures (see Tab. 4 ).
+
+Feature Diff. MV3DCD-ZS [ 13 ] MV3DCD [ 13 ] Online-SCD [ 12 ] Metric Base + Ours $\Delta(\%)$ Base + Ours $\Delta(\%)$ Base + Ours $\Delta(\%)$ Base + Ours $\Delta(\%)$ mIoU $(\uparrow)$ 0.278 0.359 29.1 0.382 0.439 14.9 0.470 0.498 6.0 0.486 0.498 2.5 F1 $(\uparrow)$ 0.402 0.502 24.9 0.526 0.593 12.7 0.621 0.649 4.5 0.638 0.651 2.1
+
+SplatPose [ 31 ] SplatPosePlus [ 35 ] Metric Base + Ours $\Delta(\%)$ Base + Ours $\Delta(\%)$ AUROC $(\uparrow)$ 0.929 0.939 1.1 0.940 0.956 0.7 AUPRO $(\uparrow)$ 0.700 0.765 9.3 0.761 0.798 4.9
+
+5 Limitations
+
+Our approach has two main limitations. First, due to its strict post-hoc nature, the spatial granularity of our uncertainty maps is bottlenecked by the density and scale of the underlying Gaussians: in coarsely reconstructed regions (few large primitives), the predicted uncertainty is equally coarse. We do not alter primitives, as our goal is a lightweight estimator preserving model fidelity and structure. Second, we estimate a single predictive uncertainty by treating residuals as a proxy for the expected photometric error; this conflates aleatoric, epistemic, and optimization-related effects rather than disentangling them, and does not yield a probabilistic distribution. These limitations are not unique; existing approaches also lack disentanglement, while only stochastic formulations [ 33 , 37 ] provide a probabilistic form. We further study controlled aleatoric and epistemic perturbations in App. G and find our UE behaves as expected.
+
+6 Conclusion
+
+We introduced a lightweight, plug-and-play framework for predictive photometric uncertainty estimation in 3DGS-based NVS. By formulating post-hoc uncertainty estimation as a linear least-squares problem with Bayesian-inspired regularization, our method effectively predicts pixel-level uncertainty maps under both dense and sparse captures. This enables state-of-the-art results in active view selection, pose-agnostic scene change detection, and anomaly detection.
+
+Acknowledgment
+
+This work was supported by the Australian Research Council Research Hub in Intelligent Robotic Systems for Real-Time Asset Management (IH210100030) (ARIAM) and Abyss Solutions. C.J., N.S., and D.M. also acknowledge ongoing support from the QUT Centre for Robotics.
+T.G. P.S., and M.R. acknowledge support by the state of North Rhine-Westphalia and the European Union within the EFRE/JTF project “Just scan it 3D”, grant no. EFRE-20800529.
+E.H. and M.R. acknowledge support through the junior research group project “UnrEAL” by the German Federal Ministry of Education and Research (BMBF), grant no. 01IS22069.
+M.R. also acknowledges mobility support by the German Academic Exchange Service (DAAD PPP), grant no. 57700453.
+
+References
+
+Appendix – Predictive Photometric Uncertainty in Gaussian Splatting for Novel View Synthesis
+
+This appendix provides supplementary technical and experimental details supporting the main findings of our paper.
+In Appendix B , we present the explicit mathematical formulation for incorporating directional dependency into our UE method through the use of SH and show that this does not affect the linearity of our least-squares formulation.
+Appendix C details an ablation study evaluating our UE technique across various 3DGS variants.
+Appendix D provides scene-wise results for our study on uncertainty estimation in highly novel views.
+We compare the reconstruction fidelity of stochastic 3DGS methods, which the baselines in our main UE study employ, and standard 3DGS in Appendix E .
+Appendix F investigates the effect of the training budget (number of iterations) for uncertainty channels prior to selecting the next best view in AVS.
+Additional qualitative examples for UE are presented in Appendix G .
+Finally, in Appendix H , we validate that our predictive uncertainty responds as expected to controlled aleatoric and epistemic perturbations of the training views.
+
+B View Dependent Per-primitive Uncertainty
+
+We show that incorporating SH to model the directional dependence of uncertainty does not compromise the linearity of the least-squares problem described in Sec. 3.2 .
+To this end, we replace the per-Gaussian scalar uncertainties by SH coefficients and expand the uncertainty vector $u$ accordingly, adjusting the matrix $A$ to match this representation.
+
+When using SH degree $L$ , there are $s:=(L+1)^{2}$ SH basis functions, typically denoted $Y_{lm}:S^{2}\to\mathbb{R}$ for $l=0,\dotsc,L$ and $m=-l,\dotsc,l$ . For a Gaussian $G_{k}$ , the direction-dependent uncertainty $u_{k}:S^{2}\to\mathbb{R}$ is represented using SH coefficients $u_{k}^{lm}$ as
+
+$u_{k}(d)=\sum_{l=0}^{L}\sum_{m=-l}^{l}u_{k}^{lm}Y_{lm}(d).$ (8)
+
+For notational convenience, we enumerate the basis functions as $Y_{1},\dotsc,Y_{s}$ and denote the corresponding coefficients of the $k$ -th Gaussian as $u_{k}^{1},\dotsc,u_{k}^{s}$ . This simplifies Eq. 8 to
+
+$u_{k}(d)=\sum_{i=1}^{s}u_{k}^{i}Y_{i}(d).$ (9)
+
+Define the uncertainty vector $\tilde{u}\in\mathbb{R}^{s\cdot K}$ by $\tilde{u}_{s(k-1)+i}=u_{k}^{i}$ and the adjusted matrix $A\in\mathbb{R}^{M\times s\cdot K}$ by
+
+$A_{j,\,s(k-1)+i}=Y_{i}(d(x_{j},G_{k}))\,\alpha_{k}(x_{j})\,\hat{T}_{k}(x_{j})$ (10)
+
+for $j=1,\dotsc,M$ , $k=1,\dotsc,K$ , and $i=1,\dotsc,s$ , where $d(x_{j},G_{k})$ denotes the viewing direction from pixel $x_{j}$ toward $G_{k}$ .
+Using Eq. 9 , we obtain
+
+$\displaystyle(A\tilde{u})_{j}$ $\displaystyle=\sum_{k=1}^{K}\sum_{i=1}^{s}u_{k}^{i}Y_{i}(d(x_{j},G_{k}))\alpha_{k}(x_{j})\hat{T}_{k}(x_{j})$ (11) $\displaystyle=\sum_{k=1}^{K}u_{k}(d(x_{j},G_{k}))\alpha_{k}(x_{j})\hat{T}_{k}(x_{j}),$ (12)
+
+which is the rendered uncertainty at pixel $x_{j}$ .
+Thus, estimating the SH coefficients that best explain the reconstruction residual $y$ reduces to solving the linear least-squares problem
+
+$\arg\min_{u}\|y-A\tilde{u}\|_{2}^{2},$ (13)
+
+as in Eq. 4 .
+Overall, the reason why directional dependence does not break linearity becomes evident: since the positions and covariances of the Gaussians remain fixed, the direction $d(x_{j},G_{k})$ and thus its evaluation in the SH basis function $Y_{i}$ stays fixed. This allows us to incorporate these terms directly into the matrix $A$ .
+
+Method AUSE $(\downarrow)$ Pearson $(\uparrow)$ L1 DSSIM L1 DSSIM 3DGS [ 23 ] $+$ FisherRF 0.708 0.606 -0.055 0.009 $+$ Ours 0.328 0.214 0.369 0.547 Depth regularized 3DGS [ 24 ] $+$ FisherRF 0.704 0.603 -0.059 -0.018 $+$ Ours 0.296 0.170 0.3805 0.608 AbsGS [ 61 ] $+$ FisherRF 0.871 0.819 -0.014 -0.015 $+$ Ours 0.309 0.226 0.387 0.507 Speedy-Splat [ 16 ] $+$ FisherRF 0.766 0.591 -0.009 -0.003 $+$ Ours 0.297 0.141 0.368 0.656
+
+Method Mip-NeRF360 Tanks&Temples Deep Blending PSNR $(\uparrow)$ SSIM $(\uparrow)$ LPIPS $(\downarrow)$ PSNR $(\uparrow)$ SSIM $(\uparrow)$ LPIPS $(\downarrow)$ PSNR $(\uparrow)$ SSIM $(\uparrow)$ LPIPS $(\downarrow)$ Manifold [ 37 ] 27.273 0.809 0.230 23.517 0.842 0.190 29.239 0.902 0.252 Var3DGS [ 33 ] 27.137 0.807 0.231 23.321 0.840 0.186 28.806 0.895 0.263 3DGS [ 23 ] 27.595 0.816 0.216 23.474 0.848 0.172 29.899 0.908 0.242
+
+C UE Results on 3DGS Variants
+
+Our method is fully plug-and-play and can be integrated with any 3DGS variant without architectural or optimization modifications.
+In Tab. 5 , we present a quantitative comparison across three representative extensions of 3DGS.
+First, we evaluate on depth-regularized 3DGS [ 24 ] , which introduces geometric regularization to improve structural consistency.
+Second, we consider AbsGS [ 61 ] , which employs novel adaptive density control to enhance rendering fidelity.
+Finally, we evaluate on Speedy-Splat [ 16 ] , a sparse-primitive formulation designed for faster training.
+Across all backbones, our method achieves UE performance comparable to or better than its performance on standard 3DGS, confirming its robustness and broad applicability.
+
+D UE on Highly Novel Views: Scene-wise Results
+
+In Figs. 8 , 9 and 10 , we provide scene-wise results for our uncertainty estimation (UE) study on highly novel views, investigating the effectiveness of the proposed Bayesian-inspired regularization.
+Overall, we observe consistent behavior across scenes. For the $L^{1}$ error metric, the lowest AUSE values are typically obtained for $0.08\leq\lambda_{\text{reg}}\leq 0.32$ , while for DSSIM the best performance is generally achieved for $\lambda_{\text{reg}}\geq 10.24$ .
+
+Notable exceptions are the bonsai , kitchen , and treehill scenes.
+For bonsai , the $L^{1}$ AUSE exhibits a local minimum at $\lambda_{\text{reg}}=0.04$ , whereas the global minimum is attained at $\lambda_{\text{reg}}=20.48$ , the largest value considered in our study.
+For kitchen , DSSIM shows a pronounced minimum in the range $0.16\leq\lambda_{\text{reg}}\leq 0.32$ .
+Finally, treehill is the only scene where FisherRF slightly outperforms our method with respect to $L^{1}$ AUSE.
+On all remaining scenes, our approach achieves lower AUSE values for both $L^{1}$ and DSSIM, often by a substantial margin.
+
+E Splatting Quality Comparison
+
+In this section we compare the reconstruction quality of standard 3DGS [ 23 ] against stochastic variants by Lyu et al. [ 37 ] (Manifold) and Li et al. [ 33 ] (Var3DGS).
+As detailed in Tab. 6 , standard 3DGS yields the highest reconstruction fidelity across nearly all metrics on our UE experimental datasets. The sole exception occurs in the two Tanks & Temples scenes, where Manifold achieves a marginally higher PSNR but remains inferior in the other two quality metrics.
+Qualitatively ( Figs. 11 and 12 ), standard 3DGS also produces sharper details and fewer artifacts. For instance, Var3DGS yields very blurry grass in the bicycle scene (see Fig. 11 ), while Manifold introduces an obstructing artifact in the room scene (see Fig. 12 ). Despite these qualitative differences, the average rendering quality of all methods is similar.
+
+Iterations $I$ PSNR $(\uparrow)$ SSIM $(\uparrow)$ LPIPS $(\downarrow)$ 10 20.316 0.617 0.342 25 20.541 0.618 0.343 50 20.676 0.615 0.344 100 20.604 0.612 0.346 200 20.719 0.617 0.343
+
+F Iterations Prior to View Selection in AVS
+
+In our AVS framework, the uncertainty channels must be optimized prior to selecting the next best view.
+We conduct experiments to determine the number of iterations required to achieve competitive performance. Following the practice of Jiang et al . [ 21 ] , we scale the number of iterations used to optimize the Gaussian primitive’s uncertainty channels between selections with the current number of training views $N_{\mathrm{views}}$ . Specifically, we train the uncertainty channels for $I\cdot N_{\mathrm{views}}$ iterations, where $I$ denotes the number of iterations per view. Table 7 reports the reconstruction fidelity for several choices of $I$ . No single value consistently yields the best performance across all metrics, and all results fall within a comparable range. For our main experiments, we choose $I=50$ , as it provides a substantial performance margin over all baselines while keeping the computational cost modest.
+Although fewer iterations may lead to less accurate uncertainty heatmaps, we find that the induced ranking of candidate views by total uncertainty remains largely stable, leading to no reduced performance in AVS. The reduced optimization budget may even help to mitigate overfitting when only a small set of training views is available.
+
+G UE Qualitative Examples
+
+In Figs. 11 and 12 we provide additional qualitative UE examples.
+Here, we also include the renderings and DSSIM error maps for the stochastic 3DGS methods Manifold [ 37 ] and Var3DGS [ 33 ] .
+As these two methods train separate splattings, their renderings and therefore their errors slightly differ from standard 3DGS, which we used for our main UE results for the post-hoc methods (our method and FisherRF [ 21 ] ).
+This slightly limits the comparability between the post-hoc and stochastic 3DGS methods, as well as between the stochastic 3DGS methods themselves.
+However, as discussed in Appendix E , the overall reconstruction capabilities of these 3DGS variants are close to standard 3DGS, and in Figs. 11 and 12 we see that their DSSIM error maps appear quite similar.
+
+When comparing the uncertainty maps of the different UE methods to the true DSSIM error, we notice that our method seems to be the only one that reliably captures it.
+The regions indicated as most uncertain in the FisherRF uncertainty maps most of the time do not correspond to regions of high DSSIM error.
+Uncertainty maps of Manifold contain many small highlights that also often do not correspond to the DSSIM error.
+The uncertainty maps of Var3DGS visually come the closest to our method in quality, but they lack detail and still contain large regions that differ substantially from the DSSIM error.
+
+Blur Noise Num. Views 5% 10% 5% 10% 64 16 4 $\Delta$ unc. 119% 129% 127% 136% 122% 266% 596%
+
+H Uncertainty Response to Aleatoric and Epistemic Perturbations
+
+Our method treats reconstruction residuals as a proxy for predictive uncertainty, aggregating aleatoric, epistemic, and optimization-related effects into a single signal (cf. Sec. 3.2 ).
+To verify that this signal behaves as expected, we conduct a controlled study in which we inject aleatoric uncertainty by corrupting a fraction of the training views with Gaussian blur or additive Gaussian noise, and epistemic uncertainty by reducing the number of available training views.
+For each setting, we report $\Delta$ unc., the relative increase in mean predicted uncertainty on the held-out test views with respect to the standard (uncorrupted, full-view) 3DGS setting.
+Experiments are performed on the bicycle scene of Mip-NeRF360 [ 4 ] .
+
+As shown in Tab. 8 , the predicted uncertainty increases monotonically as we increase the fraction of corrupted training views (blur/noise) and as we reduce the number of training views.
+This indicates that both aleatoric effects (introduced by image degradation) and epistemic effects (introduced by reduced view coverage) are captured and reflected in our predictive uncertainty estimates. Fig. 13 provides a qualitative example: adding Gaussian noise to the 3DGS training views ( Noise ) visibly increases the estimated uncertainty compared to training without noise ( Ref. ), while the corresponding renderings remain similar.

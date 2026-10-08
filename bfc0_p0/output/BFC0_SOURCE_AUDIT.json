@@ -1,0 +1,739 @@
+{
+  "gsplat_version": "1.4.0",
+  "gsplat_dir": "C:\\Users\\36570\\miniconda3\\Lib\\site-packages\\gsplat",
+  "kernel_files": {
+    "backward": "C:\\Users\\36570\\miniconda3\\Lib\\site-packages\\gsplat\\cuda\\csrc\\rasterize_to_pixels_bwd.cu",
+    "forward": "C:\\Users\\36570\\miniconda3\\Lib\\site-packages\\gsplat\\cuda\\csrc\\rasterize_to_pixels_fwd.cu",
+    "helpers": "C:\\Users\\36570\\miniconda3\\Lib\\site-packages\\gsplat\\cuda\\csrc\\helpers.cuh"
+  },
+  "source_evidence": {
+    "pixel_to_lane_mapping": [
+      {
+        "line": 51,
+        "code": "uint32_t camera_id = block.group_index().x;"
+      },
+      {
+        "line": 53,
+        "code": "block.group_index().y * tile_width + block.group_index().z;"
+      },
+      {
+        "line": 54,
+        "code": "uint32_t i = block.group_index().y * tile_size + block.thread_index().y;"
+      },
+      {
+        "line": 55,
+        "code": "uint32_t j = block.group_index().z * tile_size + block.thread_index().x;"
+      },
+      {
+        "line": 75,
+        "code": "const S px = (S)j + 0.5f;"
+      },
+      {
+        "line": 76,
+        "code": "const S py = (S)i + 0.5f;"
+      }
+    ],
+    "warp_boundaries": [
+      {
+        "line": 183,
+        "code": "if (!warp.any(valid)) {"
+      },
+      {
+        "line": 243,
+        "code": "warpSum<COLOR_DIM, S>(v_rgb_local, warp);"
+      },
+      {
+        "line": 244,
+        "code": "warpSum<decltype(warp), S>(v_conic_local, warp);"
+      },
+      {
+        "line": 245,
+        "code": "warpSum<decltype(warp), S>(v_xy_local, warp);"
+      },
+      {
+        "line": 247,
+        "code": "warpSum<decltype(warp), S>(v_xy_abs_local, warp);"
+      },
+      {
+        "line": 249,
+        "code": "warpSum<decltype(warp), S>(v_opacity_local, warp);"
+      },
+      {
+        "line": 250,
+        "code": "if (warp.thread_rank() == 0) {"
+      },
+      {
+        "line": 340,
+        "code": "dim3 threads = {tile_size, tile_size, 1};"
+      }
+    ],
+    "last_ids_usage": [
+      {
+        "line": 38,
+        "code": "const int32_t *__restrict__ last_ids, // [C, image_height, image_width]"
+      },
+      {
+        "line": 59,
+        "code": "last_ids += camera_id * image_height * image_width;"
+      },
+      {
+        "line": 111,
+        "code": "const int32_t bin_final = inside ? last_ids[pix_id] : 0;"
+      },
+      {
+        "line": 303,
+        "code": "const torch::Tensor &last_ids,      // [C, image_height, image_width]"
+      },
+      {
+        "line": 319,
+        "code": "GSPLAT_CHECK_INPUT(last_ids);"
+      },
+      {
+        "line": 391,
+        "code": "last_ids.data_ptr<int32_t>(),"
+      },
+      {
+        "line": 433,
+        "code": "const torch::Tensor &last_ids,      // [C, image_height, image_width]"
+      },
+      {
+        "line": 459,
+        "code": "last_ids,                                                          \\"
+      }
+    ],
+    "traversal_index_mapping": [
+      {
+        "line": 34,
+        "code": "const int32_t *__restrict__ tile_offsets, // [C, tile_height, tile_width]"
+      },
+      {
+        "line": 35,
+        "code": "const int32_t *__restrict__ flatten_ids,  // [n_isects]"
+      },
+      {
+        "line": 57,
+        "code": "tile_offsets += camera_id * tile_height * tile_width;"
+      },
+      {
+        "line": 84,
+        "code": "// have all threads in tile process the same gaussians in batches"
+      },
+      {
+        "line": 85,
+        "code": "// first collect gaussians between range.x and range.y in batches"
+      },
+      {
+        "line": 87,
+        "code": "int32_t range_start = tile_offsets[tile_id];"
+      },
+      {
+        "line": 88,
+        "code": "int32_t range_end ="
+      },
+      {
+        "line": 91,
+        "code": ": tile_offsets[tile_id + 1];"
+      },
+      {
+        "line": 93,
+        "code": "const uint32_t num_batches ="
+      },
+      {
+        "line": 94,
+        "code": "(range_end - range_start + block_size - 1) / block_size;"
+      },
+      {
+        "line": 97,
+        "code": "int32_t *id_batch = (int32_t *)s; // [block_size]"
+      },
+      {
+        "line": 98,
+        "code": "vec3<S> *xy_opacity_batch ="
+      },
+      {
+        "line": 99,
+        "code": "reinterpret_cast<vec3<float> *>(&id_batch[block_size]); // [block_size]"
+      },
+      {
+        "line": 100,
+        "code": "vec3<S> *conic_batch ="
+      },
+      {
+        "line": 101,
+        "code": "reinterpret_cast<vec3<float> *>(&xy_opacity_batch[block_size]"
+      },
+      {
+        "line": 103,
+        "code": "S *rgbs_batch = (S *)&conic_batch[block_size]; // [block_size * COLOR_DIM]"
+      },
+      {
+        "line": 111,
+        "code": "const int32_t bin_final = inside ? last_ids[pix_id] : 0;"
+      },
+      {
+        "line": 121,
+        "code": "// collect and process batches of gaussians"
+      },
+      {
+        "line": 125,
+        "code": "const int32_t warp_bin_final ="
+      },
+      {
+        "line": 126,
+        "code": "cg::reduce(warp, bin_final, cg::greater<int>());"
+      },
+      {
+        "line": 127,
+        "code": "for (uint32_t b = 0; b < num_batches; ++b) {"
+      },
+      {
+        "line": 128,
+        "code": "// resync all threads before writing next batch of shared mem"
+      },
+      {
+        "line": 132,
+        "code": "// 0 index will be furthest back in batch"
+      },
+      {
+        "line": 134,
+        "code": "// batch end is the index of the last gaussian in the batch"
+      },
+      {
+        "line": 136,
+        "code": "const int32_t batch_end = range_end - 1 - block_size * b;"
+      },
+      {
+        "line": 137,
+        "code": "const int32_t batch_size = min(block_size, batch_end + 1 - range_start);"
+      },
+      {
+        "line": 138,
+        "code": "const int32_t idx = batch_end - tr;"
+      },
+      {
+        "line": 139,
+        "code": "if (idx >= range_start) {"
+      },
+      {
+        "line": 140,
+        "code": "int32_t g = flatten_ids[idx]; // flatten index in [C * N] or [nnz]"
+      },
+      {
+        "line": 141,
+        "code": "id_batch[tr] = g;"
+      },
+      {
+        "line": 144,
+        "code": "xy_opacity_batch[tr] = {xy.x, xy.y, opac};"
+      },
+      {
+        "line": 145,
+        "code": "conic_batch[tr] = conics[g];"
+      },
+      {
+        "line": 148,
+        "code": "rgbs_batch[tr * COLOR_DIM + k] = colors[g * COLOR_DIM + k];"
+      },
+      {
+        "line": 151,
+        "code": "// wait for other threads to collect the gaussians in batch"
+      },
+      {
+        "line": 153,
+        "code": "// process gaussians in the current batch for this pixel"
+      },
+      {
+        "line": 154,
+        "code": "// 0 index is the furthest back gaussian in the batch"
+      },
+      {
+        "line": 155,
+        "code": "for (uint32_t t = max(0, batch_end - warp_bin_final); t < batch_size;"
+      },
+      {
+        "line": 158,
+        "code": "if (batch_end - t > bin_final) {"
+      },
+      {
+        "line": 168,
+        "code": "conic = conic_batch[t];"
+      },
+      {
+        "line": 169,
+        "code": "vec3<S> xy_opac = xy_opacity_batch[t];"
+      },
+      {
+        "line": 206,
+        "code": "(rgbs_batch[t * COLOR_DIM + k] * T - buffer[k] * ra) *"
+      },
+      {
+        "line": 240,
+        "code": "buffer[k] += rgbs_batch[t * COLOR_DIM + k] * fac;"
+      },
+      {
+        "line": 251,
+        "code": "int32_t g = id_batch[t]; // flatten index in [C * N] or [nnz]"
+      },
+      {
+        "line": 299,
+        "code": "const torch::Tensor &tile_offsets, // [C, tile_height, tile_width]"
+      },
+      {
+        "line": 300,
+        "code": "const torch::Tensor &flatten_ids,  // [n_isects]"
+      },
+      {
+        "line": 316,
+        "code": "GSPLAT_CHECK_INPUT(tile_offsets);"
+      },
+      {
+        "line": 317,
+        "code": "GSPLAT_CHECK_INPUT(flatten_ids);"
+      },
+      {
+        "line": 331,
+        "code": "uint32_t C = tile_offsets.size(0);         // number of cameras"
+      },
+      {
+        "line": 333,
+        "code": "uint32_t n_isects = flatten_ids.size(0);"
+      },
+      {
+        "line": 335,
+        "code": "uint32_t tile_height = tile_offsets.size(1);"
+      },
+      {
+        "line": 336,
+        "code": "uint32_t tile_width = tile_offsets.size(2);"
+      },
+      {
+        "line": 388,
+        "code": "tile_offsets.data_ptr<int32_t>(),"
+      },
+      {
+        "line": 389,
+        "code": "flatten_ids.data_ptr<int32_t>(),"
+      },
+      {
+        "line": 429,
+        "code": "const torch::Tensor &tile_offsets, // [C, tile_height, tile_width]"
+      },
+      {
+        "line": 430,
+        "code": "const torch::Tensor &flatten_ids,  // [n_isects]"
+      },
+      {
+        "line": 456,
+        "code": "tile_offsets,                                                      \\"
+      },
+      {
+        "line": 457,
+        "code": "flatten_ids,                                                       \\"
+      }
+    ],
+    "validity_skip": [
+      {
+        "line": 82,
+        "code": "bool inside = (i < image_height && j < image_width);"
+      },
+      {
+        "line": 111,
+        "code": "const int32_t bin_final = inside ? last_ids[pix_id] : 0;"
+      },
+      {
+        "line": 157,
+        "code": "bool valid = inside;"
+      },
+      {
+        "line": 159,
+        "code": "valid = 0;"
+      },
+      {
+        "line": 167,
+        "code": "if (valid) {"
+      },
+      {
+        "line": 178,
+        "code": "valid = false;"
+      },
+      {
+        "line": 183,
+        "code": "if (!warp.any(valid)) {"
+      },
+      {
+        "line": 191,
+        "code": "// initialize everything to 0, only set if the lane is valid"
+      },
+      {
+        "line": 192,
+        "code": "if (valid) {"
+      }
+    ],
+    "alpha_power_validity": [
+      {
+        "line": 24,
+        "code": "const vec3<S> *__restrict__ conics,  // [C, N, 3] or [nnz, 3]"
+      },
+      {
+        "line": 37,
+        "code": "const S *__restrict__ render_alphas,  // [C, image_height, image_width, 1]"
+      },
+      {
+        "line": 42,
+        "code": "const S *__restrict__ v_render_alphas, // [C, image_height, image_width, 1]"
+      },
+      {
+        "line": 46,
+        "code": "vec3<S> *__restrict__ v_conics,      // [C, N, 3] or [nnz, 3]"
+      },
+      {
+        "line": 58,
+        "code": "render_alphas += camera_id * image_height * image_width;"
+      },
+      {
+        "line": 61,
+        "code": "v_render_alphas += camera_id * image_height * image_width;"
+      },
+      {
+        "line": 98,
+        "code": "vec3<S> *xy_opacity_batch ="
+      },
+      {
+        "line": 100,
+        "code": "vec3<S> *conic_batch ="
+      },
+      {
+        "line": 101,
+        "code": "reinterpret_cast<vec3<float> *>(&xy_opacity_batch[block_size]"
+      },
+      {
+        "line": 103,
+        "code": "S *rgbs_batch = (S *)&conic_batch[block_size]; // [block_size * COLOR_DIM]"
+      },
+      {
+        "line": 106,
+        "code": "S T_final = 1.0f - render_alphas[pix_id];"
+      },
+      {
+        "line": 119,
+        "code": "const S v_render_a = v_render_alphas[pix_id];"
+      },
+      {
+        "line": 144,
+        "code": "xy_opacity_batch[tr] = {xy.x, xy.y, opac};"
+      },
+      {
+        "line": 145,
+        "code": "conic_batch[tr] = conics[g];"
+      },
+      {
+        "line": 161,
+        "code": "S alpha;"
+      },
+      {
+        "line": 164,
+        "code": "vec3<S> conic;"
+      },
+      {
+        "line": 165,
+        "code": "S vis;"
+      },
+      {
+        "line": 168,
+        "code": "conic = conic_batch[t];"
+      },
+      {
+        "line": 169,
+        "code": "vec3<S> xy_opac = xy_opacity_batch[t];"
+      },
+      {
+        "line": 172,
+        "code": "S sigma = 0.5f * (conic.x * delta.x * delta.x +"
+      },
+      {
+        "line": 173,
+        "code": "conic.z * delta.y * delta.y) +"
+      },
+      {
+        "line": 174,
+        "code": "conic.y * delta.x * delta.y;"
+      },
+      {
+        "line": 175,
+        "code": "vis = __expf(-sigma);"
+      },
+      {
+        "line": 176,
+        "code": "alpha = min(0.999f, opac * vis);"
+      },
+      {
+        "line": 177,
+        "code": "if (sigma < 0.f || alpha < 1.f / 255.f) {"
+      },
+      {
+        "line": 187,
+        "code": "vec3<S> v_conic_local = {0.f, 0.f, 0.f};"
+      },
+      {
+        "line": 190,
+        "code": "S v_opacity_local = 0.f;"
+      },
+      {
+        "line": 194,
+        "code": "S ra = 1.0f / (1.0f - alpha);"
+      },
+      {
+        "line": 197,
+        "code": "const S fac = alpha * T;"
+      },
+      {
+        "line": 203,
+        "code": "S v_alpha = 0.f;"
+      },
+      {
+        "line": 205,
+        "code": "v_alpha +="
+      },
+      {
+        "line": 210,
+        "code": "v_alpha += T_final * ra * v_render_a;"
+      },
+      {
+        "line": 218,
+        "code": "v_alpha += -T_final * ra * accum;"
+      },
+      {
+        "line": 221,
+        "code": "if (opac * vis <= 0.999f) {"
+      },
+      {
+        "line": 222,
+        "code": "const S v_sigma = -opac * vis * v_alpha;"
+      },
+      {
+        "line": 223,
+        "code": "v_conic_local = {"
+      },
+      {
+        "line": 224,
+        "code": "0.5f * v_sigma * delta.x * delta.x,"
+      },
+      {
+        "line": 225,
+        "code": "v_sigma * delta.x * delta.y,"
+      },
+      {
+        "line": 226,
+        "code": "0.5f * v_sigma * delta.y * delta.y"
+      },
+      {
+        "line": 229,
+        "code": "v_sigma * (conic.x * delta.x + conic.y * delta.y),"
+      },
+      {
+        "line": 230,
+        "code": "v_sigma * (conic.y * delta.x + conic.z * delta.y)"
+      },
+      {
+        "line": 235,
+        "code": "v_opacity_local = vis * v_alpha;"
+      },
+      {
+        "line": 244,
+        "code": "warpSum<decltype(warp), S>(v_conic_local, warp);"
+      },
+      {
+        "line": 249,
+        "code": "warpSum<decltype(warp), S>(v_opacity_local, warp);"
+      },
+      {
+        "line": 258,
+        "code": "S *v_conic_ptr = (S *)(v_conics) + 3 * g;"
+      },
+      {
+        "line": 259,
+        "code": "gpuAtomicAdd(v_conic_ptr, v_conic_local.x);"
+      },
+      {
+        "line": 260,
+        "code": "gpuAtomicAdd(v_conic_ptr + 1, v_conic_local.y);"
+      },
+      {
+        "line": 261,
+        "code": "gpuAtomicAdd(v_conic_ptr + 2, v_conic_local.z);"
+      },
+      {
+        "line": 273,
+        "code": "gpuAtomicAdd(v_opacities + g, v_opacity_local);"
+      },
+      {
+        "line": 289,
+        "code": "const torch::Tensor &conics,                    // [C, N, 3] or [nnz, 3]"
+      },
+      {
+        "line": 302,
+        "code": "const torch::Tensor &render_alphas, // [C, image_height, image_width, 1]"
+      },
+      {
+        "line": 306,
+        "code": "const torch::Tensor &v_render_alphas, // [C, image_height, image_width, 1]"
+      },
+      {
+        "line": 313,
+        "code": "GSPLAT_CHECK_INPUT(conics);"
+      },
+      {
+        "line": 318,
+        "code": "GSPLAT_CHECK_INPUT(render_alphas);"
+      },
+      {
+        "line": 321,
+        "code": "GSPLAT_CHECK_INPUT(v_render_alphas);"
+      },
+      {
+        "line": 344,
+        "code": "torch::Tensor v_conics = torch::zeros_like(conics);"
+      },
+      {
+        "line": 377,
+        "code": "reinterpret_cast<vec3<float> *>(conics.data_ptr<float>()),"
+      },
+      {
+        "line": 390,
+        "code": "render_alphas.data_ptr<float>(),"
+      },
+      {
+        "line": 393,
+        "code": "v_render_alphas.data_ptr<float>(),"
+      },
+      {
+        "line": 399,
+        "code": "reinterpret_cast<vec3<float> *>(v_conics.data_ptr<float>()),"
+      },
+      {
+        "line": 406,
+        "code": "v_means2d_abs, v_means2d, v_conics, v_colors, v_opacities"
+      },
+      {
+        "line": 419,
+        "code": "const torch::Tensor &conics,                    // [C, N, 3] or [nnz, 3]"
+      },
+      {
+        "line": 432,
+        "code": "const torch::Tensor &render_alphas, // [C, image_height, image_width, 1]"
+      },
+      {
+        "line": 436,
+        "code": "const torch::Tensor &v_render_alphas, // [C, image_height, image_width, 1]"
+      },
+      {
+        "line": 448,
+        "code": "conics,                                                            \\"
+      },
+      {
+        "line": 458,
+        "code": "render_alphas,                                                     \\"
+      },
+      {
+        "line": 461,
+        "code": "v_render_alphas,                                                   \\"
+      }
+    ],
+    "reductions_atomics": [
+      {
+        "line": 126,
+        "code": "cg::reduce(warp, bin_final, cg::greater<int>());"
+      },
+      {
+        "line": 243,
+        "code": "warpSum<COLOR_DIM, S>(v_rgb_local, warp);"
+      },
+      {
+        "line": 244,
+        "code": "warpSum<decltype(warp), S>(v_conic_local, warp);"
+      },
+      {
+        "line": 245,
+        "code": "warpSum<decltype(warp), S>(v_xy_local, warp);"
+      },
+      {
+        "line": 247,
+        "code": "warpSum<decltype(warp), S>(v_xy_abs_local, warp);"
+      },
+      {
+        "line": 249,
+        "code": "warpSum<decltype(warp), S>(v_opacity_local, warp);"
+      },
+      {
+        "line": 255,
+        "code": "gpuAtomicAdd(v_rgb_ptr + k, v_rgb_local[k]);"
+      },
+      {
+        "line": 259,
+        "code": "gpuAtomicAdd(v_conic_ptr, v_conic_local.x);"
+      },
+      {
+        "line": 260,
+        "code": "gpuAtomicAdd(v_conic_ptr + 1, v_conic_local.y);"
+      },
+      {
+        "line": 261,
+        "code": "gpuAtomicAdd(v_conic_ptr + 2, v_conic_local.z);"
+      },
+      {
+        "line": 264,
+        "code": "gpuAtomicAdd(v_xy_ptr, v_xy_local.x);"
+      },
+      {
+        "line": 265,
+        "code": "gpuAtomicAdd(v_xy_ptr + 1, v_xy_local.y);"
+      },
+      {
+        "line": 269,
+        "code": "gpuAtomicAdd(v_xy_abs_ptr, v_xy_abs_local.x);"
+      },
+      {
+        "line": 270,
+        "code": "gpuAtomicAdd(v_xy_abs_ptr + 1, v_xy_abs_local.y);"
+      },
+      {
+        "line": 273,
+        "code": "gpuAtomicAdd(v_opacities + g, v_opacity_local);"
+      }
+    ]
+  },
+  "semantics": {
+    "threads_per_block": "tile_size, tile_size, 1",
+    "traversal_direction": "reverse_front_to_back",
+    "last_ids_computed_in_forward": true,
+    "last_ids_forward_evidence": [
+      {
+        "line": 37,
+        "code": "int32_t *__restrict__ last_ids // [C, image_height, image_width]"
+      },
+      {
+        "line": 52,
+        "code": "last_ids += camera_id * image_height * image_width;"
+      },
+      {
+        "line": 184,
+        "code": "last_ids[pix_id] = static_cast<int32_t>(cur_idx);"
+      },
+      {
+        "line": 240,
+        "code": "torch::Tensor last_ids = torch::empty("
+      },
+      {
+        "line": 285,
+        "code": "last_ids.data_ptr<int32_t>()"
+      },
+      {
+        "line": 288,
+        "code": "return std::make_tuple(renders, alphas, last_ids);"
+      }
+    ],
+    "backward_references_last_ids": true,
+    "has_early_termination": true,
+    "warp_skip_granularity": "warp_all_lanes_inactive"
+  }
+}

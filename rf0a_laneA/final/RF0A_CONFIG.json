@@ -1,0 +1,87 @@
+{
+  "seed": 42,
+  "iterations": 30000,
+  "split_rule": "i % 8 == 0 => HOLDOUT (true holdout, never trained on)",
+  "primary_metric": "corrected true-holdout PSNR/SSIM/LPIPS",
+  "arms": {
+    "A_fastgs": {
+      "description": "Official FastGS (train_base.sh per-scene Mip-NeRF360 settings), verbatim train.py loop, mult=0.5, optimizer_type=default.",
+      "mult": 0.5,
+      "eval_mult": 0.5,
+      "per_scene_extra_args": {
+        "room": {
+          "highfeature_lr": "0.02",
+          "grad_abs_thresh": "0.0008"
+        },
+        "garden": {
+          "highfeature_lr": "0.02",
+          "loss_thresh": "0.06",
+          "grad_abs_thresh": "0.0008"
+        },
+        "bicycle": {
+          "grad_abs_thresh": "0.0008"
+        }
+      },
+      "common_args": [
+        "--eval",
+        "--densification_interval",
+        "500",
+        "--optimizer_type",
+        "default",
+        "--test_iterations",
+        "30000"
+      ]
+    },
+    "B_vanilla": {
+      "description": "Faithful original INRIA 3DGS comparator on the SAME backend (same diff_gaussian_rasterization_fastgs rasterizer, same Scene/GaussianModel). Differs from FastGS only in: original mean-gradient clone/split densification; per-iteration dense Adam; mult=1.0 (full compact box); no final_prune_fastgs. Canonical 3DGS Mip-NeRF360 hyperparameters.",
+      "mult": 1.0,
+      "eval_mult": 1.0,
+      "args": [
+        "--eval",
+        "--iterations",
+        "30000",
+        "--densification_interval",
+        "100",
+        "--densify_grad_threshold",
+        "0.0002",
+        "--percent_dense",
+        "0.01",
+        "--densify_from_iter",
+        "500",
+        "--densify_until_iter",
+        "15000",
+        "--opacity_reset_interval",
+        "3000",
+        "--position_lr_init",
+        "0.00016",
+        "--position_lr_final",
+        "0.0000016",
+        "--position_lr_max_steps",
+        "30000",
+        "--position_lr_delay_mult",
+        "0.01",
+        "--feature_lr",
+        "0.0025",
+        "--opacity_lr",
+        "0.05",
+        "--scaling_lr",
+        "0.005",
+        "--rotation_lr",
+        "0.001",
+        "--lambda_dssim",
+        "0.2",
+        "--shfeature_lr",
+        "0.0025"
+      ],
+      "comparator_justification": "Official fastgs/FastGS exposes NO vanilla baseline in-repo (grep for vanilla render/densify_and_prune is empty; optimizer_type only selects default vs sparse_adam, both FastGS densification). Per task spec, the faithful vanilla/comparator is the original INRIA 3DGS the repo is forked from (LICENSE_ORIGINAL.md), run on the identical rasterizer backend so wall-time differences reflect the algorithm, not the backend."
+    }
+  },
+  "measurement": {
+    "training_wall_seconds": "end-to-end python wall clock of the training loop (excludes ~40s camera load)",
+    "internal_training_time_seconds": "sum of CUDA-event iter+optim timing (matches train.py 'Training time')",
+    "peak_vram_gb": "torch.cuda.max_memory_allocated() over the run",
+    "final_gaussian_count": "gaussians._xyz.shape[0] at iter 30000",
+    "holdout_metrics": "PSNR/SSIM/LPIPS over true-holdout (test) cameras, rendered with each arm's own mult",
+    "gaussian_trajectory": "n_gaussians logged every 1000 iters"
+  }
+}

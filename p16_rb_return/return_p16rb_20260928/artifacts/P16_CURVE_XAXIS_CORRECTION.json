@@ -1,0 +1,649 @@
+{
+  "generated": "2026-09-28T12:10:39+0800",
+  "issue": "v1 curve x-axis anchored on raw tqdm elapsed minus only the mtime-measured inline render pause; the nerficg curve protocol's inline callback also includes checkpoint serialization and metric evaluation (and each save point's own callback landed inside its own x), inflating x by ~9-23% vs the primary wall.",
+  "fix": "v2 anchors x on the first tqdm redraw at/behind each save (pre-callback) and subtracts the full measured per-save callback cost (first-match tqdm deltas). Cross-checked against timings.txt _save_intermediate_checkpoint totals. graphdeco pairs additionally scale the save-subtracted wall by alpha = native CUDA-event Training time: / wall-after-saves, so the endpoint matches the same semantics as the primary runs (uniform per-iteration overhead assumption; alpha and raw wall recorded as evidence).",
+  "validation": [
+    {
+      "method": "FasterGS",
+      "scene": "room",
+      "v1_x_s": [
+        114,
+        186.178,
+        258.281,
+        326.97,
+        328.351
+      ],
+      "v2_x_s": [
+        47.0,
+        105.0,
+        163.0,
+        218.0,
+        271.0
+      ],
+      "cb_total_s": 262,
+      "timings_save_total_s": 262,
+      "timings_vs_tqdm_delta_s": 0,
+      "callbacks_measured": [
+        {
+          "iteration": 5970,
+          "callback_full_s": 67,
+          "render_mtime_s": 50.82,
+          "callback_nonrender_s": 16.18
+        },
+        {
+          "iteration": 11970,
+          "callback_full_s": 65,
+          "render_mtime_s": 50.9,
+          "callback_nonrender_s": 14.1
+        },
+        {
+          "iteration": 17970,
+          "callback_full_s": 65,
+          "render_mtime_s": 51.31,
+          "callback_nonrender_s": 13.69
+        },
+        {
+          "iteration": 23970,
+          "callback_full_s": 65,
+          "render_mtime_s": 51.62,
+          "callback_nonrender_s": 13.38
+        }
+      ],
+      "primary_wall_s": 266.955355,
+      "v2_final_drift_pct": 1.52,
+      "v1_final_drift_pct": 23.0
+    },
+    {
+      "method": "FasterGS",
+      "scene": "bicycle",
+      "v1_x_s": [
+        90,
+        188.475,
+        302.532,
+        413.289,
+        480.498
+      ],
+      "v2_x_s": [
+        44.0,
+        130.0,
+        232.0,
+        332.0,
+        431.0
+      ],
+      "cb_total_s": 177,
+      "timings_save_total_s": 180,
+      "timings_vs_tqdm_delta_s": 3,
+      "callbacks_measured": [
+        {
+          "iteration": 5970,
+          "callback_full_s": 46,
+          "render_mtime_s": 31.53,
+          "callback_nonrender_s": 14.47
+        },
+        {
+          "iteration": 11970,
+          "callback_full_s": 44,
+          "render_mtime_s": 31.94,
+          "callback_nonrender_s": 12.06
+        },
+        {
+          "iteration": 17970,
+          "callback_full_s": 44,
+          "render_mtime_s": 32.24,
+          "callback_nonrender_s": 11.76
+        },
+        {
+          "iteration": 23970,
+          "callback_full_s": 43,
+          "render_mtime_s": 31.79,
+          "callback_nonrender_s": 11.21
+        }
+      ],
+      "primary_wall_s": 439.382086,
+      "v2_final_drift_pct": -1.91,
+      "v1_final_drift_pct": 9.36
+    },
+    {
+      "method": "FasterGS",
+      "scene": "garden",
+      "v1_x_s": [
+        101,
+        221.545,
+        342.848,
+        460.07,
+        539.715
+      ],
+      "v2_x_s": [
+        58.0,
+        166.0,
+        275.0,
+        381.0,
+        487.0
+      ],
+      "cb_total_s": 160,
+      "timings_save_total_s": 160,
+      "timings_vs_tqdm_delta_s": 0,
+      "callbacks_measured": [
+        {
+          "iteration": 5970,
+          "callback_full_s": 43,
+          "render_mtime_s": 27.46,
+          "callback_nonrender_s": 15.54
+        },
+        {
+          "iteration": 11970,
+          "callback_full_s": 40,
+          "render_mtime_s": 26.7,
+          "callback_nonrender_s": 13.3
+        },
+        {
+          "iteration": 17970,
+          "callback_full_s": 39,
+          "render_mtime_s": 26.78,
+          "callback_nonrender_s": 12.22
+        },
+        {
+          "iteration": 23970,
+          "callback_full_s": 38,
+          "render_mtime_s": 26.35,
+          "callback_nonrender_s": 11.65
+        }
+      ],
+      "primary_wall_s": 485.71616800000004,
+      "v2_final_drift_pct": 0.26,
+      "v1_final_drift_pct": 11.12
+    },
+    {
+      "method": "FasterGSFused",
+      "scene": "room",
+      "v1_x_s": [
+        113,
+        181.131,
+        257.189,
+        326.1,
+        329.095
+      ],
+      "v2_x_s": [
+        41.0,
+        96.0,
+        159.0,
+        215.0,
+        269.0
+      ],
+      "cb_total_s": 264,
+      "timings_save_total_s": 265,
+      "timings_vs_tqdm_delta_s": 1,
+      "callbacks_measured": [
+        {
+          "iteration": 5970,
+          "callback_full_s": 72,
+          "render_mtime_s": 50.87,
+          "callback_nonrender_s": 21.13
+        },
+        {
+          "iteration": 11970,
+          "callback_full_s": 64,
+          "render_mtime_s": 50.94,
+          "callback_nonrender_s": 13.06
+        },
+        {
+          "iteration": 17970,
+          "callback_full_s": 64,
+          "render_mtime_s": 51.09,
+          "callback_nonrender_s": 12.91
+        },
+        {
+          "iteration": 23970,
+          "callback_full_s": 64,
+          "render_mtime_s": 51.01,
+          "callback_nonrender_s": 12.99
+        }
+      ],
+      "primary_wall_s": 272.319353,
+      "v2_final_drift_pct": -1.22,
+      "v1_final_drift_pct": 20.85
+    },
+    {
+      "method": "FasterGSFused",
+      "scene": "bicycle",
+      "v1_x_s": [
+        95,
+        200.576,
+        319.752,
+        436.745,
+        508.904
+      ],
+      "v2_x_s": [
+        49.0,
+        142.0,
+        249.0,
+        354.0,
+        458.0
+      ],
+      "cb_total_s": 178,
+      "timings_save_total_s": 179,
+      "timings_vs_tqdm_delta_s": 1,
+      "callbacks_measured": [
+        {
+          "iteration": 5970,
+          "callback_full_s": 46,
+          "render_mtime_s": 31.42,
+          "callback_nonrender_s": 14.58
+        },
+        {
+          "iteration": 11970,
+          "callback_full_s": 44,
+          "render_mtime_s": 31.82,
+          "callback_nonrender_s": 12.18
+        },
+        {
+          "iteration": 17970,
+          "callback_full_s": 44,
+          "render_mtime_s": 32.01,
+          "callback_nonrender_s": 11.99
+        },
+        {
+          "iteration": 23970,
+          "callback_full_s": 44,
+          "render_mtime_s": 31.84,
+          "callback_nonrender_s": 12.16
+        }
+      ],
+      "primary_wall_s": 464.818912,
+      "v2_final_drift_pct": -1.47,
+      "v1_final_drift_pct": 9.48
+    },
+    {
+      "method": "FasterGSFused",
+      "scene": "garden",
+      "v1_x_s": [
+        107,
+        232.69,
+        365.204,
+        492.761,
+        580.662
+      ],
+      "v2_x_s": [
+        65.0,
+        179.0,
+        300.0,
+        415.0,
+        529.0
+      ],
+      "cb_total_s": 158,
+      "timings_save_total_s": 158,
+      "timings_vs_tqdm_delta_s": 0,
+      "callbacks_measured": [
+        {
+          "iteration": 5970,
+          "callback_full_s": 42,
+          "render_mtime_s": 27.31,
+          "callback_nonrender_s": 14.69
+        },
+        {
+          "iteration": 11970,
+          "callback_full_s": 39,
+          "render_mtime_s": 26.49,
+          "callback_nonrender_s": 12.51
+        },
+        {
+          "iteration": 17970,
+          "callback_full_s": 38,
+          "render_mtime_s": 26.44,
+          "callback_nonrender_s": 11.56
+        },
+        {
+          "iteration": 23970,
+          "callback_full_s": 39,
+          "render_mtime_s": 26.1,
+          "callback_nonrender_s": 12.9
+        }
+      ],
+      "primary_wall_s": 528.2425870000001,
+      "v2_final_drift_pct": 0.14,
+      "v1_final_drift_pct": 9.92
+    },
+    {
+      "method": "FastGS",
+      "scene": "room",
+      "v1_x_s": [
+        42,
+        89,
+        135,
+        170,
+        203
+      ],
+      "v2_x_s": [
+        41.242,
+        86.412,
+        130.6,
+        163.987,
+        195.409
+      ],
+      "cb_total_s": null,
+      "timings_save_total_s": null,
+      "timings_vs_tqdm_delta_s": null,
+      "callbacks_measured": [
+        {
+          "iteration": 6000,
+          "callback_full_s": 1,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 12000,
+          "callback_full_s": 1,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 18000,
+          "callback_full_s": 1,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 24000,
+          "callback_full_s": 1,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        }
+      ],
+      "graphdeco_calibration": {
+        "event_total_s": 195.40907419220923,
+        "alpha": 0.982,
+        "wall_after_saves_s": 199.0,
+        "basis": "alpha = native CUDA-event Training time: / (loop wall - protocol saves); uniform per-iteration overhead assumption"
+      },
+      "primary_wall_s": 194.00351633384548,
+      "v2_final_drift_pct": 0.72,
+      "v1_final_drift_pct": 4.64,
+      "event_total_vs_primary_pct": 0.72
+    },
+    {
+      "method": "FastGS",
+      "scene": "bicycle",
+      "v1_x_s": [
+        42,
+        92,
+        144,
+        186,
+        225
+      ],
+      "v2_x_s": [
+        40.277,
+        87.268,
+        136.176,
+        175.495,
+        211.936
+      ],
+      "cb_total_s": null,
+      "timings_save_total_s": null,
+      "timings_vs_tqdm_delta_s": null,
+      "callbacks_measured": [
+        {
+          "iteration": 6000,
+          "callback_full_s": 1,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 12000,
+          "callback_full_s": 1,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 18000,
+          "callback_full_s": 1,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 24000,
+          "callback_full_s": 1,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        }
+      ],
+      "graphdeco_calibration": {
+        "event_total_s": 211.93633335155369,
+        "alpha": 0.959,
+        "wall_after_saves_s": 221.0,
+        "basis": "alpha = native CUDA-event Training time: / (loop wall - protocol saves); uniform per-iteration overhead assumption"
+      },
+      "primary_wall_s": 210.5694544484244,
+      "v2_final_drift_pct": 0.65,
+      "v1_final_drift_pct": 6.85,
+      "event_total_vs_primary_pct": 0.65
+    },
+    {
+      "method": "FastGS",
+      "scene": "garden",
+      "v1_x_s": [
+        53,
+        122,
+        187,
+        240,
+        289
+      ],
+      "v2_x_s": [
+        51.468,
+        117.502,
+        173.825,
+        221.409,
+        268.992
+      ],
+      "cb_total_s": null,
+      "timings_save_total_s": null,
+      "timings_vs_tqdm_delta_s": null,
+      "callbacks_measured": [
+        {
+          "iteration": 6000,
+          "callback_full_s": 1,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 12000,
+          "callback_full_s": 1,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 18000,
+          "callback_full_s": 6,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 24000,
+          "callback_full_s": 4,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        }
+      ],
+      "graphdeco_calibration": {
+        "event_total_s": 268.9924456985576,
+        "alpha": 0.9711,
+        "wall_after_saves_s": 277.0,
+        "basis": "alpha = native CUDA-event Training time: / (loop wall - protocol saves); uniform per-iteration overhead assumption"
+      },
+      "primary_wall_s": 267.82205666194244,
+      "v2_final_drift_pct": 0.44,
+      "v1_final_drift_pct": 7.91,
+      "event_total_vs_primary_pct": 0.44
+    },
+    {
+      "method": "SADGS",
+      "scene": "room",
+      "v1_x_s": [
+        19,
+        45,
+        76,
+        105,
+        122
+      ],
+      "v2_x_s": [
+        16.084,
+        33.173,
+        52.273,
+        70.367,
+        87.457
+      ],
+      "cb_total_s": null,
+      "timings_save_total_s": null,
+      "timings_vs_tqdm_delta_s": null,
+      "callbacks_measured": [
+        {
+          "iteration": 600,
+          "callback_full_s": 3,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 1200,
+          "callback_full_s": 9,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 1800,
+          "callback_full_s": 12,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 2400,
+          "callback_full_s": 11,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        }
+      ],
+      "graphdeco_calibration": {
+        "event_total_s": 87.45659243189918,
+        "alpha": 1.0052,
+        "wall_after_saves_s": 87.0,
+        "basis": "alpha = native CUDA-event Training time: / (loop wall - protocol saves); uniform per-iteration overhead assumption"
+      },
+      "primary_wall_s": 85.48458282890547,
+      "v2_final_drift_pct": 2.31,
+      "v1_final_drift_pct": 42.72,
+      "event_total_vs_primary_pct": 2.31
+    },
+    {
+      "method": "SADGS",
+      "scene": "bicycle",
+      "v1_x_s": [
+        19,
+        71,
+        138,
+        200,
+        222
+      ],
+      "v2_x_s": [
+        7.947,
+        22.847,
+        46.688,
+        69.535,
+        91.389
+      ],
+      "cb_total_s": null,
+      "timings_save_total_s": null,
+      "timings_vs_tqdm_delta_s": null,
+      "callbacks_measured": [
+        {
+          "iteration": 600,
+          "callback_full_s": 11,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 1200,
+          "callback_full_s": 37,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 1800,
+          "callback_full_s": 43,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 2400,
+          "callback_full_s": 39,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        }
+      ],
+      "graphdeco_calibration": {
+        "event_total_s": 91.38930226309759,
+        "alpha": 0.9934,
+        "wall_after_saves_s": 92.0,
+        "basis": "alpha = native CUDA-event Training time: / (loop wall - protocol saves); uniform per-iteration overhead assumption"
+      },
+      "primary_wall_s": 92.18356438898671,
+      "v2_final_drift_pct": -0.86,
+      "v1_final_drift_pct": 140.82,
+      "event_total_vs_primary_pct": -0.86
+    },
+    {
+      "method": "SADGS",
+      "scene": "garden",
+      "v1_x_s": [
+        26,
+        87,
+        161,
+        225,
+        250
+      ],
+      "v2_x_s": [
+        9.914,
+        28.752,
+        56.512,
+        81.298,
+        106.084
+      ],
+      "cb_total_s": null,
+      "timings_save_total_s": null,
+      "timings_vs_tqdm_delta_s": null,
+      "callbacks_measured": [
+        {
+          "iteration": 600,
+          "callback_full_s": 16,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 1200,
+          "callback_full_s": 42,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 1800,
+          "callback_full_s": 46,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        },
+        {
+          "iteration": 2400,
+          "callback_full_s": 39,
+          "render_mtime_s": null,
+          "callback_nonrender_s": null
+        }
+      ],
+      "graphdeco_calibration": {
+        "event_total_s": 106.08409008849776,
+        "alpha": 0.9914,
+        "wall_after_saves_s": 107.0,
+        "basis": "alpha = native CUDA-event Training time: / (loop wall - protocol saves); uniform per-iteration overhead assumption"
+      },
+      "primary_wall_s": 105.80684293748445,
+      "v2_final_drift_pct": 0.26,
+      "v1_final_drift_pct": 136.28,
+      "event_total_vs_primary_pct": 0.26
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "stage": "TI0_PREREG",
+  "ts": "2026-10-04",
+  "lane": "CGT-TI0 Training Integration Oracle",
+  "parent": "CGT-F0 (PASS_STRONG_GPU_TRANSLATION, pooled S_mixed~2.99x) + CGT-G5 (DROP_NATIVE_OPTIMIZATION, native training CLOSED)",
+  "question": "Can the proven fast CGT renderer be inserted into canonical 3DGS training while preserving canonical optimization semantics and still produce a meaningful end-to-end time-to-quality acceleration?",
+  "does_NOT_reopen": "native CGT optimization (G5 closed). Canonical 3DGS params (xyz/scale/rotation/opacity/SH/optimizer-state) remain the trainable variables. CGT is a rendering/compression layer only.",
+  "frozen_facts_inherited": {
+    "real_scene_compressibility": "validated",
+    "rigorous_certificate": "validated (fallback required, safe_pass~0.827, weighted_fallback~0.175)",
+    "teacher_bug": "fixed, affected results rerun",
+    "F0_forward": "PASS_STRONG_GPU_TRANSLATION, pooled~2.99x, room~3.01x, garden~3.28x, bicycle~1.54x",
+    "G5_native": "DROP_NATIVE_OPTIMIZATION (CLOSED)"
+  },
+  "fail_closed_sequence": ["TI0-A UPDATE-COST ORACLE", "TI0-B FORWARD+BACKWARD COMPOSITION ORACLE", "TI0-C SHORT TIME-TO-QUALITY"],
+  "rules": {
+    "no_new_30k_in_TI0": true,
+    "no_garden_bicycle_until_room_passes": true,
+    "no_native_cgt_optimization": true,
+    "do_not_modify_F0": "rank/certificate/fallback/teacher frozen",
+    "no_lr_change_to_rescue": true,
+    "clean_gpu_required": "TI0 sec.19: clean/exclusive MX A100, no foreign CUDA, warmup, repeats, CUDA sync, median+spread"
+  },
+  "TI0A": {
+    "what": "Measure real cost of updating CGT representation after canonical optimizer step. Real topology-stable room ckpt (B1_room_multiphase_v2/iter_15000, 901818 gaussians). Real canonical optimizer deltas (gsplat forward + L1/SSIM loss + backward + Adam). theta_t -> theta_(t+1).",
+    "strategies": {"A": "full CGT rebuild/refit (fit_cgt all tiles)", "B": "update only dirty tiles/groups", "C": "incremental coefficient update via certificate reuse (certify_tile passes -> reuse coeffs)"},
+    "metrics": ["T_canonical_forward", "T_CGT_forward", "T_update (per strategy)", "dirty tile fraction", "contribution-weighted dirty fraction", "certificate-invalidated fraction", "R_update=T_update/T_canonical_forward", "S_effective_forward=T_canonical_forward/(T_update+T_CGT_forward)"],
+    "hard_tiers": {"DROP_UPDATE_COST": "S_effective_forward<=1.0", "MARGINAL_UPDATE_HEADROOM": "1.0<=S<1.15 (proceed only if one obvious low-risk removable overhead)", "PASS_TI0_B": "S_effective_forward>=1.15 (>=1.3 clearly promising)"}
+  },
+  "TI0B": {
+    "gate": {"DROP_TRAINING_COMPOSITION": "S_step<1.10", "marginal": "1.10<=S_step<1.20", "PASS_TI0_C": "S_step>=1.20 (>=1.3 strong)"},
+    "S_step": "T_canonical_step/T_candidate_step",
+    "candidate_strategies": ["A: CGT forward + canonical renderer backward", "B: CGT forward + recompute canonical forward for backward (account BOTH forwards)", "C: CGT forward + another existing valid backward path"],
+    "gradient_semantics": "MANDATORY correctness gate: if loss from CGT pixels but gradient via canonical path, verify gradient corresponds to intended objective. No silent mismatched gradients. Approximate/straight-through gradients = NEW hypothesis, separately validated."
+  },
+  "TI0C": {
+    "scope": "room only, controlled topology-stable segment, paired canonical vs CGT-integrated, same ckpt/optimizer/cameras/loss/steps/eval-cams/hw.",
+    "quality_gate": {"dPSNR": "<=0.15 dB", "dSSIM": "<=0.005"},
+    "drop_verdict": "DROP_TRAINING_QUALITY",
+    "primary_metric": "time-to-quality S_TTQ(Q)=T_baseline(Q)/T_CGT(Q)"
+  },
+  "allowed_final_verdicts": ["PASS_TO_CGT_TI1", "DROP_UPDATE_COST", "MARGINAL_UPDATE_HEADROOM", "DROP_TRAINING_COMPOSITION", "DROP_TRAINING_QUALITY", "DROP_TIME_TO_QUALITY", "BLOCKED_GPU_OCCUPIED", "BLOCKED_SOURCE_INTEGRITY"],
+  "reporting": "OBSERVED/EVIDENCE/INFERENCE/HYPOTHESIS/NOT_MEASURED/CONCLUSION; distinguish F0 forward speed vs representation update cost vs full training-step speed vs time-to-quality speed.",
+  "deliverables": ["TI0_PREREG.json", "TI0_SOURCE_AUDIT.json", "TI0A_UPDATE_COST.json", "TI0A_DIRTY_WORK.json", "TI0B_COMPOSITION_TIMING.json", "TI0B_PROFILE_BREAKDOWN.json", "TI0C_SHORT_TRAINING.json", "TI0C_TIME_TO_QUALITY.json", "TI0_MEMORY_ACCOUNTING.json", "TI0_VERDICT.json", "TI0_REPORT.md", "MANIFEST.sha256"],
+  "downstream_if_gate_fails": "NOT_REACHED"
+}

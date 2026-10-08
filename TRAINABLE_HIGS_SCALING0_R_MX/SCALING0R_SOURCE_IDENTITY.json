@@ -1,0 +1,50 @@
+{
+  "baseline": {
+    "name": "std_ll",
+    "description": "Low-level standard gsplat forward (raw CUDA kernels, no culling)",
+    "source": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx",
+    "git_commit": "77ab983f",
+    "git_remote": "https://github.com/nerfstudio-project/gsplat",
+    "binary": {
+      "path": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/csrc.so",
+      "size_bytes": 20753960,
+      "sha256": "TO_BE_COMPUTED"
+    },
+    "implementation": {
+      "cuda_wrappers": [
+        "fully_fused_projection",
+        "isect_tiles",
+        "isect_offset_encode"
+      ],
+      "culling": false,
+      "overhead": "Raw CUDA kernels, no Python wrapper overhead"
+    }
+  },
+  "candidate": {
+    "name": "higs_native",
+    "description": "HiGS forward + HiGS native CUDA backward (frozen topology)",
+    "source": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx",
+    "git_commit": "77ab983f",
+    "binary": {
+      "main": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/csrc.so",
+      "experimental": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/experimental/render/kernels/csrc.so",
+      "experimental_size_bytes": 1415536
+    },
+    "implementation": {
+      "backward_backend": "higs_native",
+      "forward": "HiGS hierarchical rasterization",
+      "backward": "HiGS native CUDA backward",
+      "culling": true,
+      "topology": "frozen"
+    }
+  },
+  "environment": {
+    "conda_env": "/mnt/storage_pool/liaoyuanjun/higs-13scene-env",
+    "python_version": "3.10",
+    "gsplat_version": "1.5.3",
+    "cuda_version": "12.8"
+  },
+  "reuse_decision": "REUSE_EXISTING_BINARIES",
+  "rationale": "Both backends are present in the existing gsplat 1.5.3 installation. The std_ll backend uses raw CUDA wrappers, and higs_native is available via experimental.render.kernels. No recompilation needed.",
+  "timestamp": "2026-08-04T13:00:00Z"
+}

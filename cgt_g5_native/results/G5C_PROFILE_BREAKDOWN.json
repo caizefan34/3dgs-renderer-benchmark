@@ -1,0 +1,63 @@
+{
+  "stage": "G5-C",
+  "kind": "AMDAHL_PROFILE",
+  "ts": "2026-10-04 16:18:38",
+  "scene": "room",
+  "n_tiles": 50,
+  "rank": 4,
+  "device": "cuda:0",
+  "native_iters": 400,
+  "route_iters": 400,
+  "repeats": 3,
+  "native_per_iter_ms": {
+    "render": 2.109,
+    "loss": 0.2083,
+    "bwd": 5.5553,
+    "opt": 0.2833
+  },
+  "native_per_iter_total_ms": 8.156,
+  "native_per_iter_frac": {
+    "render": 0.2586,
+    "loss": 0.0255,
+    "bwd": 0.6811,
+    "opt": 0.0347
+  },
+  "render_decomposition": {
+    "note": "render stage = 1 forward (recon) + 4 forwards (central-diff Jacobian of pixel positions for derivative-matching loss). native_GT uses only 1 forward/iter.",
+    "single_forward_ms": 0.4218,
+    "fd_jacobian_overhead_ms": 1.6872,
+    "fd_overhead_fraction_of_render": 0.8
+  },
+  "wall_per_tile_median_s": {
+    "route_A": 0.21388518810272217,
+    "native_teacher": 3.2923262119293213,
+    "native_GT": 0.8400293588638306
+  },
+  "total_wall_speedup": 0.0649647617929647,
+  "ttq_speedup": {
+    "30": {
+      "route_A_s": 0.004615664482116699,
+      "native_teacher_s": 0.008758544921875,
+      "speedup": 0.5269898736933798
+    },
+    "35": {
+      "route_A_s": 0.004668593406677246,
+      "native_teacher_s": 0.008961796760559082,
+      "speedup": 0.5209439057158439
+    },
+    "40": {
+      "route_A_s": 0.011579751968383789,
+      "native_teacher_s": 0.17155194282531738,
+      "speedup": 0.06749997567893977
+    },
+    "45": {
+      "route_A_s": 0.027897953987121582,
+      "native_teacher_s": 0.1913900375366211,
+      "speedup": 0.1457649224912426
+    }
+  },
+  "dominant_cost": "backward (5.56 ms/iter, 68.1%) then render (2.11 ms/iter, 25.9%). Per-tile problem is tiny (<=256 px, ~1.2k gaussians/tile); GPU kernel-launch + autograd-graph overhead dominates. Adam also needs far more iters than L-BFGS-B to converge on this smooth least-squares problem.",
+  "OBSERVED": "backward 68.1%, render 25.9%, opt 3.5%, loss 2.6% of native per-iter time.",
+  "INFERENCE": "native GPU per-tile optimization is launch-overhead-bound and optimizer-inefficient (Adam vs quasi-Newton) for this workload size.",
+  "NOT_MEASURED": "batched (all-tiles-simultaneous) native optimization; larger tile / multi-view joint optimization; CUDA-graph capture to remove launch overhead."
+}

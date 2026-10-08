@@ -1,0 +1,61 @@
+{
+  "schema": "BWD_ARITH1_BASELINE_FREEZE",
+  "hardware": "MX A100-PCIE-40GB",
+  "gpu_uuid": "GPU-e4974f14-91c6-9b6b-cf13-ff6dde759b58",
+  "cohort": "room/bicycle/garden view0, mature FasterGSFused checkpoints",
+  "baselines_from_BWD_ARITH0_MX": {
+    "room": {
+      "N": 1027092,
+      "n_inst": 881868,
+      "H_fwd_ms": 1.492,
+      "H_bwd_ms": 2.3532,
+      "e2e_ms": 3.8452,
+      "bwd_vram_gb": 2.745
+    },
+    "bicycle": {
+      "N": 4430283,
+      "n_inst": 2955949,
+      "H_fwd_ms": 3.2072,
+      "H_bwd_ms": 7.084,
+      "e2e_ms": 10.2912,
+      "bwd_vram_gb": 8.058
+    },
+    "garden": {
+      "N": 3104845,
+      "n_inst": 1019929,
+      "H_fwd_ms": 2.2006,
+      "H_bwd_ms": 3.4314,
+      "e2e_ms": 5.632,
+      "bwd_vram_gb": 6.18
+    }
+  },
+  "baseline_method": "oracle0=production bwd, view0/warmup50/iters100, CUDA events",
+  "config": {
+    "tile_width": 16,
+    "tile_height": 16,
+    "block_size_blend": 256,
+    "min_alpha_threshold": "1/255",
+    "transmittance_threshold": "1e-4",
+    "original_opacity_interpretation": true
+  },
+  "sanity_check": "BWD_ARITH0 oracle-0 on GPU3 gives backward_ms=2.3613 (matches 2.3532 baseline)",
+  "checkpoints": {
+    "room": "fp1_room_2026-10-06-01-01-33/checkpoints/final.pt",
+    "bicycle": "fp1_bicycle_2026-10-06-01-01-33/checkpoints/final.pt",
+    "garden": "fp1_garden_2026-10-06-01-32-48/checkpoints/final.pt"
+  },
+  "measured_R0_bwd_ms": {
+    "room": null
+  },
+  "note": "Baseline = production recompute (R0, env unset) inside _C_arith0. Predecessor BWD_ARITH0 H_bwd reference: room 2.3532, bicycle 7.084, garden 3.4314 (oracle0 build, no fast_math). This lane's R0 build (ARITH0_ORACLE=0, same flags) measures room 3.27, bicycle 9.46, garden 3.89 bwd_med; absolute ~13-39% above rebase ref due to build-flag differences; RELATIVE R0->R1 deltas are the measurement of interest.",
+  "R0_measured_bwd_ms": {
+    "room": 3.2655,
+    "bicycle": 9.4628,
+    "garden": 3.8912
+  },
+  "R0_measured_fwd_ms": {
+    "room": 3.0167,
+    "bicycle": 6.0467,
+    "garden": 2.9297
+  }
+}

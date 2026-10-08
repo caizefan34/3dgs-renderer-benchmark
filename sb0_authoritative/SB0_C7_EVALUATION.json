@@ -1,0 +1,22 @@
+{
+  "task": "SB0-FGS",
+  "component": "C7 backward->optimizer fusion",
+  "date": "2026-09-30",
+  "verdict": "DROP",
+  "environment": "EPIC-05 A100; isolated worktree /root/epic05_sb0_c7_worktree; isolated build /root/epic05_build_cache/c7_ext",
+  "OBSERVED": [
+    "C0 backward = multi-kernel tile-based (HigsNativeBackward.cu: higs_blend_bwd_kernel, higs_projection_bwd_kernel, higs_sh_vjp_grid_kernel), atomicAdd scatter to global grad buffers, sequential data-dependent stages.",
+    "C0 Adam = AdamCUDA.cu adam_kernel, separate launch in gsplat.csrc core module, invoked by SelectiveAdam.step() per param group (5 groups) AFTER loss.backward().",
+    "Backward runs inside torch autograd Function; Adam in optimizer => decoupled by design."
+  ],
+  "EVIDENCE": [
+    "Build infra: isolated worktree+build copied from frozen C0; ninja rebuilt 14 targets OK; rebuilt .so hash 338c2b44.. (vs pinned d26cccf.., differs by build path).",
+    "Functional equivalence: rebuilt .so vs pinned C0, 300-iter room run => per-iter loss max diff 4.47e-07, final PSNR diff 2.5e-05, N identical 112627 => ALGEBRAIC_EXACT_FP_REASSOCIATED (build env nvcc diff, benign).",
+    "CUDA kernel launch overhead microbench (noop_kernel, 500 iters, A100): 4.80 us/launch. x5 adam groups = 24.0 us/iter.",
+    "Max fusion savings (launch elim) as E2E: room 0.081%, bicycle 0.058%, garden 0.063% (using C0 profile optimizer_ms 2.513/8.422/6.539, E2E 29.441/41.058/37.867)."
+  ],
+  "HYPOTHESIS": "Fusion eliminates optimizer_ms (Oracle upper bound 8.5-20.5% E2E).",
+  "TEST": "Structural analysis of HigsNativeBackward.cu + AdamCUDA.cu + empirical launch-overhead microbench.",
+  "CONCLUSION": "HYPOTHESIS FALSIFIED. C0 tile-based backward => adam sequential => fusion removes only launch overhead (<0.15% E2E). Full optimizer_ms elimination needs per-primitive backward restructure (out-of-scope research, not a port; H8_MR is tile-based by design). C7 = DROP per Oracle rule (realistic O_net <2%).",
+  "fp_label": "ALGEBRAIC_EXACT_FP_REASSOCIATED (functional-equivalence test only; no fusion kernel shipped)"
+}

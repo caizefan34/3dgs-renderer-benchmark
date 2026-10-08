@@ -1,0 +1,375 @@
+{
+  "phase": "P18-P0-R1",
+  "artifact": "P18_R1_EVAL_MICROBENCH",
+  "created_utc": "2026-09-28T06:07:37Z",
+  "S_eval_definition": "median T_DIRECT / median T_QSCAN over the real R1 trace (CUDA graphs, events, 7 reps x 10 iters, per-replay median; same harness as P18-P0 p18_p0_trace_eval.py time_eval)",
+  "units": "T_* keys are milliseconds (torch Event.elapsed_time unit); the P18-P0 artifact's T_*_us keys held the same ms-scale numbers (mislabeled)",
+  "workload": "real R1 trace rows (16 real contiguous px per record/subgroup), record-major; timing tiled to >= 64000000 items per launch to match the P18-P0 measurement scale (raw 1x numbers reported alongside)",
+  "sass_audit": "P18_R1_SASS_AUDIT.json verdict PASS (exp counts: DIRECT 1.0/px, QSCAN 3/SUB/px, exp-free control 0)",
+  "validation_raw_no_guard": {
+    "room": {
+      "exp2_forward": {
+        "4": {
+          "n_items": 17305088,
+          "n_nan_qscan": 6917,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.17041224241256714,
+          "max_rel_finite": 1.0301005840301514,
+          "branch_mismatch": 10729,
+          "branch_mismatch_far_from_at": 10269,
+          "branch_mismatch_excluding_nonfinite": 3812,
+          "nan_inf_direct": 0
+        },
+        "8": {
+          "n_items": 17305088,
+          "n_nan_qscan": 96647,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.1767766773700714,
+          "max_rel_finite": 1.0301005840301514,
+          "branch_mismatch": 100558,
+          "branch_mismatch_far_from_at": 100064,
+          "branch_mismatch_excluding_nonfinite": 4017,
+          "nan_inf_direct": 0
+        },
+        "16": {
+          "n_items": 17305088,
+          "n_nan_qscan": 401452,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.7384130358695984,
+          "max_rel_finite": 1.0,
+          "branch_mismatch": 377623,
+          "branch_mismatch_far_from_at": 377146,
+          "branch_mismatch_excluding_nonfinite": 6865,
+          "nan_inf_direct": 0
+        }
+      },
+      "exp_backward": {
+        "4": {
+          "n_items": 17305088,
+          "n_nan_qscan": 29588,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.23626434803009033,
+          "max_rel_finite": 1.487777402687134,
+          "branch_mismatch": 31867,
+          "branch_mismatch_far_from_at": 31572,
+          "branch_mismatch_excluding_nonfinite": 2279,
+          "nan_inf_direct": 0
+        },
+        "8": {
+          "n_items": 17305088,
+          "n_nan_qscan": 197595,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.23626434803009033,
+          "max_rel_finite": 1.340836429172599,
+          "branch_mismatch": 199623,
+          "branch_mismatch_far_from_at": 199331,
+          "branch_mismatch_excluding_nonfinite": 2466,
+          "nan_inf_direct": 0
+        },
+        "16": {
+          "n_items": 17305088,
+          "n_nan_qscan": 634216,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.7316156029701233,
+          "max_rel_finite": 1.1962306771926807,
+          "branch_mismatch": 619713,
+          "branch_mismatch_far_from_at": 619408,
+          "branch_mismatch_excluding_nonfinite": 3372,
+          "nan_inf_direct": 0
+        }
+      }
+    },
+    "bicycle": {
+      "exp2_forward": {
+        "4": {
+          "n_items": 29949952,
+          "n_nan_qscan": 30300,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.23337715864181519,
+          "max_rel_finite": 1.0,
+          "branch_mismatch": 39684,
+          "branch_mismatch_far_from_at": 39098,
+          "branch_mismatch_excluding_nonfinite": 9384,
+          "nan_inf_direct": 0
+        },
+        "8": {
+          "n_items": 29949952,
+          "n_nan_qscan": 334017,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.3535533547401428,
+          "max_rel_finite": 1.0,
+          "branch_mismatch": 343590,
+          "branch_mismatch_far_from_at": 343002,
+          "branch_mismatch_excluding_nonfinite": 9889,
+          "nan_inf_direct": 0
+        },
+        "16": {
+          "n_items": 29949952,
+          "n_nan_qscan": 1307539,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.5693942904472351,
+          "max_rel_finite": 1.0,
+          "branch_mismatch": 1243543,
+          "branch_mismatch_far_from_at": 1242926,
+          "branch_mismatch_excluding_nonfinite": 16133,
+          "nan_inf_direct": 0
+        }
+      },
+      "exp_backward": {
+        "4": {
+          "n_items": 29949952,
+          "n_nan_qscan": 110489,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.30874913930892944,
+          "max_rel_finite": 1.4100387923324857,
+          "branch_mismatch": 116130,
+          "branch_mismatch_far_from_at": 115704,
+          "branch_mismatch_excluding_nonfinite": 5641,
+          "nan_inf_direct": 0
+        },
+        "8": {
+          "n_items": 29949952,
+          "n_nan_qscan": 659681,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.2910165786743164,
+          "max_rel_finite": 1.3221667909552255,
+          "branch_mismatch": 664730,
+          "branch_mismatch_far_from_at": 664287,
+          "branch_mismatch_excluding_nonfinite": 6420,
+          "nan_inf_direct": 0
+        },
+        "16": {
+          "n_items": 29949952,
+          "n_nan_qscan": 2025012,
+          "n_inf_qscan": 0,
+          "max_abs_finite": 0.8824968934059143,
+          "max_rel_finite": 1.3221667909552255,
+          "branch_mismatch": 1983708,
+          "branch_mismatch_far_from_at": 1983270,
+          "branch_mismatch_excluding_nonfinite": 9018,
+          "nan_inf_direct": 0
+        }
+      }
+    }
+  },
+  "timing_tiled": {
+    "room": {
+      "exp2_forward": {
+        "n_items": 69220352,
+        "k_tile": 4,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_ms": 0.7952415943145752,
+        "T_noexp_ms": 0.7938655853271485,
+        "S_eval_noexp_bound": 1.001733302227555,
+        "T_qscan4_ms": 0.8040863990783691,
+        "S_eval_q4": 0.9890001811074883,
+        "T_qscan8_ms": 0.8064959526062012,
+        "S_eval_q8": 0.9860453629615159,
+        "T_qscan16_ms": 0.8086079597473145,
+        "S_eval_q16": 0.9834699061867803
+      },
+      "exp_backward": {
+        "n_items": 69220352,
+        "k_tile": 4,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_ms": 0.7949503898620606,
+        "T_noexp_ms": 0.7933343887329102,
+        "S_eval_noexp_bound": 1.0020369735033563,
+        "T_qscan4_ms": 0.804377555847168,
+        "S_eval_q4": 0.9882801727664086,
+        "T_qscan8_ms": 0.8068832397460938,
+        "S_eval_q8": 0.9852111813751538,
+        "T_qscan16_ms": 0.8086336135864258,
+        "S_eval_q16": 0.9830785865261303
+      }
+    },
+    "bicycle": {
+      "exp2_forward": {
+        "n_items": 89849856,
+        "k_tile": 3,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_ms": 1.0309503555297852,
+        "T_noexp_ms": 1.0293055534362794,
+        "S_eval_noexp_bound": 1.0015979726214579,
+        "T_qscan4_ms": 1.043398380279541,
+        "S_eval_q4": 0.9880697296593265,
+        "T_qscan8_ms": 1.0464544296264648,
+        "S_eval_q8": 0.9851841860880518,
+        "T_qscan16_ms": 1.049180793762207,
+        "S_eval_q16": 0.9826241212755619
+      },
+      "exp_backward": {
+        "n_items": 89849856,
+        "k_tile": 3,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_ms": 1.0312512397766114,
+        "T_noexp_ms": 1.0296223640441895,
+        "S_eval_noexp_bound": 1.0015820127741049,
+        "T_qscan4_ms": 1.0436256408691407,
+        "S_eval_q4": 0.9881428736436335,
+        "T_qscan8_ms": 1.0465824127197265,
+        "S_eval_q8": 0.9853512033483589,
+        "T_qscan16_ms": 1.0489312171936036,
+        "S_eval_q16": 0.9831447695261709
+      }
+    }
+  },
+  "timing_raw_1x": {
+    "room": {
+      "exp2_forward": {
+        "n_items": 17305088,
+        "k_tile": 1,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_ms": 0.20212481021881104,
+        "T_noexp_ms": 0.20174720287322997,
+        "S_eval_noexp_bound": 1.001871685655133,
+        "T_qscan4_ms": 0.20454080104827882,
+        "S_eval_q4": 0.9881882205550886,
+        "T_qscan8_ms": 0.2052000045776367,
+        "S_eval_q8": 0.9850136730495921,
+        "T_qscan16_ms": 0.20547199249267578,
+        "S_eval_q16": 0.9837097882136707
+      },
+      "exp_backward": {
+        "n_items": 17305088,
+        "k_tile": 1,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_ms": 0.20215039253234862,
+        "T_noexp_ms": 0.20179519653320313,
+        "S_eval_noexp_bound": 1.001760180644771,
+        "T_qscan4_ms": 0.20456960201263427,
+        "S_eval_q4": 0.9881741497442214,
+        "T_qscan8_ms": 0.20515520572662355,
+        "S_eval_q8": 0.9853534635709954,
+        "T_qscan16_ms": 0.20549120903015136,
+        "S_eval_q16": 0.9837422899326436
+      }
+    },
+    "bicycle": {
+      "exp2_forward": {
+        "n_items": 29949952,
+        "k_tile": 1,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_ms": 0.3461728096008301,
+        "T_noexp_ms": 0.3453759908676147,
+        "S_eval_noexp_bound": 1.0023071051673675,
+        "T_qscan4_ms": 0.3501919984817505,
+        "S_eval_q4": 0.9885228991571895,
+        "T_qscan8_ms": 0.3510495901107788,
+        "S_eval_q8": 0.986108001127676,
+        "T_qscan16_ms": 0.3522432088851929,
+        "S_eval_q16": 0.9827664547357069
+      },
+      "exp_backward": {
+        "n_items": 29949952,
+        "k_tile": 1,
+        "iters": 10,
+        "reps": 7,
+        "T_direct_ms": 0.3461407899856567,
+        "T_noexp_ms": 0.3455679893493652,
+        "S_eval_noexp_bound": 1.001657562777646,
+        "T_qscan4_ms": 0.35003199577331545,
+        "S_eval_q4": 0.988883285429202,
+        "T_qscan8_ms": 0.351145601272583,
+        "S_eval_q8": 0.9857471907129454,
+        "T_qscan16_ms": 0.3522592067718506,
+        "S_eval_q16": 0.9826309244199355
+      }
+    }
+  },
+  "S_eval_median_over_cells": {
+    "q4": 0.988211523205021,
+    "q8": 0.9852811923617564,
+    "q16": 0.9831116780261506
+  },
+  "S_eval_noexp_bound_median": 1.0016656374245065,
+  "gate": {
+    "rule": "per-variant median S_eval over the 4 cells: >=4.0 STRONG; <2.5 HARD_DROP (unchanged)",
+    "per_variant": {
+      "q4": "HARD_DROP",
+      "q8": "HARD_DROP",
+      "q16": "HARD_DROP"
+    },
+    "any_strong": false,
+    "all_below_2_5": true
+  },
+  "p18_p0_hard_drop_close_out": {
+    "criterion": "spec item 7: unchanged gate already <2.5 for all variants AND true QSCAN S_eval ~ 1",
+    "all_below_2_5": true,
+    "all_medians_near_1": true,
+    "expfree_upper_bound_near_1": true,
+    "closed": true
+  },
+  "dispatch_statistics": {
+    "room": {
+      "hist17": [
+        380197,
+        33938,
+        38731,
+        39068,
+        33222,
+        28896,
+        25135,
+        22644,
+        20880,
+        18463,
+        16998,
+        15571,
+        14554,
+        13605,
+        12957,
+        12259,
+        354450
+      ],
+      "n_records": 1081568,
+      "mean": 7.2836418976892805,
+      "median": 5,
+      "mean_given_nonempty": 11.231935737291677,
+      "median_given_nonempty": 16,
+      "frac_pop0": 0.3515238986360543,
+      "frac_pop16": 0.3277186455220569,
+      "n_records_total": 1081568,
+      "n_records_used": 1081568,
+      "n_items": 17305088
+    },
+    "bicycle": {
+      "hist17": [
+        929753,
+        61436,
+        72010,
+        70979,
+        61213,
+        50419,
+        41687,
+        34287,
+        28768,
+        24476,
+        21826,
+        18960,
+        16872,
+        14992,
+        13537,
+        12405,
+        398252
+      ],
+      "n_records": 1871872,
+      "mean": 5.036511043490153,
+      "median": 1,
+      "mean_given_nonempty": 10.006914200859976,
+      "median_given_nonempty": 11,
+      "frac_pop0": 0.49669688953090807,
+      "frac_pop16": 0.21275600041028447,
+      "n_records_total": 1871872,
+      "n_records_used": 1871872,
+      "n_items": 29949952
+    }
+  },
+  "note": "S_eval is the isolated inner-loop proxy (protocol); gate/floor unchanged from P18-P0. S_eval_noexp_bound = T_direct/T_noexp with an audited exp-free kernel (identical loads/store, 0 exps): an upper bound on any exp-elimination speedup in this proxy."
+}

@@ -1,0 +1,45 @@
+You are executing PSC-P0 for the 3DGS renderer research project.
+
+AUTHORITATIVE DOCUMENT:
+PSC_P0_PREREG_v1.md
+Do not alter thresholds, cameras after metric inspection, cohorts, loss, resolution,
+optimizer, densification, or baseline identity.
+
+Goal:
+Run a cheap falsification probe for Projection-Space Consensus GS.
+Do NOT implement the full method.
+
+Execution order:
+1. Verify all frozen hashes and environment. If any mismatch: STOP with IDENTITY_FAIL.
+2. Load room@25K under frozen P12/C0.
+3. Freeze 8 cameras: camera 19 + deterministic camera-center farthest-point sampling.
+   Write CAMERA_SET.json BEFORE computing PSC metrics.
+4. Timing probe:
+   isolate T_screen and T_global using CUDA events with warmup and synchronized timing.
+   Report raw repetitions and summary; calculate S_upper(K) for K={2,4,8}.
+5. Primary data collection:
+   accumulate rendering contribution over the frozen 8 views;
+   freeze top-4096 Gaussian IDs before integrability analysis.
+6. Collect projected states and exact autograd gradients for geometry-only z state.
+   Reuse gsplat-exposed means2d/conics or the algebraically equivalent projected covariance.
+7. Build local Jacobian J of whitened projected geometry wrt each Gaussian's local 3D
+   geometry tangent. Prefer exact autograd JVP/VJP / torch.func on the small selected
+   per-Gaussian blocks. Do not finite-difference unless exact autograd is impossible;
+   if fallback is required, mark NONPRIMARY and do not issue STRONG_PROMOTE.
+8. Compute R_int for B={2,4,8}.
+9. Compute leave-one-view-out C_hold and P_hold_pos.
+10. Run psc_p0_analyze.py on the resulting summary JSON. The script owns the verdict.
+11. Produce the required artifacts and sha256 manifest.
+12. Return raw artifact paths plus the exact PSC_P0_VERDICT.json. Do not paraphrase
+    a different verdict.
+
+Important implementation constraint:
+P0 should patch/instrument the trainer around the existing rasterization path. Current gsplat
+already exposes projected intermediates such as means2d/conics in rasterization metadata;
+do not rewrite the rasterizer solely to obtain them.
+
+Scientific stop conditions:
+- If identity check fails, stop.
+- If exact geometry Jacobian cannot be formed with trustworthy parameterization, stop with
+  MEASUREMENT_BLOCKED rather than inventing a surrogate.
+- Do not start P1 even if P0 promotes; return results for independent adjudication first.

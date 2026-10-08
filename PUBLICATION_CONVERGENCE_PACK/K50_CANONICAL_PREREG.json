@@ -1,0 +1,45 @@
+{
+  "artifact": "K50_CANONICAL_PREREG",
+  "schema": "k50-canonical-prereg/v1",
+  "generated_utc": "2026-10-02T09:05:49Z",
+  "STATUS": "PREREGISTRATION_ONLY — DO NOT EXECUTE UNTIL EXPLICITLY AUTHORIZED AFTER PUB0 REVIEW.",
+  "execution_state": "NOT_RUN (no K50 canonical revalidation performed; current GPU work TFC_FC0/DFC2/DFC_FC0 has priority)",
+  "activation_condition": {
+    "justified_only_if": "current-cohort production evidence shows (a) backward remains a sufficiently large bottleneck AND (b) the expected full-training headroom is meaningful.",
+    "current_evidence_reviewed": "PUB0_AMDAHL_LEDGER.json: DFC touches rasterize+backward ~58.7% of step (measured 1.05x vs 2.44x ceiling); Adam optimizer ~30% of step (O(N), untouched); TFC+DFC best current-cohort policy geomean 1.0868x (realized/ceiling ~0.32). Backward IS a large fraction, but realized headroom is Amdahl-limited by the untouched O(N) projection + Adam stages.",
+    "gate": "K50 canonical revalidation activates ONLY after PUB0 completes and this prereg is explicitly authorized. No threshold rescue after failure."
+  },
+  "frozen_protocol": {
+    "canonical_current_baseline": "original 3DGS CUDA rasterizer + gsplat 1.5.3 (Stage4B config per reports/phase-c51-stage4b.md Section 1: loss 0.8*L1+0.2*D-SSIM, Adam eps 1e-15, per-stage LRs, prune 0.01, densify-grad 0.001, densify interval 100, opacity reset 3000, SH progression +1/1000 iters start 0 max 3, seed=42, 1080p, init opacity logit(0.1)).",
+    "current_cuda_pytorch_environment": "EPIC-05 A100-SXM4-80GB; CUDA 12.8; torch 2.9.1+cu128 or 2.10.0+cu128; gsplat 1.5.3 (gsplat-b1-clean-v153); python 3.12.13. NOTE: must match the CURRENT canonical pipeline, NOT the historical CUDA 11.8 build.",
+    "scenes": [
+      "room",
+      "garden",
+      "bicycle"
+    ],
+    "seed": {
+      "first_stage": 42,
+      "note": "seed 42 first stage; multi-seed CI recommended for the revalidation"
+    },
+    "exact_k50_b1_implementation": "B1 sparse-backward + densification-decoupling mask (importance_mask uint8_t[N]: 1=full gradient, 0=skip; top-K selection torch.topk(prev_grad_norm, N*keep_fraction); EMA decay 0.9 eps 1e-6). Six gsplat-1.5.3 files patched, backed up .orig_stage4a.",
+    "training": "30K production full training (baseline vs k50_b1), same-run, same gpu_id (avoid the historical hardware confound).",
+    "measurements": {
+      "real_total_wall_clock_s": "directly measured end-to-end 30K wall-clock for baseline and k50_b1 (THE headline; no residual derivation)",
+      "per_iteration_timing_ms": "directly measured",
+      "quality": "PSNR/SSIM/LPIPS (LPIPS ADDED vs historical gap)",
+      "gaussian_population_trajectory": "clone/split/prune + final count over the 30K densification schedule"
+    },
+    "quality_gates": {
+      "gate_A": "gradient cosine >= 0.999 (selected exact, skipped zero); forward bit-exact",
+      "gate_B": "per-scene E2E speedup > 5% AND no quality degradation (dPSNR <= 0, dSSIM >= -0.005)",
+      "gate_C": "total 30K wall-clock speedup directly measured and > 1.0 with multi-seed consistency"
+    },
+    "timing_gates": {
+      "directly_measured_only": "all timing from same-run wall-clock; CUDA-event WARMUP=3 ITERS=10 median",
+      "no_residual": "no residual/subtraction-derived optimizer or full-step timing"
+    },
+    "no_threshold_rescue": "After a gate failure, NO threshold/policy tuning is permitted to rescue the result (fail-closed). Any change voids the prereg and requires a new one.",
+    "cohort_rule": "Results tagged to the current canonical pipeline cohort; MUST NOT be merged with K50B1_HISTORICAL (CUDA 11.8, multi-GPU)."
+  },
+  "relationship_to_pending": "K50 revalidation is downstream of PUB0. TFC_FC0/DFC2/DFC_FC0 remain the current GPU priority; K50 waits."
+}

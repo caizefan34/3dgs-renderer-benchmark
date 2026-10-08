@@ -1,0 +1,52 @@
+{
+  "label": "MEASURED forced-early functional test + 599-iter isolation series (room, seed 42)",
+  "forced_5k": {
+    "c0": {
+      "final_N": 520013,
+      "psnr": 27.184450255839124,
+      "ssim": 0.841610003601421,
+      "lpips": 0.43620424649932166,
+      "l1": 0.027101946317336777,
+      "n_eval_cameras": 11,
+      "wall_s": 122.85294063994661,
+      "mean_iter_ms": 22.73146876706742,
+      "pre_region_inner_ms": 1.5427529276832939,
+      "n_vos_steps": 0,
+      "n_fences": 0,
+      "replay_steps": 0,
+      "vos_mode": "kernel"
+    },
+    "vos": {
+      "final_N": 531766,
+      "psnr": 26.97044212355605,
+      "ssim": 0.8397428068247709,
+      "lpips": 0.4405383901162581,
+      "l1": 0.028064696456898342,
+      "n_eval_cameras": 11,
+      "wall_s": 93.64513305504806,
+      "mean_iter_ms": 17.00427570589818,
+      "pre_region_inner_ms": 0.9705947267502546,
+      "n_vos_steps": 3960,
+      "n_fences": 41,
+      "replay_steps": 802349562,
+      "vos_mode": "kernel"
+    },
+    "note": "VOS from iter 1001 INSIDE the densify region: pre-densify fences, tau migration, event no-op steps all exercised (3960 VOS steps, 41 fences, kernel mode). Topology diverges within the run-to-run envelope (first flip between evals 500-1000)."
+  },
+  "isolation_599": {
+    "note": "All arms within +-0.006 dB; identical A_s twin runs differ by 0.0037 dB and theta_max_abs ~0.009/0.55: the C0 trainer is NOT bitwise run-to-run reproducible (backward atomic order). CONCLUSION: cross-run bitwise comparison impossible; exactness rests on the in-process oracle (7/7 bitwise) + the startup kernel gate + quality parity.",
+    "final_psnr": {
+      "as": 18.046776,
+      "as_twin": 18.043055,
+      "wrapper_control": 18.041553,
+      "vos_envelope_free": 18.041215,
+      "vos_single_step": 18.046279,
+      "c0": 18.046457,
+      "vos": 18.042063
+    },
+    "twin_theta_max_abs": {
+      "xyz": 0.008987,
+      "scaling": 0.546188
+    }
+  }
+}

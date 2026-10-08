@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-10-08T12:10:00Z",
+  "status": "PARTIALLY_COMPLETE",
+  "campaign": "TRAINABLE_HIGS_MEMORY_FORENSICS_R7_MX",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "experiments_completed": [
+    "P0: Binary identity verification",
+    "P1: OOM reproduction attempt"
+  ],
+  "experiments_blocked": [
+    "P2: Allocation trace (HiGS function not available)",
+    "P3: OOM explanation (OOM not reproduced)",
+    "P4: Memory scaling (HiGS function not available)",
+    "P5: Fix implementation (no OOM to fix)"
+  ],
+  "key_findings": {
+    "binary_identity": "VERIFIED - baseline SHA256 matches",
+    "source_code": "VERIFIED - IntersectTile.cu exists",
+    "oom_reproduction": "FAILED - OOM not reproduced",
+    "standard_rasterization": "SUCCESS - 8.02 GB at 4.4M",
+    "higs_function": "NOT_AVAILABLE - rasterize_gaussian_higs_frozen not found"
+  },
+  "answers": {
+    "q1_allocation_site": "NOT_IDENTIFIED",
+    "q2_formula": "UNKNOWN",
+    "q3_intersection_count": "NOT_MEASURED",
+    "q4_memory_breakdown": "PARTIAL - 8.02 GB standard rasterization",
+    "q5_why_failed": "UNRESOLVED",
+    "q6_bottleneck_type": "UNDETERMINED",
+    "q7_fix_built": "NO",
+    "q8_next_step": "INVESTIGATE environment"
+  },
+  "verdicts": {
+    "root_cause": "PARTIALLY_IDENTIFIED",
+    "fix": "NOT_IMPLEMENTED",
+    "implementation": "IMPLEMENTATION_BLOCKED"
+  },
+  "recommendation": "Locate HiGS-specific function. Verify R3 environment. Reproduce R3 conditions. If OOM persists, instrument allocations. If not, document environment differences."
+}

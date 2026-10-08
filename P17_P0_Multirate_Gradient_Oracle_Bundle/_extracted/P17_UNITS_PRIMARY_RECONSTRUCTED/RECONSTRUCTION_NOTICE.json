@@ -1,0 +1,30 @@
+{
+  "reconstruction_tag": "RECONSTRUCTED_FROM_FROZEN_PRIMARY_LOGS",
+  "description": "Primary tau=2.0 unit files reconstructed from frozen room_main.log and bicycle_main.log. The original tau=2.0 unit files were overwritten by the tau=4.0 sensitivity run (run_all.sh order: main -> tau1 -> tau4).",
+  "source_logs": [
+    "room_main.log (frozen original)",
+    "bicycle_main.log (frozen original)"
+  ],
+  "reconstruction_method": "regex parse of log summary lines: '<scene> cam<N>: C_oracle=.. n_d2+=.. means_cos=.. R_step=.. P_audit=..' (same as make_aggs.py)",
+  "fields_recovered": [
+    "scene", "camera_id", "tau", "d1_parity_pass",
+    "oracle_interaction_ratio", "metrics.means.cosine",
+    "step.R_step", "step.P_audit", "step.reference_improving"
+  ],
+  "fields_not_recoverable": [
+    "metrics.scales/quats/opacity/sh0/shN",
+    "full_cost_fraction_d2plus/d4plus/d8",
+    "detail.n_visible_full/d2/d4/d8",
+    "detail.G_dense/G_hyb",
+    "detail.n_isects_full, n_assigned_d2plus, cost_by_d",
+    "detail.L_before/L_after_dense/L_after_hyb",
+    "detail.P_audit_per_cam, L_audit_before/dense/hyb"
+  ],
+  "verification": {
+    "C_oracle_median_room": "0.09065 matches P17_WORK_ORACLE.json",
+    "C_oracle_median_bicycle": "0.03215 matches P17_WORK_ORACLE.json",
+    "R_step_P_audit_all_24": "match P17_STEP_AGG.json within 1e-10",
+    "verdict": "P17_P0_HARD_DROP (unchanged)"
+  },
+  "warning": "These files are NOT original unit artifacts. They are reconstructions for provenance completeness. Do not cite them as original P17_UNITS output."
+}

@@ -1,0 +1,82 @@
+{
+  "artifact": "P8_A0_A1_IDENTITY",
+  "schema": "p8_a0_a1_identity/v1",
+  "date": "2026-09-26",
+  "role": "Proof that historical A0 and A1 are the same source tree and the same binary as C0, with F9 selected only by a runtime switch.",
+  "question": "Do historical A0/A1 use the same source tree and the same .so with F9 selected only by runtime switch, or are they distinct builds?",
+  "answer": "SAME_SOURCE_TREE_SAME_BINARY_RUNTIME_SWITCH_ONLY",
+  "source_tree": {
+    "worktree": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_worktree",
+    "renderer_source_manifest_sha256": "4baf54c0f7e220436f6d54ed8488fb4e671ca757f5710fced41cad5886543170",
+    "renderer_tree_digest_sha256": "b483a2c0e40d4434a1471354419bde0e453c27ade9ac1a121dc135b8b143c98a",
+    "evidence": [
+      "final30k_trainer.py sha 58e6cc2cb62db78c26a9fe5560beacc4bdb159a56ac6f9d07ffa149404d33139 (all 13 c0 runs) binds C0_WT=/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_worktree",
+      "publication_trainer.py sha 8b8e073448a3f210b2a1e7c97e0793d57dfed692c04f9bf10a7d415bc63c3883 (all 26 a0/a1 runs) binds C0_WT to the same path",
+      "the worktree is dirty by construction; its identity is the certified manifest/tree digest above, which is byte-identical to the P12 C0 tree (P12_C0_VS_P8_C0_DIFF.json)"
+    ]
+  },
+  "binary": {
+    "same_binary_for_all_three_arms": true,
+    "ext_so_sha256": "9baf8655f859f3e0f456e99a2d8e5b3ddfe414fe17a1a3e9d8072e0afed95b91",
+    "ext_so_path": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_cache/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so",
+    "core_so_sha256": "361b216bcc11609a0ebb8fb44ad2e0c6170948112b6294e85123df45541c8c98",
+    "core_so_path": "/tmp/h1_b2_authoritative/gsplat_cuda/gsplat_cuda.so",
+    "explicit_record_field": "every a0/a1 results.json carries binary_identity.binary_same_as = 'c0 (ext 9baf8655 + core 361b216b)' with matching so_sha256 and core_sha256",
+    "evidence_counts": {
+      "c0_runs": 13,
+      "a0_runs": 13,
+      "a1_runs": 13,
+      "records_with_identical_binary_pair": 39,
+      "records_with_env_matrix_violations": 0,
+      "live_reverification": "2026-09-26, scripted scan of all 39 results.json (mx): zero violations of binary pair or env matrix"
+    }
+  },
+  "runtime_switch": {
+    "f9_is_runtime_only": true,
+    "same_physical_binary": true,
+    "a0_only_switch": {
+      "HIGS_DISABLE_F9": "1",
+      "note": "F9 gatherless producer disabled"
+    },
+    "a1_only_switch": {
+      "HIGS_DISABLE_F9": null,
+      "note": "F9 enabled (unset = default-on)"
+    },
+    "only_difference_between_a0_and_a1": "HIGS_DISABLE_F9 (1 vs unset); all other HIGS_* env values identical",
+    "env_matrix_verified_per_record": {
+      "a0": {
+        "HIGS_DISABLE_F9": "1",
+        "HIGS_BWD_SCALAR_ADJOINT": null,
+        "HIGS_BWD_H8_MR": null,
+        "HIGS_BWD_ABSGRAD": "1",
+        "HIGS_PX_RUNTIME": "2"
+      },
+      "a1": {
+        "HIGS_DISABLE_F9": null,
+        "HIGS_BWD_SCALAR_ADJOINT": null,
+        "HIGS_BWD_H8_MR": null,
+        "HIGS_BWD_ABSGRAD": "1",
+        "HIGS_PX_RUNTIME": "2"
+      }
+    }
+  },
+  "scalar": {
+    "a0": "OFF (HIGS_BWD_SCALAR_ADJOINT unset in all 13 records)",
+    "a1": "OFF (HIGS_BWD_SCALAR_ADJOINT unset in all 13 records)"
+  },
+  "h8": {
+    "a0": "OFF (HIGS_BWD_H8_MR unset in all 13 records)",
+    "a1": "OFF (HIGS_BWD_H8_MR unset in all 13 records)"
+  },
+  "p12_b_arms_consistency": {
+    "guards": "p12_run_guard.py switch matrices: A0_FUSED {DISABLE_F9: 1, SCALAR: None, H8_MR: None, ABSGRAD: 1, PX: 2}; A1_FUSED {DISABLE_F9: None, SCALAR: None, H8_MR: None, ABSGRAD: 1, PX: 2}",
+    "consistent_with_historical": true,
+    "detail": "The P12-B guard matrices reproduce the historical A0/A1 execution-path difference exactly (F9 runtime switch only; Scalar OFF and H8 OFF in both; ABSGRAD and PX identical)."
+  },
+  "empty_f9_allowlist_validity": {
+    "valid": true,
+    "reason": "A0 and A1 source trees are identical to each other and to P12 C0 (one certified tree), and F9 is controlled solely by the HIGS_DISABLE_F9 runtime switch in the same frozen binary. Therefore the p12_diff_guard.py F9 allowlist is legitimately empty.",
+    "guard_language_satisfied": "Codex guardrails report: 'An empty F9 allowlist is valid only if A0 and A1 source trees are identical and F9 is controlled solely by runtime switches in the same frozen binary.'"
+  },
+  "verdict": "A0_A1_IDENTICAL_SOURCE_AND_BINARY_RUNTIME_F9_SWITCH_ONLY"
+}

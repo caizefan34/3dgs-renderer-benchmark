@@ -1,0 +1,113 @@
+{
+  "schema": "FRONTIER_REASSESS0_EXISTING_STATE_MAP",
+  "date": "2026-10-07",
+  "kernel": "blend_backward_cu (kernels_backward.cuh:253-482)",
+  "source_forward": "kernels_forward.cuh:395-460",
+  "per_interaction_quantities_backward_loads_or_computes": [
+    {
+      "name": "mean2d",
+      "semantic": "projected 2D gaussian center",
+      "dtype": "float2",
+      "location": "global primitive_mean2d",
+      "producer": "forward preprocess",
+      "loaded_by_backward": true,
+      "retained_from_forward": false,
+      "bytes_per_interaction": 8,
+      "note": "loaded fresh; delta=mean2d-pixel"
+    },
+    {
+      "name": "conic",
+      "semantic": "2D conic (inverse covariance)",
+      "dtype": "float3",
+      "location": "global primitive_conic_opacity",
+      "producer": "forward preprocess",
+      "loaded_by_backward": true,
+      "retained_from_forward": false,
+      "bytes_per_interaction": 12,
+      "note": ".x/.y/.z used in exponent + dL_dconic/dL_dmean2d"
+    },
+    {
+      "name": "opacity",
+      "semantic": "per-gaussian opacity",
+      "dtype": "float",
+      "location": "global primitive_conic_opacity.w",
+      "producer": "forward preprocess",
+      "loaded_by_backward": true,
+      "retained_from_forward": false,
+      "bytes_per_interaction": 0,
+      "note": "shared load with conic"
+    },
+    {
+      "name": "color",
+      "semantic": "per-gaussian SH-evaluated color",
+      "dtype": "float3",
+      "location": "global primitive_color",
+      "producer": "forward preprocess",
+      "loaded_by_backward": true,
+      "retained_from_forward": false,
+      "bytes_per_interaction": 12
+    },
+    {
+      "name": "bucket_color_transmittance",
+      "semantic": "forward composited (color,transmittance) SNAPSHOT every 32 Gaussians",
+      "dtype": "float4",
+      "location": "global bucket_color_transmittance[bucket*block_size_blend + thread_rank]",
+      "producer": "forward (j%32==0 only)",
+      "loaded_by_backward": true,
+      "retained_from_forward": true,
+      "bytes_per_interaction": 16,
+      "note": "ONLY at 32-Gaussian boundaries, NOT per-interaction; gives running transmittance at boundaries"
+    },
+    {
+      "name": "tile_final_transmittances",
+      "semantic": "final per-pixel transmittance",
+      "dtype": "float",
+      "location": "global tile_final_transmittances[pixel_idx]",
+      "producer": "forward end",
+      "loaded_by_backward": true,
+      "retained_from_forward": true,
+      "bytes_per_interaction": 4,
+      "note": "final only, not per-interaction"
+    },
+    {
+      "name": "gaussian G",
+      "semantic": "exp(-Q/2)",
+      "dtype": "float",
+      "location": "COMPUTED in backward (line 418)",
+      "producer": "backward expf",
+      "loaded_by_backward": false,
+      "retained_from_forward": false,
+      "bytes_per_interaction": 0,
+      "note": "NEVER stored by forward; recomputed"
+    },
+    {
+      "name": "alpha",
+      "semantic": "opacity*G",
+      "dtype": "float",
+      "location": "COMPUTED in backward (line 419)",
+      "producer": "backward",
+      "loaded_by_backward": false,
+      "retained_from_forward": false,
+      "bytes_per_interaction": 0,
+      "note": "NEVER stored by forward; recomputed"
+    },
+    {
+      "name": "transmittance",
+      "semantic": "running product of (1-alpha)",
+      "dtype": "float",
+      "location": "COMPUTED in backward recurrence",
+      "producer": "backward",
+      "loaded_by_backward": false,
+      "retained_from_forward": false,
+      "bytes_per_interaction": 0,
+      "note": "recomputed via shfl recurrence from boundary snapshots"
+    }
+  ],
+  "algebraic_recoverability_of_G": {
+    "identity_alpha": "alpha = opacity * G  =>  G = alpha / opacity",
+    "alpha_stored_per_interaction": false,
+    "verdict": "G is NOT algebraically recoverable from existing stored state. alpha is not stored per-interaction; only 32-boundary transmittance snapshots + final transmittance are stored. Recovering alpha from transmittance ratios (alpha=1-T_after/T_before) requires per-interaction transmittance, which is not stored.",
+    "conclusion": "Any exact G-reconstruction requires a NEW per-interaction cache = BWD-ARITH1 (traffic-closed)."
+  },
+  "disclaimer": "Source/dataflow audit from source inspection; no performance claim from inspection alone."
+}

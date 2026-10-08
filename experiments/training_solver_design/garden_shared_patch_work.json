@@ -1,0 +1,756 @@
+{
+  "scope": "Shared fine/proxy and selected-core loss correctness; fixed-state work cost including zero-LR Adam; no training quality claim",
+  "scene": "garden",
+  "N": 1841621,
+  "source_sha256": "8423cadc723f678387d564bc3cec0f467c6087f8fa8b77c626b046a22fc25fda",
+  "helper_sha256": "32039d1fe6ecbd5e4b0e0711f5efca1a5e0aae4f1a5f3f139dbe27725c15412d",
+  "masked_helper_sha256": "0a8cd1124e393613ca0aa2bdce1b15759e779c1147b86cd9a83eb4959f72e03c",
+  "shared_helper_sha256": "adb0d1a0e05a0de46f73e9f4a9cdc1f38c6fa6cab44f2b1ff2226308c30bbe27",
+  "patch_helper_sha256": "199955f21d0f3ee954f2a95458fd68f1be6f948922644f926b721c7614ea89da",
+  "checkpoint_sha256": "af2f1d9cd2ad8fe45492727b73e69e9f87c098e1a519650881d578a5b8cf9a78",
+  "renderer_identity": {
+    "arm": "gmain",
+    "so_sha256": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+    "so_path": "/root/epic05_p8/build/torchext/gsplat_cuda/gsplat_cuda.so",
+    "gsplat_file": "/root/epic05_p8/gsplat-main-512d366b/gsplat/__init__.py",
+    "base_commit": "512d366b67073d77ca099ede742683c165dfc23b (gsplat main, P8 pin 2026-09-25)"
+  },
+  "common_sha256": "ed3d5f1265483c6e7764d6ecad9f3bf3d31a69980e7104884f94a444cfdcce6e",
+  "gpu": {
+    "gpu_index": 5,
+    "gpu_info": "GPU-bf5e4714-c12e-2914-78bb-be3ff2607296, NVIDIA A100-SXM4-80GB, 570.133.20",
+    "foreign_processes": [],
+    "driver_pid": "1618508",
+    "namespace_pid": 2550426
+  },
+  "protocol": {
+    "views": [
+      114,
+      128,
+      133
+    ],
+    "block_grid": [
+      9,
+      15
+    ],
+    "coarse_factor": 2,
+    "halo": 5,
+    "sampling_fraction": 0.25,
+    "timing": "fixed parameters; LR=0 Adam still updates moments; 3 randomized rounds of 10 steps, 4 warmups",
+    "included": "dense loss maps, intersections at both resolutions, optimizer and Python dispatch; shared mode reuses fine projection/SH, proxy visibility comes from fine",
+    "excluded": "mask construction, target patches and GT upload precomputed for each fixed view; no densification or training progression",
+    "gradient_gate": "relative L2 < .003 OR max abs < 1e-6; native GPU reductions are nondeterministic"
+  },
+  "records": [
+    {
+      "camera_id": 114,
+      "shared_fine_native_image_error": {
+        "relative_l2": 0.0,
+        "max_abs": 0.0
+      },
+      "shared_fine_native_gradient_parity": {
+        "xyz": {
+          "relative_l2": 1.6475820302730426e-05,
+          "max_abs": 3.023451426997781e-07
+        },
+        "shs": {
+          "relative_l2": 3.03790841371665e-07,
+          "max_abs": 2.9103830456733704e-10
+        },
+        "opacity": {
+          "relative_l2": 3.7554679011009284e-07,
+          "max_abs": 8.731149137020111e-11
+        },
+        "scaling": {
+          "relative_l2": 1.3779016626358498e-05,
+          "max_abs": 2.4563632905483246e-08
+        },
+        "rotation": {
+          "relative_l2": 0.0005907936138100922,
+          "max_abs": 2.792396117001772e-06
+        }
+      },
+      "halo_checks": [
+        {
+          "label": 0,
+          "exact_covered_pixels": true,
+          "loss_error": 0.0,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 1.9875729776686057e-05,
+              "max_abs": 5.769543349742889e-07
+            },
+            "shs": {
+              "relative_l2": 4.1089040792030573e-07,
+              "max_abs": 1.0477378964424133e-09
+            },
+            "opacity": {
+              "relative_l2": 4.2881654849225015e-07,
+              "max_abs": 1.4551915228366852e-10
+            },
+            "scaling": {
+              "relative_l2": 1.9687769963638857e-05,
+              "max_abs": 3.106833901256323e-08
+            },
+            "rotation": {
+              "relative_l2": 0.0005063292337581515,
+              "max_abs": 3.85078601539135e-06
+            }
+          },
+          "active_tile_fraction": 0.3332107961177826,
+          "core_fraction": 0.2518518567085266
+        },
+        {
+          "label": 1,
+          "exact_covered_pixels": true,
+          "loss_error": 1.4901161193847656e-08,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 1.84882924259e-06,
+              "max_abs": 4.9301888793706894e-08
+            },
+            "shs": {
+              "relative_l2": 4.2992101612071565e-07,
+              "max_abs": 6.984919309616089e-10
+            },
+            "opacity": {
+              "relative_l2": 3.3046376302081626e-07,
+              "max_abs": 7.275957614183426e-11
+            },
+            "scaling": {
+              "relative_l2": 6.990955625951756e-06,
+              "max_abs": 1.781882019713521e-08
+            },
+            "rotation": {
+              "relative_l2": 6.412680522771552e-05,
+              "max_abs": 4.6288482735690195e-07
+            }
+          },
+          "active_tile_fraction": 0.3289215862751007,
+          "core_fraction": 0.2518518567085266
+        },
+        {
+          "label": 2,
+          "exact_covered_pixels": true,
+          "loss_error": 0.0,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 1.2498708201746922e-05,
+              "max_abs": 2.60770320892334e-07
+            },
+            "shs": {
+              "relative_l2": 3.8912068589525006e-07,
+              "max_abs": 6.402842700481415e-10
+            },
+            "opacity": {
+              "relative_l2": 4.0275213564200385e-07,
+              "max_abs": 1.3096723705530167e-10
+            },
+            "scaling": {
+              "relative_l2": 7.723898306721821e-06,
+              "max_abs": 1.4589204511139542e-08
+            },
+            "rotation": {
+              "relative_l2": 0.0003578740288503468,
+              "max_abs": 1.8139253370463848e-06
+            }
+          },
+          "active_tile_fraction": 0.33235296607017517,
+          "core_fraction": 0.2518518567085266
+        },
+        {
+          "label": 3,
+          "exact_covered_pixels": true,
+          "loss_error": 1.4901161193847656e-08,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 2.0711331671918742e-05,
+              "max_abs": 7.002381607890129e-07
+            },
+            "shs": {
+              "relative_l2": 3.697478234698792e-07,
+              "max_abs": 8.731149137020111e-10
+            },
+            "opacity": {
+              "relative_l2": 4.5718732621935487e-07,
+              "max_abs": 1.6007106751203537e-10
+            },
+            "scaling": {
+              "relative_l2": 4.4695669203065336e-05,
+              "max_abs": 1.362641341984272e-07
+            },
+            "rotation": {
+              "relative_l2": 0.0006888756179250777,
+              "max_abs": 6.156042218208313e-06
+            }
+          },
+          "active_tile_fraction": 0.3283088505268097,
+          "core_fraction": 0.24444444477558136
+        }
+      ],
+      "no_halo_loss_error": 0.0031935572624206543,
+      "mask_build_seconds": 0.012373967096209526,
+      "timings": {
+        "native_dense": [
+          {
+            "gpu_ms_per_step": 18.50052490234375,
+            "wall_ms_per_step": 18.5114580206573
+          },
+          {
+            "gpu_ms_per_step": 18.49436798095703,
+            "wall_ms_per_step": 18.5026841936633
+          },
+          {
+            "gpu_ms_per_step": 18.472515869140626,
+            "wall_ms_per_step": 18.477926100604236
+          }
+        ],
+        "components_dense": [
+          {
+            "gpu_ms_per_step": 18.3154296875,
+            "wall_ms_per_step": 18.325044005177915
+          },
+          {
+            "gpu_ms_per_step": 18.32231750488281,
+            "wall_ms_per_step": 18.327792594209313
+          },
+          {
+            "gpu_ms_per_step": 18.327372741699218,
+            "wall_ms_per_step": 18.33308150526136
+          }
+        ],
+        "uniform_sparse": [
+          {
+            "gpu_ms_per_step": 15.5157958984375,
+            "wall_ms_per_step": 15.523970196954906
+          },
+          {
+            "gpu_ms_per_step": 15.485929870605469,
+            "wall_ms_per_step": 15.491492603905499
+          },
+          {
+            "gpu_ms_per_step": 15.526780700683593,
+            "wall_ms_per_step": 15.533484192565084
+          }
+        ],
+        "multilevel": [
+          {
+            "gpu_ms_per_step": 29.368670654296874,
+            "wall_ms_per_step": 29.374563205055892
+          },
+          {
+            "gpu_ms_per_step": 29.315200805664062,
+            "wall_ms_per_step": 29.322003992274404
+          },
+          {
+            "gpu_ms_per_step": 29.276303100585938,
+            "wall_ms_per_step": 29.28738808259368
+          }
+        ],
+        "shared": [
+          {
+            "gpu_ms_per_step": 26.756683349609375,
+            "wall_ms_per_step": 26.76238650456071
+          },
+          {
+            "gpu_ms_per_step": 26.72106018066406,
+            "wall_ms_per_step": 26.72698099631816
+          },
+          {
+            "gpu_ms_per_step": 26.716098022460937,
+            "wall_ms_per_step": 26.72247369773686
+          }
+        ],
+        "shared_patch": [
+          {
+            "gpu_ms_per_step": 26.426791381835937,
+            "wall_ms_per_step": 26.432702387683094
+          },
+          {
+            "gpu_ms_per_step": 26.358377075195314,
+            "wall_ms_per_step": 26.366200880147517
+          },
+          {
+            "gpu_ms_per_step": 26.35328369140625,
+            "wall_ms_per_step": 26.359833194874227
+          }
+        ]
+      }
+    },
+    {
+      "camera_id": 128,
+      "shared_fine_native_image_error": {
+        "relative_l2": 0.0,
+        "max_abs": 0.0
+      },
+      "shared_fine_native_gradient_parity": {
+        "xyz": {
+          "relative_l2": 1.2176616337455926e-06,
+          "max_abs": 8.946699381340295e-09
+        },
+        "shs": {
+          "relative_l2": 3.6953591120436613e-07,
+          "max_abs": 3.4924596548080444e-10
+        },
+        "opacity": {
+          "relative_l2": 4.0533899436923093e-07,
+          "max_abs": 7.275957614183426e-11
+        },
+        "scaling": {
+          "relative_l2": 3.2032835406425875e-06,
+          "max_abs": 4.147295840084553e-09
+        },
+        "rotation": {
+          "relative_l2": 2.1473266315297224e-05,
+          "max_abs": 8.665301720611751e-08
+        }
+      },
+      "halo_checks": [
+        {
+          "label": 0,
+          "exact_covered_pixels": true,
+          "loss_error": 2.9802322387695312e-08,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 2.177954456783482e-06,
+              "max_abs": 3.311652108095586e-08
+            },
+            "shs": {
+              "relative_l2": 4.7616219944757177e-07,
+              "max_abs": 1.280568540096283e-09
+            },
+            "opacity": {
+              "relative_l2": 2.900589777254936e-07,
+              "max_abs": 8.731149137020111e-11
+            },
+            "scaling": {
+              "relative_l2": 8.168231033778284e-06,
+              "max_abs": 3.152308636344969e-08
+            },
+            "rotation": {
+              "relative_l2": 7.081098738126457e-05,
+              "max_abs": 4.619942046701908e-07
+            }
+          },
+          "active_tile_fraction": 0.3332107961177826,
+          "core_fraction": 0.2518518567085266
+        },
+        {
+          "label": 1,
+          "exact_covered_pixels": true,
+          "loss_error": 0.0,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 1.2677344329858897e-06,
+              "max_abs": 3.684544935822487e-08
+            },
+            "shs": {
+              "relative_l2": 4.3955412820650963e-07,
+              "max_abs": 1.280568540096283e-09
+            },
+            "opacity": {
+              "relative_l2": 3.183454282407183e-07,
+              "max_abs": 7.275957614183426e-11
+            },
+            "scaling": {
+              "relative_l2": 5.367670382838696e-06,
+              "max_abs": 1.469743438065052e-08
+            },
+            "rotation": {
+              "relative_l2": 2.8729968107654713e-05,
+              "max_abs": 3.3347896533086896e-07
+            }
+          },
+          "active_tile_fraction": 0.3289215862751007,
+          "core_fraction": 0.2518518567085266
+        },
+        {
+          "label": 2,
+          "exact_covered_pixels": true,
+          "loss_error": 0.0,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 1.2308230452617863e-06,
+              "max_abs": 3.262539394199848e-08
+            },
+            "shs": {
+              "relative_l2": 4.0946324020296743e-07,
+              "max_abs": 5.238689482212067e-10
+            },
+            "opacity": {
+              "relative_l2": 2.9925635658401006e-07,
+              "max_abs": 5.002220859751105e-11
+            },
+            "scaling": {
+              "relative_l2": 1.8452366248311591e-06,
+              "max_abs": 3.128661774098873e-09
+            },
+            "rotation": {
+              "relative_l2": 3.0011007766006514e-05,
+              "max_abs": 3.5882112570106983e-07
+            }
+          },
+          "active_tile_fraction": 0.33235296607017517,
+          "core_fraction": 0.2518518567085266
+        },
+        {
+          "label": 3,
+          "exact_covered_pixels": true,
+          "loss_error": 0.0,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 1.9505882846715394e-06,
+              "max_abs": 4.433786671143025e-08
+            },
+            "shs": {
+              "relative_l2": 3.256381830851751e-07,
+              "max_abs": 4.0745362639427185e-10
+            },
+            "opacity": {
+              "relative_l2": 4.35208590943148e-07,
+              "max_abs": 2.1100277081131935e-10
+            },
+            "scaling": {
+              "relative_l2": 3.648352503660135e-06,
+              "max_abs": 1.0935764294117689e-08
+            },
+            "rotation": {
+              "relative_l2": 2.699090509850066e-05,
+              "max_abs": 4.6689820010215044e-07
+            }
+          },
+          "active_tile_fraction": 0.3283088505268097,
+          "core_fraction": 0.24444444477558136
+        }
+      ],
+      "no_halo_loss_error": 0.003079146146774292,
+      "mask_build_seconds": 0.0016465990338474512,
+      "timings": {
+        "native_dense": [
+          {
+            "gpu_ms_per_step": 19.57250518798828,
+            "wall_ms_per_step": 19.581362698227167
+          },
+          {
+            "gpu_ms_per_step": 19.5804443359375,
+            "wall_ms_per_step": 19.58841970190406
+          },
+          {
+            "gpu_ms_per_step": 19.545436096191406,
+            "wall_ms_per_step": 19.55055759754032
+          }
+        ],
+        "components_dense": [
+          {
+            "gpu_ms_per_step": 19.472329711914064,
+            "wall_ms_per_step": 19.481148291379213
+          },
+          {
+            "gpu_ms_per_step": 19.435090637207033,
+            "wall_ms_per_step": 19.440941489301622
+          },
+          {
+            "gpu_ms_per_step": 19.455973815917968,
+            "wall_ms_per_step": 19.46399339940399
+          }
+        ],
+        "uniform_sparse": [
+          {
+            "gpu_ms_per_step": 16.5049560546875,
+            "wall_ms_per_step": 16.510545485652983
+          },
+          {
+            "gpu_ms_per_step": 16.583251953125,
+            "wall_ms_per_step": 16.589612001553178
+          },
+          {
+            "gpu_ms_per_step": 16.55376281738281,
+            "wall_ms_per_step": 16.559299593791366
+          }
+        ],
+        "multilevel": [
+          {
+            "gpu_ms_per_step": 25.55571594238281,
+            "wall_ms_per_step": 25.562213407829404
+          },
+          {
+            "gpu_ms_per_step": 25.46422119140625,
+            "wall_ms_per_step": 25.47064390964806
+          },
+          {
+            "gpu_ms_per_step": 25.523516845703124,
+            "wall_ms_per_step": 25.529634905979037
+          }
+        ],
+        "shared": [
+          {
+            "gpu_ms_per_step": 22.84072265625,
+            "wall_ms_per_step": 22.849555499851704
+          },
+          {
+            "gpu_ms_per_step": 22.79632568359375,
+            "wall_ms_per_step": 22.802828601561487
+          },
+          {
+            "gpu_ms_per_step": 22.811126708984375,
+            "wall_ms_per_step": 22.818857501260936
+          }
+        ],
+        "shared_patch": [
+          {
+            "gpu_ms_per_step": 22.51595458984375,
+            "wall_ms_per_step": 22.52224429976195
+          },
+          {
+            "gpu_ms_per_step": 22.424575805664062,
+            "wall_ms_per_step": 22.43062029592693
+          },
+          {
+            "gpu_ms_per_step": 22.424099731445313,
+            "wall_ms_per_step": 22.42975700646639
+          }
+        ]
+      }
+    },
+    {
+      "camera_id": 133,
+      "shared_fine_native_image_error": {
+        "relative_l2": 0.0,
+        "max_abs": 0.0
+      },
+      "shared_fine_native_gradient_parity": {
+        "xyz": {
+          "relative_l2": 1.5295322555175517e-06,
+          "max_abs": 1.701118890196085e-08
+        },
+        "shs": {
+          "relative_l2": 3.942834325698641e-07,
+          "max_abs": 1.0477378964424133e-09
+        },
+        "opacity": {
+          "relative_l2": 2.775714449398947e-07,
+          "max_abs": 8.731149137020111e-11
+        },
+        "scaling": {
+          "relative_l2": 4.586939667206025e-06,
+          "max_abs": 1.2601958587765694e-08
+        },
+        "rotation": {
+          "relative_l2": 6.189649138832465e-05,
+          "max_abs": 2.637498255353421e-07
+        }
+      },
+      "halo_checks": [
+        {
+          "label": 0,
+          "exact_covered_pixels": true,
+          "loss_error": 0.0,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 3.8353146010194905e-06,
+              "max_abs": 1.1236625141464174e-07
+            },
+            "shs": {
+              "relative_l2": 4.77373760077171e-07,
+              "max_abs": 1.1641532182693481e-09
+            },
+            "opacity": {
+              "relative_l2": 6.822698992436926e-07,
+              "max_abs": 3.2014213502407074e-10
+            },
+            "scaling": {
+              "relative_l2": 4.036207883473253e-06,
+              "max_abs": 9.997165761888027e-09
+            },
+            "rotation": {
+              "relative_l2": 0.00012357586820144206,
+              "max_abs": 1.3009866961510852e-06
+            }
+          },
+          "active_tile_fraction": 0.3332107961177826,
+          "core_fraction": 0.2518518567085266
+        },
+        {
+          "label": 1,
+          "exact_covered_pixels": true,
+          "loss_error": 1.4901161193847656e-08,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 8.019099482226011e-07,
+              "max_abs": 1.9959770725108683e-08
+            },
+            "shs": {
+              "relative_l2": 3.9001199070298753e-07,
+              "max_abs": 6.402842700481415e-10
+            },
+            "opacity": {
+              "relative_l2": 3.7405914099508664e-07,
+              "max_abs": 2.0372681319713593e-10
+            },
+            "scaling": {
+              "relative_l2": 5.8338005146651994e-06,
+              "max_abs": 2.6455381885170937e-08
+            },
+            "rotation": {
+              "relative_l2": 2.3013335521682166e-05,
+              "max_abs": 2.7930946089327335e-07
+            }
+          },
+          "active_tile_fraction": 0.3289215862751007,
+          "core_fraction": 0.2518518567085266
+        },
+        {
+          "label": 2,
+          "exact_covered_pixels": true,
+          "loss_error": 1.4901161193847656e-08,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 6.397558536264114e-07,
+              "max_abs": 1.210719347000122e-08
+            },
+            "shs": {
+              "relative_l2": 3.346123662595346e-07,
+              "max_abs": 1.6298145055770874e-09
+            },
+            "opacity": {
+              "relative_l2": 3.903603840171854e-07,
+              "max_abs": 1.5279510989785194e-10
+            },
+            "scaling": {
+              "relative_l2": 3.206959945600829e-06,
+              "max_abs": 9.718860383145511e-09
+            },
+            "rotation": {
+              "relative_l2": 2.7238824259256944e-05,
+              "max_abs": 1.5382693163701333e-07
+            }
+          },
+          "active_tile_fraction": 0.33235296607017517,
+          "core_fraction": 0.2518518567085266
+        },
+        {
+          "label": 3,
+          "exact_covered_pixels": true,
+          "loss_error": 1.4901161193847656e-08,
+          "gradient_parity": {
+            "xyz": {
+              "relative_l2": 1.1982480145888985e-06,
+              "max_abs": 4.275352694094181e-08
+            },
+            "shs": {
+              "relative_l2": 4.26866392899683e-07,
+              "max_abs": 1.3969838619232178e-09
+            },
+            "opacity": {
+              "relative_l2": 8.445426828984637e-07,
+              "max_abs": 1.1641532182693481e-09
+            },
+            "scaling": {
+              "relative_l2": 3.4634147141332505e-06,
+              "max_abs": 1.1437805369496346e-08
+            },
+            "rotation": {
+              "relative_l2": 9.124306234298274e-05,
+              "max_abs": 1.277716364711523e-06
+            }
+          },
+          "active_tile_fraction": 0.3283088505268097,
+          "core_fraction": 0.24444444477558136
+        }
+      ],
+      "no_halo_loss_error": 0.003568023443222046,
+      "mask_build_seconds": 0.001593578141182661,
+      "timings": {
+        "native_dense": [
+          {
+            "gpu_ms_per_step": 18.59647979736328,
+            "wall_ms_per_step": 18.602417199872434
+          },
+          {
+            "gpu_ms_per_step": 18.652268981933595,
+            "wall_ms_per_step": 18.658532784320414
+          },
+          {
+            "gpu_ms_per_step": 18.63240966796875,
+            "wall_ms_per_step": 18.640155508182943
+          }
+        ],
+        "components_dense": [
+          {
+            "gpu_ms_per_step": 18.479638671875,
+            "wall_ms_per_step": 18.48625959828496
+          },
+          {
+            "gpu_ms_per_step": 18.490786743164062,
+            "wall_ms_per_step": 18.49646819755435
+          },
+          {
+            "gpu_ms_per_step": 18.41640625,
+            "wall_ms_per_step": 18.423990602605045
+          }
+        ],
+        "uniform_sparse": [
+          {
+            "gpu_ms_per_step": 15.181993103027343,
+            "wall_ms_per_step": 15.187908196821809
+          },
+          {
+            "gpu_ms_per_step": 15.197929382324219,
+            "wall_ms_per_step": 15.20301909185946
+          },
+          {
+            "gpu_ms_per_step": 15.14664306640625,
+            "wall_ms_per_step": 15.1569516165182
+          }
+        ],
+        "multilevel": [
+          {
+            "gpu_ms_per_step": 23.884710693359374,
+            "wall_ms_per_step": 23.890546709299088
+          },
+          {
+            "gpu_ms_per_step": 23.867916870117188,
+            "wall_ms_per_step": 23.873935011215508
+          },
+          {
+            "gpu_ms_per_step": 23.923110961914062,
+            "wall_ms_per_step": 23.92864970024675
+          }
+        ],
+        "shared": [
+          {
+            "gpu_ms_per_step": 21.362428283691408,
+            "wall_ms_per_step": 21.36754938401282
+          },
+          {
+            "gpu_ms_per_step": 21.384725952148436,
+            "wall_ms_per_step": 21.392069617286325
+          },
+          {
+            "gpu_ms_per_step": 21.353305053710937,
+            "wall_ms_per_step": 21.358666196465492
+          }
+        ],
+        "shared_patch": [
+          {
+            "gpu_ms_per_step": 20.948342895507814,
+            "wall_ms_per_step": 20.95370930619538
+          },
+          {
+            "gpu_ms_per_step": 20.99176025390625,
+            "wall_ms_per_step": 20.997846010141075
+          },
+          {
+            "gpu_ms_per_step": 20.979685974121093,
+            "wall_ms_per_step": 20.98736548796296
+          }
+        ]
+      }
+    }
+  ],
+  "wall_seconds": 88.40611235401593,
+  "completed": true,
+  "gpu_at_end": [
+    "1618508, GPU-bf5e4714-c12e-2914-78bb-be3ff2607296, 4932 MiB"
+  ]
+}

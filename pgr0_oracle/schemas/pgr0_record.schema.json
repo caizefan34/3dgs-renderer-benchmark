@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PGR0 oracle observation",
+  "type": "object",
+  "required": [
+    "scene", "camera", "n", "n_active", "dtype", "calc_compensations", "seed",
+    "R1_projected_mean", "R2_covariance", "R3_jacobian", "R4_gradient"
+  ],
+  "properties": {
+    "scene": {"type": "string"},
+    "camera": {"type": "integer"},
+    "n": {"type": "integer", "minimum": 0},
+    "n_active": {"type": "integer", "minimum": 0},
+    "dtype": {"type": "string"},
+    "calc_compensations": {"type": "boolean"},
+    "seed": {"type": "integer"},
+    "R1_projected_mean": {"$ref": "#/$defs/similarity"},
+    "R2_covariance": {"$ref": "#/$defs/similarity"},
+    "R3_jacobian": {"$ref": "#/$defs/similarity"},
+    "R4_gradient": {
+      "type": "object",
+      "required": ["v_means", "v_quats", "v_scales", "v_viewmats"],
+      "additionalProperties": {
+        "type": "object",
+        "required": ["reuse_vs_autograd_cos", "reuse_vs_autograd_rel",
+                     "recompute_vs_autograd_cos", "recompute_vs_autograd_rel"],
+        "properties": {
+          "reuse_vs_autograd_cos": {"type": "number"},
+          "reuse_vs_autograd_rel": {"type": "number"},
+          "recompute_vs_autograd_cos": {"type": "number"},
+          "recompute_vs_autograd_rel": {"type": "number"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "similarity": {
+      "type": "object",
+      "required": ["cos", "rel_l2"],
+      "properties": {
+        "cos": {"type": "number", "minimum": -1, "maximum": 1},
+        "rel_l2": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

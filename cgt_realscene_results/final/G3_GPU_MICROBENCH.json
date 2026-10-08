@@ -1,0 +1,198 @@
+{
+ "gate": "G3_gpu_local_microbench",
+ "host": null,
+ "method": "Reuse G1 gsplat packed tile extraction; port teacher (M-Gaussian alpha composite) and student (rank-R CGT mixture) to torch GPU; CUDA-event timing, warmup+median. Two regimes: per-tile (256px, launch-bound) and intrinsic (65536px single call, launch-free math ratio). Params created once; no H2D in timing loops. Teacher/student port verified against G1 numpy reference.",
+ "scenes_run": [
+  "bicycle_r30k",
+  "room_r5k",
+  "room_r30k",
+  "garden_r30k"
+ ],
+ "scenes_pending_gpu_available": [],
+ "pending_reason": "",
+ "per_scene": {
+  "bicycle_r30k": {
+   "scene": "bicycle",
+   "ckpt": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_bicycle_30k/checkpoints/iter_30000.pt",
+   "n_tiles": 240,
+   "M_median": 271.5,
+   "M_min": 54,
+   "M_max": 2073,
+   "dispatch_overhead_ms": 0.01228800043463707,
+   "intrinsic_gamma": {
+    "R4": 78.57142876941381,
+    "R8": 70.21276354640071,
+    "R16": 55.00000109139367
+   },
+   "per_tile_gamma": {
+    "R4": 1.8692618686433706,
+    "R8": 1.8731756909591102,
+    "R16": 1.8364727502120302
+   },
+   "h_overhead_per_tile": 0.11401425662551556,
+   "S_measured_zero_idealh": {
+    "R4": 1.8692618686433708,
+    "R8": 1.8731756909591102,
+    "R16": 1.8364727502120304
+   },
+   "S_measured_with_h": {
+    "R4": 1.540868185165083,
+    "R8": 1.5435266570253139,
+    "R16": 1.5185190441352843
+   }
+  },
+  "room_r5k": {
+   "scene": "room",
+   "ckpt": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_5000.pt",
+   "n_tiles": 240,
+   "M_median": 27.0,
+   "M_min": 3,
+   "M_max": 633,
+   "dispatch_overhead_ms": 0.01228800043463707,
+   "intrinsic_gamma": {
+    "R4": 10.433735267171851,
+    "R8": 9.413043450752523,
+    "R16": 7.338982970375076
+   },
+   "per_tile_gamma": {
+    "R4": 1.6674073071738116,
+    "R8": 1.768838896020948,
+    "R16": 1.4271578067978181
+   },
+   "h_overhead_per_tile": 0.1333333360281324,
+   "S_measured_zero_idealh": {
+    "R4": 1.6674073071738118,
+    "R8": 1.768838896020948,
+    "R16": 1.4271578067978181
+   },
+   "S_measured_with_h": {
+    "R4": 1.3641321192357587,
+    "R8": 1.4312786982071768,
+    "R16": 1.1990023866553228
+   }
+  },
+  "room_r30k": {
+   "scene": "room",
+   "ckpt": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_30k/checkpoints/iter_30000.pt",
+   "n_tiles": 240,
+   "M_median": 44.5,
+   "M_min": 3,
+   "M_max": 295,
+   "dispatch_overhead_ms": 0.011264000087976456,
+   "intrinsic_gamma": {
+    "R4": 12.690475909997097,
+    "R8": 11.586955916555524,
+    "R16": 9.033897760589802
+   },
+   "per_tile_gamma": {
+    "R4": 1.544358186163064,
+    "R8": 1.5068162587760354,
+    "R16": 1.4581981855984243
+   },
+   "h_overhead_per_tile": 0.12359550515869476,
+   "S_measured_zero_idealh": {
+    "R4": 1.544358186163064,
+    "R8": 1.5068162587760354,
+    "R16": 1.4581981855984243
+   },
+   "S_measured_with_h": {
+    "R4": 1.2968256443931063,
+    "R8": 1.2702502863319793,
+    "R16": 1.2355237637685643
+   }
+  },
+  "garden_r30k": {
+   "scene": "garden",
+   "ckpt": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_garden_30k/checkpoints/iter_30000.pt",
+   "n_tiles": 240,
+   "M_median": 267.0,
+   "M_min": 31,
+   "M_max": 2253,
+   "dispatch_overhead_ms": 0.01228800043463707,
+   "intrinsic_gamma": {
+    "R4": 40.04761941059199,
+    "R8": 36.56521662107067,
+    "R16": 28.26890839538533
+   },
+   "per_tile_gamma": {
+    "R4": 2.3568253127185583,
+    "R8": 2.3844215393084727,
+    "R16": 2.1638808436817
+   },
+   "h_overhead_per_tile": 0.026490067980253853,
+   "S_measured_zero_idealh": {
+    "R4": 2.3568253127185583,
+    "R8": 2.3844215393084727,
+    "R16": 2.1638808436817
+   },
+   "S_measured_with_h": {
+    "R4": 2.2183295365569213,
+    "R8": 2.2427609344369532,
+    "R16": 2.04656875825956
+   }
+  }
+ },
+ "aggregate_intrinsic_gamma": {
+  "R4": {
+   "min": 10.433735267171851,
+   "median": 26.369047660294544,
+   "max": 78.57142876941381
+  },
+  "R8": {
+   "min": 9.413043450752523,
+   "median": 24.076086268813096,
+   "max": 70.21276354640071
+  },
+  "R16": {
+   "min": 7.338982970375076,
+   "median": 18.651403077987567,
+   "max": 55.00000109139367
+  }
+ },
+ "aggregate_per_tile_gamma": {
+  "R4": {
+   "min": 1.544358186163064,
+   "median": 1.768334587908591,
+   "max": 2.3568253127185583
+  },
+  "R8": {
+   "min": 1.5068162587760354,
+   "median": 1.821007293490029,
+   "max": 2.3844215393084727
+  },
+  "R16": {
+   "min": 1.4271578067978181,
+   "median": 1.6473354679052272,
+   "max": 2.1638808436817
+  }
+ },
+ "aggregate_S_measured_with_h": {
+  "R4": {
+   "min": 1.2968256443931063,
+   "median": 1.4525001522004208,
+   "max": 2.2183295365569213
+  },
+  "R8": {
+   "min": 1.2702502863319793,
+   "median": 1.4874026776162452,
+   "max": 2.2427609344369532
+  },
+  "R16": {
+   "min": 1.1990023866553228,
+   "median": 1.3770214039519244,
+   "max": 2.04656875825956
+  }
+ },
+ "aggregate_h_overhead_per_tile": {
+  "min": 0.026490067980253853,
+  "median": 0.11880488089210517,
+  "max": 0.1333333360281324
+ },
+ "findings": [
+  "Intrinsic (launch-free) per-element math gamma ~ M_rep/R (representative-tile Gaussian count / rank), ranging ~1.3x (room, low-M) to ~78x (bicycle, high-M). This is the MATH lower bound, NOT achievable by a per-tile renderer.",
+  "Per-tile (256px, launch-bound) gamma collapses to ~1.4-2.4x across scenes/ranks; measured per-tile speedup with dispatch overhead S~1.2-2.2x (rank-4 best), far below the plan 3x target.",
+  "Higher rank does NOT monotonically improve per-tile S (non-monotonic), consistent with G1 Jacobian non-monotonicity."
+ ],
+ "verdict": "G3_PARTIAL_MEASURED_NOT_A_3X_SPEEDUP: per-tile launch-bound overhead caps speedup well below 3x; recovering headroom needs batching/fusion (G4) and a full spatial-tree cost model (not implemented).",
+ "scope_note": "G3 measures a LOCAL per-tile kernel ratio, NOT an end-to-end renderer speedup. NOT reported as a speedup claim."
+}

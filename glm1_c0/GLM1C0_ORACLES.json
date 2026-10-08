@@ -1,0 +1,50 @@
+{
+  "anti_overcount_rule": "visible-mature Gaussians MUST still render forward, produce visibility, contribute to loss, and contribute densification stats; only parameter-update omission is guaranteed. O3 backward is a MODELED upper bound.",
+  "microbench_dense_adam": {
+    "N": 835653,
+    "zero_frac": 0.82,
+    "full_step_ms_median": 2.7111999981689454,
+    "full_step_ms_min": 2.6942720413208017,
+    "zero82_step_ms_median": 2.7045119762420655,
+    "zero82_step_ms_min": 2.5694398880004883,
+    "ratio_median": 0.9975331521157494,
+    "ratio_min": 0.9536675764711879,
+    "note": "dense torch.optim.Adam over 5 full-tensor groups; zeroing 82% of row grads"
+  },
+  "microbench_interpretation": "dense torch.optim.Adam step time unchanged (ratio ~0.998) when 82% of row grads zeroed; row-skipping yields ~0 realizable wall-time saving unless a sparse optimizer is used. O1 is therefore a theoretical upper bound, NOT realizable under the current dense optimizer.",
+  "formulas": {
+    "O1": "optimizer_ms * f_cand_alive_iter * (1/cadence) / mean_iter_ms",
+    "O2": "(removable_optimizer_wall + G) / mean_iter_ms, G=0 (grad consumed by densification + dense Adam iterates all rows)",
+    "O3": "(removable_optimizer_wall + G + B) / mean_iter_ms, B = backward_ms * f_tile_mature_iter * (1/cadence) [MODELED upper bound]",
+    "S": "1/(1-O3)"
+  },
+  "scenes": {
+    "room": {
+      "removable_optimizer_wall_ms": 0.27580475725968956,
+      "removable_grad_bookkeeping_wall_ms": 0.0,
+      "removable_backward_wall_upper_ms": 1.3716198878813686,
+      "O1": 0.01592558132936464,
+      "O2": 0.01592558132936464,
+      "O3": 0.0951259703816145,
+      "S3": 1.1051262023971804
+    },
+    "bicycle": {
+      "removable_optimizer_wall_ms": 0.779733185938503,
+      "removable_grad_bookkeeping_wall_ms": 0.0,
+      "removable_backward_wall_upper_ms": 2.5707657172348575,
+      "O1": 0.025981594762814832,
+      "O2": 0.025981594762814832,
+      "O3": 0.11164242631372559,
+      "S3": 1.1256728479844675
+    },
+    "garden": {
+      "removable_optimizer_wall_ms": 0.9199954402877191,
+      "removable_grad_bookkeeping_wall_ms": 0.0,
+      "removable_backward_wall_upper_ms": 3.6031718850100165,
+      "O1": 0.03124027888703062,
+      "O2": 0.03124027888703062,
+      "O3": 0.15359316199525283,
+      "S3": 1.18146493518096
+    }
+  }
+}

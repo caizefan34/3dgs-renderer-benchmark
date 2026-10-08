@@ -1,0 +1,115 @@
+{
+  "artifact": "PAPER1_OPEN_GAPS",
+  "schema": "paper1-open-gaps/v1",
+  "generated_utc": "2026-10-02T09:14:00Z",
+  "gap_vocabulary": [
+    "BLOCKER",
+    "HIGH",
+    "MEDIUM",
+    "LOW"
+  ],
+  "gaps": [
+    {
+      "id": "G1",
+      "gap": "Only K50-B1 has a real full-training-step speedup; TFC/DFC/CGC/KFC/AGS are renderer-local (frozen PLY) and MUST NOT be presented as training speedups. HARDENING_V2: PBR0 1.1988x removed from production_iteration_speedup (Tier-C decomposed proxy / PBR0-M4); production TFC/DFC full-step = PENDING TFC_FC0/DFC_FC0.",
+      "severity": "BLOCKER",
+      "methods": [
+        "TFC",
+        "DFC",
+        "CGC",
+        "KFC",
+        "AGS",
+        "DFC_optimization_family"
+      ]
+    },
+    {
+      "id": "G2",
+      "gap": "No method has a measured TOTAL-training-time speedup end-to-end. HARDENING_V2: production full-step and total 30K wall-clock are Tier-A PENDING TFC_FC0/DFC_FC0; PUB0/PBR0 are Tier-C decomposed proxies and must not populate the production headline.",
+      "severity": "BLOCKER",
+      "methods": [
+        "TFC",
+        "DFC_optimization_family",
+        "K50-B1"
+      ]
+    },
+    {
+      "id": "G3",
+      "gap": "TFC_FC0 production convergence/timing PENDING (RUNNING). Total 30K wall-clock and Gaussian-count trajectory not yet measured. HARDENING_V2: TFC 1.3564x is forward-rendering-pipeline timing only; PBR0 1.1988x is a decomposed proxy, NOT production.",
+      "severity": "HIGH",
+      "methods": [
+        "TFC"
+      ]
+    },
+    {
+      "id": "G4",
+      "gap": "K50-B1 NEEDS_REVALIDATION: canonical current-pipeline revalidation, multi-seed CI, LPIPS, measured total training wall-time, Stage4B-only evidence required before MAIN_CANDIDATE->confirmed.",
+      "severity": "HIGH",
+      "methods": [
+        "K50-B1"
+      ]
+    },
+    {
+      "id": "G5",
+      "gap": "DFC family: DFC2 COMPLETED (EXECUTED EPIC-05) = DOES_NOT_GENERALIZE_UNIVERSALLY (quality-safe at fixed thresholds, but no uniform 10% workload floor across 6 held-out scenes). DFC_FC0 queued (train_dfc.py unverified). DFC1-R2 FAIL_CLOSED on dense scenes (garden 1.140x, bicycle 1.061x). Production DFC full-step = PENDING DFC_FC0.",
+      "severity": "HIGH",
+      "methods": [
+        "DFC_optimization_family",
+        "DFC2",
+        "DFC_FC0"
+      ]
+    },
+    {
+      "id": "G6",
+      "gap": "VOS ANALYSIS: Amdahl-bound (optimizer ~15-19% of step, SparseGaussianAdam O(N)); measured wall ~1.004x; no economic win; room seed-0 instability.",
+      "severity": "MEDIUM",
+      "methods": [
+        "VOS"
+      ]
+    },
+    {
+      "id": "G7",
+      "gap": "IGF/CGC/KFC/AGS DROP: real CUDA but failing economic/fidelity gates (IGF no kernel slower E2E; CGC fidelity gates fail all thresholds; KFC cannot launch on real workload 804KB shared>>164KB; AGS 0% tile reuse 2.18x slower).",
+      "severity": "MEDIUM",
+      "methods": [
+        "IGF",
+        "CGC",
+        "KFC",
+        "AGS"
+      ]
+    },
+    {
+      "id": "G8",
+      "gap": "HARDENING_V2 gradient correction: baseline self-noise (A-A) negligible/deterministic; A-vs-B gradient difference is REAL (ab_vs_aa_envelope REAL_DIFF; train cam151 ab cos 0.99939 < aa 0.99995); legacy cosine>=0.99999 gate PARTIALLY fails (TFC2 min 0.999954); NOT noise-floor-equivalent; training impact PENDING TFC_FC0.",
+      "severity": "MEDIUM",
+      "methods": [
+        "TFC"
+      ]
+    },
+    {
+      "id": "G9",
+      "gap": "Historical failed/superseded gates must be preserved (KFC0/AGS0/CGC0/IGF0/DFC0/VOS0/TFC0) - do not silently drop.",
+      "severity": "MEDIUM",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "id": "G10",
+      "gap": "Single hardware cohort (EPIC-05 A100 remote-only); no cross-GPU/cross-vendor validation; K50-B1 is multi-GPU HISTORICAL (not per-run comparable).",
+      "severity": "MEDIUM",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "id": "G11",
+      "gap": "HARDENING_V2: PBR0 1.1988x and PUB0 1.0317x/1.0539x are Tier-C decomposed proxies (PBR0-M4 / timing ledger), NOT production training speedups. Production claims deferred to Tier-A PENDING TFC_FC0/DFC_FC0.",
+      "severity": "HIGH",
+      "methods": [
+        "TFC",
+        "DFC_optimization_family"
+      ]
+    }
+  ],
+  "v2_note": "HARDENING_V2: PBR0 1.1988x de-listed from production; TFC gradient wording corrected; DFC2 reconciled to COMPLETED (measured)."
+}

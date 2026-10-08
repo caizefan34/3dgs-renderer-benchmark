@@ -1,0 +1,299 @@
+{
+  "campaign": "N1_ReBudgetGS_mechanism_measurement",
+  "verdict": "N1_SMALL_BUT_ACTIONABLE",
+  "required_artifacts": [
+    {
+      "file": "N1_SOURCE_IDENTITY.json",
+      "bytes": 10410,
+      "sha256": "b41b66a62a27a991a553aa168e21efd283e709757004182d2ff839cbbfc01f99",
+      "description": "Frozen sources + snapshot-run provenance (merged scenes)."
+    },
+    {
+      "file": "N1_CHECKPOINT_IDENTITY.json",
+      "bytes": 15910,
+      "sha256": "fe2a1edd77895d3680020039ba78184fc5c2ec4141282e9cb779252f3c05fbe6",
+      "description": "Checkpoint hashes, restore/determinism audit results, Adam-step semantics (merged scenes)."
+    },
+    {
+      "file": "N1_PROBE_LIST.json",
+      "bytes": 740865,
+      "sha256": "fa375270f7d9d69e33399d3415e46a31e76547daf2c50710f85c54beca90ed27",
+      "description": "Frozen deterministic probe list (anchors, pools, held-out, unions) written before any gradient."
+    },
+    {
+      "file": "N1_ACTION_RESULTS.parquet",
+      "bytes": 340590,
+      "sha256": "3e1130ab4842217f27905186f5912a07d13537c29c52dc02770ee04f53b65a3b",
+      "description": "4,608 counterfactual action rows (A0, A1 x3 replicas, A2_random, A2_pool x7)."
+    },
+    {
+      "file": "N1_ACTION_TIMING.json",
+      "bytes": 14897,
+      "sha256": "ee8b76e7ba74e995a3dee197dc64d374db9faccdfd41f04d2b302b02e8b14a6d",
+      "description": "Stage-3 timing: 10 warm-ups + 30 repeats per (scene, ckpt, action), CUDA-event phases."
+    },
+    {
+      "file": "N1_GRADIENT_CONFLICT.parquet",
+      "bytes": 325800,
+      "sha256": "de7dd1fdcdbcde9fe5eb6d1e046c9a191f9dd684ee73d12b9683179166ad7740",
+      "description": "2,688 true-gradient pair metrics (per-group/global cosines, norm ratios, visibility Jaccard)."
+    },
+    {
+      "file": "N1_SKETCH_PREDICTIVITY.json",
+      "bytes": 3130,
+      "sha256": "b62c8a8a6c703191f37449d94a7659cfa470c261eceef23c0474b8c0143ce30b",
+      "description": "Stale vs fresh sketch Spearman against true-gradient disagreement, per scene/checkpoint/tier."
+    },
+    {
+      "file": "N1_ACTION_HETEROGENEITY.json",
+      "bytes": 7344,
+      "sha256": "70c1033418e18babd8323946ea519a01f6931e2a87952b11b8b4f3e5fbdf597d",
+      "description": "H1/H2/H3 gates, sigma_replica/sigma_onestep, per-checkpoint aggregates, A2-best tier histogram."
+    },
+    {
+      "file": "N1_BUDGET_FRONTIER.json",
+      "bytes": 7680,
+      "sha256": "3274ae73456c5311d16e513f98ef7958e31f80cb7e4e1370be853ab087e514a9",
+      "description": "Exact MCKP frontier at rho .60/.75/.90, primary + oracle-partner sets, frozen baselines, strong gate."
+    },
+    {
+      "file": "N1_CROSS_SCENE_POLICY.json",
+      "bytes": 449,
+      "sha256": "659154788750fef3bf957911f0e8f46fec800ba619d6fc1e1e428a977dd2d172",
+      "description": "Stage-6 gate record: NOT_RUN_GATE_FAILED (strong gate failed on bicycle)."
+    },
+    {
+      "file": "N1_CONTAMINATION.json",
+      "bytes": 9107,
+      "sha256": "004718e34335b241d246fd81f318c4423249adf4346a7b69c5abeb32a723e391",
+      "description": "GPU/uptime/process snapshots around the campaign; contamination audit."
+    },
+    {
+      "file": "N1_VERDICT.json",
+      "bytes": 4236,
+      "sha256": "9de4e1f5622d30ff7aa85c229f2ac4fe3a8303ff429550e52ab8384434c97616",
+      "description": "Prereg section-11 rule chain with evidence: N1_SMALL_BUT_ACTIONABLE."
+    },
+    {
+      "file": "N1_REPORT.md",
+      "bytes": 10328,
+      "sha256": "e96e10de4bc5b5c02d6fb0edbda7d50deb027ba8c3f588d8f254b727d475033b",
+      "description": "Final N1 report."
+    },
+    {
+      "file": "MANIFEST_N1.json",
+      "sha256": "self-referential",
+      "description": "This file."
+    }
+  ],
+  "supporting_evidence": [
+    {
+      "file": "N1_SPEC_OPERATIONALIZATION.json",
+      "bytes": 10073,
+      "sha256": "64f5cb22f25c9f998a476f8f7f827d42adde65471096070b983b72747729a771",
+      "description": "Frozen operationalization (precedes all measurements)."
+    },
+    {
+      "file": "N1_AUDIT_RAW_room.json",
+      "bytes": 11414,
+      "sha256": "ad3ee5f6e3d6bcc01ebec1aa2b89fe01cca35993c18d444eb3237b2d62629b81",
+      "description": "Stage-0 raw audit, room."
+    },
+    {
+      "file": "N1_AUDIT_RAW_bicycle.json",
+      "bytes": 11446,
+      "sha256": "224fc2e528c389e463873603d095cd2e56ae2a6c4ff9b8e608b39441ded31106",
+      "description": "Stage-0 raw audit, bicycle."
+    },
+    {
+      "file": "N1_SOURCE_IDENTITY_room.json",
+      "bytes": 4590,
+      "sha256": "e27391c87f5682e08aabe4eaa498318becd6533ba2cb6616f4ba9f76bfb4307f",
+      "description": "Per-scene source identity, room."
+    },
+    {
+      "file": "N1_SOURCE_IDENTITY_bicycle.json",
+      "bytes": 4596,
+      "sha256": "125aeb5e536662fc3ce70e4064958fa743b8b88ef4035868a55653c0fa246092",
+      "description": "Per-scene source identity, bicycle."
+    },
+    {
+      "file": "N1_CHECKPOINT_IDENTITY_room.json",
+      "bytes": 6549,
+      "sha256": "02688d690c36e69160e1acedaa0bd3e4f2caf509f072134f7bae98871eb9157a",
+      "description": "Per-scene checkpoint identity, room."
+    },
+    {
+      "file": "N1_CHECKPOINT_IDENTITY_bicycle.json",
+      "bytes": 6578,
+      "sha256": "0255e3ac6926c32b4fba3c308b6218316b6617969fb608d726e8b795a3b0420a",
+      "description": "Per-scene checkpoint identity, bicycle."
+    },
+    {
+      "file": "N1_ACTION_RESULTS_room.json",
+      "bytes": 1722841,
+      "sha256": "c3e6cb5e749f625889c2b0a11fa7b2dd0a6de72d027b636a7fc7a12056da798c",
+      "description": "Raw action rows, room (JSON backup of parquet subset)."
+    },
+    {
+      "file": "N1_ACTION_RESULTS_bicycle.json",
+      "bytes": 1724709,
+      "sha256": "50ef03fff17eae103580e87aa5c71b95cc87ccf2f90ebe57b141a7c8a08524a1",
+      "description": "Raw action rows, bicycle."
+    },
+    {
+      "file": "N1_ACTION_TIMING_room.json",
+      "bytes": 6290,
+      "sha256": "b7296dfbc66eea68e4df8789ed1d0a51881fd0919cda6d3187feaec8cbf22fcc",
+      "description": "Per-scene timing, room."
+    },
+    {
+      "file": "N1_ACTION_TIMING_bicycle.json",
+      "bytes": 6275,
+      "sha256": "d4820a1da62bd4530e033abfadece2cf4c36726be368bdd2d4f8aa1736852c6d",
+      "description": "Per-scene timing, bicycle."
+    },
+    {
+      "file": "N1_GRADIENT_CONFLICT_room.json",
+      "bytes": 1091568,
+      "sha256": "5b2f23a856a30e962018aff82d00ed0edf1c99c6fc2a2d0ee84122cb096ee532",
+      "description": "Raw conflict rows, room."
+    },
+    {
+      "file": "N1_GRADIENT_CONFLICT_bicycle.json",
+      "bytes": 1099591,
+      "sha256": "e21cdcd664a0e9dcecf05fe7be4f57c61dc467fc9379a8ea1247f13d5fdb8eb4",
+      "description": "Raw conflict rows, bicycle."
+    },
+    {
+      "file": "N1_SKETCHES_room.npz",
+      "bytes": 4079612,
+      "sha256": "7e9eff1329b56879001add41f36edeb8c7bfd48dd21452d69a281c6ac964cb8d",
+      "description": "1,014 sketches (1024-dim) at 10/15/20/25K, room."
+    },
+    {
+      "file": "N1_SKETCHES_bicycle.npz",
+      "bytes": 2864257,
+      "sha256": "87e862f95fd9ad8048855e8916e1af8205c93172b817a75e08c741bbf8036caf",
+      "description": "712 sketches (1024-dim) at 10/15/20/25K, bicycle."
+    },
+    {
+      "file": "N1_VIEW_LOSSES_room.json",
+      "bytes": 35816,
+      "sha256": "abcfeadca33d68642f209320b716fc0ee4bcd6900c4c979fb8b6617bb354be71",
+      "description": "Per-view fused losses at each snapshot (EMA chain), room."
+    },
+    {
+      "file": "N1_VIEW_LOSSES_bicycle.json",
+      "bytes": 24220,
+      "sha256": "09123ca8c72255414731a3a0498ed6fb8df1e2cdf12144955279848ef20e95b0",
+      "description": "Per-view fused losses at each snapshot (EMA chain), bicycle."
+    }
+  ],
+  "scripts_and_specs": [
+    {
+      "file": "publication_trainer_p12_n1snap.py",
+      "bytes": 44855,
+      "sha256": "49a79538d5418cdf795b8a8f9919b2e3f9bc5f7550c7f966b030e3ae14d8dbf4",
+      "description": "Snapshot trainer (save-only edit of frozen P12 trainer)."
+    },
+    {
+      "file": "n1_core.py",
+      "bytes": 15099,
+      "sha256": "f8a0de50585b0d847a3669b551c65da43ec47308114a0bdb1eb5a4f99f564b8e",
+      "description": "Probe core: bootstrap_c0, fused loss, render, StateMaster, Sketcher."
+    },
+    {
+      "file": "n1_stage1_probes.py",
+      "bytes": 10318,
+      "sha256": "b942ac78e65b582d476341a2205d7170d6b44136a1911f38c9e7644dc60f5045",
+      "description": "Stage-1 probe-list builder."
+    },
+    {
+      "file": "n1_stage0_audit.py",
+      "bytes": 11812,
+      "sha256": "51822090b376cef10533e59cc93727750728abf7afe90d59e92c1eb52ed1b07c",
+      "description": "Stage-0 audit."
+    },
+    {
+      "file": "n1_pass_grads.py",
+      "bytes": 8460,
+      "sha256": "e94e073f3a2217e87bd041e06cd22c59b0cfb0d95c799502a28230a0674f553b",
+      "description": "Stage-2a/2b pass (sketches + conflict ground truth)."
+    },
+    {
+      "file": "n1_pass_actions.py",
+      "bytes": 8693,
+      "sha256": "6f62c5d443b3ac7fbfddc897e9c1148d13dea46e47ca158f6673b1f27c07fe34",
+      "description": "Stage-2c counterfactual action pass."
+    },
+    {
+      "file": "n1_stage3_timing.py",
+      "bytes": 5848,
+      "sha256": "060c1c63f20cb9f318044af5a7fe76e17c04ef388c8b764cd525fa2e3826b47f",
+      "description": "Stage-3 timing pass."
+    },
+    {
+      "file": "n1_stage455_analysis.py",
+      "bytes": 16148,
+      "sha256": "b92d4f7636e9255c124b7ba0b67d0ad23c7f9cf7bae83cfe9d43606dc866b7a3",
+      "description": "Stages 4+5 analysis (H1/H2/H3, sketches, frontier)."
+    },
+    {
+      "file": "n1_finalize.py",
+      "bytes": 15469,
+      "sha256": "b958ac335e7f9d09aa0eb9d182b5ac7da32b4bcad98f9dfc827b7de2f8f2e0e9",
+      "description": "Merges, parquet serialization, verdict."
+    },
+    {
+      "file": "n1_manifest.py",
+      "bytes": 5933,
+      "sha256": "e4c6458f5cfb786657ebcb97e846057607ceb219cfc8ef258a8b5cfe245c7bd3",
+      "description": "Manifest builder (this run)."
+    }
+  ],
+  "contamination_csvs": [
+    {
+      "file": "cont_gpu_start.csv",
+      "bytes": 832,
+      "sha256": "0e4046eadaaf2bde71a0f8d20f1e169112b193df153d8319abd7232c804ed32d",
+      "description": "GPU snapshot at campaign start."
+    },
+    {
+      "file": "cont_stage23_end.csv",
+      "bytes": 312,
+      "sha256": "f8a7f37d466e15591166e37d5842826a1cc7529fce38b59aa4d2c6e15266dbdb",
+      "description": "GPU snapshot at Stage 2+3 pipeline end."
+    },
+    {
+      "file": "cont_campaign_end.csv",
+      "bytes": 312,
+      "sha256": "96dd965172bca3df21ad41a2f811b2319fa0bd7930a8d49891a470e83beb59f8",
+      "description": "GPU snapshot at campaign end."
+    },
+    {
+      "file": "cont_timing_room_start.csv",
+      "bytes": 316,
+      "sha256": "8fa73cd6b027385d6614cb58f35aa58064fe772ce0a23eb8a1558343614602bb",
+      "description": "GPU snapshot at room timing start."
+    },
+    {
+      "file": "cont_timing_room_end.csv",
+      "bytes": 320,
+      "sha256": "da47ba3025e2e3468cb3f856bbbb77a3df078fc5fd6c9f3b81e939ba78c72113",
+      "description": "GPU snapshot at room timing end."
+    },
+    {
+      "file": "cont_timing_bicycle_start.csv",
+      "bytes": 312,
+      "sha256": "2d9ec86088fd595949e94d08521ba3b4a62a7385f70fe18c68d3f2911d9953d3",
+      "description": "GPU snapshot at bicycle timing start."
+    },
+    {
+      "file": "cont_timing_bicycle_end.csv",
+      "bytes": 316,
+      "sha256": "6f2da89a3655888d7a41e02c05a921022cb673926325405f326604740346ce40",
+      "description": "GPU snapshot at bicycle timing end."
+    }
+  ]
+}

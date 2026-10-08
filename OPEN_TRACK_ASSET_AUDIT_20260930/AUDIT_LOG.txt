@@ -1,0 +1,108 @@
+MANIFEST VERIFICATION
+  Deliverable set hashed into MANIFEST.sha256 (6 files). Verification tool: this Windows
+  host has no GNU coreutils `sha256sum` binary; equivalent verification performed with
+  PowerShell Get-FileHash -Algorithm SHA256 over MANIFEST.sha256 entries.
+  RESULT: 6/6 OK, 0 mismatches.
+
+==================================================================
+OPEN-TRACK FROZEN ASSET AUDIT — AUDIT LOG
+Audit date (client tz Asia/Shanghai): 2026-09-30
+Audit UTC: 2026-09-30T02:32:50Z
+==================================================================
+
+GLOBAL IDENTITY
+  audit_host        : EPIC-05 (authoritative)
+  hostname          : dsw-933622-64cc845c7d-lqswc
+  host_addr         : 8.130.30.251:1024 (user root, key ~/.ssh/epic-node-new)
+  gpu               : 8x NVIDIA A100-SXM4-80GB (driver 570.133.20)
+  torch / cuda      : 2.9.1+cu128 / 12.8 (cudnn 91002)
+  python            : /root/miniforge3/envs/gsplat/bin/python (3.10)
+  access method     : BatchMode SSH from local Windows host (Giannis)
+
+CONSTRAINTS HONORED
+  - No scientific experiments run.
+  - No checkpoints regenerated.
+  - No frozen binaries modified.
+  - audit/Q0/VOS/p13x artifacts NOT substituted for canonical.
+  - Old malformed 63-hex prereg literal NOT treated as matched.
+  - No scientific verdict issued by this audit.
+
+------------------------------------------------------------------
+STEP 1 — Global identity + frozen binary verification (live sha256sum)
+------------------------------------------------------------------
+  core gsplat_cuda.so          935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e  MATCH (size 90,249,072)
+  C0 extension .so             d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11  MATCH (size 1,976,784)
+  fused_ssim_cuda.so           dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb  MATCH
+  P12 publication trainer       675b0267f3a1a6a0fa63fadb37c8536481c1c7a6de37a4b7f6ffa98a449050c5  MATCH
+  publication trainer (AB0)      1b67171d93bc1632d94f4b63e0db9bc859c27309eb45d935bcd1d6f27c7dac4f  MATCH
+  gaussian_model.py             68731e375013a6f24aa4d81e5986402b1ac50f51cddf20688e358be705b1a60b  MATCH
+  config.py                     ea8e870476a3ba71c0ae9e1123a6fa5b1cf696bad983bdb6535d6fd04b7acc56  MATCH
+  colmap_reader.py              b30a2a345f7f37cdf3087298750d714d7117e1e93ad742e766075be304729b1b  MATCH
+  RESULT: 8/8 frozen binaries MATCH authoritative pins.
+
+------------------------------------------------------------------
+STEP 2 — Filesystem checkpoint discovery (find /root)
+------------------------------------------------------------------
+  Enumerated ckpt_*.pt, *.pth, point_cloud/*.ply, iteration_* dirs.
+  Canonical C0 trajectory lives in /root/epic05_n1/runs/n1snap_c0f_s42_{room,bicycle}/.
+  5K exists ONLY as: epic05_h0r5k/r5k_c0f_s42_* (regenerated) and /root/vos_traces/* (Q0/other renderer).
+  30K full30k/c0_s42_{room,bicycle} present but NOT provenance-pinned (see PC-05).
+
+------------------------------------------------------------------
+STEP 3 — Provenance manifest discovery
+------------------------------------------------------------------
+  Found 50+ SOURCE_IDENTITY/CHECKPOINT_IDENTITY artifacts. Independent provenance for
+  canonical C0 cells corroborated by: CVT0, MG0, N1, N1D, A0, P8-C0 identity files.
+
+------------------------------------------------------------------
+STEP 4 — Extract checkpoint provenance records
+------------------------------------------------------------------
+  room    10K 9aa00f0d… 15K b276b338… 20K c4e41cfe… 25K b31e5a6b…
+  bicycle 10K 26bf0b95… 15K 273971d3… 20K 96f136cb… 25K 73ae5436…
+  H0-R5K regen 5K: room 4295f6df… / bicycle f41709da… (identity MISMATCH vs canonical).
+
+------------------------------------------------------------------
+STEP 5 — Verify canonical checkpoints: physical presence + live sha256
+------------------------------------------------------------------
+  room    10K PRESENT 511677301  9aa00f0ddf28b6c097e3dc8f41dbb107cd9bf175750503dc330aa1d6ab579fc4  MATCH
+  room    15K PRESENT 606090037  b276b338f5a444d8ea1be390d21fd3e67679b7d862652f0babd131db9434e5dd  MATCH
+  room    20K PRESENT 606090037  c4e41cfef79e50980406fc1fa148af8d04bc8b37b801c36da5cddb2ce8058718  MATCH
+  room    25K PRESENT 606090037  b31e5a6b0e733911b736bbad2e4f9d4d804d5929655f64efb51a9e5132fc047d  MATCH
+  bicycle 10K PRESENT 2131860853 26bf0b959f10f0ce526c496d0dc7ca8e62b0ba93efc83d58b7f9440d58c2f4e9  MATCH
+  bicycle 15K PRESENT 2631295477 273971d3867c1d2a08b7246803265539d74756b8eca4e3f01c6a8d149b7fd6f7  MATCH
+  bicycle 20K PRESENT 2631295477 96f136cb331a19900a41a516d53314d522b4de5a3250ddbba8a232b610b398f0  MATCH
+  bicycle 25K PRESENT 2631295477 73ae5436cc44a2c25dca26cb226e522047465e65b671717ac043578cbd7e21ea  MATCH
+  room    5K  PRESENT 367056920  4295f6df… (REGENERATED_NONCANONICAL, H0-R5K identity FAIL)
+  bicycle 5K  PRESENT 1338644312 f41709da… (REGENERATED_NONCANONICAL, H0-R5K identity FAIL)
+  RESULT: 8/8 canonical C0 cells physically present AND hash-matched. Canonical 5K ABSENT.
+
+------------------------------------------------------------------
+STEP 6-7 — EM0 / ET0 / CR0 / H0 / AB0 / SG0 evidence
+------------------------------------------------------------------
+  EM0_DIRECTIONS.json / EM0_SOURCE_IDENTITY.json: NOT FOUND anywhere on EPIC-05.
+  ET0: no verdict/report/prereg (scripts only). CR0: no dir/verdict/prereg.
+  H0_VERDICT.json (offline): listed 5K/15K/25K missing -> 15K/25K now SUPERSEDED (present); 5K still absent.
+  H0_R5K_IDENTITY.json: regenerated 10K/15K/20K/25K MISMATCH canonical 8/8.
+  AB0_VERDICT.json (offline): 5K/15K absent -> 15K now SUPERSEDED (present); 5K still absent.
+  SG0_VERDICT.json: SG0_BASELINE_UNSTABLE (completed; do not rerun).
+  H0-FROZEN prereg present; canonical 15K/25K all present+verified.
+
+------------------------------------------------------------------
+STEP 8-11 — Per-track status + 30K provenance
+------------------------------------------------------------------
+  CVT0=CVT0_DROP(done) | IG0=CPU_PASS/GPU probes pending | S0=IN_PROGRESS(1 cell)
+  ET0=NOT_EXECUTED(no prereg) | EM0/CR0=BLOCKED(upstream ET0 artifacts absent)
+  H0=BLOCKED(5K absent) | H0-R5K=CLOSED(immutable identity fail)
+  H0-FROZEN=RUNNABLE(15K/25K verified) | AB0=BLOCKED(5K absent)
+  SG0=COMPLETED | SG0-E10=RUNNABLE(10K verified; needs NEW prereg)
+  full30k c0 30K: present, NOT provenance-pinned (AUDIT_ONLY_UNPINNED).
+
+==================================================================
+RESULT SUMMARY
+  Canonical C0 (provenance-verified, hash-matched): room+bicycle @10K/15K/20K/25K.
+  Canonical 5K: ABSENT. EM0/CR0 upstream ET0 artifacts: ABSENT.
+  Preliminary matrix (offline) SUPERSEDED on 10K/15K/20K and H0 15K/25K existence.
+  asset_status: CVT0=COMPLETED, IG0/S0/ET0/H0-FROZEN/SG0-E10=RUNNABLE,
+                EM0/CR0/H0/AB0=BLOCKED_MISSING_FROZEN_INPUTS, H0-R5K=CLOSED, SG0=COMPLETED.
+  No scientific verdict issued. Audit complete.
+==================================================================

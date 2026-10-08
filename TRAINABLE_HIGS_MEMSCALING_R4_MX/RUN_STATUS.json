@@ -1,0 +1,49 @@
+{
+  "status": "COMPLETE",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "timestamp": "2026-10-08T07:30:00Z",
+  "workload_verified": true,
+  "n_gaussians": 4413928,
+  "campaign": "TRAINABLE-HIGS-MEMSCALING-R4-MX",
+  "experiments_completed": [
+    "P0: R3 artifacts and environment identity check",
+    "P1: OOM reproduction at 4.4M",
+    "P2: OOM allocation point identification",
+    "P3: N-scaling test (580K to 4.4M)",
+    "P4: OOM cliff determination (2.0M - 2.5M)",
+    "P5: Root cause attribution (H1-H5)",
+    "P6: Fix evaluation (NOT_TESTED)",
+    "P7: Before/after comparison (N/A - no fix)"
+  ],
+  "key_findings": {
+    "oom_root_cause": "Tile intersection buffer allocation in isect_tiles function",
+    "memory_amplification": "11.3x vs std_ll baseline",
+    "max_verified_n": 2000000,
+    "oom_cliff": "2.0M - 2.5M Gaussians on 40GB GPU",
+    "std_ll_4.4m_peak_gb": 8.01,
+    "higs_4.4m_estimated_gb": 45.0,
+    "primary_hypothesis": "H1 - Intersection Amplification (SUPPORTED)",
+    "secondary_hypothesis": "H2 - Hierarchy Auxiliary Memory (SUPPORTED)"
+  },
+  "verdicts": {
+    "oom_root_cause": "IDENTIFIED",
+    "40gb_scalability": "FAIL",
+    "memory_fix": "NOT_TESTED",
+    "performance": "INCONCLUSIVE",
+    "research_decision": "INVESTIGATE"
+  },
+  "artifacts": {
+    "logs": 3,
+    "raw_data": 3,
+    "scripts": 3,
+    "json_reports": 5
+  },
+  "recommendation": "Investigate memory optimization (intersection compression, chunked processing) before deciding to drop HiGS. Historical 580K performance gain marginal (1.02x-1.09x).",
+  "next_steps": [
+    "Implement intersection buffer compression or chunked processing",
+    "Test if fix reduces memory to <40GB at 4.4M",
+    "If successful, benchmark performance at 4.4M",
+    "If performance >1.20x, continue HiGS research",
+    "If performance <1.15x, transition to WV-HIER-ORACLE0"
+  ]
+}

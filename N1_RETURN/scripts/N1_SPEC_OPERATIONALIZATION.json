@@ -1,0 +1,62 @@
+{
+  "campaign": "N1_ReBudgetGS_mechanism_measurement",
+  "doc": "N1 operationalization spec — FROZEN 2026-09-28 BEFORE any probe gradient was computed (Stage 1 probe list built first; Stage 2 measurements start only after this file exists on the execution host). This file fixes every under-specified detail of N1_PREREG.md sections 3-10 so that no post-hoc choice can react to bicycle results.",
+  "frozen_date": "2026-09-28",
+  "state_and_actions": {
+    "probe_states": "real P12/C0 snapshots at 10000/15000/20000/25000 produced by publication_trainer_p12_n1snap.py (save-only edit of the frozen P12 trainer, sha256 recorded in N1_SOURCE_IDENTITY) with the canonical argv semantics: --arm c0 --eps2d 0.3 --loss fused, seed 42, 25000 iterations. The canonical p12a runs saved only ckpt_30000.pt, so mid-training states cannot be recovered from them; the prereg forbids 30K as a primary state. The snapshot runs' camera_sequence.npy is verified prefix-identical to the canonical run, and their eval PSNR/L1 trajectories at 5000/10000/15000/20000/25000 are reported against the canonical run (run-to-run atomic non-determinism makes trajectories diverge within family variation; the states are genuine P12/C0 training states, not approximations).",
+    "restore": "GaussianModel.restore + optimizer.load_state_dict + update_learning_rate(C+1) reproduces training iteration C+1 exactly; StateMaster keeps GPU-resident bit-exact copies and restores before every counterfactual action (verified bit-exact after random perturbation and after a real action in Stage 0).",
+    "A0": "forward+ fused loss on v1 only (the gating-policy information basis); no backward; no optimizer update; held-out set re-evaluated literally (state unchanged).",
+    "A1": "single-view: render v1, fused loss, loss.backward(), optimizer.step(), zero_grad(set_to_none=True) — exactly the trainer's iteration C+1 minus densification (post-densification phase).",
+    "A1_replicas": "3 independent executions per anchor from the restored state (execution non-determinism only).",
+    "A2_random": "equal-weight two-view minibatch with the preregistered deterministic partner: render v1, (0.5*L1).backward(); render v2, (0.5*L2).backward(); one optimizer.step(). Sequential forward/backward per view with gradient accumulation equals the joint minibatch gradient and is safe for the stateful HIGS dynamic scene (each backward immediately follows its own forward; parameters unchanged between the two renders).",
+    "A2_best": "diagnostic oracle: the A2 action evaluated with EACH of the 7 pool partners; best by held-out progress-per-time. Never a production feature.",
+    "heldout": "8 cameras per scene, frozen in N1_PROBE_LIST.json, excluding every anchor and partner view of that scene. Metrics: mean L1, mean fused training loss (primary), mean PSNR. Delta_L(a) = fused_before - fused_after(a); fused_before computed once per (scene, checkpoint) (state identical across its anchors)."
+  },
+  "timing": {
+    "protocol": "per (scene, checkpoint, action type): anchor 1 of that checkpoint (its v1 and, for A2, its A2-random partner), 10 warm-ups + 30 timed repeats, each repeat from the restored state (restore not timed), CUDA events for phases + host wall for total; no profiler; GPU otherwise idle.",
+    "T_a_definition": "T(a) = median total of the 30 repeats, EXCLUDING held-out evaluation and state restore (measurement overhead, not action work); includes all forward/loss/backward/optimizer work of the action. T(A2-best) := T(A2) (partner-selection cost excluded: oracle).",
+    "costs_in_frontier": "C_i(a) = T(a) per (scene, checkpoint(C_i), action) — constant within a cell. Secondary frontier with per-anchor Stage-2 single-shot walls reported for robustness.",
+    "gating_overhead": "A0's forward+loss timing is the gating-cost basis (recorded); the prereg note 'the final method must count gating overhead' is honored by reporting it separately."
+  },
+  "efficiency_and_gates": {
+    "E": "E(a) = Delta_L(a) / T(a); E(A0) := 0 by definition (no update).",
+    "noise_floor": "sigma_replica(scene, checkpoint) = 1.4826 * median over anchors of MAD of {Delta_L(A1_k)}_{k=1..3} (robust scale of replica spread).",
+    "H1": "anchor is a skip opportunity iff Delta_L(A1) <= 0 OR Delta_L(A1) <= 0.10 * sigma_replica. Gate: >=20% of anchors per scene (pooled over the 3 checkpoints). Descriptive only. Secondary statistic reported: Delta_L(A1) <= 0.10 * sigma_onestep, sigma_onestep = std of Delta_L(A1) across anchors within (scene, checkpoint).",
+    "H2": "anchor counts iff ALL: Delta_L(A1) > 0; E(A2-best) >= 1.20 * E(A1); Delta_L(A2-best) - Delta_L(A1) > sigma_replica. Gate: >=15% of anchors in EACH scene.",
+    "H3": "prefer(a) = argmax over {A0: 0, A1: E(A1), A2-best: E(A2-best)} with first-occurrence tie-break in order (A0, A1, A2best); ties are measure-zero. Gates per scene: >=15% prefer A0; >=30% prefer A1; >=10% prefer A2-best. If one action dominates >90%, dynamic allocation is weakly motivated.",
+    "aggregates": "per (scene, checkpoint) and per scene: median, 10%-trimmed mean, and sign rate of Delta_L for every action; A1 replica spread; A2-best best-tier distribution."
+  },
+  "sketch": {
+    "projection": "dense Rademacher, 256 rows per group, groups (xyz; opacity; scale+rotation; SH), signs from per-(group, chunk) seeded CUDA generators (seed stream frozen globally, N1_SEED=20260928); group sketches L2-normalized then concatenated (1024-dim). No learned projection. Sketch of a view = projection of that view's true fused-loss gradient at the given state.",
+    "stale": "sketches from checkpoint C-5000 (SKETCH_SRC map; the 10000 source for 15000 anchors spans the last densification events — reported per checkpoint). fresh control = sketches at C itself.",
+    "predictivity": "predicted disagreement = 1 - cos(sketch_v1, sketch_partner) (concatenated unit-normalized); actual = 1 - global-normalized cosine of the current true gradients (Stage 7 ground truth). Primary: Spearman over all (anchor, partner) pairs per scene (7 pairs/anchor); also per overlap tier and per checkpoint; fresh-sketch control reported. scipy.stats.spearmanr."
+  },
+  "frontier": {
+    "assignment": "exact multiple-choice knapsack (DP over a 0.01 ms cost grid) maximizing sum Delta_L_i(a_i) subject to sum C_i(a_i) <= rho * sum C_i(A1), rho in {0.60, 0.75, 0.90}, per scene over its 192 anchors. PRIMARY action set {A0, A1, A2_random} (production-representative), labeled OFFLINE_ASSIGNMENT_UPPER_BOUND. Diagnostic variant {A0, A1, A2_best} labeled OFFLINE_ASSIGNMENT_ORACLE_PARTNER_UPPER_BOUND.",
+    "baselines": "(a) all-A1; (b) best fixed random 0/1 mixture: fractions on a 0.001 grid meeting the budget exactly, expected progress = f1 * sum Delta_L(A1) (Delta_L(A0)=0); (c) best fixed random 0/1/A2r mixture: 2-simplex vertex/edge enumeration of expected progress at budget; (d) CONTROL oracle 0/1 assignment (same MCKP over {A0, A1}) — the strictest 'best 0/1 allocation'.",
+    "gate_strong_reallocation": "both scenes at rho=0.75: assignment progress >= 0.95 * all-A1 progress AND >= 1.10 * max(baseline b, baseline d) progress at the same budget."
+  },
+  "policy_stage6": {
+    "gate": "run only if the strong reallocation opportunity passes in both scenes (prereg section 10).",
+    "features": "[loss/EMA ratio, backward age, stale-sketch disagreement with the A2-random partner, sketch age (5000 const), geometric overlap with the A2-random partner]. EMA: alpha=0.5 over the view's own fused loss evaluated at snapshots 10000/15000/20000/25000 (EMA(C) = 0.5*L(C) + 0.5*EMA(C-5000), EMA(10000)=L(10000)); loss = the A0 forward fused loss of v1 at C.",
+    "labels": "argmax E over {A0: 0, A1, A2_random} per anchor (train-scene labels only).",
+    "model": "sklearn LogisticRegression(multi_class='multinomial', solver='lbfgs', C=1.0, max_iter=1000, random_state=0); features standardized with train-scene mean/std only; executed in the p16_fastgs env (sklearn 1.9.1, python 3.11) on exported measurement files — the frozen gsplat training env is not modified beyond the documented pyarrow artifact-writer install.",
+    "decision_rule": "v_i(a) = p(a | x_i) * median_Delta_L(a; TRAIN scene); budgeted exact MCKP with the same measured costs at rho=0.75 on the TEST scene.",
+    "promising": "both transfer directions: held-out progress >= 0.90 * offline assignment upper bound AND >= 1.075 * max(fixed-01 mixture, oracle-01 assignment) at matched cost."
+  },
+  "verdict_rules": "Applied verbatim from N1_PREREG.md section 11, in order: N1_STRONG_REALLOCATION_SIGNAL; N1_MECHANISM_EXISTS_POLICY_WEAK; N1_SMALL_BUT_ACTIONABLE (>=5% matched-cost improvement over 0/1 skipping in >=1 scene and no catastrophic counterevidence); N1_NO_REALLOCATION_VALUE. N1_CHECKPOINT_BLOCKER only if a required checkpoint fails the exact-restore audit.",
+  "stop_compliance": {
+    "no_final_online_controller": true,
+    "no_full_15K_to_30K_ReBudgetGS_training": "the only trainings launched are plain frozen P12/C0 baseline runs to 25000 iterations for probe-state generation (data generation, not ReBudgetGS)",
+    "no_threshold_tuning_after_bicycle": "this file and N1_PROBE_LIST.json precede all measurements",
+    "no_learned_network": "stage 6 is a frozen linear logistic regression (diagnostic, gated)",
+    "no_renderer_change": "frozen binaries, hashes locked",
+    "no_densification_change": "probes take no densification actions (post-densification phase; last densification at 14900 < 15000)",
+    "no_garden": true
+  },
+  "environment_notes": {
+    "pyarrow": "pyarrow 25.0.1 installed with pip --no-deps into /root/miniforge3/envs/gsplat solely to serialize the preregistered .parquet artifacts; no existing package changed; training/render binaries untouched (hashes re-verified after install).",
+    "sklearn_env": "/root/miniforge3/envs/p16_fastgs (pre-existing env with sklearn 1.9.1) used only for the stage-6 logistic regression on exported feature/label files.",
+    "scipy": "1.15.3 present in the gsplat env (Spearman, trimmed means)."
+  }
+}

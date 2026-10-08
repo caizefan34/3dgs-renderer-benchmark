@@ -1,0 +1,87 @@
+{
+  "schema_version": "PROVENANCE_CONFLICTS_v1",
+  "audit_utc": "2026-09-30T02:32:23Z",
+  "summary": "The PRELIMINARY_MATRIX.json shipped in the audit bundle was generated while EPIC-05 was OFFLINE. It marked canonical 10K/15K (and for H0 15K/25K) as absent. LIVE EPIC-05 verification SUPERSEDES that evidence: canonical 10K/15K/20K/25K physically exist and are SHA256-verified. Canonical 5K remains genuinely ABSENT.",
+  "items": [
+    {
+      "id": "PC-01",
+      "topic": "canonical 10K/15K existence",
+      "preliminary_claim": "absent (PRELIM_BLOCKED) for CVT0/IG0/S0/ET0",
+      "live_evidence": "room/bicycle 10K/15K present in /root/epic05_n1/runs/n1snap_c0f_s42_{scene}/ and SHA256-match CVT0/MG0/N1/N1D provenance pins",
+      "resolution": "SUPERSEDED: assets exist and are canonical-verified",
+      "affected_tracks": [
+        "CVT0",
+        "IG0",
+        "S0",
+        "ET0",
+        "EM0",
+        "CR0"
+      ]
+    },
+    {
+      "id": "PC-02",
+      "topic": "canonical 20K existence",
+      "preliminary_claim": "absent for ET0",
+      "live_evidence": "room/bicycle 20K present and hash-matched",
+      "resolution": "SUPERSEDED: assets exist",
+      "affected_tracks": [
+        "ET0",
+        "CR0"
+      ]
+    },
+    {
+      "id": "PC-03",
+      "topic": "canonical 15K/25K for H0-FROZEN",
+      "preliminary_claim": "inconsistent / NEEDS_REMOTE_PROOF",
+      "live_evidence": "canonical room/bicycle 15K+25K present and hash-matched (MG0/N1/N1D/A0)",
+      "resolution": "RESOLVED: assets exist and are verified",
+      "affected_tracks": [
+        "H0-FROZEN"
+      ]
+    },
+    {
+      "id": "PC-04",
+      "topic": "canonical 5K existence",
+      "preliminary_claim": "absent (H0/AB0 blocked)",
+      "live_evidence": "No canonical 5K anywhere. Only H0-R5K regenerated 5K (identity FAIL) and /root/vos_traces 5K (Q0/other renderer). full30k/c0 30K exist but are NOT 5K.",
+      "resolution": "CONFIRMED ABSENT: canonical 5K does not exist; must not be reconstructed",
+      "affected_tracks": [
+        "H0",
+        "AB0",
+        "H0-R5K"
+      ]
+    },
+    {
+      "id": "PC-05",
+      "topic": "full30k c0 30K provenance",
+      "preliminary_claim": "n/a",
+      "live_evidence": "room/bicycle 30K exist physically but NO independent SOURCE_IDENTITY pins these exact hashes (only D0-trace 30K and P7B b1ae03-arm 30K are pinned, which are different arms).",
+      "resolution": "AUDIT_ONLY_UNPINNED: physically present, provenance not independently verified",
+      "affected_tracks": []
+    },
+    {
+      "id": "PC-06",
+      "topic": "cross-run reproducibility",
+      "preliminary_claim": "(in CLOSED_DIRECTIONS) non-determinism asserted",
+      "live_evidence": "H0_R5K_IDENTITY.json: regenerated 10K/15K/20K/25K MISMATCH canonical 8/8 under identical seed/recipe/frozen binaries.",
+      "resolution": "CONFIRMED: C0 training is cross-run non-deterministic; bit-exact regeneration UNSATISFIABLE. atomicAdd non-determinism is a strongly-supported mechanism, not claimed as proven sole cause absent a deterministic-accumulation intervention.",
+      "affected_tracks": [
+        "H0-R5K",
+        "H0",
+        "AB0",
+        "SG0-E10"
+      ]
+    },
+    {
+      "id": "PC-07",
+      "topic": "ET0-generated EM0 artifacts",
+      "preliminary_claim": "absent (EM0 blocked)",
+      "live_evidence": "EM0_DIRECTIONS.json and EM0_SOURCE_IDENTITY.json not found anywhere on EPIC-05; ET0 not executed.",
+      "resolution": "CONFIRMED ABSENT: EM0/CR0 remain blocked on upstream ET0 artifacts",
+      "affected_tracks": [
+        "EM0",
+        "CR0"
+      ]
+    }
+  ]
+}

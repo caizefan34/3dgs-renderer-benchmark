@@ -1,0 +1,31 @@
+{
+  "schema": "BWD_ARITH1_MECHANISM_SCALING",
+  "scenes": {
+    "room": {
+      "N_valid_G": 225030315,
+      "cache_MB": 900.1,
+      "delta_T_bwd_ms": -0.5612,
+      "delta_T_bwd_per_1e6_G_ms": -0.0025,
+      "S_backward": 0.8534,
+      "S_backward_geomean": 0.8536
+    },
+    "bicycle": {
+      "N_valid_G": 740143995,
+      "cache_MB": 2960.6,
+      "delta_T_bwd_ms": -3.3219,
+      "delta_T_bwd_per_1e6_G_ms": -0.0045,
+      "S_backward": 0.7402,
+      "S_backward_geomean": 0.7423
+    },
+    "garden": {
+      "N_valid_G": 242298908,
+      "cache_MB": 969.2,
+      "delta_T_bwd_ms": -1.0947,
+      "delta_T_bwd_per_1e6_G_ms": -0.0045,
+      "S_backward": 0.7804,
+      "S_backward_geomean": 0.7804
+    }
+  },
+  "finding": "Delta_T_bwd scales negatively (R1 slower) with N_valid_G: larger cache => more load traffic => larger backward REGRESSION. This confirms the mechanism is memory-traffic-bound (cache load), not compute-bound. The expf removal saves ~constant transcendental cost, but the strided FP32 load costs more and grows with N.",
+  "correlation": "delta_T_bwd vs cache_MB is strongly negative (more cache = more slowdown), consistent across room/bicycle/garden."
+}

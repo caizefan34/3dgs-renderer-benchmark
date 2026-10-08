@@ -1,0 +1,50 @@
+{
+  "schema": "FRONTIER_REASSESS0_APPROX_REFERENCE",
+  "date": "2026-10-07",
+  "label": "APPROXIMATE / SPARSE (not an exact method; reference only)",
+  "prior_evidence": "K50-B1 (mx_overnight_chain/_k50_mx_revalidation)",
+  "verdict": "K50_MX_FAIL_QUALITY",
+  "gate_pass": false,
+  "speedup_30k": 0.7945419970236114,
+  "per_scene_speedup": {
+    "room": 0.5655013876099364,
+    "garden": 0.9588204361734631,
+    "bicycle": 0.9250806906322057
+  },
+  "per_scene_wall_s": {
+    "room": {
+      "baseline_wall_s": 3400.916867494583,
+      "k50_wall_s": 6013.985008716583,
+      "speedup_30k": 0.5655013876099364,
+      "baseline_num_GS": 1832169,
+      "k50_num_GS": 10153767
+    },
+    "garden": {
+      "baseline_wall_s": 6875.438786745071,
+      "k50_wall_s": 7170.726162433624,
+      "speedup_30k": 0.9588204361734631,
+      "baseline_num_GS": 2356551,
+      "k50_num_GS": 3873983
+    },
+    "bicycle": {
+      "baseline_wall_s": 6731.628890991211,
+      "k50_wall_s": 7276.801860809326,
+      "speedup_30k": 0.9250806906322057,
+      "baseline_num_GS": 4182960,
+      "k50_num_GS": 6949320
+    }
+  },
+  "quality_fail_reasons_sample": [
+    "room@1000: dPSNR=-6.6306 dSSIM=-0.10667",
+    "room@5000: dPSNR=-11.6230 dSSIM=-0.16363",
+    "room@10000: dPSNR=-13.8568 dSSIM=-0.20172",
+    "room@15000: dPSNR=-15.1692 dSSIM=-0.22705",
+    "room@20000: dPSNR=-15.2795 dSSIM=-0.22268",
+    "room@25000: dPSNR=-15.3058 dSSIM=-0.22055"
+  ],
+  "quality_severity": "room dPSNR -6.6@1k to -15.3@30k; bicycle dPSNR -2.5 to -9.4; garden mixed (+1.6@30k but late). Severe regression on 2/3 scenes.",
+  "scene_consistency": "Inconsistent: garden slightly positive at long horizons, room/bicycle strongly negative.",
+  "training_evidence": "30K wall-clock on contended GPUs; quality gates (PSNR<=0.05, SSIM<=0.001) FAIL.",
+  "conclusion": "K50-B1 approximate/sparse frontier is NOT decisive on this cohort: it is SLOWER (geomean speedup 0.7945 < 1.0) AND fails quality. It does not offer materially larger validated E2E upside.",
+  "note": "Historical result not modified. Timing contended (non-exclusive); quality gates contention-independent (authoritative)."
+}

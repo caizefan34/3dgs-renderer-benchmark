@@ -1,0 +1,220 @@
+{
+  "artifact": "PAPER1_EVIDENCE_MATRIX",
+  "schema": "paper1-evidence-matrix/v1",
+  "generated_utc": "2026-10-02T09:05:49Z",
+  "mode": "read-only synthesis. NO GPU work. NO new runs. NO cohort merging.",
+  "source_of_truth": "per-method *_VERDICT.json / *_REPORT.md / *_SOURCE_LOCK.json; PAPER0_HARDENED_EVIDENCE_MATRIX.json",
+  "roles_vocabulary": [
+    "MAIN_CANDIDATE",
+    "SUPPORTING",
+    "ANALYSIS",
+    "PENDING",
+    "NEEDS_REVALIDATION",
+    "DROP"
+  ],
+  "pending_placeholders": {
+    "TFC_FC0": {
+      "status": "RUNNING (GPU work in progress; pack _tfc_fc0_pack)",
+      "role": "MAIN_CANDIDATE pending production convergence/timing",
+      "note": "Do NOT run as part of this support pack; current GPU work has priority."
+    },
+    "DFC2": {
+      "status": "PREPARED_QUEUED (no GPU executed)",
+      "role": "PENDING family member",
+      "note": "Universal fixed-threshold generalization on 6 held-out scenes; assembler self-test PASS; awaiting isolated EPIC-05 A100 node."
+    },
+    "DFC_FC0": {
+      "status": "PREPARED_QUEUED REQUIRES_VALIDATION (no GPU executed)",
+      "role": "PENDING family member",
+      "note": "train_dfc.py unverified scaffold; needs 200-iter smoke + isolated node before 30K."
+    },
+    "PUB0": {
+      "status": "COMPLETE (CPU-only bottleneck ledger)",
+      "role": "ANALYSIS",
+      "note": "Timing normalization + Amdahl ledger; authoritative current-cohort timing. Not a GPU result."
+    },
+    "PBR0_H1": {
+      "status": "COMPLETE (CPU code audit)",
+      "role": "ANALYSIS",
+      "result": "PBR0 M4 'full training step' is a decomposed stage-timing microbenchmark (sum of 3 independently-best-timed stages), NOT a production iteration. Valid for relative A/B/C footprint effect only. Reinforces the 'decomposed proxy != production full-step' rule.",
+      "evidence": "_pbr0_oracle/PBR0_H1_HARNESS_AUDIT.json, PBR0_H1_REPORT.md"
+    }
+  },
+  "do_not_silently_upgrade_rule": "No method role is upgraded until its pending gate resolves with authoritative artifacts. Roles change ONLY per explicit gates.",
+  "methods": {
+    "TFC": {
+      "current_role": "MAIN_CANDIDATE",
+      "evidence_tier": "T2_CERTIFIED_RECONCILED",
+      "canonical_implementation": "TFC1 row-wise ellipse footprint (tfc1_rowwise.cu) + TFC2 ablation kernel (tfc2_ablation.cu, ellipse-exact mode1)",
+      "canonical_source_hash": {
+        "tfc1_rowwise.cu": "a44e4ee63c7ba9d713a4489693d189cb3fd6e7ba95764e491027c0639e34e68e",
+        "tfc2_ablation.cu": "3c9b2e0a1deda28fa1521f88b054a1b670d843b1b001a12c4b1d8b5fe4e5dd81"
+      },
+      "scenes": "room,garden,bicycle,bonsai,counter,kitchen,stump,flowers,treehill,truck,train (11)",
+      "seeds": "42 (per-method)",
+      "training_convergence_status": "PENDING (TFC_FC0 full 30K not run)",
+      "workload_reduction": "intersection pooled -38.2% (11-scene); mean-per-camera reported separately",
+      "renderer_speedup": "intersect kernel 1.38x; per-scene fwd render 1.15-1.42x; fwd+bwd (footprint-stage) 1.17-1.51x, pooled e2e 1.3564x (LEGACY)",
+      "production_iteration_speedup": "current-cohort (PUB0) TFC full-step 1.0317x; PBR0 native reconciled full-step 1.1988x",
+      "total_training_speedup": "NOT_MEASURED (pending TFC_FC0)",
+      "quality": "numerically indistinguishable (PBR0 PSNR loss A->B 0.0 dB; maxabs_AB 3.2e-4; B==C bitwise). 'pixel-identical' withdrawn.",
+      "gradient_correctness": "gradient_AB_cosine_mean 0.999888 (noise floor); TFC2 min grad_cosine 0.99995 (>=0.99999 gate at noise floor, documented)",
+      "unresolved_blockers": "TFC_FC0 production convergence/timing pending; total 30K wall-clock not measured; full-convergence evidence absent",
+      "evidence": "_tfc2_oracle/TFC2_VERDICT.json, _pbr0_oracle/PBR0_VERDICT.json, _pub0_ledger/PUB0_TIMING_LEDGER.json, _tfc_fc0_pack/ (RUNNING)"
+    },
+    "K50-B1": {
+      "current_role": "NEEDS_REVALIDATION",
+      "evidence_tier": "SUPPORTED_30K_HISTORICAL",
+      "canonical_implementation": "B1 sparse-backward + densification-decoupling mask in original 3DGS CUDA rasterizer (gsplat 1.5.3)",
+      "canonical_source_hash": {
+        "note": "stage4b report-documented 6-file patch; see reports/phase-c51-stage4b.md; byte hashes recorded in K50 stage4 packs"
+      },
+      "scenes": "room,garden,bicycle",
+      "seeds": "single seed per-scene (gpu_id 1/3); no multi-seed CI",
+      "training_convergence_status": "YES_30K (C51_STAGE4B_3SCENE clean cohort)",
+      "workload_reduction": "Gaussian count ~-30% to -36% (gs_ratio room 0.698, bicycle 0.694, garden 0.643)",
+      "renderer_speedup": "n/a (backward-only method)",
+      "production_iteration_speedup": "1.082x room / 1.244x bicycle / 1.289x garden (30K full-step, Stage4B)",
+      "total_training_speedup": "IMPLIED_POSITIVE (+8.2%/+24.4%/+28.9%); no separate total-wall-clock field",
+      "quality": "PSNR +0.04..+1.03 dB, SSIM +0.0099..+0.0101 (Stage4B clean); forward bit-exact; Gate A (cosine>=0.999, skipped=0) PASS",
+      "gradient_correctness": "selected gradients exact (cosine=1.0); skipped gradients zero (B1); forward bit-exact",
+      "unresolved_blockers": "canonical current-pipeline revalidation required; multi-seed CI; LPIPS unmeasured; measured total training wall-time; Stage4B-only primary evidence (stage4a config-buggy 5K)",
+      "evidence": "reports/phase-c51-stage4b.md, _pub0_ledger/PUB0_TIMING_LEDGER.json (K50B1_HISTORICAL)"
+    },
+    "DFC1-R1_saved-T": {
+      "current_role": "SUPPORTING",
+      "evidence_tier": "SUPPORTING_PASS_CORRECTNESS",
+      "canonical_implementation": "saved-T backward fix in gsplat-dfc1r1 (RasterizeToPixels3DGSBwd.cu uses saved render_T)",
+      "canonical_source_hash": {
+        "RasterizeToPixels3DGSBwd.cu": "31c11029fa8309234a83674806a723a5785ee1d387d3181a11062850bde055f3",
+        "Fwd.cu(dfc1r1)": "70eef3d143f7e94857c04077917ce8392a68fc8faf7d8ca1a0311077743249ed"
+      },
+      "scenes": "room,garden,bicycle",
+      "seeds": "float64 CPU oracle reference",
+      "training_convergence_status": "PARTIAL_RENDERER_STEP (backward correctness; no 30K)",
+      "workload_reduction": "n/a (correctness fix, not a workload reducer)",
+      "renderer_speedup": "no standalone speedup (no-op at early-termination thresholds t>=1e-5)",
+      "production_iteration_speedup": "NOT_MEASURED",
+      "total_training_speedup": "NOT_MEASURED",
+      "quality": "gradient-cosine gate PASS everywhere; 548x grad-error reduction at t=0 (0.4324 -> 0.00079 rel-L2)",
+      "gradient_correctness": "grad_cosine at t=0 0.99999985 (dfc1r1) vs 0.99050 (dfc1old) vs 0.99999955 (stock)",
+      "unresolved_blockers": "bicycle PSNR quality gate fails at t>=1e-5 (sparse 501-G scene, needs t<1e-5); no standalone speedup; SUPPORTING only",
+      "evidence": "_dfc1r1_oracle/output/deliverables/DFC1R1_VERDICT.json"
+    },
+    "DFC_optimization_family": {
+      "current_role": "PENDING",
+      "evidence_tier": "MIXED_PENDING",
+      "canonical_implementation": "DFC1-R2 adaptive per-pixel transmittance termination (gsplat-dfc1r2adapt)",
+      "canonical_source_hash": {
+        "RasterizeToPixels3DGSFwd.cu": "d4f287449d61f094e04dcaa6d573604c39d99c81f14f67fb9bd1b22f3c0d1590",
+        "RasterizeToPixels3DGSBwd.cu": "31c11029fa8309234a83674806a723a5785ee1d387d3181a11062850bde055f3"
+      },
+      "scenes": "room,garden,bicycle (family also: 6 held-out scenes for DFC2)",
+      "seeds": "42",
+      "training_convergence_status": "PENDING (DFC2 generalization queued; DFC_FC0 full convergence queued, requires validation)",
+      "workload_reduction": "DFC1-R2: room -28.8%, garden -20.7%, bicycle -17.1% splat (best policy); DFC2 fixed-threshold splat reduction 5.8-23.4% (no universal threshold meets >=10% on all scenes)",
+      "renderer_speedup": "compositing 1.10-1.28x; raster 1.10-1.17x; DFC2 full-step per-scene 1.006-1.080x",
+      "production_iteration_speedup": "DFC1-R2 E2E room 1.206x PASS(4/8 cams); garden 1.140x, bicycle 1.061x FAIL; current-cohort (PUB0) DFC full-step 1.0539x",
+      "total_training_speedup": "NOT_MEASURED (pending DFC_FC0)",
+      "quality": "DFC2 quality PASS all 6 scenes both thresholds (PSNR loss <=5e-6 dB); DFC1-R2 fails >=1.2x gate on dense scenes; bicycle forward-quality fails at t>=1e-5",
+      "gradient_correctness": "DFC2 grad_cosine 0.99999986-0.999999999, grad_relL2 1.4e-5 to 2.9e-4 (all thresholds)",
+      "unresolved_blockers": "DFC2 DOES_NOT_GENERALIZE_UNIVERSALLY (no fixed threshold meets quality<=0.05dB AND workload>=10% on all held-out scenes); DFC_FC0 train_dfc.py unverified scaffold; DFC1-R2 dense-scene Amdahl-bound",
+      "evidence": "_dfc1r2_oracle, _dfc2_pack/DFC2_VERDICT.json, _dfc2_pack/DFC_FC0_SOURCE_LOCK.json"
+    },
+    "VOS": {
+      "current_role": "ANALYSIS",
+      "evidence_tier": "NEGATIVE_ANALYSIS",
+      "canonical_implementation": "VOS1 visibility-gated optimizer-step skip (SparseGaussianAdam, graphdeco-b0-pub)",
+      "canonical_source_hash": {
+        "note": "see vos1/VOS1_SOURCE_LOCK.json"
+      },
+      "scenes": "room,garden,bicycle",
+      "seeds": "3 seeds {0,1,42} (18 runs)",
+      "training_convergence_status": "YES_30K_MULTISEED (VOS1 hardened, true-holdout eval)",
+      "workload_reduction": "~-40.2% logical update reduction (cold_frac*(1-1/k)); AMDAHL-BOUND (optimizer ~15-19% of step, SparseGaussianAdam O(N))",
+      "renderer_speedup": "n/a (optimizer-stage only)",
+      "production_iteration_speedup": "NONE (measured wall ~1.004x; optimizer ~15% of step)",
+      "total_training_speedup": "NONE",
+      "quality": "QUALITY_FAIL: near-neutral; room seed-0 -0.271 dB instability; no wall-clock benefit",
+      "gradient_correctness": "not the failure axis (economic/Amdahl failure)",
+      "unresolved_blockers": "Amdahl-bound; SparseGaussianAdam O(N) so cutting update COUNT does not cut wall time; no economic win",
+      "evidence": "VOS0_REPORT.md, PAPER0_HARDENED, _pub0_ledger (VOS1_EPIC05)"
+    },
+    "IGF": {
+      "current_role": "DROP",
+      "evidence_tier": "NEGATIVE_DROP",
+      "canonical_implementation": "IGF1 importance-freeze scheduler (pure-PyTorch sparse step, FasterGSFused C0)",
+      "canonical_source_hash": {
+        "note": "see _igf1_pack/output/IGF1_SOURCE_LOCK.json"
+      },
+      "scenes": "room,garden,bicycle",
+      "seeds": "42; warmup 0..15000 dense, scheduled 15000..30000 frozen",
+      "training_convergence_status": "YES_30K (FasterGSFused C0)",
+      "workload_reduction": "-15..-45.8% updates",
+      "renderer_speedup": "n/a",
+      "production_iteration_speedup": "NEGATIVE (0.46-0.92x end-to-end)",
+      "total_training_speedup": "NEGATIVE",
+      "quality": "dPSNR 0.01-0.27 dB; no candidate passes both economic+quality gates",
+      "gradient_correctness": "n/a (no kernel)",
+      "unresolved_blockers": "no CUDA kernel (pure-PyTorch step slower end-to-end); importance model does not transfer across scene complexity",
+      "evidence": "PAPER0_EVIDENCE, _igf1_pack/output/IGF1_SOURCE_LOCK.json"
+    },
+    "CGC": {
+      "current_role": "DROP",
+      "evidence_tier": "NEGATIVE_DROP",
+      "canonical_implementation": "CGC1 candidate-generation/pruning CUDA kernel (EPIC-05)",
+      "canonical_source_hash": {
+        "note": "see _cgc1_kernel/output/CGC1_SOURCE_LOCK.json"
+      },
+      "scenes": "room,garden,bicycle",
+      "seeds": "42",
+      "training_convergence_status": "NO (init PLY)",
+      "workload_reduction": "-30..-55% candidates",
+      "renderer_speedup": "raster -14..-27% (slower)",
+      "production_iteration_speedup": "NOT_MEASURED",
+      "total_training_speedup": "NOT_MEASURED",
+      "quality": "fidelity gates (SSIM/grad-cos/LPIPS) fail at every threshold on every scene",
+      "gradient_correctness": "grad-cos gate fails",
+      "unresolved_blockers": "pruning fidelity fail; rasterize overhead-bound; no trained ckpt for garden/bicycle",
+      "evidence": "PAPER0_EVIDENCE, _cgc1_kernel/output/CGC1_SOURCE_LOCK.json"
+    },
+    "KFC": {
+      "current_role": "DROP",
+      "evidence_tier": "NEGATIVE_DROP",
+      "canonical_implementation": "KFC1 fused kernel (EPIC-05)",
+      "canonical_source_hash": {
+        "note": "see _kfc1_exec_pack/out/KFC1_SOURCE_LOCK.json"
+      },
+      "scenes": "room",
+      "seeds": "42",
+      "training_convergence_status": "NO (frozen ckpt)",
+      "workload_reduction": "50% analytical traffic reduction (OVERCOUNTED)",
+      "renderer_speedup": "0.98x (slower)",
+      "production_iteration_speedup": "NOT_RUN (autograd boundary blocks E2E)",
+      "total_training_speedup": "NOT_MEASURED",
+      "quality": "math identical (relL2~6e-8) where launchable",
+      "gradient_correctness": "identical where launchable",
+      "unresolved_blockers": "fused kernel cannot launch on real workload (804KB shared >> 164KB A100 max); bwd compute-bound; KFC0 DRAM claim disproven",
+      "evidence": "PAPER0_EVIDENCE, _kfc1_exec_pack/out/KFC1_SOURCE_LOCK.json"
+    },
+    "AGS": {
+      "current_role": "DROP",
+      "evidence_tier": "NEGATIVE_DROP",
+      "canonical_implementation": "AGS1 incremental tile-sort kernel (EPIC-05)",
+      "canonical_source_hash": {
+        "note": "see _ags1_sort/output/AGS1_SOURCE_LOCK.json"
+      },
+      "scenes": "room",
+      "seeds": "42",
+      "training_convergence_status": "NO (frozen ckpt)",
+      "workload_reduction": "0% tile reuse (Jaccard ~0.001)",
+      "renderer_speedup": "0.460x (2.18x slower than radix)",
+      "production_iteration_speedup": "NOT_REACHED",
+      "total_training_speedup": "NOT_MEASURED",
+      "quality": "bit-exact vs radix",
+      "gradient_correctness": "bit-exact",
+      "unresolved_blockers": "0% tile reuse; incremental repair 2.18x slower than radix; garden/bicycle ckpts missing",
+      "evidence": "PAPER0_EVIDENCE, _ags1_sort/output/AGS1_SOURCE_LOCK.json"
+    }
+  }
+}

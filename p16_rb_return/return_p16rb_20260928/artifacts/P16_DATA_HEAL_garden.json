@@ -1,0 +1,233 @@
+{
+  "artifact": "P16_DATA_HEAL_garden",
+  "date": "2026-09-28",
+  "decision": "operator-approved heal + full garden rerun (all 4 external methods + P12_C0)",
+  "corruption": {
+    "source_of_truth": "shared dataset /root/3dgs-renderer-benchmark/data/datasets/mipnerf360/garden/sparse/0",
+    "onset": "2026-09-16T20:24-20:32 rebuild; garden-only (room/bicycle/flowers/stump/treehill healthy)",
+    "symptom": "points3D.bin 1,839,236-point flat cloud (z std ~0); images.bin stripped of 2D keypoints (15,733B vs official 47,011,789B); points3D.ply same 27B/pt flat format (49,659,607B); all garden runs on the box since 9/16 trained from it",
+    "consequence": "flat-data garden records for all methods retained verbatim under runs/<method>/garden_flatdata_corrupt/ (metrics reproduced below)",
+    "pre_heal_backups": {
+      "dir": "/root/epic05_p16rb/backups/garden_corrupt_20260928",
+      "sha256sums": [
+        "f020e924d8030d06fefa059b33154223a795bed01288b2b5954bb06866b2a067  repo_sparse0/cameras.bin",
+        "32f11892a23093c8c85d7f581643a0d6a1f90c44502e80b502b80bd7b3a4d0bb  repo_sparse0/images.bin",
+        "2aada8baa1418ab6d87f448240b92e9acaf47f59ffec20482da41377d0434555  repo_sparse0/points3D.bin",
+        "2b053e7ef498e8763d5a38dedf12e082a7e7311eb6097323c0e7add20c815d6c  repo_sparse0/points3D.ply",
+        "e1e708b6ed62ef08e6d143749bb8b249ee757d43d840e752e42d37024e26b58c  common_sparse0/cameras.bin",
+        "7fc9e11f5296d45a42751fb33cf60429634f0125dedd54cc2244066f69a1c1b0  common_sparse0/images.bin",
+        "4ebf360816733df10c0a37e5e7dc4abcb97387575acb8e1648675a0ce96cb625  common_sparse0/points3D.bin",
+        "2b053e7ef498e8763d5a38dedf12e082a7e7311eb6097323c0e7add20c815d6c  common_sparse0/points3D.ply"
+      ]
+    }
+  },
+  "official_source": {
+    "url": "https://storage.googleapis.com/gresearch/refraw360/360_v2.zip",
+    "fetch_script": "/root/epic05_p16rb/scripts/fetch_garden_sparse.py",
+    "members": [
+      {
+        "name": "garden/sparse/0/cameras.bin",
+        "path": "/root/epic05_p16rb/garden_repair/official/sparse/0/cameras.bin",
+        "bytes": 64,
+        "crc32": "ea6a9299",
+        "sha256": "8472cc1a821db10de24155a120abfacec9268c39b562b924f8993ca0e0f299e4",
+        "method": 8
+      },
+      {
+        "name": "garden/sparse/0/images.bin",
+        "path": "/root/epic05_p16rb/garden_repair/official/sparse/0/images.bin",
+        "bytes": 47011789,
+        "crc32": "39f143f8",
+        "sha256": "9490fc63d509ab5bcff3d85771402dd6c623809dbf0fa250a05a29bb3cea8c41",
+        "method": 8
+      },
+      {
+        "name": "garden/sparse/0/points3D.bin",
+        "path": "/root/epic05_p16rb/garden_repair/official/sparse/0/points3D.bin",
+        "bytes": 14835394,
+        "crc32": "c7017783",
+        "sha256": "be52e343ad059bbfce00e2b22d397de75dad2d6f1ac7cf359b1b926c2b0482c8",
+        "method": 8
+      },
+      {
+        "name": "garden/images/DSC07956.JPG",
+        "path": "/root/epic05_p16rb/garden_repair/official/images/DSC07956.JPG",
+        "bytes": 11626940,
+        "crc32": "56d341c4",
+        "sha256": "4b0d24079aa8c09989cfaff67bcb1d1bd3dc4887c2b768403920ea7f6cb9f6e0",
+        "method": 0
+      }
+    ],
+    "verification": [
+      "CRC32 + size checked at fetch against the zip central directory",
+      "185/185 image names match the repo tree exactly; poses match data/official/mipnerf360/garden/cameras.json (maxdiff ~1e-16)",
+      "sample image DSC07956.JPG byte-identical to the repo copy (sha256 4b0d24079aa8c09989cfaff67bcb1d1bd3dc4887c2b768403920ea7f6cb9f6e0)"
+    ]
+  },
+  "heal_steps": {
+    "log": "/root/epic05_p16rb/logs/garden_heal.log",
+    "H1_backup": "corrupt repo+common sparse files copied to backups/garden_corrupt_20260928",
+    "H2_install": "official cameras.bin / images.bin / points3D.bin installed into repo sparse/0",
+    "H3_ply_regen": {
+      "method": "scene.dataset_readers.read_points3D_binary + storePly (FastGS loader code path)",
+      "generator_validation": "bicycle regen BYTE-IDENTICAL to shipped bicycle points3D.ply",
+      "garden_ply_bytes": 3746916,
+      "garden_ply_sha256": "3904ceabc4a1630bb0bac21fb2be5f2620dd1009b6830375e40d33de9f629b8c"
+    },
+    "H4_pycolmap": "healed repo sparse loads strictly: 185 images, 138766 points3D, PINHOLE 5187x3361",
+    "H5_restage": "garden-only p16_build_common_data.py run (argv scene filter added; report merged)",
+    "H6_verify": {
+      "repo_sparse_sha256": {
+        "cameras.bin": "8472cc1a821db10de24155a120abfacec9268c39b562b924f8993ca0e0f299e4",
+        "images.bin": "9490fc63d509ab5bcff3d85771402dd6c623809dbf0fa250a05a29bb3cea8c41",
+        "points3D.bin": "be52e343ad059bbfce00e2b22d397de75dad2d6f1ac7cf359b1b926c2b0482c8"
+      },
+      "common_sparse_sha256": {
+        "cameras.bin": "a8ed29e3ae44c11d803c3c9d1ed83c956870fd325f11f98613019cec53ad2418",
+        "images.bin": "efcd8240db4a3c7de8de37d7c0bcad5fa95f1c7508464395ec715ab507f103b5",
+        "points3D.bin": "be52e343ad059bbfce00e2b22d397de75dad2d6f1ac7cf359b1b926c2b0482c8",
+        "points3D.ply": "3904ceabc4a1630bb0bac21fb2be5f2620dd1009b6830375e40d33de9f629b8c"
+      },
+      "build_report_garden": {
+        "n_colmap_images": 185,
+        "n_images_written": 185,
+        "names_missing": [],
+        "source_size": [
+          5187,
+          3361
+        ],
+        "focal_in": [
+          3844.898776958602,
+          3852.356179237937
+        ],
+        "focal_out_1920x1080": [
+          1423.2129654444796,
+          1237.8889240038595
+        ],
+        "scale_xy": [
+          0.37015615962984383,
+          0.32133293662600415
+        ],
+        "cameras_bin_sha256": "a8ed29e3ae44c11d803c3c9d1ed83c956870fd325f11f98613019cec53ad2418",
+        "images_bin_sha256": "efcd8240db4a3c7de8de37d7c0bcad5fa95f1c7508464395ec715ab507f103b5",
+        "points3D_bin_sha256": "be52e343ad059bbfce00e2b22d397de75dad2d6f1ac7cf359b1b926c2b0482c8",
+        "first_image_sha256": "bb999cdaf8b658ba1644c7daee100a1c938551bfcf591950c89f2747f1ca6150"
+      }
+    }
+  },
+  "rerun": {
+    "driver": "/root/epic05_p16rb/scripts/garden_heal_rerun.sh",
+    "log": "/root/epic05_p16rb/logs/garden_heal_rerun.log",
+    "protocol": "flat-data evidence archived (renames); external methods rerun with the exact stage-2 recipe on GPU 2 (wrapper + vram sampler + captures + finalize on GPU 3); P12_C0 rerun with the exact archived recipe + common-split render + canonical metrics + record rebuilt via p16_build_p12_record.py",
+    "flat_data_records": {
+      "FasterGS": {
+        "metrics_common": {
+          "psnr": 12.996449435835189,
+          "ssim": 0.25880000243584317,
+          "lpips": 0.7300264835357666
+        },
+        "training_wall_s": 251.500855,
+        "clean": true
+      },
+      "FasterGSFused": {
+        "metrics_common": {
+          "psnr": 12.615263691831684,
+          "ssim": 0.2553258240222931,
+          "lpips": 0.7344201977054278
+        },
+        "training_wall_s": 238.066956,
+        "clean": true
+      },
+      "FastGS": {
+        "metrics_common": {
+          "psnr": 12.68735798096588,
+          "ssim": 0.2390608290831248,
+          "lpips": 0.7088460798064867
+        },
+        "training_wall_s": 270.5537864591807,
+        "clean": true
+      },
+      "SADGS": {
+        "metrics_common": {
+          "psnr": 13.224922188286522,
+          "ssim": 0.2613760555783908,
+          "lpips": 0.7211742202440897
+        },
+        "training_wall_s": 55.12713212481315,
+        "clean": true
+      },
+      "P12_C0": {
+        "metrics_common": {
+          "psnr": 22.908605630965763,
+          "ssim": 0.6837410107254982,
+          "lpips": 0.37629144452512264
+        },
+        "training_wall_s": 745.7338554433081,
+        "clean": true
+      }
+    },
+    "healed_records": {
+      "FasterGS": {
+        "metrics_common": {
+          "psnr": 26.85876549570342,
+          "ssim": 0.8421256467700005,
+          "lpips": 0.15645335366328558
+        },
+        "training_wall_s": 485.71616800000004,
+        "command_wall_s": 546.295918405056,
+        "peak_vram_mb": 10892,
+        "num_gaussians_final": 4773069,
+        "clean": true
+      },
+      "FasterGSFused": {
+        "metrics_common": {
+          "psnr": 26.84850028606262,
+          "ssim": 0.8416925221681595,
+          "lpips": 0.15710334169367948
+        },
+        "training_wall_s": 528.2425870000001,
+        "command_wall_s": 588.4990649940446,
+        "peak_vram_mb": 13614,
+        "num_gaussians_final": 4747983,
+        "clean": true
+      },
+      "FastGS": {
+        "metrics_common": {
+          "psnr": 26.698562175495415,
+          "ssim": 0.8191833272576332,
+          "lpips": 0.22443867412706217
+        },
+        "training_wall_s": 267.82205666194244,
+        "command_wall_s": 298.64550206507556,
+        "peak_vram_mb": 8704,
+        "num_gaussians_final": 842371,
+        "clean": true
+      },
+      "SADGS": {
+        "metrics_common": {
+          "psnr": 26.64651090203151,
+          "ssim": 0.8426460027694702,
+          "lpips": 0.14401439235856137
+        },
+        "training_wall_s": 105.80684293748445,
+        "command_wall_s": 177.0033900840208,
+        "peak_vram_mb": 32888,
+        "num_gaussians_final": 7271628,
+        "clean": true
+      },
+      "P12_C0": {
+        "metrics_common": {
+          "psnr": 28.450501243097733,
+          "ssim": 0.866365984082222,
+          "lpips": 0.175380265340209
+        },
+        "training_wall_s": 778.7642108115833,
+        "command_wall_s": 908.0,
+        "peak_vram_mb": 8141.4,
+        "num_gaussians_final": 2570469,
+        "clean": true
+      }
+    }
+  },
+  "verdict_note": "cross-method garden comparison must use the healed records; flat-data records are corruption evidence, not results"
+}

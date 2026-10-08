@@ -1,0 +1,65 @@
+{
+  "schema": "BWD_DEPREG0_RESOURCE_BASELINE",
+  "date": "2026-10-07",
+  "kernel": "blend_backward_cu",
+  "R0_registers_per_thread": 67,
+  "R0_spill_store_bytes": 0,
+  "R0_spill_load_bytes": 0,
+  "R0_stack_frame_bytes": 0,
+  "shared_memory_bytes": 1152,
+  "barriers": 0,
+  "launch_bounds": "none (<<<n_buckets,32>>>)",
+  "block_dim": 32,
+  "warps_per_block": 1,
+  "occupancy_estimate_blocks_per_sm": "~30 (47%) at 67 regs; hard cap 32 blocks/SM (50%) from 1-warp block",
+  "occupancy_limit_reason": "block maps one warp per bucket; active-warp ceiling is block-structured, not purely register-structured",
+  "compiler_toolchain": "nvcc 12.8 via higs-13scene-env; -Xptxas -v captured in logs/build_fast_driver.log",
+  "per_variant_registers": {
+    "r0": {
+      "registers": 67,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "spill_total_bytes": 0
+    },
+    "dep": {
+      "registers": 64,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "spill_total_bytes": 0
+    },
+    "nocolor": {
+      "registers": 61,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "spill_total_bytes": 0
+    },
+    "noopacity": {
+      "registers": 64,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "spill_total_bytes": 0
+    },
+    "noconic": {
+      "registers": 59,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "spill_total_bytes": 0
+    },
+    "occ32": {
+      "registers": 32,
+      "spill_store_bytes": 284,
+      "spill_load_bytes": 408,
+      "spill_total_bytes": 692
+    },
+    "occ64": {
+      "registers": 64,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "spill_total_bytes": 0
+    }
+  },
+  "occupancy_interpretation": "67 regs -> ~30 blocks/SM (47%); a 1-warp/32-thread block caps at 32 blocks/SM (50%) hard limit. occupancy is NOT register-starved at the block level; the binding constraint is the per-bucket warp mapping.",
+  "unavailable": {
+    "achieved_occupancy_runtime": "UNAVAILABLE (ncu 2021.3.1 fails on this torch/cudnn build - see PROFILE files)"
+  }
+}

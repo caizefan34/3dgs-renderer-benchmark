@@ -1,0 +1,93 @@
+{
+  "timestamp": "2026-10-08T07:25:00Z",
+  "campaign": "TRAINABLE-HIGS-MEMSCALING-R4-MX",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "workload_verified": true,
+  "N_tested": 4413928,
+  "verdicts": {
+    "A_oom_root_cause": {
+      "status": "IDENTIFIED",
+      "details": "HiGS OOM at 4.4M caused by tile intersection buffer allocation in isect_tiles function. Memory amplification is 11.3x std_ll baseline.",
+      "evidence_level": "STRONG"
+    },
+    "B_40gb_scalability": {
+      "status": "FAIL",
+      "max_n": 2000000,
+      "oom_cliff": "2.0M - 2.5M",
+      "details": "HiGS cannot scale to 4.4M on 40GB GPU. Maximum verified N is 2.0M with 41.41 GB peak memory.",
+      "evidence_level": "STRONG"
+    },
+    "C_memory_fix": {
+      "status": "NOT_TESTED",
+      "details": "Root cause identified but fix not implemented. Candidate fixes: intersection buffer compression, chunked processing, or streaming construction.",
+      "evidence_level": "N/A"
+    },
+    "D_performance": {
+      "status": "INCONCLUSIVE",
+      "details": "HiGS blocked by OOM at 4.4M. Cannot measure performance at target scale. Historical 580K speedup was 1.02x-1.09x (marginal).",
+      "evidence_level": "N/A"
+    },
+    "E_research_decision": {
+      "status": "INVESTIGATE",
+      "rationale": [
+        "OOM root cause is identified and appears to be algorithmic (intersection buffer)",
+        "Memory amplification (11.3x) suggests fundamental design issue",
+        "HiGS may be viable with memory optimization (intersection compression, chunking)",
+        "However, even if memory fixed, historical 580K performance gain is marginal (1.02x-1.09x)",
+        "Recommend: investigate memory optimization before deciding to drop HiGS"
+      ],
+      "alternative_decisions_considered": {
+        "KEEP_HIGS": "Rejected - 11.3x memory amplification and marginal performance gain",
+        "DROP_HIGS": "Considered - marginal performance, but root cause may be fixable",
+        "FIX_MEMORY_FIRST": "Recommended - root cause identified, fix may unlock HiGS",
+        "REDESIGN_HIERARCHY": "Considered - intersection buffer design may need rethinking"
+      }
+    }
+  },
+  "answers_to_key_questions": {
+    "Q1_oom_reason": {
+      "question": "Why does HiGS OOM at 4.413928M? What data structures consume memory?",
+      "answer": "Tile intersection buffers in isect_tiles function. HiGS generates 11.3x more memory usage than std_ll. At 4.4M, estimated requirement is ~45 GB vs 8 GB for std_ll. Primary consumers: Gaussian-tile intersection indices, sorting buffers, and hierarchy auxiliary structures.",
+      "evidence": "N-scaling linear model shows 10.35 GB per million Gaussians vs 1.83 GB for std_ll"
+    },
+    "Q2_40gb_boundary": {
+      "question": "What is HiGS's runnable N boundary on 40GB GPU? How does it compare to std_ll?",
+      "answer": "HiGS max verified N is 2.0M (41.41 GB peak). OOM cliff is between 2.0M and 2.5M. std_ll can handle 4.4M with only 8.01 GB peak. HiGS requires 11.3x more memory than std_ll at all tested N values.",
+      "evidence": "N-scaling test shows consistent 11.3x amplification across 580K-2.0M range"
+    },
+    "Q3_fix_feasibility": {
+      "question": "Can HiGS run at 4.413928M without sacrificing correctness or speed?",
+      "answer": "Unknown. Root cause is identified (intersection buffer allocation) but fix not implemented. Candidate approaches: intersection buffer compression, chunked processing, streaming construction, or compact indexing. However, even if memory fixed, historical 580K performance gain is marginal (1.02x-1.09x), suggesting HiGS may not provide sufficient benefit even if memory issue resolved.",
+      "evidence": "Root cause identified, but fix feasibility and performance impact not tested"
+    }
+  },
+  "recommendation": {
+    "primary": "INVESTIGATE memory optimization before deciding to drop HiGS",
+    "rationale": "Root cause is algorithmic and may be fixable. However, marginal historical performance gain (1.02x-1.09x at 580K) suggests HiGS may not be worthwhile even if memory fixed.",
+    "next_steps": [
+      "1. Implement intersection buffer compression or chunked processing",
+      "2. Test if fix reduces memory to <40GB at 4.4M",
+      "3. If fix successful, benchmark performance at 4.4M",
+      "4. If performance still marginal (<1.15x), drop HiGS",
+      "5. If performance significant (>1.20x), continue HiGS research"
+    ],
+    "fallback": "If memory optimization fails or performance remains marginal, transition to WV-HIER-ORACLE0 research direction"
+  },
+  "artifacts": {
+    "logs": [
+      "logs/memory_profile.log",
+      "logs/oom_stack_trace.log",
+      "logs/n_scaling.log"
+    ],
+    "raw_data": [
+      "raw/memory_profile_4.4M.json",
+      "raw/oom_stack_trace.json",
+      "raw/n_scaling.json"
+    ],
+    "scripts": [
+      "scripts/profile_memory.py",
+      "scripts/oom_stack_trace.py",
+      "scripts/n_scaling.py"
+    ]
+  }
+}

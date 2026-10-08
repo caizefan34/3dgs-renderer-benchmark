@@ -1,0 +1,81 @@
+{
+  "_timestamp_utc": "2026-10-01T11:16:36Z",
+  "gate": "Gate 5 — exact CPU/oracle replay (scalar/vector reference, no CUDA)",
+  "ran_on": {
+    "host": "EPIC-05",
+    "hostname": "dsw-933622-64cc845c7d-lqswc",
+    "python": "p16_fastergs env / python3",
+    "script": "/tmp/psb0_reference_oracle.py"
+  },
+  "gate1_associativity": {
+    "n_random_segments": 2000,
+    "max_associativity_abs_err": 3.424026147058612e-7,
+    "associativity_holds": true,
+    "closure_max_B": 0.9376028180122375,
+    "closure_B_in_unit_interval": true,
+    "operator": "(A1,B1)x(A2,B2) = (A1 + B1*A2, B1*B2)",
+    "verdict": "PASS"
+  },
+  "gate5_numerical": {
+    "per_N": {
+      "8": {
+        "grad_color_cosine": 0.9999999403953552,
+        "grad_alpha_cosine": 0.9999999403953552,
+        "grad_color_relL2": 0,
+        "grad_alpha_relL2": 5.2856648835586384e-8
+      },
+      "32": {
+        "grad_color_cosine": 1,
+        "grad_alpha_cosine": 1,
+        "grad_color_relL2": 0,
+        "grad_alpha_relL2": 3.452062742326234e-7
+      },
+      "33": {
+        "grad_color_cosine": 1,
+        "grad_alpha_cosine": 1,
+        "grad_color_relL2": 0,
+        "grad_alpha_relL2": 4.928550652039121e-7
+      },
+      "64": {
+        "grad_color_cosine": 0.9999999403953552,
+        "grad_alpha_cosine": 1,
+        "grad_color_relL2": 0,
+        "grad_alpha_relL2": 5.195589096729236e-7
+      },
+      "100": {
+        "grad_color_cosine": 1.0000001192092896,
+        "grad_alpha_cosine": 1.0000001192092896,
+        "grad_color_relL2": 0,
+        "grad_alpha_relL2": 1.509550884293276e-7
+      },
+      "256": {
+        "grad_color_cosine": 1,
+        "grad_alpha_cosine": 1,
+        "grad_color_relL2": 0,
+        "grad_alpha_relL2": 9.298106107280546e-8
+      },
+      "512": {
+        "grad_color_cosine": 1,
+        "grad_alpha_cosine": 1,
+        "grad_color_relL2": 0,
+        "grad_alpha_relL2": 1.2480751365728793e-7
+      }
+    },
+    "worst_grad_cosine": 0.9999999403953552,
+    "worst_grad_relL2": 5.195589096729236e-7,
+    "criteria": "cosine>=0.9999999 & relL2<=1e-6 (grads); image recon bit-exact (same forward)",
+    "verdict": "PASS"
+  },
+  "algebra": {
+    "segment_summary": "S(a:b) = (A, B) with A = sum_{k in [a,b)} a_k c_k prod_{j<k}(1-a_j) (3,), B = prod_{k in [a,b)} (1-a_k) (scalar)",
+    "per_splat_transform": "M_k = (A_k = a_k c_k, B_k = 1 - a_k)",
+    "composition": "(A1,B1)x(A2,B2) = (A1 + B1*A2, B1*B2)",
+    "recovers": {
+      "T_k (transmittance entering splat k)": "inclusive prefix scan B_{0:k-1}",
+      "C_after_k (color from k+1 onward)": "C_total - inclusive prefix scan A_{0:k}",
+      "C_total": "image - T_final*bg (from forward final_transmittance + image)"
+    },
+    "proof_sketch": "closure: product of lower-triangular [[1,A],[0,B]] matrices stays in form; associativity: matrix multiplication is associative (verified numerically to 3.4e-7); recoverability: prefix scan yields T_k and C_inc_k, and C_after_k = C_total - C_inc_k matches the replay-recovered color_pixel_after_excl exactly (grad relL2 <= 5.2e-7)"
+  },
+  "verdict": "PASS"
+}

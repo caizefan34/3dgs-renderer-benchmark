@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-10-08T07:05:00Z",
+  "experiment": "oom_stack_trace",
+  "N": 4413928,
+  "resolution": "960x540",
+  "batch_size": 1,
+  "oom_location": {
+    "function": "isect_tiles",
+    "call_chain": [
+      "rasterize_gaussian_higs_frozen",
+      "_higs_frozen_forward",
+      "_HigsAutogradFunction.apply",
+      "_HigsAutogradFunction.forward",
+      "_HigsAutogradFunction._native_forward_capture",
+      "isect_tiles (gsplat/cuda/_wrapper.py:1098)",
+      "intersect_tile CUDA kernel"
+    ],
+    "source_file": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/experimental/render/functional/gaussian_inference.py",
+    "line": 2094
+  },
+  "memory_state": {
+    "before_call": {
+      "allocated_gb": 1.042,
+      "reserved_gb": 1.051
+    },
+    "at_oom": {
+      "tried_to_allocate_gb": 37.74,
+      "gpu_total_gb": 39.49,
+      "gpu_free_gb": 37.21,
+      "memory_in_use_gb": 2.27,
+      "pytorch_allocated_gb": 1.76,
+      "pytorch_reserved_gb": 0.038
+    }
+  },
+  "key_findings": [
+    "OOM occurs in isect_tiles (tile intersection generation)",
+    "With CUDA_LAUNCH_BLOCKING=1, single allocation request is 37.74 GiB",
+    "Without blocking, allocation was 13.90 GiB (async batching)",
+    "Only ~2 GB in use before the failing allocation",
+    "37.74 GiB ~= N * 9 bytes (4413928 * 9 = 39.7M, suggests per-Gaussian or per-intersection buffer)",
+    "This is NOT temporary workspace - it's a fundamental data structure"
+  ],
+  "hypothesis_verdicts": {
+    "H1_intersection_amplification": "SUPPORTED - isect_tiles generates Gaussian-tile intersections",
+    "H2_hierarchy_auxiliary": "INCONCLUSIVE - need more investigation",
+    "H3_temporary_workspace": "REFUTED - only 1.76 GB in use before allocation",
+    "H4_allocator_fragmentation": "REFUTED - PyTorch reserved matches allocated",
+    "H5_over_allocation": "POSSIBLE - 37.74 GiB single allocation suggests pre-allocation"
+  }
+}

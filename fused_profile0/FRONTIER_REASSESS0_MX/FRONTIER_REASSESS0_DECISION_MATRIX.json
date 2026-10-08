@@ -1,0 +1,59 @@
+{
+  "schema": "FRONTIER_REASSESS0_DECISION_MATRIX",
+  "date": "2026-10-07",
+  "rows": [
+    {
+      "mechanism": "F1 EXISTING_STATE_RECONSTRUCTION",
+      "exact_or_approx": "EXACT",
+      "oracle_backward_gain": "ARITH1 cache: S_backward 0.791 (REGRESSION)",
+      "oracle_renderer_gain": "ARITH1: S_renderer 0.832 (REGRESSION)",
+      "extra_memory_traffic": "+8N bytes (store+load) = traffic-dominated",
+      "semantic_risk": "none (exact) but slower",
+      "implementation_complexity": "high (new per-interaction cache + indexing)",
+      "existing_evidence": "BWD-ARITH1 DROP_REUSE_TRAFFIC_OVERHEAD",
+      "full_training_requirement": "no (already measured)",
+      "novelty_potential": "low (negative result confirms recompute-vs-materialize)",
+      "decision": "EXACT_RECONSTRUCTION_TOO_EXPENSIVE"
+    },
+    {
+      "mechanism": "F2 EXACT_SFU_REFORMULATION",
+      "exact_or_approx": "EXACT",
+      "oracle_backward_gain": "0% (no exact faster variant; expf already MUFU.EX2+poly)",
+      "oracle_renderer_gain": "0%",
+      "extra_memory_traffic": "none",
+      "semantic_risk": "none (already optimal)",
+      "implementation_complexity": "none needed",
+      "existing_evidence": "SASS: MUFU.EX2 invariant (9) across expf/__expf/exp2f; exp2f==__expf (approx)",
+      "full_training_requirement": "no",
+      "novelty_potential": "none",
+      "decision": "EXACT_SFU_ALREADY_OPTIMAL"
+    },
+    {
+      "mechanism": "F3 EXACT_INTERACTION_ELIMINATION",
+      "exact_or_approx": "EXACT",
+      "oracle_backward_gain": "0% (no new exact skip; production already applies all provable skips)",
+      "oracle_renderer_gain": "0%",
+      "extra_memory_traffic": "none",
+      "semantic_risk": "would change semantics if forced",
+      "implementation_complexity": "none (no exact skip to add)",
+      "existing_evidence": "EXACT_SKIP_MAP: exact_skip_fraction_new=0; alpha-threshold subsumes opacity==0/underflow",
+      "full_training_requirement": "no",
+      "novelty_potential": "none",
+      "decision": "NO_EXACT_SKIP"
+    },
+    {
+      "mechanism": "F4 APPROX_SPARSE_FRONTIER (K50-B1)",
+      "exact_or_approx": "APPROX",
+      "oracle_backward_gain": "n/a (sparse interaction reduction)",
+      "oracle_renderer_gain": "geomean speedup 0.7945 (SLOWER)",
+      "extra_memory_traffic": "varies",
+      "semantic_risk": "HIGH (quality regression: room dPSNR -15.3@30k)",
+      "implementation_complexity": "high",
+      "existing_evidence": "K50_MX_FAIL_QUALITY (slower + quality fail)",
+      "full_training_requirement": "already run (30K, failed)",
+      "novelty_potential": "n/a (negative)",
+      "decision": "APPROX_FRONTIER_NOT_DECISIVE"
+    }
+  ],
+  "comparison_summary": "All three EXACT lanes (F1/F2/F3) fail the promotion gate: F1 is traffic-dominated (ARITH1 regression), F2 has no exact faster variant, F3 has no exact skip. The APPROX sparse lane (K50-B1) is slower AND fails quality. No exact nor approximate lane offers validated upside."
+}

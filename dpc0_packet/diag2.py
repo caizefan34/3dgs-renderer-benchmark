@@ -1,0 +1,20 @@
+import subprocess
+def sh(c):
+    try: return subprocess.check_output(c,shell=True,text=True,stderr=subprocess.STDOUT).strip()
+    except Exception as e: return "ERR:"+str(e)[:100]
+print("=== pip show torch ===")
+print(sh("pip show torch 2>/dev/null | grep -E 'Version|Location|Installed'"))
+print("=== torch install date ===")
+print(sh("pip show torch 2>/dev/null | grep -i 'Installed'"))
+print("=== running python/torch procs ===")
+print(sh("ps aux | grep -E 'python|train' | grep -v grep | head -10"))
+print("=== disk ===")
+print(sh("df -h /usr/local/lib/python3.12/site-packages 2>/dev/null | tail -2; df -h /root | tail -1; df -h /tmp | tail -1"))
+print("=== pip cache torch wheels ===")
+print(sh("pip cache list 2>/dev/null | grep -i torch | head"))
+print("=== undefined c10 symbols in C0_SO (count) ===")
+print(sh("nm -DC /root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so 2>/dev/null | grep -c ' U _ZN3c10'"))
+print("=== undefined c10 symbols in CORE_SO (count) ===")
+print(sh("nm -DC /root/epic05_build_cache/core/gsplat_cuda/gsplat_cuda.so 2>/dev/null | grep -c ' U _ZN3c10'"))
+print("=== sample undefined c10 in CORE ===")
+print(sh("nm -DC /root/epic05_build_cache/core/gsplat_cuda/gsplat_cuda.so 2>/dev/null | grep ' U _ZN3c10' | head -8"))

@@ -1,0 +1,11 @@
+# ACE-GS source availability check (bounded)
+
+2026-09-27. The current ACE-GS paper source does not supply a reproducible implementation link. The locally retained [arXiv HTML](topology_sources/ace_gs.html) for [ACE-GS: Acing the Trade-off with Accurate, Compact and Efficient 3D Gaussian Splatting](https://arxiv.org/abs/2606.21244) contains no method-repository URL: its `github.com` links are arXiv/LaTeXML support links only. A fresh read of the arXiv abstract page also found no repository or project link. Public GitHub repository search returned zero repositories for each of the following exact queries on this date: `"Acing the Trade-off"`, `"ACE-GS" "Gaussian"`, and `"Accurate, Compact and Efficient"`.
+
+This is a **bounded discovery failure**, not proof that code does not exist or will not be released. No third-party repository was substituted. The paper's RTX 4090 author-reported training minutes and quality numbers are not a same-protocol comparison with our A100 FastGS-Big measurements. The final strong-baseline requirement remains open: locate a verifiable author implementation and pin its commit, data identity, effective resolution, GPU, training-wall boundary and formal evaluation; if none is available, a clearly labeled independent reimplementation would require separate fidelity validation before being called an ACE-GS reproduction.
+
+Follow-up repository search on the same date included `ACEGS`, `ACE-GS gaussian`, `Acing Trade-off Gaussian`, and `jijianzhao 3d gaussian`. The only `ACEGS` repository-name matches were unrelated projects; the other queries returned zero repositories. Public search-engine attempts did not produce a verifiable method link. This narrows the discovery record but still cannot establish global nonavailability.
+
+The source search does not establish a new 3DGS mechanism and did not launch GPU work.
+
+2026-09-28 recheck: the arXiv API entry for `2606.21244` still reports the paper's last update as `2026-06-19T09:11:13Z`. A fresh public GitHub repository search for exact `"ACE-GS" Gaussian` returned `total_count=0`. This is another bounded negative discovery check, not a proof of nonavailability; the author-code same-protocol comparison remains unverified.

@@ -1,0 +1,46 @@
+{
+  "schema": "AMPS0_PREREG",
+  "generated": "2026-10-05",
+  "lane": "AMPS0",
+  "name": "Attribute-aware Mixed-Precision Optimizer States for Gaussian Splatting",
+  "status": "independent lane; does not modify CGT/DPS0/IGF/RetireGS/ClockGS/Sparse-tail K50-B1 verdicts",
+  "core_hypothesis": "Geometry-sensitive attributes (means/scales/quats/opacity) require high optimizer-state precision; high-dimensional appearance states (SH0/SH-rest) may tolerate lower storage precision. FP32 compute + BF16 moment storage may reduce optimizer HBM traffic enough to accelerate a fused training pipeline without materially changing reconstruction quality.",
+  "scope": "STATE PRECISION ONLY. Excludes: sparse/sparse-selective Adam, deferred Adam, skip-invisible update, changed LR/beta/epsilon, changed loss, changed renderer, changed gradient, changed densification, FP8/INT8, stochastic rounding (objective section 27).",
+  "hardware_cohort": "MX A100 (authoritative). Local host = RTX 5070 Laptop 8GB -> ALL local timing non-authoritative; numerics marked shared_gpu_numerics_only=true / performance_evidence_valid=false.",
+  "strong_baseline": "Faster-GS fused (FasterGSFused @ ae665af, NeRFICG @ e458ac6), A100/EPIC-05. Not vanilla Adam.",
+  "candidate_grid": {
+    "C0": "all m/v FP32 (reference, must match baseline)",
+    "C1": "sh_rest m=FP32 v=BF16 (conservative)",
+    "C2": "sh_rest m/v BF16 (PRIMARY)",
+    "C3": "sh_rest+sh0+opacity m/v BF16 (expanded appearance)",
+    "C4": "ALL m/v BF16 (exploratory ceiling, diagnostic only)"
+  },
+  "attribute_scalars": {
+    "means": 3,
+    "scales": 3,
+    "quats": 4,
+    "opacity": 1,
+    "sh0": 3,
+    "sh_rest": 45,
+    "total": 59
+  },
+  "fail_closed_gates": [
+    "P0 headroom: f_opt<0.20 on ALL scenes -> DROP_INSUFFICIENT_OPTIMIZER_HEADROOM",
+    "P0 traffic: ideal-compression E2E<1.05x -> DROP_TRAFFIC_HEADROOM",
+    "P1 numerics: C1 fails eligibility -> DROP_STATE_PRECISION_NUMERICS",
+    "P1 cross-scene: any scene fails -> DROP",
+    "P2 microbench: optimizer speedup<1.15x -> DROP_OPTIMIZER_MICROBENCH",
+    "P3A quality: dPSNR>=-0.10 & dSSIM>=-0.002 & dLPIPS<=+0.005 else DROP_CONVERGENCE_FIDELITY",
+    "P3A E2E: geomean<1.05x -> DROP_E2E_HEADROOM; >=1.08x promote; >=1.15x strong"
+  ],
+  "quality_gate": {
+    "dPSNR_min": -0.1,
+    "dSSIM_min": -0.002,
+    "dLPIPS_max": 0.005
+  },
+  "execution_order": "P0 baseline audit+profile -> headroom gate -> traffic oracle -> P1 shadow oracle -> cross-scene numerics -> P2 microbench -> freeze -> lifecycle -> P3A -> P3B -> multi-scene",
+  "immediate_scope": "P0 + P1 only. No substantial CUDA engineering before both pass. Fail-closed: stop and return evidence if any gate blocks. No rescue variant inside AMPS0.",
+  "numerical_boundary": "AMPS0 is NOT mathematically exact Adam once a state is stored in BF16. Forbidden: exact equivalence / identical trajectory / lossless / exact gradient. Allowed: mixed-precision optimizer-state storage; FP32 update arithmetic with reduced-precision moment storage; quality-preserving within measured benchmark tolerance.",
+  "novelty_claim_authorized": false,
+  "notes": "Prior-art audit (AMPS0_PRIOR_ART_AUDIT.md) classifies primary mechanism as NO_DIRECT_GS_MATCH_FOUND but with PARTIAL_OVERLAP from generic 8-bit optimizers and GS parameter compression. Fresh literature audit mandatory before any paper claim."
+}

@@ -1,0 +1,40 @@
+{
+  "schema": "BWD_ARITH1_SOURCE_DIFF",
+  "summary": "R1 exact FP32 Gaussian-response cache. Env BWD1_CACHE_ENABLE=1 toggles R1 (store in forward, load in backward); unset=R0 production recompute. Cache shared via host globals passed as kernel params (cudaMemcpyToSymbol avoided: invalid for dlopen'd ext). Indexing fixed: stride 32*256, slot j%32, forward bucket (bucket_offset-1).",
+  "files": {
+    "rasterization/src/forward.cu": {
+      "sha256": "c5ac233e6c9a736f054c2253919273ad95be3975acc7f4c231439bb3d166155a",
+      "bytes": 9033
+    },
+    "rasterization/src/backward.cu": {
+      "sha256": "5a3b678c528a55ad08e629c54ef05d6fe17fdfb9375567933a0438c78e857df2",
+      "bytes": 8433
+    },
+    "rasterization/src/bwd1_cache_symbol.cu": {
+      "sha256": "7cdfb023e9897f95e9c9b12a146890f2e2e68a7d6164e526a96bb4a59c0c92ca",
+      "bytes": 230
+    },
+    "rasterization/include/kernels_forward.cuh": {
+      "sha256": "27fe9d506e46c67adcdc2b853891e40cfc686ed0aa4baf06719a90a24b83e3a2",
+      "bytes": 23954
+    },
+    "rasterization/include/kernels_backward.cuh": {
+      "sha256": "22a1f4eb6dd330895b1ead27cd10cb9f7bb7dd9b0c119a85775f2a32c193ed85",
+      "bytes": 27489
+    },
+    "rasterization/include/bwd1_cache_symbol.h": {
+      "sha256": "d4359fa24b6f33d4b33a597947336880ba1c030b10425cf73a95056814bd8cb4",
+      "bytes": 371
+    },
+    "torch_bindings/bindings.cpp": {
+      "sha256": "e82463a483c89fefc5240585b918194a98f9f2192252e24d3e86b2702bb0cefb",
+      "bytes": 284
+    }
+  },
+  "patches": [
+    "scripts/patch_r1_param4.py (forward/backward launch + ctl)",
+    "scripts/fix_fwd_ctl.py (remove stale cudaMemcpyToSymbol)",
+    "rasterization/fix_r1_index.py (indexing fix)"
+  ],
+  "so_sha256": "db7637568f61cead3f3b4c5a565f29c3b9826c32adeef116d2a896716d9ab5e0"
+}

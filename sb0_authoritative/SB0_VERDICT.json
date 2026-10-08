@@ -1,0 +1,33 @@
+{
+  "task": "SB0-FGS",
+  "deliverable": "SB0_VERDICT",
+  "date": "2026-09-30",
+  "status": "COMPLETE__CRITERION_B_SUPPORTED",
+  "summary": "Rigorous audit + opportunity oracle + Faster-GS reference reproduction + TRUE unseen-view holdout retrain, all on authoritative EPIC-05 data. Criterion A (C0-PLUS) NOT achieved: no exact orthogonal Faster-GS component yields a >=3% E2E strict-quality wall-clock improvement on frozen C0 (C7 fusion <0.15% E2E empirically falsified; C8 morton proven <3% ceiling; C1 UB<3%; C9 not a lever). Criterion B (STRONGER_EXTERNAL_BASELINE) SUPPORTED: under a valid true-unseen-view iso-protocol (every-8th camera excluded from training on BOTH C0 and Faster-GS, same physical held-out cameras, 1920x1080 stretch, 30K, seed42, 0.8*L1+0.2*(1-SSIM)), Faster-GS is stronger on ALL THREE scenes (room +0.83, garden +0.88, bicycle +3.04 dB) and trains faster. The prior 'NOT_SUPPORTED' verdict rested on an invalid comparison (C0 in-training-subset numbers used as 'unseen'). This is a PROJECT SUCCESS via path B.",
+  "criterion_A_c0_plus": {
+    "status": "NOT_ACHIEVED",
+    "reason": "Unchanged and still valid: every DISTINCT_AND_EXACT component was opportunity-oracle'd then empirically measured on pinned C0. C7 fusion DROP (<0.15% E2E, empirically falsified: C0 H8_MR backward is multi-kernel tile-based, Adam decoupled, fusion only removes 4.8us x5 launch overhead). C8 morten DROP (idealized E2E ceiling 0.54/0.34/2.08% < 3% gate on ALL scenes; measured 0.27/0.17/1.04% full-train). C1 two-stage sort DROP (perfect UB<3%). C9 frontend DROP (not an E2E lever). C2/C4/C5/C6 ALREADY_IN_C0; C3 prohibited. The timing/oracle analysis is renderer-level and independent of the quality comparison, so it is unaffected by the criterion-B correction.",
+    "components_evaluated": {
+      "C1": "DROP",
+      "C7": "DROP",
+      "C8": "DROP",
+      "C9": "DROP",
+      "C2": "ALREADY_IN_C0",
+      "C4": "ALREADY_IN_C0",
+      "C5": "ALREADY_IN_C0",
+      "C6": "ALREADY_IN_C0",
+      "C3": "PROHIBITED_APPROXIMATE"
+    }
+  },
+  "criterion_B_stronger_external_baseline": {
+    "status": "SUPPORTED",
+    "reason": "Under a rigorous TRUE unseen-view iso-protocol, Faster-GS is consistently stronger than frozen C0. Built a true-holdout C0 trainer (every-8th camera excluded from training, matching Faster-GS TEST_STEP=8; renderer/loss/densification/optimizer unchanged; zero leakage verified). Results (held-out PSNR, 1920x1080 stretch, 30K, seed42): room C0 30.80 vs FGS 31.63 (FGS +0.83); garden C0 26.01 vs FGS 26.89 (FGS +0.88); bicycle C0 21.70 vs FGS 24.74 (FGS +3.04, decisive). Faster-GS wins all three and trains faster (396/651/579s vs C0 516/816/869s). C0's H8_MR renderer overfits more (generalization gap train-view-minus-true-holdout = 1.36/2.60/4.72 dB, growing with scene complexity). This REVERSES the prior NOT_SUPPORTED verdict, which was based on comparing C0's in-training-subset numbers (metrics_common / c0_unseen_eval on the all-camera checkpoint) against Faster-GS's true held-out.",
+    "iso_protocol_evidence": "SB0_FASTERGS_REFERENCE.json.iso_protocol_experiment",
+    "true_holdout_evidence": "SB0_TRUE_HOLDOUT_EVAL.json + SB0_FASTERGS_REFERENCE.json.corrected_unseen_view_comparison",
+    "caveats": "Single seed (42) for both; room/garden margins modest (<1 dB) though consistent 3/3; bicycle decisive (+3.04 dB). FGS stretch used pre-stretched 1920x1080 (PIL LANCZOS, claimed byte-identical to C0 GTDataset resize). C0 holdout via a 3-line derived trainer variant (prohibition-compliant: only the training camera pool differs). A multi-seed true-holdout sweep would tighten the modest room/garden margins but is not needed to establish direction (FGS never weaker, decisive on bicycle)."
+  },
+  "key_insight": "C0 is NOT a stronger baseline than Faster-GS: under a valid true-unseen-view protocol Faster-GS generalizes better on all three Mip-NeRF360 scenes (decisively on bicycle). The earlier 'C0 anomaly' (garden 24.04) was a wrong-trainer artifact (publication_trainer.py + SepSSIM instead of the pinned publication_trainer_p12.py + fused loss); the authoritative C0 (P12_C0) trains fine but still generalizes worse than Faster-GS. Faster-GS's advantages (fused per-primitive backward, morton densification, fused everything) manifest as better generalization, not just speed. It should be adopted as the external baseline for A0/Q0/PSC.",
+  "deliverable_is_success": true,
+  "note": "Per task: either criterion A or B = project success. Criterion B achieved: Faster-GS is a stronger external baseline than frozen C0 under a valid unseen-view protocol. Criterion A not achieved (no exact component clears the >=3% E2E gate; C8 proven <3% ceiling). No upstream paper speedup claimed as a C0 value; strict-quality claims backed by true unseen-view metrics; no CUDA production modification made (all microbench on pinned .so read-only; holdout retrain used a derived trainer, renderer .so untouched).",
+  "success_path": "B (STRONGER_EXTERNAL_BASELINE)"
+}

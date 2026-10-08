@@ -1,0 +1,36 @@
+{
+  "schema": "FRONTIER_REASSESS0_VERDICT",
+  "date": "2026-10-07",
+  "terminal_verdict": "NO_REMAINING_HIGH_VALUE_BWD_FRONTIER",
+  "next_lane": "NONE (close exact backward micro-optimization; reassess toward approximate/sparse or stop)",
+  "spec_sections": "19 (terminal verdict), 20 (verdict logic), 22 (stop conditions), 27 (success criterion)",
+  "per_frontier": {
+    "F1": {
+      "conclusion": "EXACT_RECONSTRUCTION_TOO_EXPENSIVE",
+      "evidence": "no zero-extra-traffic exact G-reconstruction; only exact reuse (ARITH1 cache) is traffic-dominated (S_backward 0.791)"
+    },
+    "F2": {
+      "conclusion": "EXACT_SFU_ALREADY_OPTIMAL",
+      "evidence": "expf->MUFU.EX2(9)+poly; no exact faster variant; __expf/exp2f approximate (same SFU count, drop poly)"
+    },
+    "F3": {
+      "conclusion": "NO_EXACT_SKIP",
+      "evidence": "production already applies all provable exact skips; exact_skip_fraction_new=0"
+    },
+    "F4": {
+      "conclusion": "APPROX_FRONTIER_NOT_DECISIVE",
+      "evidence": "K50-B1 slower (0.7945) + quality fail (room dPSNR -15.3@30k)"
+    }
+  },
+  "amdahl_exact_ceiling": "<1.05x renderer (no exact mechanism reaches 5%)",
+  "amdahl_approx_expf_free_ceiling": 1.1116,
+  "success_criterion": "A negative exact result is a successful outcome (spec section 27). The exactly-realizable exact renderer ceiling is <5%; the only >5% ceiling (O20 expf-free 1.1116x) is NOT exactly realizable. Research effort on exact backward micro-optimization should stop.",
+  "do_not": [
+    "reopen BWD-ARITH1 FP32 cache (DROP_REUSE_TRAFFIC_OVERHEAD preserved)",
+    "retry register/occupancy/recurrence tuning (BWD-DEPREG0 closed)",
+    "implement BWD-DEPREG1 (no actionable frontier)",
+    "claim training speedup",
+    "treat __expf/exp2f as exact (they are approximate)"
+  ],
+  "contamination_caveat": "MX host heavily contended (all 8 GPUs foreign jobs). F2/F3 static evidence (SASS/source) is contention-independent and decisive. F4 K50 quality gates are contention-independent; its timing is contended but the quality FAIL is authoritative. No authoritative timing was produced this lane due to contention; static + prior-oracle evidence is used."
+}

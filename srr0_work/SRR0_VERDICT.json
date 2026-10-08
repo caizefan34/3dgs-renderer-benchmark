@@ -1,0 +1,76 @@
+{
+  "schema": "SRR0_VERDICT",
+  "task": "SRR0-P0 — Selective Rematerialization Rebalancing (preregistered research gate)",
+  "date_utc": "2026-10-01",
+  "identity": {
+    "hostname": "dsw-933622-64cc845c7d-lqswc",
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "cwd": "/root/epic05_p16rb/src/nerficg",
+    "source_git_sha": "e458ac6e41810ad6d9405687c1e698fadd28dac5",
+    "remote_guard": "EPIC-05 only; no CUDA on local Windows control-plane"
+  },
+  "verdict": "DROP_NO_COMPUTE_HEADROOM",
+  "decided_at_gate": 4,
+  "gate_results": {
+    "gate0_remote": {
+      "status": "PASS",
+      "note": "EPIC-05 identity proven before every experimental command."
+    },
+    "gate1_history": {
+      "status": "PASS (no auto-drop)",
+      "classification": "DIFFERENT_TARGET",
+      "note": "Historical F1 (phase-c26) evaluated gsplat rasterization backend on a different cohort (room 1,593,376 Gaussian, SH-degree-3, camera 5) and found only SH-color recompute minor (R=0.269). SRR0 targets FasterGSFused preprocess_backward (scale/covariance/projection/SH-direction recompute) — different backend + different recomputed quantities + different cohort. Not SAME_TARGET_SAME_BACKEND, so no DROP_PRIOR_NEGATIVE_COVERS_TARGET."
+    },
+    "gate2_source_lock": {
+      "status": "PASS",
+      "note": "preprocess_backward_cu recomputation enumerated from source; candidates R1/R2/R3 frozen before profiling."
+    },
+    "gate3_prior_art": {
+      "status": "PASS (no public collision)",
+      "note": "No public 3DGS backend found that explicitly selects a retained minimal forward state for projection/SH backward via a measured compute-memory Pareto policy. Internal LAW-REPLAY (ReplayGS CLOSED) and LAW-PSC/PSC-GS (CLOSED) are mechanism-adjacent priors, not a direct source-cohort collision with F1."
+    },
+    "gate4_compute_headroom": {
+      "status": "FAIL",
+      "verdict": "DROP_NO_COMPUTE_HEADROOM",
+      "note": "Recompute preprocess_backward = 1.42/6.18/3.59 ms (room/garden/bicycle). Iteration is launch-bound (GPU idle ~74% of stream). Optimistic E2E ceiling under every valid denominator: async 1.011/1.044/1.028, stream 1.010/1.044/1.025, wall 1.012/1.048/1.030. Only garden reaches 1.04x; 1/3 < 2/3 required."
+    },
+    "gate5_state_bytes": {
+      "status": "NOT_REACHED",
+      "note": "Sequential early-exit at Gate 4. Advisory byte budget computed in SRR0_STATE_BYTES.json."
+    },
+    "gate6_numerical": {
+      "status": "NOT_REACHED",
+      "note": "Requires Gate 5 pass; not run. No altered training; frozen checkpoints only."
+    },
+    "gate7_economics": {
+      "status": "NOT_REACHED",
+      "note": "Requires Gate 5/6 pass; not run."
+    }
+  },
+  "decisive_metric": {
+    "name": "optimistic E2E ceiling (>=1.04x in >=2/3 scenes)",
+    "governing_value": "async steady-state per-iteration time",
+    "per_scene_async_ceiling": {
+      "room": 1.011,
+      "garden": 1.0437,
+      "bicycle": 1.0282
+    },
+    "scenes_passing": "1/3 (garden only)",
+    "threshold": ">=2/3"
+  },
+  "rationale": "The FasterGSFused preprocess_backward recomputation targets global-3D quantities (SH direction/basis, scale->variance, quaternion->rotation, 3D covariance/RSS, camera projection, EWA Jacobian). Measured on EPIC-05 A100 against frozen iso checkpoints, the recompute is 1.4-6.2 ms/iter but the iteration is launch-bound (~124-148 ms/iter, GPU idle ~74% between kernels). Even granting the most optimistic assumption (recompute fully removed and fully on the critical path), only garden reaches the 1.04x E2E ceiling; room and bicycle fall well short. This independently confirms internal LAW-PSC (global-3D work ~4%) and LAW-REPLAY (mathematical reusability != GPU-cheap materialization). No compute headroom => SRR0 is not worth SRR1 minimal-retention engineering.",
+  "prior_negative_consistency": "Consistent with CLOSED_DIRECTIONS LAW-REPLAY and LAW-PSC/PSC-GS.",
+  "deliverables": [
+    "SRR0_VERDICT.json",
+    "SRR0_REPORT.md",
+    "SRR0_HISTORY_AUDIT.md",
+    "SRR0_SOURCE_LOCK.json",
+    "SRR0_PRIOR_ART.md",
+    "SRR0_PROFILE.json",
+    "SRR0_STATE_BYTES.json",
+    "SRR0_NUMERICAL_ORACLE.json",
+    "SRR0_AMDAHL.json",
+    "scripts/",
+    "MANIFEST.sha256"
+  ]
+}

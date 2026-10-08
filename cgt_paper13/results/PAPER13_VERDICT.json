@@ -1,0 +1,52 @@
+{
+  "stage": "CGT-PAPER13 FINAL VERDICT (13-scene renderer paper-evidence lane)",
+  "date_utc": "2026-10-04",
+  "host": "MX A100-PCIE-40GB, runtime liaoyuanjun_mx0qual",
+  "classification": "DROP_RENDERER_GENERALIZATION",
+  "one_line": "The frozen CGT-F0 renderer's mixed-forward kernel speedup (geomean 1.26x on 50-tile samples) does NOT generalize to full-frame end-to-end rendering: per-frame per-tile fit+certify build costs ~40 min/frame geomean and the tile-based frame render is ~6.7x slower than canonical gsplat, so novel-view E2E speedup is ~0.",
+  "evidence_tiers": {
+    "mixed_forward_S_mixed_geomean": 1.2605998087642205,
+    "mixed_forward_tier": "meaningful (1.20-1.50x) on 50-tile samples, BUT kernel-only (build excluded)",
+    "e2e_novel_view_S": "~0 for all 13 scenes (build + render >> canonical)",
+    "e2e_build_geomean_min_per_frame": 40.2718603853621,
+    "e2e_render_ratio_geomean": 6.697037096201068
+  },
+  "observed": [
+    "13/13 scenes have valid canonical checkpoints + data; F0 ingests all schemas (P0).",
+    "MIXED_FORWARD (P2): S_mixed geomean=1.2606, median=1.0216, min=0.97 (counter/truck), max=3.03 (room).",
+    "MIXED_FORWARD kernel correctness PASSES on all 13 scenes (max 1.85e-6 << 2e-5 gate) at R=4.",
+    "MIXED_FORWARD safe fraction mean=0.617, weighted fallback mean=0.451.",
+    "E2E (P3): full-frame build geomean=40.3 min/frame (0.9-301.7 min); CGT frame render 6.70x SLOWER than gsplat geomean.",
+    "E2E novel-view S=0.000 for all 13; N_break=None for 12 scenes (CGT render slower than canonical); counter N_break=30236.",
+    "F0 kernel is R=4-specific: R=8/R=16 fail kernel correctness (max_abs ~0.86)."
+  ],
+  "evidence": [
+    "PAPER13_SOURCE_AUDIT.json (13/13 ingestible, cohorts).",
+    "PAPER13_CGT_RESULTS.json (P2 mixed-forward + certificate).",
+    "PAPER13_BASELINE_RESULTS.json (P1 canonical gsplat).",
+    "PAPER13_BUILD_AMORTIZATION.json (P3 E2E build/render).",
+    "PAPER13_CORRECTNESS.json, PAPER13_CERTIFICATE_STATS.json, PAPER13_ABLATIONS.json."
+  ],
+  "inference": [
+    "The CGT student+certificate compresses the per-tile render function and the fused kernel IS faster than the teacher kernel on small work-decile samples (mixed-forward).",
+    "But the representation is screen-space tile-based: it must be REBUILT (fit+certify) per camera per frame. For novel-view synthesis (a new camera every frame) this build is unavoidable and dominates (~40 min/frame).",
+    "The tile-based fused render (one block/tile, no cross-tile sort) is also ~6.7x slower than gsplat's optimized full-frame rasterizer, so even the render step loses to the strong canonical baseline.",
+    "Thus the kernel-level speedup does not survive the full production frame path."
+  ],
+  "hypothesis_not_measured": [
+    "Whether a camera-independent CGT representation (amortized across views) could rescue E2E (would be a NEW method, forbidden in this frozen lane).",
+    "Full-image GT dPSNR/dSSIM/LPIPS quality gates (NOT_REACHED; mixed-forward tile-level only).",
+    "Nsight hardware counters (NOT_MEASURED; no profiler permission assumed)."
+  ],
+  "not_measured": [
+    "PAPER13_MEMORY.json (peak VRAM per scene) - NOT_MEASURED.",
+    "Ablation C (fused vs unfused) - NOT_MEASURED.",
+    "Same-hardware external renderer reproduction (section 29 optional) - NOT_ATTEMPTED."
+  ],
+  "consistency_with_upstream": [
+    "Consistent with TI0 DROP_UPDATE_COST: representation refit/rebuild dominates.",
+    "Consistent with G5 DROP_NATIVE_OPTIMIZATION: CGT is not a training primitive.",
+    "Confirms CGT as a rendering representation with a real but non-generalizing kernel speedup."
+  ],
+  "decision": "CLOSE the CGT-PAPER13 renderer generalization lane as DROP_RENDERER_GENERALIZATION. Do not promote to a larger multi-scene TI1. The frozen CGT renderer does not deliver a meaningful full-frame E2E acceleration against the strong canonical gsplat baseline."
+}

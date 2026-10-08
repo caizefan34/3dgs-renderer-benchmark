@@ -1,0 +1,132 @@
+{
+  "_timestamp_utc": "2026-10-01T15:40:12Z",
+  "gate": "Phase 1 — duplication trace: per-Gaussian tiles touched, pixels affected, projection/SH reuse counts, duplicate_compute_ratio",
+  "aggregate_duplicate_compute_ratio": 1.0,
+  "aggregate_note": "Weighted over projection+covariance+SH across all 3 scenes. == 1.0 because all three are eager (compute-once).",
+  "n_tiles_definition": "1920x1080 @ tile 16x16 => 120x68 = 8160 tiles",
+  "per_scene": {
+    "room": {
+      "n_gaussians": 1105873,
+      "n_tiles": 8160,
+      "mean_splats_per_tile": 234.6937,
+      "n_isects_tile_level": 1915101.0,
+      "tiles_per_gaussian": 1.7318,
+      "total_valid_pixel_visits": 14894848,
+      "projection": {
+        "compute_instances": 1105873,
+        "unique_gaussian_computation": 1105873,
+        "duplicate_compute_ratio": 1.0,
+        "reuse_read_count": 1915101.0,
+        "note": "projection computed ONCE per Gaussian (preprocessCUDA); read-only reuse across tiles. ratio=1.0 => zero duplicated projection compute."
+      },
+      "covariance_3d_2d": {
+        "compute_instances": 1105873,
+        "unique_gaussian_computation": 1105873,
+        "duplicate_compute_ratio": 1.0,
+        "note": "cov3d+cov2d+conic computed ONCE per Gaussian; reused. ratio=1.0."
+      },
+      "spherical_harmonics": {
+        "compute_instances": 1105873,
+        "unique_gaussian_computation": 1105873,
+        "duplicate_compute_ratio": 1.0,
+        "reuse_read_count": 14894848,
+        "note": "SH->RGB computed ONCE per Gaussian; read-only reuse per pixel. ratio=1.0 => zero duplicated SH compute."
+      },
+      "tile_assignment": {
+        "compute_instances": 1105873,
+        "unique_gaussian_computation": 1105873,
+        "duplicate_compute_ratio": 1.0,
+        "index_duplication_pairs": 1915101.0,
+        "note": "tile bbox computed ONCE per Gaussian; duplicateWithKeys replicates the INDEX (not projection/cov/SH) into n_isects tiles. Index-only, no heavy recompute."
+      },
+      "gaussian_weight_exp": {
+        "compute_instances": 14894848,
+        "unique_gaussian_computation": 14894848,
+        "duplicate_compute_ratio": 1.0,
+        "note": "exp(-sigma) recomputed per (pixel,gaussian), but sigma is a function of the PER-PIXEL offset d=xy-pixel. Distinct pixels have distinct d => NOT shareable across pixels. This is the only per-visit recompute and it is irreducible."
+      }
+    },
+    "garden": {
+      "n_gaussians": 874019,
+      "n_tiles": 8160,
+      "mean_splats_per_tile": 580.8857,
+      "n_isects_tile_level": 4740027.0,
+      "tiles_per_gaussian": 5.4233,
+      "total_valid_pixel_visits": 35872768,
+      "projection": {
+        "compute_instances": 874019,
+        "unique_gaussian_computation": 874019,
+        "duplicate_compute_ratio": 1.0,
+        "reuse_read_count": 4740027.0,
+        "note": "projection computed ONCE per Gaussian (preprocessCUDA); read-only reuse across tiles. ratio=1.0 => zero duplicated projection compute."
+      },
+      "covariance_3d_2d": {
+        "compute_instances": 874019,
+        "unique_gaussian_computation": 874019,
+        "duplicate_compute_ratio": 1.0,
+        "note": "cov3d+cov2d+conic computed ONCE per Gaussian; reused. ratio=1.0."
+      },
+      "spherical_harmonics": {
+        "compute_instances": 874019,
+        "unique_gaussian_computation": 874019,
+        "duplicate_compute_ratio": 1.0,
+        "reuse_read_count": 35872768,
+        "note": "SH->RGB computed ONCE per Gaussian; read-only reuse per pixel. ratio=1.0 => zero duplicated SH compute."
+      },
+      "tile_assignment": {
+        "compute_instances": 874019,
+        "unique_gaussian_computation": 874019,
+        "duplicate_compute_ratio": 1.0,
+        "index_duplication_pairs": 4740027.0,
+        "note": "tile bbox computed ONCE per Gaussian; duplicateWithKeys replicates the INDEX (not projection/cov/SH) into n_isects tiles. Index-only, no heavy recompute."
+      },
+      "gaussian_weight_exp": {
+        "compute_instances": 35872768,
+        "unique_gaussian_computation": 35872768,
+        "duplicate_compute_ratio": 1.0,
+        "note": "exp(-sigma) recomputed per (pixel,gaussian), but sigma is a function of the PER-PIXEL offset d=xy-pixel. Distinct pixels have distinct d => NOT shareable across pixels. This is the only per-visit recompute and it is irreducible."
+      }
+    },
+    "bicycle": {
+      "n_gaussians": 2589484,
+      "n_tiles": 8160,
+      "mean_splats_per_tile": 399.305,
+      "n_isects_tile_level": 3258329.0,
+      "tiles_per_gaussian": 1.2583,
+      "total_valid_pixel_visits": 25459968,
+      "projection": {
+        "compute_instances": 2589484,
+        "unique_gaussian_computation": 2589484,
+        "duplicate_compute_ratio": 1.0,
+        "reuse_read_count": 3258329.0,
+        "note": "projection computed ONCE per Gaussian (preprocessCUDA); read-only reuse across tiles. ratio=1.0 => zero duplicated projection compute."
+      },
+      "covariance_3d_2d": {
+        "compute_instances": 2589484,
+        "unique_gaussian_computation": 2589484,
+        "duplicate_compute_ratio": 1.0,
+        "note": "cov3d+cov2d+conic computed ONCE per Gaussian; reused. ratio=1.0."
+      },
+      "spherical_harmonics": {
+        "compute_instances": 2589484,
+        "unique_gaussian_computation": 2589484,
+        "duplicate_compute_ratio": 1.0,
+        "reuse_read_count": 25459968,
+        "note": "SH->RGB computed ONCE per Gaussian; read-only reuse per pixel. ratio=1.0 => zero duplicated SH compute."
+      },
+      "tile_assignment": {
+        "compute_instances": 2589484,
+        "unique_gaussian_computation": 2589484,
+        "duplicate_compute_ratio": 1.0,
+        "index_duplication_pairs": 3258329.0,
+        "note": "tile bbox computed ONCE per Gaussian; duplicateWithKeys replicates the INDEX (not projection/cov/SH) into n_isects tiles. Index-only, no heavy recompute."
+      },
+      "gaussian_weight_exp": {
+        "compute_instances": 25459968,
+        "unique_gaussian_computation": 25459968,
+        "duplicate_compute_ratio": 1.0,
+        "note": "exp(-sigma) recomputed per (pixel,gaussian), but sigma is a function of the PER-PIXEL offset d=xy-pixel. Distinct pixels have distinct d => NOT shareable across pixels. This is the only per-visit recompute and it is irreducible."
+      }
+    }
+  }
+}

@@ -1,0 +1,186 @@
+{
+  "audit_type": "H0_CAMERA_FOLDS",
+  "authority": "H0_PREREG.md section 3 (camera folds / rollouts) + section 12 (required artifact)",
+  "camera_set": "formal MOONSHOT frozen 8-camera set (deterministic, even-stride over the canonical seed-42 camera list)",
+  "selection_fn": "frozen_camera_ids(n_cams, k=8) = [round(n_cams*(i+0.5)/8) for i in range(8)]",
+  "selection_source": "/root/epic05_moonshot/a0/a0_lib.py:125 (authoritative MOONSHOT definition)",
+  "n_cameras_total": {
+    "room": 311,
+    "bicycle": 194
+  },
+  "camera_ids_c0_c7": {
+    "room": [
+      19,
+      58,
+      97,
+      136,
+      175,
+      214,
+      253,
+      292
+    ],
+    "bicycle": [
+      12,
+      36,
+      61,
+      85,
+      109,
+      133,
+      158,
+      182
+    ]
+  },
+  "folds": {
+    "room": {
+      "n_cameras_total": 311,
+      "camera_selection": "frozen_camera_ids(n,k=8)=[round(n*(i+0.5)/8) for i in 0..7] (authoritative: /root/epic05_moonshot/a0/a0_lib.py:125)",
+      "ordered_c0_c7": {
+        "c0": 19,
+        "c1": 58,
+        "c2": 97,
+        "c3": 136,
+        "c4": 175,
+        "c5": 214,
+        "c6": 253,
+        "c7": 292
+      },
+      "foldA": {
+        "update_pool": [
+          19,
+          58,
+          97,
+          136
+        ],
+        "heldout_eval": [
+          175,
+          214,
+          253,
+          292
+        ],
+        "K4_update_seq": [
+          19,
+          58,
+          97,
+          136
+        ],
+        "K8_update_seq": [
+          19,
+          58,
+          97,
+          136,
+          19,
+          58,
+          97,
+          136
+        ]
+      },
+      "foldB": {
+        "update_pool": [
+          175,
+          214,
+          253,
+          292
+        ],
+        "heldout_eval": [
+          19,
+          58,
+          97,
+          136
+        ],
+        "K4_update_seq": [
+          175,
+          214,
+          253,
+          292
+        ],
+        "K8_update_seq": [
+          175,
+          214,
+          253,
+          292,
+          175,
+          214,
+          253,
+          292
+        ]
+      },
+      "n_paired_rollouts_per_family_per_K": 8
+    },
+    "bicycle": {
+      "n_cameras_total": 194,
+      "camera_selection": "frozen_camera_ids(n,k=8)=[round(n*(i+0.5)/8) for i in 0..7] (authoritative: /root/epic05_moonshot/a0/a0_lib.py:125)",
+      "ordered_c0_c7": {
+        "c0": 12,
+        "c1": 36,
+        "c2": 61,
+        "c3": 85,
+        "c4": 109,
+        "c5": 133,
+        "c6": 158,
+        "c7": 182
+      },
+      "foldA": {
+        "update_pool": [
+          12,
+          36,
+          61,
+          85
+        ],
+        "heldout_eval": [
+          109,
+          133,
+          158,
+          182
+        ],
+        "K4_update_seq": [
+          12,
+          36,
+          61,
+          85
+        ],
+        "K8_update_seq": [
+          12,
+          36,
+          61,
+          85,
+          12,
+          36,
+          61,
+          85
+        ]
+      },
+      "foldB": {
+        "update_pool": [
+          109,
+          133,
+          158,
+          182
+        ],
+        "heldout_eval": [
+          12,
+          36,
+          61,
+          85
+        ],
+        "K4_update_seq": [
+          109,
+          133,
+          158,
+          182
+        ],
+        "K8_update_seq": [
+          109,
+          133,
+          158,
+          182,
+          109,
+          133,
+          158,
+          182
+        ]
+      },
+      "n_paired_rollouts_per_family_per_K": 8
+    }
+  },
+  "note": "8 paired rollouts per (cell,family,K) = 2 folds x 4 fixed cyclic offsets. All branches in a rollout start from byte-identical model+optimizer state. This artifact is decision-independent; it does NOT require the missing 5K cells."
+}

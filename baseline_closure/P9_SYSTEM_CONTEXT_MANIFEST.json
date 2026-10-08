@@ -1,0 +1,82 @@
+{
+  "artifact": "P9_SYSTEM_CONTEXT_MANIFEST",
+  "stage": "P9",
+  "date": "2026-09-25",
+  "status": "PREPARED_NOT_LAUNCHED",
+  "launch_gate": {
+    "blocked_by": "P7 residual attribution closure (other DSH)",
+    "rule": "No P9 run before P7 completes and GPUs verify clean (clean-GPU snapshot convention).",
+    "cohort": "Single hardware cohort for all P9 wall-time comparisons; per-method conda envs are part of each system (recorded, disclosed, never mixed within a method's own runs)."
+  },
+  "freeze_reference": "baseline_closure/BASELINE_FREEZE.json (2026-09-25)",
+  "scope": "SYSTEM_LEVEL_CONTEXT only: each method's intended training system is preserved verbatim (native recipe, native resolution behavior, native densification/pruning, native optimizer). The table situates the matched benchmark among speed-focused systems; it NEVER supports renderer-level winner claims (see reporting_rules).",
+  "arms": {
+    "speedy_splat": {
+      "source_commit": "34c45c6d9b8bd6110231864f2f358b6d3abbf73d",
+      "submodules": "speedy-splat-rasterizer b38abb6da7a7217999f8c5ec0e9219284464ffe0, simple-knn 44f764299fa305faf6ec5ebd99939e0508331503, SIBR_viewers 14199886ae3f42358092c16ada909c1e0b1cba20 (submodule pointers identical to P5; superproject pin moved, P5 pin b9dd42d1 unresolvable upstream)",
+      "env": "conda strong_native: python 3.10, torch 2.1.0+cu118, CUDA 11.8 (A100-PCIE validated)",
+      "recipe": "native train.sh verbatim: train.py -s <data> -m <out> --eval --iterations 30000 --test_iterations 30000 --save_iterations 30000; -i images default, auto-1600px; score-based pruning from iter 6000 (80% during densify window, 30% after 15k, every 3000)",
+      "eps2d": "graphdeco-form: hardcoded cov-diag +0.3 (non-parameterizable)",
+      "metrics_pipeline": "render.py + metrics.py (PSNR, SSIM 11x11, LPIPS-VGG) + compute_scene_metrics.py (FPS from kernel_times, 20 repeats)",
+      "known_prior_gaps": ["bicycle/kitchen wall entries were 0.0 (missing) in the P5 ledger - must be re-measured"],
+      "re_gate": "3-scene re-gate required (superproject moved since P5)"
+    },
+    "fastgs": {
+      "source_commit": "44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f",
+      "env": "conda strong_native: python 3.10, torch 2.1.0+cu118, CUDA 11.8",
+      "recipe": "native train_base.sh verbatim per-scene table (adapter-embedded, transcribed from the frozen upstream file): densification_interval 500, optimizer default, per-scene grad_abs_thresh/dense/highfeature_lr/loss_thresh/mult; render.py --mult then metrics.py",
+      "eps2d": "graphdeco-form: hardcoded cov-diag +0.3 (compact-box mult changes tile assignment, not the covariance filter)",
+      "metrics_pipeline": "render.py + metrics.py (PSNR, SSIM 11x11, LPIPS-VGG); N from trained model",
+      "known_prior_gaps": ["playroom -0.79 dB unexplained in the c42 cohort (native re-run will re-observe)"],
+      "re_gate": "3-scene re-gate required (pin changed from the P5-era tree to upstream main)"
+    },
+    "faster_gs": {
+      "source_commit": "117bdbacfd7df6c1f06d9d959b1f5ab02d4d3847",
+      "env": "conda nericg: python 3.11, torch 2.7.1+cu118, CUDA 11.8 (NeRFICG framework env)",
+      "recipe": "NeRFICG config-driven: adapter-generated per-scene YAML from fastergs_garden.yaml base (PATH=canonical scene, IMAGE_SCALE_FACTOR 0.25 mipnerf360 / 1.0 tanksandtemples+deepblending, TEST_STEP 8, PPISP off, MCMC off, ITERATIONS 30000, RANDOM_SEED 0); scripts/train.py -c <yaml>",
+      "eps2d": "custom-form: dilation 0.3 (dilation_proper_antialiasing 0.1 only when proper antialiasing enabled; off in the native recipe)",
+      "metrics_pipeline": "NeRFICG built-in test-set render + torchmetrics PSNR/SSIM/LPIPS; N parsed from train.log 'final number of Gaussians'",
+      "known_prior_gaps": ["native PSNR was 1-4 dB below fastgs/speedy on most scenes in the c42 cohort (suspected underperforming native baseline) - native re-run will re-observe"],
+      "re_gate": "3-scene re-gate required (upstream moved from 3cb0b75)"
+    }
+  },
+  "dataset": {
+    "layout": "canonical 13-scene layout via baseline_closure/adapters/dataset_adapter.py (--emit-args produces each system's invocation)",
+    "garden_rule": "P9 uses the CANONICAL garden scene. The P5-era manually-created garden variant is retired; its caveat remains permanently attached to old evidence and is NOT inherited by P9 rows.",
+    "resolution": "each system's native behavior, recorded per run (speedy/fastgs: -i images auto-1600px; faster_gs: IMAGE_SCALE_FACTOR 0.25/1.0)"
+  },
+  "report_fields_per_run": [
+    "training_wall_time_minutes",
+    "psnr_db", "ssim", "lpips",
+    "final_gaussian_count",
+    "vram_peak_gb",
+    "iterations_executed",
+    "effective_resolution",
+    "densification_pruning_strategy (free-text summary + link to freeze entry)",
+    "lpips_variant (speedy/fastgs: VGG via metrics.py; faster_gs: torchmetrics net per NeRFICG config - recorded, never silently compared across variants)"
+  ],
+  "instrumentation_requirements": [
+    "VRAM: torch.cuda.max_memory_allocated() at end of training + nvidia-smi snapshot in provenance (peak memory is eval-independent and comparable at SYSTEM level)",
+    "Wall: training-loop wall time (train start -> final save), same definition for all three systems; scheduler records outer wall too (both reported)",
+    "N: final Gaussian count read from the trained model, not the log alone (log value recorded as cross-check where available)",
+    "Contamination: per-run nvidia-smi snapshot; SYSTEM-level timing on a shared GPU is disclosed via the contamination flag (P5 precedent), though the clean-GPU convention is preferred"
+  ],
+  "run_matrix": {
+    "native": "3 systems x 13 scenes, native protocol = 39 runs (1-seed; seed is each system's upstream default and recorded)",
+    "gates": "3-scene re-gate per system BEFORE the 13-scene expansion (pins moved since P5); gate criteria: RC=0, sane N, sane PSNR vs P5 native rows (expected ranges in the freeze), wall recorded"
+  },
+  "reporting_rules": [
+    "Every P9 table is labeled SYSTEM_LEVEL_CONTEXT.",
+    "NO renderer-level winner claims from P9 rows. The table reports training time / PSNR / SSIM / LPIPS / N / VRAM / iterations / resolution / densification strategy as system facts.",
+    "Wall comparisons across systems are disclosed as system-level timing (each system couples renderer + densification + optimizer + loop).",
+    "LPIPS variants are recorded per row and never averaged across variants.",
+    "Any garden anomaly is reported per-scene with the data provenance stated (canonical layout), never generalized."
+  ],
+  "validation": "Every run must pass: python baseline_closure/BASELINE_VALIDATION.py --run-dir <dir> --manifest baseline_closure/P9_SYSTEM_CONTEXT_MANIFEST.json --arm <system> --scene <scene> (native-expectation mode: commit/binary/scene/resolution/iterations recorded-and-consistent, contamination check, NaN/Inf check, final evaluation presence).",
+  "prohibited": [
+    "Forcing P8 matched controls onto P9 systems (their iteration counts, densification budgets, pruning are part of the method)",
+    "Renderer-level winner claims",
+    "Reusing the P5-era manually-created garden data variant",
+    "Launching before P7 completes"
+  ]
+}

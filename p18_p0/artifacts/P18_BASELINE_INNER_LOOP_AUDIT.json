@@ -1,0 +1,129 @@
+{
+  "phase": "P18-P0",
+  "artifact": "P18_BASELINE_INNER_LOOP_AUDIT",
+  "created_utc": "2026-09-28T09:30:00Z",
+  "purpose": "Audit of the frozen C0 (rasterize_gaussian_higs_dynamic, TILE_SIZE=16) forward/backward raster inner loop, required BEFORE writing any QSCAN CUDA (protocol section 2). Gates P18_MAPPING_BLOCKER.",
+  "verdict": "MAPPING_OK — a contiguous subgroup's lanes process the SAME Gaussian on the SAME image row per raster loop iteration; QSCAN subwarp 4/8/16 is feasible in both forward and backward. P18_MAPPING_BLOCKER not triggered.",
+
+  "gaussian_exponent_expression": {
+    "forward": {
+      "file": "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.cu",
+      "function": "rasterizeGaussian (lambda in macro_tile_rasterize_kernel<TILE_SIZE>)",
+      "precision": "half (__half2), exp2 domain",
+      "conic_storage": "half2[2] in smem (smem_conic_raw), = raw covar2d_inv * CHOL_SCALE^2 with -log2(opac) fused into the c11 slot",
+      "CHOL_SCALE": "0.84932180028f * TILE_SIZE = sqrt(LOG2E/2) * TILE_SIZE  (line 212)",
+      "expressions": [
+        "u0_base = l00 * dx                       (line 308, dx = mean_x - offset_x, lane-varying in x)",
+        "u0 = l10 * dy + u0_base                  (line 314, per pixel-pair pp)",
+        "u1 = l11 * dy                            (line 315, per pixel-pair pp)",
+        "sigma = u1*u1 + (u0*u0 + neg_log_opac)   (line 317, neg_log_opac = -log2(opac))",
+        "alpha = __h2exp2_approx(-sigma)          (line 322)  == exp2(-sigma) in half"
+      ],
+      "note": "alpha = exp2(-sigma); since sigma = a x^2 + b x + c with a=(0.5)*CHOL^2*c00 in x (dy,u1 constant across the row's lanes), alpha(x) = G(x) = exp2(-(a x^2 + b x + c)) = exp(q(x)). G0 = exp2(-(a x0^2+b x0+c)). r_j = G(x_{j+1})/G(x_j). k = G(x_{j+2})/(G(x_{j+1})^2/G(x_j)) = exp2(-dd) where dd = 2a (constant) == exp(dd) in natural domain per protocol section 3."
+    },
+    "backward": {
+      "file": "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu (PX=2) + gsplat/cuda/csrc/RasterizeToPixels3DGSDevice.cuh",
+      "function": "higs_blend_bwd_px_kernel<CDIM=3,PX=2,SCALAR_ADJOINT=true,H8_MR=true> -> eval_gaussian_weight + rasterize_to_pixels_3dgs_blend_bwd",
+      "precision": "float, natural-log domain",
+      "conic_storage": "raw vec3 = covar2d_inv (NOT CHOL-scaled), [I*N,3], forward-captured from the gatherless producer (GatherlessProjectedProducer.cu line 100: conics = covar2d_inv upper triangle)",
+      "expressions": [
+        "sigma = 0.5*(c00*dx^2 + c22*dy^2) + c11*dx*dy   (RasterizeToPixels3DGSDevice.cuh line 47)",
+        "vis = __expf(-sigma)                              (line 48)  == exp(-sigma) in float",
+        "alpha = min(MAX_ALPHA=0.99, opac*vis)             (line 49)",
+        "valid = !(sigma < 0 || alpha < ALPHA_THRESHOLD)   (line 53)"
+      ],
+      "note": "Gaussian weight is RECOMPUTED in backward (not stored from forward). P18 backward MUST recompute via QSCAN (protocol forbids storing all Gaussian-pixel weights in HBM). The forward conic (CHOL-scaled, half) and backward conic (raw, float) are related by the constant CHOL_SCALE^2; each is a 1-D quadratic in x along a fixed row, so the same QSCAN machinery (seeds G0,r0,k + multiplicative prefix scan) applies to both, with per-kernel exp semantics (exp2f/half for forward, expf/float for backward)."
+    }
+  },
+
+  "actual_exp_intrinsic_function": {
+    "forward": "__h2exp2_approx (half exp2) on -sigma; equivalent to exp2f under -use_fast_math. QSCAN forward seeds MUST use __h2exp2_approx / exp2f (same fast-math exp2).",
+    "backward": "__expf (float exp, fast-math). QSCAN backward seeds MUST use __expf.",
+    "build_flag_note": "c0_ext built with -use_fast_math (build.ninja), so both expf and exp2f take the fast (approximate) path. Using the same intrinsic for seeds keeps seed semantics identical to baseline per protocol section 3."
+  },
+
+  "compiler_flags": {
+    "nvcc": "/root/miniforge3/envs/gsplat/bin/nvcc",
+    "gencode": "arch=compute_80,code=sm_80",
+    "flags": ["-use_fast_math", "--expt-relaxed-constexpr", "-O3", "-DNDEBUG", "-std=c++20", "-fopenmp", "-DAT_PARALLEL_OPENMP", "-fPIC", "-Wno-attributes", "-Wno-unknown-pragmas", "--forward-unknown-opts"],
+    "source": "c0_ext build.ninja"
+  },
+
+  "alpha_cull_threshold": {
+    "ALPHA_THRESHOLD": "1/255 (Common.h:97) — the semantics-changing per-pixel branch: forward ok_mask = sigma < log2(1/AT) = log2(255)=7.9943534 (LOG2_INV_AT, line 83); backward valid = !(sigma<0 || alpha<AT).",
+    "MAX_ALPHA": "0.99 (Common.h:105) — clamp on opac*vis in backward alpha (forward relies on exp2 underflow to 0, no explicit clamp).",
+    "MIN_TRANSPARENCY": "1e-4 (MacroTileRasterize.cu:85) / TRANSMITTANCE_THRESHOLD 1e-4 (Common.h:106) — warp-wide early-exit on transmittance T, NOT a per-pixel alpha branch; P18 must preserve it unchanged.",
+    "gamma": "2e-6 (protocol fixed) — if QSCAN alpha is within gamma of a branch threshold (AT=1/255, or the sigma<0 / MAX_ALPHA=0.99 backward bounds), that lane falls back to the DIRECT Gaussian expression and re-decides the branch. gamma=0 only as supplementary sensitivity."
+  },
+
+  "tile_size": "16 (trainer publication_trainer_p12.py lines 380, 741-744; default rasterize_gaussian_higs_dynamic tile_size=16 line 3002). MACRO_TILE = FUSED_MACRO_TILE_WIDTH*HEIGHT = 8*4 = 32 tiles. FUSED_GAUSS_BATCH_SIZE = 1024. MINI_BATCH = 32.",
+
+  "thread_to_pixel_mapping": {
+    "forward": {
+      "kernel": "macro_tile_rasterize_kernel<16>",
+      "CTA_SIZE": 320, "CTA_WARPS": 10, "GAUSS_PER_WARP": 1, "PIXELS_PER_THREAD": 8, "N_PAIRS": 4,
+      "mapping": "thread_x = lane_id & 15, thread_y = lane_id >> 4 (lines 273-274). Each lane owns 8 contiguous x-pixels in ONE row: pairs pp=0..3 at rows thread_y + 2*pp, x = thread_x + 2*pp and thread_x + 2*pp+1.",
+      "row_structure": "For a fixed gaussian + fixed row: lanes 0..15 cover x=0..31 (the whole 32-wide row), each lane handling 2 x-pixels (a pair). Thus the 32 lanes of a warp are 32 CONTIGUOUS x-pixels of the same row (x = 2*lane_in_half .. x = 2*lane_in_half+1, lane_in_half = lane & 15, duplicated to 32 via the 2-pair-per-lane unroll). q(x) is a 1-D quadratic in x; dy, u1, u0_base are lane-invariant."
+    },
+    "backward": {
+      "kernel": "higs_blend_bwd_px_kernel<3,2,true,true>",
+      "block_threads": "256/PX = 128", "PX": 2, "PX_ROWS": "16/PX = 8",
+      "mapping": "i = i0 + ty + q*PX_ROWS, j = j0 + tx (lines 397-398), q in {0,1}, ty = thread_index.y, tx = thread_index.x. A warp = 16 x-columns (tx) x 2 y-rows (ty); each lane owns 2 pixels (same tx, rows ty and ty+8). For a fixed row, 16 contiguous lanes cover 16 x-pixels => q(x) is again a 1-D quadratic in x.",
+      "note": "Backward processes 16 x-lanes per row (not 32). QSCAN16 in backward = the 16 x-lanes of one row; QSCAN8/4 are subgroups. The same row-structure argument holds."
+    }
+  },
+
+  "warp_to_row_mapping": {
+    "forward": "Within one raster loop iteration for one tile, all warps rasterize the SAME tile; each warp handles ALL 32 x-pixels of each of the tile's rows across its 8 pairs. One warp iteration over a gaussian = the whole row set of one tile. The relevant 'subgroup processes the same Gaussian' unit is the 16-lane half that covers one row's 32 x-pixels (or the full 32 lanes over the two row-pairs).",
+    "backward": "Each block covers one tile; a warp's 16 x-lanes x 2 y-rows cover 32 pixels (16x2). For a given row, the 16 x-lanes share the Gaussian."
+  },
+
+  "shared_gaussian_load_path": {
+    "forward": "Phase 1: each warp loads a 32-gaussian mini-batch from global (means2d, conics) into persistent smem (smem_xy_mt, smem_conic_raw), computes per-tile visibility masks via a 5-stage warp bit-transpose (WarpBitTranspose, line 90) into smem_masks. Phase 2 (rasterization): per-tile, a ring-buffer (smem_warp_queue, 128 entries) streams gaussian indices; the warp drains in 64-entry batches, unrolled x8, calling rasterizeGaussian which reads gaussian data from smem (1 smem load per gaussian, invariant across the 4 pairs). => smem holds gaussian data cooperatively; rasterization reads it per gaussian. QSCAN can compute k=exp2(-dd) ONCE per gaussian (in the per-gaussian setup before the N_PAIRS loop) and broadcast via shuffle.",
+    "backward": "Per-batch, each thread fetches 1 gaussian (id, xy, opac, conic, rgb) into smem (id_batch, xy_opacity_batch, conic_batch, rgbs_batch); block.sync; then the warp iterates t over the batch, reading conic_batch[t]/xy_opacity_batch[t] from smem. => smem cooperatively holds the gaussian batch; the warp processes each gaussian t across its 16 x-lanes. QSCAN can compute seeds + k per (gaussian t, row) in the per-t loop."
+  },
+
+  "backward_gaussian_weight_path": {
+    "recompute": "YES — eval_gaussian_weight(conic, dx, dy, opac) is called per (lane, q-pixel, gaussian t) in the t-loop (line 489). The forward weight is NOT stored/reused; backward recomputes from forward-captured conics+means2d+opacities+colors_eval.",
+    "P18_implication": "QSCAN must replace this per-pixel __expf(-sigma) with seed+prefix-scan reconstruction in the t-loop, with the same gamma guard on the valid branch. The downstream v_sigma = -opac*vis*v_alpha chain (SCALAR_ADJOINT/H8_MR) is unchanged; only vis/alpha change source."
+  },
+
+  "P18_MAPPING_BLOCKER": {
+    "triggered": false,
+    "reason": "In both forward (TILE_SIZE=16, GAUSS_PER_WARP=1) and backward (PX=2), the lanes of a contiguous subgroup (16/8/4) that share a row process the SAME Gaussian at the SAME raster loop iteration, over CONTIGUOUS x-pixels. q(x) is a 1-D quadratic in x, so the quotient reconstruction G_j = G0 * prod_{t<j} r_t (r_t = G(x_{t+1})/G(x_t), k = G(x_{t+2})/(G(x_{t+1})/G(x_t)) = exp(-dd), dd=2a) applies directly across the subwarp. No rasterizer redesign is required — only the per-pixel exp is replaced by seed + warp/subwarp exclusive multiplicative prefix scan, preserving pixel parallelism (no lane-0 serial walk).",
+    "caveats": [
+      "Forward row structure: 32 lanes = 32 contiguous x-pixels (2 per lane). QSCAN16 = lanes [16k..16k+15] (one x-run of 16 pixels) or the 16-lane half covering 32 x-pixels — choose the mapping that keeps each QSCAN group on one contiguous x-run of the same row.",
+      "The forward exp is half exp2 (__h2exp2_approx) and the backward exp is float exp (__expf); each QSCAN kernel must use the matching intrinsic for seeds to preserve baseline semantics.",
+      "The MAX_EXTEND=3.33 culling (radius = ceil(3.33*sqrt(cov))) bounds |x| per gaussian, so the quadratic's domain per (gaussian,row) is bounded and the multiplicative scan over 16 steps stays numerically well-conditioned.",
+      "Forward early-exit (tile_done / MIN_TRANSPARENCY) and the per-gaussian alpha-cull branch (ok_mask) are per-pixel and must remain; QSCAN only changes HOW alpha is computed, not WHEN the branch fires (gamma guard handles near-threshold lanes)."
+    ]
+  },
+
+  "frozen_binaries": {
+    "trainer": {"path": "/root/epic05_p12/publication_trainer_p12.py", "sha256": "675b0267f3a1a6a0fa63fadb37c8536481c1c7a6de37a4b7f6ffa98a449050c5"},
+    "c0_ext_so": {"path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so", "sha256": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11"},
+    "core_so": {"path": "/root/epic05_build_cache/core/gsplat_cuda/gsplat_cuda.so", "sha256": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"},
+    "fused_ssim_so": {"path": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim_cuda.cpython-310-x86_64-linux-gnu.so", "sha256": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"},
+    "c0_worktree": "/root/epic05_frozen/higs_c0_final30k_worktree",
+    "scene_cuda": "/root/epic05_build_cache/scene/gsplat_scene_cuda",
+    "checkpoints_16k": {
+      "room": {"path": "/root/epic05_p13x/runs/room_diag/ckpt_16000.pt", "sha256": "17c1f5904472f24dbb86bc8f19318dc31341deb2f0d891a014662a49d75edc6b"},
+      "bicycle": {"path": "/root/epic05_p13x/runs/bicycle_diag/ckpt_16000.pt", "sha256": "0c36f5c7f127a23ba471e917bcf3ecbf6f9843c295c62bed50e1090aeb6d8890"}
+    }
+  },
+
+  "hardware": {
+    "box": "EPIC-05 (dsw-933622-64cc845c7d-lqswc)",
+    "gpu_for_timing": "A100-SXM4-80GB GPU 3, UUID GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72 (clean 0 MiB at audit)",
+    "driver": "592.01", "cuda": "13.1", "torch_remote_env": "2.9.1+cu128",
+    "local_machine": "RTX 5070 Laptop (NOT used for any P18 timing — protocol mandates a single clean A100)"
+  },
+
+  "prereg_environment": {
+    "seed": 42, "tile": 16, "eps2d": 0.3, "renderer": "classic C0 (rasterize_gaussian_higs_dynamic)",
+    "resolution": "1080p", "background": "black",
+    "HIGS_env": {"HIGS_PX_RUNTIME": "2", "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint", "HIGS_BWD_H8_MR": "1", "HIGS_BWD_ABSGRAD": "1"}
+  },
+
+  "p17_provenance_note": "P17-P0 (multirate gradient oracle) is a DIFFERENT candidate and terminated P17_P0_HARD_DROP. Its camera set (N/12 probes, bicycle N=194: [8,24,40,56,72,88,105,121,137,153,169,185]) does NOT satisfy P18's N/8 count, so P18 recomputes its own 8-camera set and records provenance here. P17's frozen binaries are the SAME four hashes P18 freezes (verified)."
+}

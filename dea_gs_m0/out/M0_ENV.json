@@ -1,0 +1,35 @@
+{
+  "baseline": "baseline/reference_v1 (canonical Graphdeco 3DGS semantics, gsplat backend)",
+  "repo_root": "/home/liaoyuanjun/3dgs-renderer-benchmark",
+  "commit": "32ab80e773f74f4d8e40ff4e338c86b29c7957f5",
+  "branch": "master",
+  "scene": "room",
+  "resolution": "1080p (1920x1080)",
+  "gaussian_count_at_profile": 933590,
+  "renderer": "gsplat 1.5.3 rasterization(absgrad=True, packed=False, tile_size=16)",
+  "optimizer_implementation": "stock torch.optim.Adam (one persistent optimizer, state migrated across topology via cat_tensors_to_optimizer/_prune_optimizer); NOT SparseAdam/fused",
+  "adam_betas": [
+    0.9,
+    0.999
+  ],
+  "adam_eps": 1e-15,
+  "adam_lr_init": 0.0,
+  "param_groups": {
+    "xyz": "lr exponential decay (position_lr_init 1.6e-4 -> final 1.6e-6, max_steps 30000)",
+    "shs (appearance)": "lr = feature_lr = 0.0025, CONSTANT (no scheduler)",
+    "opacity": "lr 0.025 constant",
+    "scaling": "lr 0.005 constant",
+    "rotation": "lr 0.001 constant"
+  },
+  "appearance_tensor": "_shs [N, K=16, 3] single fixed tensor (SH degree 3); 48 scalars/gaussian",
+  "feature_lr_semantics": "constant per group; shs (DC+rest combined) uses one constant LR 0.0025",
+  "gradient_semantics_invisible_rows": "dense: stock Adam .step() updates ALL rows every iteration; invisible rows (radii==0) receive EXPLICIT ZERO photometric gradient (dense grad buffer, zeros for non-rendered Gaussians) yet Adam still evolves m/v/theta (zero-gradient Adam evolution). Not sparse/absent.",
+  "visibility_criterion": "(radii > 0).any(dim=-1) from gsplat meta['radii']",
+  "densification": "absgrad=True, grow_grad2d=0.0008, from 500 to 15000 every 100, opacity reset every 3000, percent_dense 0.01, min_opacity 0.005, max_screen_size 20",
+  "torch_version": "2.4.1+cu124",
+  "cuda_version": "12.4",
+  "gpu": "NVIDIA A100-PCIE-40GB",
+  "conda_env": "anysplat",
+  "python": "3.10",
+  "checkpoint_source": "/mnt/storage_pool/liaoyuanjun/r6_baseline_ckpts/room/checkpoints/iter_15000.pt (real trained theta; m/v via short real continuation, start-iter 15001, 2000 warmup + 500 profile)"
+}

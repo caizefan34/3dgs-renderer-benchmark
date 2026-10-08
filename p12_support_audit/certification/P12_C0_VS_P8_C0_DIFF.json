@@ -1,0 +1,108 @@
+{
+  "artifact": "P12_C0_VS_P8_C0_DIFF",
+  "schema": "p12_c0_vs_p8_c0_diff/v1",
+  "date": "2026-09-26",
+  "role": "Classification of every difference between the historical P8 C0 renderer source and the planned P12 C0 renderer source, per the four mandated categories.",
+  "historical_p8_c0": {
+    "repository_root": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_worktree",
+    "base_commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+    "dirty_status": "DIRTY by construction (25 porcelain entries; HiGS renderer staged/uncommitted on the base commit). Identity is pinned by the source manifest, not by any commit.",
+    "renderer_source_manifest_sha256": "4baf54c0f7e220436f6d54ed8488fb4e671ca757f5710fced41cad5886543170",
+    "renderer_tree_digest_sha256": "b483a2c0e40d4434a1471354419bde0e453c27ade9ac1a121dc135b8b143c98a",
+    "normative_files": 574,
+    "full_tree_files": 2174,
+    "c0_ext_so_sha256": "9baf8655f859f3e0f456e99a2d8e5b3ddfe414fe17a1a3e9d8072e0afed95b91",
+    "c0_core_so_sha256": "361b216bcc11609a0ebb8fb44ad2e0c6170948112b6294e85123df45541c8c98"
+  },
+  "p12_c0_planned": {
+    "frozen_copy_on_epic": "/root/epic05_frozen/higs_c0_final30k_worktree",
+    "canonical_renderer_repo": "/root/epic05_p12_support/P12_C0_RENDERER_REPO",
+    "renderer_repo_commit": "2c6d9685b0eca852f6749ff4d64dc5a3ef942237",
+    "renderer_repo_git_tree": "7fef029e2d98549712c31e4efe1e32de5957cfb1",
+    "renderer_repo_clean_untracked_all": true,
+    "n_tracked_files": 2174,
+    "renderer_source_manifest_sha256": "4baf54c0f7e220436f6d54ed8488fb4e671ca757f5710fced41cad5886543170",
+    "renderer_tree_digest_sha256": "b483a2c0e40d4434a1471354419bde0e453c27ade9ac1a121dc135b8b143c98a",
+    "c0_ext_so_sha256": "9baf8655f859f3e0f456e99a2d8e5b3ddfe414fe17a1a3e9d8072e0afed95b91",
+    "c0_core_so_sha256": "361b216bcc11609a0ebb8fb44ad2e0c6170948112b6294e85123df45541c8c98",
+    "binary_plan": "reuse the historical prebuilt binary pair (no rebuild); EPIC copies at /root/epic05_frozen/mx_prebuilt_so/{c0_ext_mx.so,gsplat_cuda_mx.so}"
+  },
+  "renderer_source_comparison": {
+    "evidence_artifact": "/root/epic05_p12_support/certification/P12_C0_VS_P8_C0_RENDERER_DIFF.json",
+    "evidence_artifact_sha256": "3f6fca6a84a7738ba8b1b8c591fe75e5eb1fab36c7c1f4df22c187d485fcf164",
+    "evidence_tool": "p12_support_audit/tools/p8_c0_source_manifest.py (verify mode)",
+    "status": "IDENTICAL_RENDERER_SOURCE",
+    "normative_file_set": {
+      "historical": 574,
+      "p12": 574,
+      "identical": 574,
+      "missing_in_p12": 0,
+      "only_in_p12": 0,
+      "hash_mismatch": 0
+    },
+    "full_tree_index": {
+      "historical": 2174,
+      "p12": 2174,
+      "identical": 2174,
+      "only_in_historical": 0,
+      "only_in_p12": 0,
+      "hash_mismatch": 0
+    },
+    "tree_digest_equal": true
+  },
+  "classifications": {
+    "IDENTICAL_RENDERER_SOURCE": {
+      "applies": true,
+      "detail": "Every performance/semantics-relevant renderer file is byte-identical between historical P8 C0 and planned P12 C0: 574/574 normative files and 2174/2174 full-index files, both tree digests b483a2c0e40d4434a1471354419bde0e453c27ade9ac1a121dc135b8b143c98a. Zero differences of any category inside the renderer tree."
+    },
+    "COMMON_LOSS_PLUMBING_OUTSIDE_RENDERER": {
+      "applies": true,
+      "detail": "The only P12-intended changes live OUTSIDE the renderer source tree (fused-SSIM loss plumbing). None of these files is part of the certified renderer manifest or tree digest.",
+      "files": [
+        {
+          "path": "/root/epic05_p12_support/publication_trainer_p12.py",
+          "sha256": "689ec8924dec72011764b72d0d7a5cadadb52a8efaf98777980de7833f37bf46",
+          "role": "P12 trainer: same C0_WT renderer source binding; adds common fused loss plumbing (0.8*L1 + 0.2*(1-SSIM), padding=same) shared by all four arms"
+        },
+        {
+          "path": "/root/epic05_p12_support/p12_fused_loss.py",
+          "sha256": "a6087288571b86cf679ef08ddd77d3dc07b00d98c96cf4de1a66742932dd8944",
+          "role": "frozen fused-loss module (fused-ssim @ a7c48d6dd7ac6dc39a7958c7c4452e0b10418f38 lineage); algorithm unmodified"
+        },
+        {
+          "path": "/root/epic05_p12_support/P12_TRAINER_PATCH.json",
+          "sha256": "493840b1d62347767a7bb5c85b92fdc72e6fa3631aca7aedd53e1025101617b5",
+          "role": "record of the trainer patch (loss plumbing only; no renderer edits)"
+        }
+      ]
+    },
+    "BUILD_MECHANICAL": {
+      "applies": false,
+      "detail": "No build-mechanical difference between historical P8 C0 and planned P12 C0: P12 reuses the exact historical prebuilt binary pair; no rebuild is planned or required for certification (the compile path exists only as documentation in P8_C0_SOURCE_IDENTITY.json build_metadata).",
+      "historical_only_note": "Within the historical build, a stage-2 build-mechanical fix (fix_bg_kernel_arg.py, sha 7b506d48..., reverting an over-matched 5th launcher argument) superseded the stage-1 dst hash of HigsNativeBackward.cu (bfbf0230 -> 6efb9d25) before the certified .so was compiled at 12:03:14. This is internal to the historical identity and fully documented; it is not a P8-vs-P12 difference."
+    },
+    "UNEXPECTED": {
+      "applies": false,
+      "detail": "No algorithmic CUDA/C++ renderer difference, and no renderer difference of any kind, exists between historical P8 C0 and planned P12 C0. After the EPIC frozen copy's full-tree measurement, the tool emitted status IDENTICAL_RENDERER_SOURCE for both the normative 574-file set and the full 2174-file index.",
+      "items": []
+    }
+  },
+  "guard_implications": {
+    "p12_run_guard": {
+      "expected_renderer_source_sha256": "4baf54c0f7e220436f6d54ed8488fb4e671ca757f5710fced41cad5886543170",
+      "renderer_source_manifest": "/root/epic05_p12_support/certification/P8_C0_FROZEN_SOURCE_MANIFEST.json",
+      "expected_renderer_commit": "2c6d9685b0eca852f6749ff4d64dc5a3ef942237",
+      "renderer_repo": "/root/epic05_p12_support/P12_C0_RENDERER_REPO",
+      "note": "Run the guard before any renderer import so the repo remains free of __pycache__."
+    },
+    "p12_diff_guard": {
+      "p8_c0": "/root/epic05_frozen/higs_c0_final30k_worktree",
+      "p12_c0": "/root/epic05_p12_support/P12_C0_RENDERER_REPO",
+      "a0": "same tree as p12_c0",
+      "a1": "same tree as p12_c0",
+      "f9_allowlist": "{}",
+      "empty_allowlist_validity": "Valid: A0/A1 source trees are identical to P12 C0 and to each other, and F9 is controlled solely by the HIGS_DISABLE_F9 runtime switch in the same frozen binary."
+    }
+  },
+  "verdict": "SOURCE_CERTIFIED"
+}

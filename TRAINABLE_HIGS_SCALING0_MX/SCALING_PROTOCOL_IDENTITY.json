@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "protocol_identity": {
+    "requirement": "Identical training protocol for B and H across all benchmark points",
+    "frozen_parameters": {
+      "gaussian_state": {
+        "source": "Real PLY files from official 3DGS pretrained models",
+        "scenes": [
+          "tanks_and_temples/train (N=1,026,508)",
+          "mipnerf360/bicycle (N=6,131,954)"
+        ],
+        "parameterization": {
+          "means": "FP32 [N, 3]",
+          "quats": "FP32 [N, 4] (normalized)",
+          "scales": "FP32 [N, 3] (activated via exp)",
+          "opacities": "FP32 [N] (activated via sigmoid)",
+          "sh": "FP32 [N, 16, 3] (SH degree 3)"
+        },
+        "notes": "Identical initial state loaded from point_cloud.ply"
+      },
+      "cameras": {
+        "source": "eval_cameras.json per scene",
+        "n_train": "4 (configurable, default 4)",
+        "n_eval": "3 (held-out)",
+        "models": ["pinhole"],
+        "ordering": "Sequential by eval_cameras.json index",
+        "seed": "Controlled per run"
+      },
+      "resolution": {
+        "baseline": "960x540 (16:9)",
+        "high_res": "1920x1080 (1080p)",
+        "sweep": [0.5, 0.75, 1.0],
+        "notes": "Multipliers where applicable; width/height args to rasterization; eval always full target resolution"
+      },
+      "loss": {
+        "type": "L1",
+        "reference": "GT images (eval_images/) resized to target resolution",
+        "lpips_weight": "0.0 (disabled in scaling study; used in separate quality-max studies)"
+      },
+      "optimizer": {
+        "type": "torch.optim.Adam",
+        "fused": true,
+        "lr_schedule": "Per-parameter (means, quats, scales, opacities, sh)",
+        "lr_decay": "1.0 (constant LR for fixed-state benchmarks)"
+      },
+      "densification": {
+        "enabled": "Only in higs_dynamic backend and Stage E full-training",
+        "frequency": "Every 5 steps (configurable)",
+        "threshold": "5e-3 gradient norm",
+        "prune_threshold": "0.01 opacity",
+        "window": "None (full run)"
+      },
+      "rendering": {
+        "eps2d": 0.3,
+        "near_plane": 0.01,
+        "far_plane": 1e10,
+        "radius_clip": 0.0,
+        "background": "None (default black)",
+        "render_mode": "RGB"
+      },
+      "seed": {
+        "value": "0 (default, configurable)",
+        "applies_to": ["torch.manual_seed", "torch.cuda.manual_seed", "numpy", "random"]
+      }
+    },
+    "measurement_protocol": {
+      "warmup": ">= 50 iterations (CUDA kernels, allocator, autograd graph)",
+      "timed_iterations": ">= 100",
+      "synchronization": "torch.cuda.synchronize() before/after timing",
+      "timing_method": "CUDA events (preferred) or perf_counter with sync",
+      "metrics_recorded": [
+        "forward_ms (mean)",
+        "backward_ms (mean)",
+        "total_ms (mean, fwd+bwd)",
+        "train_ms (mean, fwd+bwd+opt.step)",
+        "peak_vram_gb",
+        "culling_ratio (HiGS only)",
+        "n_visible (HiGS only)",
+        "n_isects (both arms, where reported)",
+        "PSNR, SSIM, LPIPS (final evaluation)"
+      ]
+    },
+    "correctness_tolerances": {
+      "forward_parity": {
+        "psnr": ">= 20 dB (lenient; culling removes invisible Gaussians)",
+        "max_abs": "<= 1e-3",
+        "relative_l2": "<= 1e-3"
+      },
+      "gradient_parity": {
+        "relative_l2": "<= 1e-2",
+        "cosine_similarity": ">= 0.999",
+        "notes": "HiGS culling creates small differences; frozen path should match to ~1e-4"
+      }
+    },
+    "verification": "Benchmark harness enforces identical inputs; correctness gate validates before timing"
+  },
+  "known_protocol_differences": {
+    "acceptable": [
+      {
+        "difference": "HiGS culling removes invisible Gaussians from forward",
+        "impact": "Forward renders only visible subset; std renders all. Invisible Gaussians contribute zero to output.",
+        "mitigation": "Correctness gate verifies forward parity on visible subset; gradients on invisible rows are zero"
+      },
+      {
+        "difference": "HiGS native backward consumes different internal state",
+        "impact": "Implementation detail; transparent to training dynamics",
+        "mitigation": "Gradient parity check verifies equivalence"
+      }
+    ],
+    "unacceptable": [
+      "Different optimizer hyperparameters",
+      "Different SH degree",
+      "Different loss function",
+      "Different camera ordering",
+      "Different resolution between arms",
+      "Different eps2d"
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "task": "BFC0 P0 — Backward Frontier Compaction",
+  "date": "2026-10-01",
+  "verdict": "BLOCKED_SEMANTICS",
+  "execution_status": "INCOMPLETE",
+  "reason": "gsplat 1.5.3 API incompatibility prevented accurate oracle computation",
+  "completed_steps": [
+    "DSH-0: Environment capture",
+    "DSH-1: Prior-art audit",
+    "DSH-2: Source audit",
+    "DSH-3: Trace collection (partial)"
+  ],
+  "failed_steps": [
+    "DSH-4/5: Oracle computation (failed due to last_ids issue)",
+    "DSH-6: Timing/economics (skipped)",
+    "DSH-7/8: Gate evaluation (partial)"
+  ],
+  "key_findings": {
+    "source_audit": "Complete — gsplat 1.5.3 backward kernel semantics established",
+    "trace_collection": "Partial — 154K intersections collected, but gaussians randomly initialized",
+    "oracle_computation": "Failed — last_ids all -1, active masks all zero",
+    "fragmentation_metrics": "Unavailable due to oracle failure"
+  },
+  "blockers": [
+    "gsplat 1.5.3 no longer returns last_ids in rasterization meta dict",
+    "Custom compute_last_ids produced invalid results (coordinate system or initialization issue)",
+    "No trained gaussian checkpoint available (random initialization produces negligible footprints)"
+  ],
+  "next_actions": [
+    "Obtain trained gaussian checkpoint for room scene",
+    "Fix last_ids computation or downgrade to gsplat 1.4.0",
+    "Re-run oracle with corrected data",
+    "Evaluate BFC0 hypothesis with accurate metrics"
+  ]
+}

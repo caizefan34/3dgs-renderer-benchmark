@@ -1,0 +1,11 @@
+{
+  "schema": "BWD_ARITH1_CACHE_LAYOUT",
+  "layout": "[n_buckets, 32, block_size_blend=256] FP32, row-major",
+  "index": "bucket_idx*(32*256) + lane_idx*256 + pixel_idx",
+  "forward_store": "cidx=(bucket_offset-1)*(32*256) + (j%32)*256 + thread_rank (coalesced across pixel)",
+  "backward_load": "cidx=bucket_idx*(32*256) + lane_idx*256 + idx (strided: lane/pixel transpose penalty)",
+  "allocation": "torch::empty({n_buckets*32*256}, float32, cuda) in forward.cu when BWD1_CACHE_ENABLE=1",
+  "sharing": "host globals bwd1_gauss_cache_host / bwd1_cache_enable_host (avoid cudaMemcpyToSymbol, invalid for dlopen'd ext); passed as kernel params to blend_cu and blend_backward_cu",
+  "stride_bytes_per_bucket": 32768,
+  "note": "bucket holds 32 Gaussians x 256 pixels. Forward slot=j%32 (within-bucket Gaussian), backward slot=lane_idx=j%32. Off-by-one (bucket_offset-1) aligns forward store with backward load bucket."
+}

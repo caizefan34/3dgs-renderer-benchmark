@@ -1,0 +1,97 @@
+{
+  "phase": "P12 Gate 0 - strong-baseline revalidation source identity",
+  "date_utc": "2026-09-26T12:55:44Z",
+  "p11_reference_files": {
+    "P11_SOURCE_IDENTITY.json": "/root/epic05_p12/p11_reference/P11_SOURCE_IDENTITY.json",
+    "P11_LOSS_EQUIVALENCE.json": "/root/epic05_p12/p11_reference/P11_LOSS_EQUIVALENCE.json",
+    "P11_LOSS_TIMING.json": "/root/epic05_p12/p11_reference/P11_LOSS_TIMING.json"
+  },
+  "upstream_gsplat": {
+    "repository": "nerfstudio-project/gsplat",
+    "commit": "512d366b67073d77ca099ede742683c165dfc23b",
+    "gsplat_version": "1.6.0",
+    "tree": "/root/epic05_p8/gsplat-main-512d366b",
+    "working_tree_dirty": false,
+    "dirty_detail": ""
+  },
+  "gmain_so": {
+    "path": "/root/epic05_p8/build/torchext/gsplat_cuda/gsplat_cuda.so",
+    "sha256": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+    "matches_p11": true
+  },
+  "c0_lineage": {
+    "worktree": "/root/epic05_frozen/higs_c0_final30k_worktree",
+    "commit": "",
+    "working_tree_dirty": false,
+    "ext_so": {
+      "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so",
+      "sha256": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11"
+    },
+    "core_so": {
+      "path": "/root/epic05_build_cache/core/gsplat_cuda/gsplat_cuda.so",
+      "sha256": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+    },
+    "note": "C0 = frozen C0_V3_FINAL30K (F9+SCALAR_ADJOINT+H8_MR, PX=2); A0 = same binary env-switched HIGS_DISABLE_F9=1; A1 = same binary F9 on, no H8-MR, no scalar adjoint"
+  },
+  "trainer": {
+    "p12_path": "/root/epic05_p12/publication_trainer_p12.py",
+    "p12_sha256": "675b0267f3a1a6a0fa63fadb37c8536481c1c7a6de37a4b7f6ffa98a449050c5",
+    "p8_frozen_path": "/root/3dgs-publication-epic05/publication_trainer_p8.py",
+    "p8_sha256": "f67b2125f93b84c9afee103675c13dbca301aa58f385069b5e853d6272a20618",
+    "diff_vs_p8_lines": 106,
+    "diff_semantics": "loss-backend switch only (--loss sep|fused; fused training loss, SepSSIM eval metric unchanged)"
+  },
+  "recipe_files": {
+    "gaussian_model_sha256": "68731e375013a6f24aa4d81e5986402b1ac50f51cddf20688e358be705b1a60b",
+    "config_sha256": "ea8e870476a3ba71c0ae9e1123a6fa5b1cf696bad983bdb6535d6fd04b7acc56",
+    "dataset_sha256": "e6d8bfb1034bee102abc176060a8c7783951d253426ea7b5ea27daa16c258402"
+  },
+  "recipe_lock": {
+    "eps2d": 0.3,
+    "seed": 42,
+    "iterations": 30000,
+    "lambda_dssim": 0.2,
+    "loss_formula": "L = 0.8 * L1 + 0.2 * (1 - SSIM)",
+    "ssim_window": "11x11 Gaussian, sigma=1.5, zero same-padding",
+    "densify": "500..15000@100, grow_grad2d=0.0008 absgrad pixel-space",
+    "opacity_reset": 3000,
+    "sh_progress": 1000,
+    "tile_size": 16,
+    "packed": false,
+    "rasterize_mode": "classic",
+    "resolution": "1080p",
+    "background": "black"
+  },
+  "environment": {
+    "python": "3.10.21",
+    "torch": "2.9.1+cu128",
+    "cuda_runtime": "12.8",
+    "hostname": "dsw-933622-64cc845c7d-lqswc",
+    "gpus": [
+      "0, NVIDIA A100-SXM4-80GB, GPU-d94b65aa-4a44-3402-7a54-72ef0f3d8ff3, 570.133.20, 81920 MiB",
+      "1, NVIDIA A100-SXM4-80GB, GPU-f2f1e3be-845d-e628-eaae-d5d134e831e4, 570.133.20, 81920 MiB",
+      "2, NVIDIA A100-SXM4-80GB, GPU-bcca92b9-0234-7ec9-a2f0-a63925d52146, 570.133.20, 81920 MiB",
+      "3, NVIDIA A100-SXM4-80GB, GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72, 570.133.20, 81920 MiB",
+      "4, NVIDIA A100-SXM4-80GB, GPU-ff6ab27d-a9ad-36e1-7d59-997da8191fda, 570.133.20, 81920 MiB",
+      "5, NVIDIA A100-SXM4-80GB, GPU-bf5e4714-c12e-2914-78bb-be3ff2607296, 570.133.20, 81920 MiB",
+      "6, NVIDIA A100-SXM4-80GB, GPU-e4fb3361-0a0d-c9ae-6172-38327f8215e6, 570.133.20, 81920 MiB",
+      "7, NVIDIA A100-SXM4-80GB, GPU-75e61ed9-23aa-3757-40df-45bb414d403a, 570.133.20, 81920 MiB"
+    ]
+  },
+  "scenes": [
+    "bicycle",
+    "bonsai",
+    "counter",
+    "drjohnson",
+    "flowers",
+    "garden",
+    "kitchen",
+    "playroom",
+    "room",
+    "stump",
+    "train",
+    "treehill",
+    "truck"
+  ],
+  "failures": []
+}

@@ -1,0 +1,146 @@
+{
+  "schema": "SRR0_SOURCE_LOCK",
+  "gate": 2,
+  "identity": {
+    "hostname": "dsw-933622-64cc845c7d-lqswc",
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "cwd": "/root/epic05_p16rb/src/nerficg",
+    "source_git_sha": "e458ac6e41810ad6d9405687c1e698fadd28dac5",
+    "remote_guard": "EPIC-05 only; no CUDA on local Windows control-plane"
+  },
+  "backend": "FasterGSFused",
+  "kernel_file": "src/Methods/FasterGSFused/FasterGSFusedCudaBackend/FasterGSFusedCudaBackend/rasterization/include/kernels_backward.cuh",
+  "kernel": "preprocess_backward_cu (lines ~15-250)",
+  "recomputed_quantities": [
+    {
+      "id": "Q1",
+      "name": "SH view direction + SH basis backward",
+      "symbol": "convert_sh_to_color_backward(...)",
+      "line": 59,
+      "forward_equivalent": "sh_coefficients_0/_rest + cam_position + mean3d -> color (saved as color)",
+      "recompute_cost": "SH basis polynomial eval per touched primitive"
+    },
+    {
+      "id": "Q2",
+      "name": "camera-space projection (depth, x, y)",
+      "symbol": "w2c dot mean3d; x=X/depth; y=Y/depth",
+      "line": 73,
+      "forward_equivalent": "none saved (mean2d saved instead)",
+      "recompute_cost": "3 dot + 2 div per touched primitive"
+    },
+    {
+      "id": "Q3",
+      "name": "scale -> variance",
+      "symbol": "variance = expf(2.0f * raw_scale)",
+      "line": 77,
+      "forward_equivalent": "scales (raw) saved via moments_scales",
+      "recompute_cost": "1 expf per primitive"
+    },
+    {
+      "id": "Q4",
+      "name": "quaternion -> rotation matrix",
+      "symbol": "R = convert_quaternion_to_rotation_matrix(raw_rotation, norm_sq)",
+      "line": 80,
+      "forward_equivalent": "rotations (raw quat) saved via moments_rotations",
+      "recompute_cost": "9 mul + normalize per primitive"
+    },
+    {
+      "id": "Q5",
+      "name": "3D covariance / RSS",
+      "symbol": "RSS=R*variance; cov3d = RSS*R^T (symmetric 3x3)",
+      "line": 81,
+      "forward_equivalent": "none saved",
+      "recompute_cost": "27 mul + 6 add per primitive"
+    },
+    {
+      "id": "Q6",
+      "name": "EWA Jacobian + 2D covariance",
+      "symbol": "j11..j23, jw_r1/r2, jwc_r1/r2, a/b/c",
+      "line": 98,
+      "forward_equivalent": "conic_opacity saved",
+      "recompute_cost": "~30 mul-add per primitive"
+    }
+  ],
+  "forward_saved_state_per_primitive": {
+    "source": "buffer_utils.h PrimitiveBuffers::from_blob",
+    "fields": [
+      {
+        "name": "n_touched_tiles",
+        "dtype": "uint",
+        "bytes": 4
+      },
+      {
+        "name": "offset",
+        "dtype": "uint",
+        "bytes": 4
+      },
+      {
+        "name": "screen_bounds",
+        "dtype": "ushort4",
+        "bytes": 8
+      },
+      {
+        "name": "mean2d",
+        "dtype": "float2",
+        "bytes": 8
+      },
+      {
+        "name": "conic_opacity",
+        "dtype": "float4",
+        "bytes": 16
+      },
+      {
+        "name": "color",
+        "dtype": "float3",
+        "bytes": 12
+      }
+    ],
+    "core_bytes_per_primitive": 52,
+    "sort_key_bytes_per_primitive": 16,
+    "total_with_sort_keys_bytes_per_primitive": 68
+  },
+  "candidates_frozen_before_profiling": {
+    "R1": {
+      "desc": "retain normalized SH/view direction (float3) only",
+      "bytes_per_primitive": 12,
+      "eliminates": [
+        "Q1 (view-dir portion)"
+      ],
+      "keeps_recomputed": [
+        "SH basis polynomial eval",
+        "Q2-Q6"
+      ]
+    },
+    "R2": {
+      "desc": "retain minimal scale/rotation transform sufficient stats: variance(float3)=12B + R(mat3x3)=36B",
+      "bytes_per_primitive": 48,
+      "eliminates": [
+        "Q3",
+        "Q4"
+      ],
+      "keeps_recomputed": [
+        "Q5 (cov3d from R,variance)",
+        "Q6",
+        "Q1",
+        "Q2"
+      ]
+    },
+    "R3": {
+      "desc": "R1+R2 minimal combination (view-dir 12B + variance 12B + R 36B)",
+      "bytes_per_primitive": 60,
+      "eliminates": [
+        "Q1-dir",
+        "Q3",
+        "Q4"
+      ],
+      "keeps_recomputed": [
+        "SH basis",
+        "Q5",
+        "Q6",
+        "Q2"
+      ]
+    },
+    "note": "No candidate retains full covariance tensors (Q5 cov3d) per prereg constraint. Byte budget FP32=4B."
+  },
+  "freeze_statement": "R1/R2/R3 exact fields derived from source and frozen BEFORE profiling (Gate 4). No field added/removed after results."
+}

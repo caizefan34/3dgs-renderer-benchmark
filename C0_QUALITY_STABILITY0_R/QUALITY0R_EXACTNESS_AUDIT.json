@@ -1,0 +1,37 @@
+{
+  "artifact": "QUALITY0R_EXACTNESS_AUDIT",
+  "campaign": "C0-QUALITY-STABILITY0-R",
+  "source": "QUALITY_EXACTNESS_CLAIMS.json + QUALITY_FIXED_STATE_EXACTNESS.json + source identity",
+  "layers": {
+    "ALGEBRAICALLY_EXACT": {
+      "status": "SUPPORTED",
+      "correct_wording": "Algebraic exactness is supported by the DERIVATION of the F9 / Scalar / H8 transformations as exact dataflow/adjoint restructurings.",
+      "evidence_discipline": "derivation / transformation identity",
+      "not_supported_by": "Binary identity alone. Binary hash (9baf8655) only establishes that A0 and C0 share the same implementation substrate, NOT algebraic exactness.",
+      "original_wording": "identical .so + core => modules are exact restructurings (SUPPORTED)",
+      "problem": "The original support conflated binary identity with derivation-based algebraic exactness.",
+      "corrected": "Separate the two claims: (a) derivation shows the transforms are algebraically exact; (b) binary identity shows A0/C0 share the same substrate/implementation family. Do not use (b) to prove (a)."
+    },
+    "BIT_EXACT": {
+      "status": "NOT_SUPPORTED",
+      "rationale": "FP reassociation (transpose elimination + scalar adjoint) changes rounding; observed loss/n_gs divergence confirms non-bit-identical trajectories."
+    },
+    "FLOATING_POINT_EQUIVALENT_WITH_TOLERANCE": {
+      "status": "SUPPORTED",
+      "evidence_discipline": "SAME-STATE forward/gradient rel-L2 tests within tolerance ONLY",
+      "note": "Relies only on same-state tests (iter1 + causal-ladder fixed-state forward/gradient rel-L2). Trajectory-state loss diffs are excluded (see state classification)."
+    },
+    "FULL_TRAINING_TRAJECTORY_EQUIVALENT": {
+      "status": "NOT_SUPPORTED",
+      "rationale": "n_gaussians / loss diverge at first divergence iteration (iter 600-700)."
+    },
+    "FULL_TRAINING_QUALITY_EQUIVALENT": {
+      "status": "NOT_ESTABLISHED",
+      "rationale": "Quality equivalence must NOT be inferred merely because the mean CI crosses zero. The frozen non-inferiority gates are not consistently passed (only 3/9 pairs pass all three). Reviewer-safe wording: NOT_ESTABLISHED / QUALITY_NEUTRALITY_NOT_ESTABLISHED.",
+      "original_wording": "DERIVED_FROM_MULTI_SEED_VERDICT",
+      "problem": "The original wording left the layer's support ambiguous.",
+      "corrected": "NOT_ESTABLISHED (frozen non-inferiority gates not consistently passed)."
+    }
+  },
+  "forbidden_inference": "algebraically exact => trajectory equivalent is FORBIDDEN and is explicitly NOT claimed."
+}

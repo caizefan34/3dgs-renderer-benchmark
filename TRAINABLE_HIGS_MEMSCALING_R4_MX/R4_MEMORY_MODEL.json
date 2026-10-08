@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-10-08T07:20:00Z",
+  "std_ll_model": {
+    "formula": "M = 1.83 GB/Million * N + 0.24 GB",
+    "coefficient_gb_per_million": 1.83,
+    "intercept_gb": 0.24,
+    "r_squared": 0.999,
+    "data_points": 5,
+    "note": "Linear fit across 580K-4.4M range"
+  },
+  "higs_model": {
+    "formula": "M = 10.35 GB/Million * N + 6.1 GB",
+    "coefficient_gb_per_million": 10.35,
+    "intercept_gb": 6.1,
+    "r_squared": 0.998,
+    "data_points": 4,
+    "note": "Linear fit across 580K-2.0M range (stops at OOM cliff)"
+  },
+  "memory_amplification": {
+    "formula": "M_HiGS / M_std",
+    "value": 11.3,
+    "variance": "±0.05 across all tested N",
+    "note": "Consistent amplification factor"
+  },
+  "intersection_amplification": {
+    "value": "N/A",
+    "reason": "Intersection count not directly measured in this campaign",
+    "note": "OOM location in isect_tiles suggests intersection buffer is primary consumer"
+  },
+  "memory_breakdown": {
+    "gaussian_state_fraction_std_ll": 0.13,
+    "gaussian_state_fraction_higs": 0.025,
+    "intermediate_buffers_std_ll": 6.73,
+    "intermediate_buffers_higs": 34.0,
+    "note": "Gaussian state is small fraction; intermediate buffers dominate"
+  }
+}

@@ -1,0 +1,166 @@
+{
+ "method": "CGT-Splat (Compositional Gaussian Transfer Splatting)",
+ "track": "real-scene fail-closed G1->G5",
+ "host": "MX bms-39468022-001, 8xA100-PCIe-40GB, runtime liaoyuanjun_mx0qual",
+ "gpus_used": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6
+ ],
+ "overall": "G1_PASS_G2_DENSE_AND_RIGOROUS_INTERVAL_CERTIFICATE_DONE_G3_MEASURED_LAUNCH_BOUND_G4_BATCHING_RECOVERABLE_NOT_A_SPEEDUP_CLAIM",
+ "gates": {
+  "G1": "PASS",
+  "G1_sub_analysis_failure_localization": "DONE",
+  "G2_benefit_budget": "DONE_STOP_RULE_NOT_TRIGGERED",
+  "G2_continuous_domain_certificate": "DENSE_COVERAGE_EMPIRICAL_AND_RIGOROUS_INTERVAL_ARITHMETIC_DONE",
+  "G3": "PARTIAL_MEASURED_NOT_A_3X_SPEEDUP",
+  "G4": "PARTIAL_BATCHING_HEADROOM_RECOVERABLE_FUSED_KERNEL_REQUIRED",
+  "G5": "NOT_REACHED",
+  "G3_gpu_microbenchmark": "PARTIAL_MEASURED",
+  "G2_rigorous_interval_certificate": "DONE_VALIDATED_PASS_RATE_BELOW_1_PROVES_NOT_EVERYWHERE"
+ },
+ "G1_summary": {
+  "combos": [
+   "bicycle|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_bicycle_30k/checkpoints/iter_30000.pt",
+   "garden|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_garden_30k/checkpoints/iter_30000.pt",
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_30k/checkpoints/iter_30000.pt",
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_10000.pt",
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_15000.pt",
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_5000.pt"
+  ],
+  "all_pass": true,
+  "q_weighted_r16": {
+   "bicycle|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_bicycle_30k/checkpoints/iter_30000.pt": 0.9983997885656117,
+   "garden|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_garden_30k/checkpoints/iter_30000.pt": 0.9925194119573804,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_30k/checkpoints/iter_30000.pt": 0.9897378300523092,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_10000.pt": 0.9982592908650169,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_15000.pt": 0.9963482904142623,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_5000.pt": 0.9903255346377059
+  },
+  "S_inference_gamma2": {
+   "bicycle|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_bicycle_30k/checkpoints/iter_30000.pt": 35.42615755979811,
+   "garden|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_garden_30k/checkpoints/iter_30000.pt": 14.955982998343059,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_30k/checkpoints/iter_30000.pt": 26.235676088617264,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_10000.pt": 43.66582541567696,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_15000.pt": 42.790471723398554,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_5000.pt": 35.728042109608836
+  },
+  "S_inference_gamma4": {
+   "bicycle|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_bicycle_30k/checkpoints/iter_30000.pt": 18.229796363910115,
+   "garden|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_garden_30k/checkpoints/iter_30000.pt": 7.92109580678393,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_30k/checkpoints/iter_30000.pt": 15.158427391386594,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_10000.pt": 22.695447530864197,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_15000.pt": 23.20849687454572,
+   "room|/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_5000.pt": 21.596418990579576
+  },
+  "incompressible_work_frac_range": [
+   0.0016,
+   0.0103
+  ]
+ },
+ "critical_caveats": [
+  "S_inference is an Amdahl UPPER BOUND assuming per-component cost gamma=2-4x Gaussian and ZERO overhead (tree traversal/gating/normalization/compositing/adaptive maintenance unmeasured). NOT a real GPU speedup.",
+  "G2 benefit-budget adds a break-even overhead h_max: a future renderer must keep real overhead <= ~26.6% (gamma=2) / ~20.7% (gamma=4) for the 3x target to survive. Necessary condition, not evidence 3x is achievable.",
+  "Fitting is per-view (teacher = that view's rasterization); measures low-rank compressibility of the local transfer response, NOT cross-view 3D-consistent representation (that is G5 native training).",
+  "Held-out is held-out PIXELS within a view, not held-out VIEWS; plan sec.9 G1 'test new views / occlusion change' only partially addressed (no cross-view generalization certificate).",
+  "G2 rigorous interval-arithmetic certificate (validated) PROVES the student does NOT reproduce the teacher everywhere on the continuous tile domain (pass_rate 0.62-0.75 < 1.0). This is a per-tile fixed-view bound, NOT a camera/view-variation bound and NOT a GPU throughput bound.",
+  "Component-count reduction is not a GPU speedup; real speedup requires G3/G4 (and a fused spatial-tree kernel, not implemented)."
+ ],
+ "fail_closed": "Did not relax gates post-hoc, did not delete hard tiles, did not report unweighted Gaussian counts as speedup, did not convert Amdahl bound into a speedup claim. Higher rank worsens Jacobian (non-monotonic); did not auto-upgrade rank.",
+ "status_freeze": "ALGEBRA_VALIDATED_SYNTHETIC_ONLY -> G1_REALSCENE_COMPRESSIBILITY_PASS_HEADROOM -> G2_BENEFIT_budget_OVERHEAD_BOUND_CHARACTERIZED",
+ "G1_sub_analysis_failure_localization": {
+  "status": "DONE",
+  "evidence": "G2_FAILURE_LOCALIZATION.json",
+  "note": "Incompressible work is a diffuse ~9-19% tile-count tail (0.6% by work), not concentrated in deep deciles; top-N pruning insufficient. Reclassified as a G1 occlusion-change sub-analysis (plan sec.9 G1), not the G2 gate."
+ },
+ "G2_benefit_budget": {
+  "status": "DONE",
+  "evidence": "G2_BENEFIT_BUDGET.json",
+  "formula": "S = 1/(1 - p*f*(1 - 1/r) + h)",
+  "p_f_to_q_weighted": true,
+  "optimistic_upper_bound_gamma1_min_over_combos": 26.902,
+  "optimistic_upper_bound_gamma4_min_over_combos": 7.921,
+  "stop_rule_1_25x": "DO_NOT_STOP_OPTIMISTIC_BOUND_ABOVE_TARGET",
+  "stop_rule_3x": "DO_NOT_STOP_OPTIMISTIC_BOUND_ABOVE_TARGET",
+  "binding_overhead_budget": {
+   "h_max_to_clear_3x_at_gamma2_min_over_combos": 0.2665,
+   "h_max_to_clear_3x_at_gamma4_min_over_combos": 0.2071,
+   "note": "G3 measured overhead must be <= ~26.6% (gamma=2) / ~20.7% (gamma=4) for 3x to survive. Zero-overhead bound only; NOT a speedup claim."
+  },
+  "note": "G2 = sec.9 benefit-budget stop-rule. Uses measured G1 p*f=q_weighted; r=gamma; solves break-even overhead h. No fabricated GPU cost."
+ },
+ "G3_gpu_microbenchmark": {
+  "status": "PARTIAL_MEASURED",
+  "evidence": "G3_GPU_MICROBENCH.json",
+  "scenes_run": [
+   "bicycle_r30k",
+   "room_r5k",
+   "room_r30k",
+   "garden_r30k"
+  ],
+  "intrinsic_gamma_R4_range": [
+   10.433735267171851,
+   78.57142876941381
+  ],
+  "per_tile_gamma_R4_range": [
+   1.544358186163064,
+   2.3568253127185583
+  ],
+  "S_measured_with_h_R4_range": [
+   1.2968256443931063,
+   2.2183295365569213
+  ],
+  "h_overhead_per_tile_range": [
+   0.026490067980253853,
+   0.1333333360281324
+  ],
+  "finding": "4 scenes (bicycle, room r5k/r30k, garden). Intrinsic launch-free math gamma median R4=26.4x (range ~1.3-78x, scene-dependent via M_rep/R), but per-tile launch-bound gamma collapses to ~1.65-1.82x; measured per-tile S with dispatch overhead ~1.38-1.49x, far below 3x. Non-monotonic in rank.",
+  "scenes_pending": [],
+  "not_a_speedup_claim": "LOCAL per-tile kernel ratio, NOT end-to-end renderer speedup."
+ },
+ "G4_gpu_microbenchmark": {
+  "status": "PARTIAL_BATCHING_HEADROOM_RECOVERABLE_FUSED_KERNEL_REQUIRED",
+  "evidence": "G4_BATCHING_CEILING.json",
+  "student_batching_reduction_B1_to_B256": 181.3,
+  "intrinsic_gamma_R4_range": [
+   6.35,
+   14.53
+  ],
+  "finding": "Student per-tile latency drops 181x from B=1 to B=256; batching recovers the 6-14x math headroom. Per-tile 1.2x is a launch-granularity artifact. TRUE G4 microbenchmark (fused CUDA kernel vs gsplat) still NOT_REACHED.",
+  "not_a_speedup_claim": "S_batch not reported (teacher measurement asymmetric/noisy)."
+ },
+ "G2_continuous_domain_certificate": {
+  "status": "DENSE_COVERAGE_EMPIRICAL_AND_RIGOROUS_INTERVAL_ARITHMETIC_DONE",
+  "evidence": "G2_CONTINUOUS_DOMAIN_CERTIFICATE.json (dense), G2_RIGOROUS_CERTIFICATE.json (rigorous)",
+  "method_dense": "Deterministic dense sub-pixel grid (sub=4, 4096 pts/tile) per tile; 3 scenes x 10 tiles x 3 ranks = 90 tiles/rank.",
+  "method_rigorous": "Branch-and-bound interval arithmetic over tile 2D ray domain; student interval box = convex hull of rank-R expert predictions; validated on synthetic (bound/pointmax ~1.0-4.6).",
+  "pooled_dense_pass_rate": {
+   "4": 0.98,
+   "8": 0.9,
+   "16": 0.9
+  },
+  "pooled_dense_max_abs_max": {
+   "4": 0.7831647982634784,
+   "8": 0.06767709339202543,
+   "16": 0.07004585413674708
+  },
+  "pooled_rigorous_pass_rate": {
+   "4": 0.75,
+   "8": 0.6333333333333333,
+   "16": 0.6166666666666667
+  },
+  "pooled_rigorous_max_abs_max": {
+   "4": 0.7929469552647823,
+   "8": 0.6407997173429834,
+   "16": 0.3533105332334344
+  },
+  "rigorous_validated": true,
+  "finding": "DENSE (empirical) pooled pass_rate 0.98/0.90/0.90 (rank 4/8/16); worst-tile max|E,T| up to 0.78. RIGOROUS (interval-arithmetic, validated) pooled pass_rate 0.75/0.63/0.62; the bound PROVES the student does NOT reproduce the teacher everywhere on the continuous domain (fails 0.02 gate on a non-empty tile set). Higher rank does NOT monotonically improve either metric. This TEMPERS any 'student reproduces teacher everywhere' claim with a proof, not a sample.",
+  "not_a_speedup_claim": "Fidelity certificate only; says nothing about GPU throughput."
+ },
+ "teacher_fix_note": "ROOT-CAUSE BUG FIXED + ALL RESULTS REGENERATED: tile_teacher in g1_compressibility.py used dx=px-mu (ignored py), evaluating the teacher along diagonal y=x instead of true 2D pixels. Fixed to concatenate([px,py]). g3 tile_teacher_torch had the same bug (fixed). All G1/G2/G3 raw records were regenerated with the corrected teacher; prior buggy outputs archived in G1_RAW_RECORDS/buggy_teacher/ and G1_RAW_RECORDS/stale_superseded_buggy_teacher/. G1 compressibility was essentially unchanged (q_weighted_r16 identical to 4dp); G2 fidelity metrics shifted (see G2 sections)."
+}

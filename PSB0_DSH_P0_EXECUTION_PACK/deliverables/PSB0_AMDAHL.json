@@ -1,0 +1,31 @@
+{
+  "_timestamp_utc": "2026-10-01T11:28:00Z",
+  "gate": "Gate 6 — strong-backend economics (measured strong-backend timing)",
+  "measured_native_timing": {
+    "source": "/root/epic05_p16rb/runs/FasterGSFused/*/P16_RUN.json",
+    "room": {
+      "training_wall_s": 272.319,
+      "num_gaussians_final": 1291848,
+      "peak_vram_mb": 10654,
+      "psnr": 31.728,
+      "ssim": 0.9212,
+      "lpips": 0.2935,
+      "resolution": "1920x1080",
+      "native_iterations": 30000
+    },
+    "note": "garden/bicycle P16_RUN.json present in same dir; room used as representative. training_wall_s = training callbacks only (final render/checkpoint excluded)."
+  },
+  "state_recovery_fraction_of_backward": {
+    "estimate": "state-recovery (replay recurrence + checkpoint) is a small fraction of total backward; backward also does gradient math (dL_dcolor/dalpha/conic/mean2d), preprocess (cov3d, SH, jacobian), and Adam. State-recovery recurrence ~10-17 flop/visit vs gradient math ~30-40 flop/visit.",
+    "implication": "even a 20% reduction in state-recovery work is <~10% of total backward; backward is ~1/3 of training step (forward+backward+optim)"
+  },
+  "e2e_model": {
+    "formula": "pred_e2e = 1 / (1 - f_bwd*frac_bwd*red_state + ...)",
+    "assumptions": "f_bwd=0.33 (backward share of step), frac_state=0.25 (state-recovery share of backward), red_state=0.20 (Gate4 borderline reduction)",
+    "pred_e2e_upper_bound": "1 / (1 - 0.33*0.25*0.20) = 1 / (1 - 0.0165) = 1.0168x",
+    "note": "even IF Gate 4 passed at 20%, the E2E ceiling from state-recovery alone is ~1.02x — below the 1.05x Gate 6 threshold. Gate 6 requires the recoverable work to map to >=1.05x E2E in >=2/3 scenes; state-recovery alone cannot reach it."
+  },
+  "verdict": "FAIL",
+  "verdict_rationale": "Gate 6 requires conservative optimistic E2E >=1.05x in >=2/3 scenes. State-recovery is a small fraction of the backward, which is itself a fraction of the training step. Even granting the full (borderline) Gate 4 reduction, the E2E ceiling from state-recovery alone is ~1.02x, below 1.05x. Gate 6 fails independently of Gate 4.",
+  "gate6_pass": false
+}

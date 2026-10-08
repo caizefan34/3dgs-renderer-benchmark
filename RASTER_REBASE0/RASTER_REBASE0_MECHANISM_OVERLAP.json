@@ -1,0 +1,22 @@
+{
+  "shared": [
+    "2D Gaussian EWA splatting",
+    "tile-based rasterization (16x16)",
+    "depth-ordered alpha compositing",
+    "SH degree-3 color",
+    "differentiable backward"
+  ],
+  "H_only": [
+    "fused Adam optimizer inside backward",
+    "sequential per-tile blend loop (blend_backward)",
+    "instancing of large footprints",
+    "moments-based densification state"
+  ],
+  "M_only": [
+    "bucketized parallel compositing with associative merge",
+    "scale-aware workload balancing (warp-packing + large-primitive decomposition)",
+    "radix sort",
+    "SparseGaussianAdam (separate, not fused into render backward)"
+  ],
+  "overlap_assessment": "M targets exactly the sequential alpha-compositing bottleneck that FUSED-HOTSPOT0 identified as blend_backward_cu"
+}

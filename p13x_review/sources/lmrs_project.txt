@@ -1,0 +1,51 @@
+Matrix-free Second-order Optimization of Gaussian Splats with Residual Sampling
+Matrix-free Second-order Optimization of Gaussian Splats with Residual Sampling
+International Conference on 3D Vision (3DV), 2026
+(Oral, Best Paper Award Candidate)
+Hamza Pehlivan
+,
+Andrea Boscolo Camiletto
+,
+Lin Geng Foo
+,
+Marc Habermann
+,
+Christian Theobalt
+Max Planck Institute for Informatics
+,
+Saarland Informatics Campus
+Paper
+Code
+Summary
+We provide Levenberg-Marquardt (LM) optimizer together with importance sampling to efficiently estimate Jacobian matrix arising in second-order optimization of Gaussian Splats. 
+          This enables us to efficiently run the LM optimizer compared to its vanilla version, and can even beat first-order optimizers, like Adam, under certain settings.
+We created custom CUDA kernels to efficiently calculate Jacobian-vector products. Our implementation utilizes forward differentiation and dual numbers for computation efficiency.
+Abstract
+3D Gaussian Splatting (3DGS) is widely used for novel view synthesis due to its high rendering quality and fast inference time. However, 3DGS predominantly relies on first-order optimizers such as Adam, which leads to long training times.
+        To address this limitation, we propose a novel second-order optimization strategy based on Levenberg-Marquardt (LM) and Conjugate Gradient (CG), specifically tailored towards Gaussian Splatting.
+        Our key insight is that the Jacobian in 3DGS exhibits significant sparsity since each Gaussian affects only a limited number of pixels.
+        We exploit this sparsity by proposing a matrix-free and GPU-parallelized LM optimization.
+        To further improve its efficiency, we propose sampling strategies for both camera views and loss function and, consequently, the normal equation, significantly reducing the computational complexity. 
+        In addition, we increase the convergence rate of the second-order approximation by introducing an effective heuristic to determine the learning rate that avoids the expensive computation cost of line search methods. 
+        As a result, our method achieves a 4x speedup over standard LM and outperforms Adam by 5x when the Gaussian count is low while providing ≈ 1.3x speed in moderate counts.
+        In addition, our matrix-free implementation achieves 2x speedup over the concurrent second-order optimizer 3DGS-LM, while using 3.5x less memory.
+Method
+We start from randomly initialized Gaussians and gradually refine them with Levenberg-Marquardt optimizer.
+            Since dealing with the true Jacobian matrix is costly, we approximate it with a tile-aware sampling algorithm.
+            After we solve the normal equations with approximated Jacobians, we update the parameters using a learning rate heuristic. 
+            Note that the Jacobians are never materialized in the memory, and the normal equation is solved with only Jacobian vector products.
+Results
+360° Comparisons
+Both methods are trained for ~15 seconds
+Citation
+@inproceedings{pehlivanmatrix,
+  title={Matrix-free Second-order Optimization of Gaussian Splats with Residual Sampling},
+  author={Pehlivan, Hamza and Camiletto, Andrea Boscolo and Foo, Lin Geng and Habermann, Marc and Theobalt, Christian},
+  booktitle={Thirteenth International Conference on 3D Vision},
+  year={2026}
+}
+© Hamza Pehlivan
+Imprint
+Data Protection
+Design:
+TEMPLATED

@@ -1,0 +1,73 @@
+extracted 240 tiles; M median=267
+/mnt/storage_pool/liaoyuanjun_mx0qual/lib/python3.10/site-packages/torch/autograd/graph.py:824: UserWarning: Attempting to run cuBLAS, but there was no current CUDA context! Attempting to set the primary context... (Triggered internally at /pytorch/aten/src/ATen/cuda/CublasHandlePool.cpp:181.)
+  return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+WROTE /home/liaoyuanjun/cgt_realscene/final/G1_RAW_RECORDS/g3_garden_r30k.json
+{
+  "scene": "garden",
+  "n_tiles": 240,
+  "M_median": 267.0,
+  "dispatch_overhead_ms": 0.01228800043463707
+}
+BATCHING R=4:
+  B=   1 student/tile=0.06861ms teacher/tile=0.47872ms S_batch=6.98
+  B=   2 student/tile=0.03482ms teacher/tile=0.42854ms S_batch=12.31
+  B=   4 student/tile=0.01741ms teacher/tile=0.41690ms S_batch=23.95
+  B=   8 student/tile=0.00883ms teacher/tile=0.38202ms S_batch=43.25
+  B=  16 student/tile=0.00442ms teacher/tile=0.40451ms S_batch=91.60
+  B=  32 student/tile=0.00227ms teacher/tile=0.40078ms S_batch=176.40
+  B=  64 student/tile=0.00115ms teacher/tile=0.40991ms S_batch=355.83
+  B= 128 student/tile=0.00060ms teacher/tile=0.40920ms S_batch=682.00
+BATCHING R=8:
+  B=   1 student/tile=0.07066ms teacher/tile=0.55757ms S_batch=7.89
+  B=   2 student/tile=0.03482ms teacher/tile=0.36582ms S_batch=10.51
+  B=   4 student/tile=0.01766ms teacher/tile=0.37325ms S_batch=21.13
+  B=   8 student/tile=0.00883ms teacher/tile=0.41734ms S_batch=47.25
+  B=  16 student/tile=0.00454ms teacher/tile=0.39373ms S_batch=86.65
+  B=  32 student/tile=0.00230ms teacher/tile=0.40670ms S_batch=176.52
+  B=  64 student/tile=0.00120ms teacher/tile=0.40436ms S_batch=336.97
+  B= 128 student/tile=0.00064ms teacher/tile=0.41150ms S_batch=642.97
+BATCHING R=16:
+  B=   1 student/tile=0.07066ms teacher/tile=0.55859ms S_batch=7.91
+  B=   2 student/tile=0.03584ms teacher/tile=0.33050ms S_batch=9.22
+  B=   4 student/tile=0.01805ms teacher/tile=0.41549ms S_batch=23.02
+  B=   8 student/tile=0.00922ms teacher/tile=0.39168ms S_batch=42.50
+  B=  16 student/tile=0.00467ms teacher/tile=0.40531ms S_batch=86.75
+  B=  32 student/tile=0.00240ms teacher/tile=0.41054ms S_batch=171.06
+  B=  64 student/tile=0.00130ms teacher/tile=0.41040ms S_batch=316.67
+  B= 128 student/tile=0.00074ms teacher/tile=0.41050ms S_batch=551.75
+INTRINSIC(launch-free): {
+  "M_rep": 267,
+  "n_pixels": 65536,
+  "teacher_ms": 3.4447360038757324,
+  "per_rank": {
+    "4": {
+      "student_ms": 0.08601599931716919,
+      "intrinsic_gamma": 40.04761941059199,
+      "teacher_per_gaussian_us": 12.90163297331735,
+      "student_per_component_us": 21.503999829292297
+    },
+    "8": {
+      "student_ms": 0.0942080020904541,
+      "intrinsic_gamma": 36.56521662107067,
+      "teacher_per_gaussian_us": 12.90163297331735,
+      "student_per_component_us": 11.776000261306763
+    },
+    "16": {
+      "student_ms": 0.12185599654912949,
+      "intrinsic_gamma": 28.26890839538533,
+      "teacher_per_gaussian_us": 12.90163297331735,
+      "student_per_component_us": 7.615999784320593
+    }
+  }
+}
+R=4: per_tile gamma=2.357 h_over=0.0265 S_idealh=2.36 S_withh=2.218
+R=8: per_tile gamma=2.384 h_over=0.0265 S_idealh=2.38 S_withh=2.243
+R=16: per_tile gamma=2.164 h_over=0.0265 S_idealh=2.16 S_withh=2.047
+HEADLINE: {
+  "intrinsic_gamma_R4": 40.04761941059199,
+  "intrinsic_gamma_R8": 36.56521662107067,
+  "intrinsic_gamma_R16": 28.26890839538533,
+  "per_tile_gamma_R4": 2.3568253127185583,
+  "per_tile_S_with_h_R4": 2.2183295365569213,
+  "note": "intrinsic_gamma = launch-free per-element math ratio (65536 px single call); per_tile_gamma = launch-bound (256 px). A real per-tile renderer is launch-bound, so per_tile_S is the operationally relevant ceiling; intrinsic_gamma is the math lower bound."
+}

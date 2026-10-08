@@ -1,0 +1,125 @@
+# TRAINABLE-HIGS-MEMFIX-IMPLEMENT-R6-MX - FINAL RESPONSE
+
+## Status: IMPLEMENTATION_BLOCKED
+
+**Execution Platform:** MX (40GB GPU)  
+**Date:** 2026-10-08  
+**Campaign:** TRAINABLE-HIGS-MEMFIX-IMPLEMENT-R6-MX
+
+---
+
+## CRITICAL FINDING
+
+After examining the actual CUDA source code in `IntersectTile.cu`, I discovered that **HiGS already implements two-pass exact allocation**, NOT worst-case over-allocation as hypothesized in R5.
+
+### Source Code Evidence
+
+**File:** `gsplat/cuda/csrc/IntersectTile.cu` (lines 720-850)
+
+The implementation already does:
+1. **Pass 1:** Count intersections → `n_isects`
+2. **Allocation:** `at::empty({n_isects}, ...)` - EXACT size
+3. **Pass 2:** Fill intersection records
+
+This is optimal. No `MAX_INTERSECTIONS_PER_GAUSSIAN` constant exists. No over-allocation occurs.
+
+---
+
+## Answers to Key Questions
+
+### Q1: Was patched HiGS binary compiled?
+
+**NO** - BUILD_NOT_EXECUTED
+
+Reason: No fix needed. HiGS already uses exact allocation.
+
+### Q2: What are actual intersections and capacity?
+
+**NOT_MEASURED** - build not executed
+
+From source analysis:
+- Actual: ~40M intersections at 4.4M
+- Capacity: EXACT (n_isects from count pass)
+- Over-allocation: NONE
+
+### Q3: Did correctness validation pass?
+
+**NOT_TESTED** - no changes made, no new binary built
+
+### Q4: Did 4.41M / 540p / B4 / 40GB pass?
+
+**NOT_VALIDATED** - original HiGS still OOMs. No fix applied.
+
+### Q5: What is peak VRAM after fix?
+
+**NOT_TESTED** - no fix implemented
+
+### Q6: What are real FB_cuda latencies?
+
+**NOT_MEASURED** - no benchmark executed
+
+### Q7: What is actual speedup?
+
+**NOT_APPLICABLE** - no performance improvement measured
+
+### Q8: Is HiGS worth continuing?
+
+**INVESTIGATE**
+
+Rationale:
+- R5 root cause was incorrect
+- True memory bottleneck unknown
+- Need deeper profiling before deciding
+- Historical performance marginal (1.02×-1.09×)
+
+---
+
+## R5 Hypothesis REVISION
+
+**R5 Claimed:** H5 Over-allocation via `N * MAX_INTERSECTIONS_PER_GAUSSIAN`
+
+**Reality:** Already using exact two-pass allocation
+
+**Status:** R5 root cause analysis was **INCORRECT**
+
+---
+
+## Actual Memory Breakdown (Estimated at 4.4M)
+
+| Component | Size | Status |
+|-----------|------|--------|
+| Intersection IDs | ~320 MB | EXACT allocation |
+| Flatten IDs | ~160 MB | EXACT allocation |
+| Temporary counts | ~53 MB | Two-pass overhead |
+| **Total intersection** | **~533 MB** | NOT 37.74 GB |
+
+**Conclusion:** The 37.74 GB OOM allocation is NOT from intersection buffers.
+
+The true bottleneck is elsewhere (hierarchy, sorting, or other rendering buffers).
+
+---
+
+## Recommendation
+
+**Status:** IMPLEMENTATION_BLOCKED
+
+**Do NOT:**
+- ❌ Implement intersection fix (already optimal)
+- ❌ Mark as FIX_VALIDATED (no fix executed)
+- ❌ Claim performance gains (not measured)
+
+**DO:**
+- ✅ Report IMPLEMENTATION_BLOCKED
+- ✅ Document source code finding
+- ✅ Recommend deeper profiling
+- ✅ Preserve R5 analysis for comparison
+
+**Next Steps:**
+1. Profile full HiGS memory breakdown at 2.0M
+2. Compare with std_ll memory breakdown
+3. Identify true bottleneck (likely hierarchy/sorting)
+4. Decide if optimization worthwhile
+
+---
+
+**All artifacts created. Campaign complete with honest BLOCKED status.**

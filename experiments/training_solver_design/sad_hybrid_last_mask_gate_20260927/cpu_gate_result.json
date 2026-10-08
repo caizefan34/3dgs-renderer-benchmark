@@ -1,0 +1,132 @@
+{
+  "case": "batch_size=2; Gaussian 0 visible and has SH grad in camera 1 only; Gaussian 1 visible in both",
+  "camera_1_visibility": [
+    true,
+    true
+  ],
+  "camera_2_last_visibility": [
+    false,
+    true
+  ],
+  "camera_1_sh_grad": [
+    [
+      1.25,
+      -0.5
+    ],
+    [
+      0.5,
+      0.25
+    ]
+  ],
+  "camera_2_sh_grad": [
+    [
+      0.0,
+      0.0
+    ],
+    [
+      -0.2,
+      0.75
+    ]
+  ],
+  "accumulated_sh_grad_before_step": [
+    [
+      1.25,
+      -0.5
+    ],
+    [
+      0.3,
+      1.0
+    ]
+  ],
+  "actual_last_mask_sparse_step": {
+    "params_before": [
+      [
+        0.25,
+        -0.5
+      ],
+      [
+        1.0,
+        2.0
+      ]
+    ],
+    "params_after_step": [
+      [
+        0.25,
+        -0.5
+      ],
+      [
+        0.9683772237316496,
+        1.9683772234983161
+      ]
+    ],
+    "exp_avg_after_step": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        0.029999999999999992,
+        0.09999999999999998
+      ]
+    ],
+    "exp_avg_sq_after_step": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        9.000000000000007e-05,
+        0.0010000000000000009
+      ]
+    ],
+    "grad_after_zero_grad_set_to_none": null
+  },
+  "union_mask_counterfactual": {
+    "visibility": [
+      true,
+      true
+    ],
+    "params_after_step": [
+      [
+        0.21837722347831623,
+        -0.46837722359831624
+      ],
+      [
+        0.9683772237316496,
+        1.9683772234983161
+      ]
+    ],
+    "exp_avg_after_step": [
+      [
+        0.12499999999999997,
+        -0.04999999999999999
+      ],
+      [
+        0.029999999999999992,
+        0.09999999999999998
+      ]
+    ],
+    "exp_avg_sq_after_step": [
+      [
+        0.0015625000000000014,
+        0.0002500000000000002
+      ],
+      [
+        9.000000000000007e-05,
+        0.0010000000000000009
+      ]
+    ]
+  },
+  "checks": {
+    "first_camera_only_gaussian_skipped_by_last_mask": true,
+    "its_accumulated_nonzero_gradient_then_cleared": true,
+    "last_visible_control_gaussian_updated": true,
+    "union_mask_would_update_first_only_gaussian": true
+  },
+  "all_checks_pass": true,
+  "limitations": [
+    "pure-Python CPU semantic model; no PyTorch autograd or FP32 rounding",
+    "does not execute author CUDA rasterizer or SparseGaussianAdam extension",
+    "models the two-camera mask/gradient condition only, not real scene frequency or training impact"
+  ]
+}

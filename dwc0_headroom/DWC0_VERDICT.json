@@ -1,0 +1,38 @@
+{
+  "_timestamp_utc": "2026-10-01T15:40:12Z",
+  "packet": "DWC0-P0",
+  "question": "Can shared Gaussian computation reduce duplicated work in the tile rasterizer?",
+  "verdict": "DROP_NO_DUPLICATE_WORK_HEADROOM",
+  "verdict_basis": "First failing gate in prereg order = Gate 1 (duplicate-computation reduction).",
+  "research_answer": "NO. The canonical tile rasterizer ALREADY computes projection, covariance (3D+2D), and SH exactly once per Gaussian (eager, in preprocessCUDA / ProjectionEWA3DGSFused / SphericalHarmonicsCUDA) and reuses them across every touched tile and pixel. The only per-(pixel,gaussian) recompute is the Gaussian weight exp(-sigma), a pure function of the per-pixel offset d=xy-pixel_center, which is distinct per pixel and therefore irreducible. There is no duplicated projection/covariance/SH compute to eliminate.",
+  "gates": {
+    "gate1_duplicate_compute_reduction_ge_20pct": {
+      "value": 0.0,
+      "threshold": 0.2,
+      "pass": false,
+      "evidence": "REAL_REDUCTION=0 (candidate compute-once+reuse == current eager design). The counterfactual per-visit reduction is large but DOES NOT APPLY because the canonical rasterizer already computes projection/covariance/SH once per Gaussian."
+    },
+    "gate2_memory_overhead_le_10pct": {
+      "value": 0.0,
+      "threshold": 0.1,
+      "pass": true,
+      "evidence": "0% new storage: eager buffers (points_xy_image/conic_opacity/features) already exist; compute-once IS the current design."
+    },
+    "gate3_amdahl_upper_bound_ge_1p1": {
+      "value": 1.0,
+      "threshold": 1.1,
+      "pass": false,
+      "evidence": "Amdahl bound = 1.0x (f_removed=0). No duplicated compute remains."
+    }
+  },
+  "key_findings": [
+    "Source-locked: preprocessCUDA (forward.cu:161) computes projection + cov3d + cov2d + conic + SH once per Gaussian and stores points_xy_image/conic_opacity/features; renderCUDA (forward.cu:269) only reads them and recomputes the pixel-dependent weight.",
+    "duplicate_compute_ratio for projection, covariance, and SH == 1.0 in every scene (compute instances == unique Gaussian computation). Zero duplicated heavy compute.",
+    "duplicateWithKeys (rasterizer_impl.cu:120) replicates only the gaussian INDEX into tiles_touched tiles (key=tile<<32|depth); no projection/cov/SH recompute. gsplat IntersectTile is index-only too.",
+    "The sole per-visit recompute, the Gaussian weight exp(-sigma), is a function of the per-pixel offset and is NOT shareable across pixels.",
+    "The candidate 'compute once + reuse' is byte-for-byte the current canonical design; REAL_REDUCTION vs current = 0%, new storage = 0%, Amdahl bound = 1.0x."
+  ],
+  "scope": "THEORY / SOURCE / TRACE / CPU-ORACLE ONLY. No CUDA built or run.",
+  "remote": "local source @ abfa6c3e4b23caf5a927bf3722a65cba37b6fab3 (branch r6-exact-backward-screening)",
+  "next": "DWC1: if any headroom is ever sought, it lies ONLY in (a) the per-pixel weight exp via a cheaper shared-integral-image / box-sum approximation of the Gaussian footprint (an APPROXIMATION, breaks exactness), or (b) reducing the eager-bundle FLOP (cov2d mat3 + SH deg3) per Gaussian — both are per-Gaussian cost reductions, NOT duplicated-work elimination."
+}

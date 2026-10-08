@@ -1,0 +1,26 @@
+MG0 pipeline start 2026年 09月 29日 星期二 01:21:09 UTC on GPU GPU-bcca92b9-0234-7ec9-a2f0-a63925d52146
+=== [s0_room] 01:21:09 ===
+=== [s0_room] FAILED rc=1 ===
+  [GTDataset] Loading cameras from /root/3dgs-renderer-benchmark/data/official/mipnerf360/room/cameras.json
+  [GTDataset] 311/311 cameras matched to GT images
+  [GTDataset] Pre-caching GT images (CPU uint8)...
+    Caching image 1/311...
+    Caching image 101/311...
+    Caching image 201/311...
+    Caching image 301/311...
+  [GTDataset] All 311 images cached (CPU, 2460 MB)
+[stage0] auditing room@15000 ...
+Traceback (most recent call last):
+  File "/root/epic05_mg0/scripts/mg0_stage0_audit.py", line 285, in <module>
+    main()
+  File "/root/epic05_mg0/scripts/mg0_stage0_audit.py", line 240, in main
+    rec, tstats = audit_checkpoint(scene, it, dataset, fused_loss, smoke=0)
+  File "/root/epic05_mg0/scripts/mg0_stage0_audit.py", line 153, in audit_checkpoint
+    loss_smoke, g = C.view_grad_and_loss(model, cam, gt, fused_loss)
+  File "/root/epic05_mg0/scripts/mg0_core.py", line 274, in view_grad_and_loss
+    g = flat_grad_rows(model)
+  File "/root/epic05_mg0/scripts/mg0_core.py", line 294, in flat_grad_rows
+    return rows_from_values({n: getattr(model, n).grad for n in PARAM_NAMES})
+  File "/root/epic05_mg0/scripts/mg0_core.py", line 282, in rows_from_values
+    return torch.cat([
+RuntimeError: Tensors must have same number of dimensions: got 2 and 1

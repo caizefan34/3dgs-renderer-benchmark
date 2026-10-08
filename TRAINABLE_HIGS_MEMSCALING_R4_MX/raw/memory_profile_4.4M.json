@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-10-08T07:00:00Z",
+  "experiment": "memory_profile_4.4M",
+  "N": 4413928,
+  "resolution": "960x540",
+  "batch_size": 1,
+  "std_ll": {
+    "status": "SUCCESS",
+    "gaussian_state_gb": 1.042,
+    "forward_peak_gb": 8.010,
+    "backward_peak_gb": 8.010,
+    "total_peak_gb": 8.010,
+    "forward_allocated_gb": 4.530,
+    "backward_allocated_gb": 5.529
+  },
+  "higs_native": {
+    "status": "OOM",
+    "gaussian_state_gb": 1.051,
+    "tried_to_allocate_gb": 13.90,
+    "gpu_total_gb": 39.49,
+    "gpu_free_gb": 9.08,
+    "memory_in_use_gb": 30.40,
+    "pytorch_allocated_gb": 29.38,
+    "pytorch_reserved_gb": 29.92
+  },
+  "key_observations": [
+    "std_ll completes with 8.01 GB peak (well within 40GB)",
+    "HiGS OOM trying to allocate 13.90 GiB in a single allocation",
+    "At OOM, 30.40 GB already in use, only 9.08 GB free",
+    "Gaussian state itself only ~1 GB for both",
+    "HiGS requires ~29.4 GB working set before the failing 13.9 GB allocation",
+    "Total HiGS requirement would be ~43+ GB vs std_ll 8 GB"
+  ],
+  "hypothesis_support": {
+    "H1_intersection_amplification": "LIKELY - 29.4 GB working set suggests large intermediate buffers",
+    "H2_hierarchy_auxiliary": "LIKELY - additional structures beyond gaussian state",
+    "H3_temporary_workspace": "LIKELY - peak suggests temporary allocations",
+    "H4_allocator_fragmentation": "UNLIKELY - PyTorch reserved matches allocated",
+    "H5_over_allocation": "POSSIBLE - 13.9 GB single allocation is suspicious"
+  }
+}

@@ -9,17 +9,16 @@
     0
   ],
   "allowed_gpu_indices": [
+    0,
     1,
     2,
     3,
     4,
+    5,
     6,
     7
   ],
-  "protected_gpu_indices": [
-    0,
-    5
-  ],
+  "protected_gpu_indices": [],
   "max_active_gpus": 1,
   "idle_utilization_percent_max": 2,
   "idle_memory_mib_max": 512,
@@ -45,5 +44,5 @@
   "identity_source": "Historical MX identity and source-checkpoint evidence from prior work; DSH must reverify trusted SSH profile, host, device UUIDs, environment and checkpoint before execution.",
   "ssh_policy": "Reuse DSH's already trusted MX SSH profile; verify host-key against that profile. Do not invent an endpoint, disable StrictHostKeyChecking, or accept a new key automatically.",
   "other_hosts_allowed": false,
-  "_amendment_note": "Operator authorized GPUs 6,7 on 2026-10-05 (were idle); original protected set was [0,5,6,7]. Amended to allowed=[1,2,3,4,6,7], protected=[0,5]."
+  "_amendment_note": "Operator authorized ALL GPUs 0-7 on 2026-10-05 (user: 'unlock all'). Prior allowed=[1,2,3,4,6,7], protected=[0,5]. Idle gate (<=512MiB, <=2%, 0 procs, 20s window) UNCHANGED to preserve timing integrity; unlocking only expands which idle GPUs the scheduler may pick, it does NOT relax timing controls."
 }

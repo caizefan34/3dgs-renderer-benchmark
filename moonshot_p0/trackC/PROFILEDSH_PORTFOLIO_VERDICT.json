@@ -1,0 +1,55 @@
+{
+  "track": "C",
+  "portfolio_verdict": "DROP",
+  "gate1_replay_fidelity_pass": true,
+  "gate2_ratio_min": 1.5,
+  "gate2_cells_min": 3,
+  "gate2_cells_pass": 0,
+  "gate2_pass": false,
+  "gate3_oracle_min": 1.15,
+  "gate3_pass": false,
+  "gate4_psnr_reg_max_db": 0.1,
+  "gate4_pass": true,
+  "reasons": [
+    "gate2 FAIL: 0/4 cells ratio>=1.50 (need 3)",
+    "gate3 NOT_RUN: C2 outer-step oracle not executed (cannot PASS)"
+  ],
+  "optimizer": "L-BFGS",
+  "inner_budget_cycles": 4,
+  "n_inner_cams": 2,
+  "per_cell": {
+    "room_20000": {
+      "ratio_lbfgs_over_adam": 1.0909880533092313,
+      "d_adam": 0.0008985269814729691,
+      "d_lbfgs": 0.0009802822023630142,
+      "gate2_pass": false,
+      "gate4_psnr_reg_db": -0.013099919287142825,
+      "gate4_pass": true
+    },
+    "room_25000": {
+      "ratio_lbfgs_over_adam": 0.16401422083240266,
+      "d_adam": 0.00020013749599456787,
+      "d_lbfgs": 3.2825395464897156e-05,
+      "gate2_pass": false,
+      "gate4_psnr_reg_db": 0.07706768996547808,
+      "gate4_pass": true
+    },
+    "bicycle_20000": {
+      "ratio_lbfgs_over_adam": NaN,
+      "d_adam": -0.0003828592598438263,
+      "d_lbfgs": -2.2619962692260742e-05,
+      "gate2_pass": false,
+      "gate4_psnr_reg_db": -0.07861887176780868,
+      "gate4_pass": true
+    },
+    "bicycle_25000": {
+      "ratio_lbfgs_over_adam": NaN,
+      "d_adam": -7.443875074386597e-05,
+      "d_lbfgs": 5.885027348995209e-05,
+      "gate2_pass": false,
+      "gate4_psnr_reg_db": -0.02167380620830528,
+      "gate4_pass": true
+    }
+  },
+  "note": "C0 appearance inner oracle. Replay operator EXACT (SH-grad cosine=1.0 vs native). L-BFGS does not beat SH-Adam by >=1.5x on held-out loss in any cell; bicycle Adam itself degrades held-out (overfit to 2 inner cams)."
+}

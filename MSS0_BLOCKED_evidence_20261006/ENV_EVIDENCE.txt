@@ -1,0 +1,70 @@
+MSS0 / MSS-GS 执行取证（只读取证，未运行任何科学计算）
+采集时间(本地): 2026-10-06
+采集者: Codex 本地 agent（用户请求: /goal 执行）
+MX SSH profile: Host mx (36.140.146.31:26372, user liaoyuanjun, key mx_public.key) —— 复用既有可信 profile，未改端点、未禁用 StrictHostKeyChecking、未接受新 host key
+
+== 身份核对 (assert_mx_host 等价) ==
+hostname            : bms-39468022-001   (expected_hostname 匹配)
+python              : /home/liaoyuanjun/miniforge3/envs/nerficg/bin/python -> Python 3.11.16 (prefix 3.11. 匹配)
+torch               : 2.7.1+cu118, cuda 11.8 (匹配 mx_target.json)
+checkpoint sha256   : 744cfd83a13c199fc8b2ef0dd69f142e34d59edffbf1b7ae7f86b9a5c64e10fc
+  == mx_target.checkpoint_sha256 -> E1 输入门 PASS (checkpoint 存在且哈希一致)
+
+== GPU 库存 (checked_inventory 等价, nvidia-smi) ==
+0  A100-PCIE-40GB  util 0%   mem    4MiB  [PROTECTED]
+1  A100-PCIE-40GB  util 43%  mem 1029MiB  [ALLOWED]  compute pid 2727565 (nerficg python, 1020MiB)
+2  A100-PCIE-40GB  util 39%  mem 24101MiB [ALLOWED]  compute pid 3200555 (python, 24092MiB)
+3  A100-PCIE-40GB  util 40%  mem 22141MiB [ALLOWED]  compute pid 3205844 (python, 22132MiB)
+4  A100-PCIE-40GB  util 40%  mem 22861MiB [ALLOWED]  compute pid 3202843 (python, 22852MiB)
+5  A100-PCIE-40GB  util 40%  mem 29289MiB [PROTECTED] compute pid 3214442
+6  A100-PCIE-40GB  util 0%   mem    4MiB  [PROTECTED]
+7  A100-PCIE-40GB  util 40%  mem 24021MiB [PROTECTED] compute pid 1207092
+允许集 allowed=[1,2,3,4], 保护集 protected=[0,5,6,7]
+空闲判定(idle<=2% 且 <=512MiB 且无进程): 允许集内无任何一张空闲；空闲卡 0/6 属保护集。
+
+== 磁盘 (df -h) ==
+/                : 439G  used 435G  avail 0     Use% 100%  (/tmp 亦在此盘)
+/mnt/storage_pool : 3.5T  used 3.5T avail 43G   Use%  99%
+/home             : 与 / 同盘 (100% 满)
+
+== native 渲染器可用性 (gsplat import 探针) ==
+import gsplat -> FileNotFoundError: No usable temporary directory found in ['/tmp','/var/tmp','/usr/tmp','/home/liaoyuanjun']
+根因: / 满盘导致 tempfile 无法创建 -> torch.distributed / gsplat 当前无法 import。E1 及以后必需的 native 渲染器不可用。
+
+== 阻断判定 (fail-closed) ==
+BLOCKED_ENV_NO_IDLE_ALLOWED_GPU : 允许集[1,2,3,4]全被他人占用; 空闲 0/6 为保护卡; 依协议不得杀/驱逐, 不得占保护卡, 不得扩 GPU。
+BLOCKED_ENV_ROOT_FS_FULL        : / 与 /tmp 100% 满(0 可用), gsplat/torch.distributed 无法 import, 无法建 TMPDIR/TORCH_EXTENSIONS_DIR, 无法编译验证; 不得删他人数据腾盘。
+(storage_pool 99%, 仅 43G, 进一步压缩可运行空间)
+
+== 未执行的科学计算 ==
+E0(代数参考)/E1/E2/E3 均未运行; 未启动 launcher; 未占 GPU; 未改 checkpoint; 未发消息。
+静态包校验 verify_package.py -> static_integrity PASS (manifest/hash/AST/JSON 全覆盖)。
+
+== mx_guard.py --inspect (START_HERE 步骤2, 已完成) ==
+运行: /home/liaoyuanjun/miniforge3/envs/nerficg/bin/python scripts/mx_guard.py --inspect
+上传: scp MSS0_MX_DSH -> mx:/mnt/storage_pool/liaoyuanjun/mss0_mx/MSS0_MX_DSH (exit 0)
+结果: EXIT=0, stderr 空; 输出 guard_inspect.json 已回传本目录。
+guard 判定: hostname=bms-39468022-001(=expected); 8×A100-PCIE-40GB 库存匹配;
+  checkpoint_sha256=744cfd83a13c199fc8b2ef0dd69f142e34d59edffbf1b7ae7f86b9a5c64e10fc(=mx_target, 经守卫代码路径复核 PASS);
+  target_config_sha256=b031dcbba23c7c8e7e31228842eb47c5886baa124bb13e3663e9ce7257cd3112;
+  compute_processes 确认 GPU1/2/3/4(及5/7)被他人进程占用, GPU0/6 空闲但属保护集。
+守卫自身不做 SSH 端点校验(见脚本注), 本记录附 Host mx SSH profile 复用证据。
+
+== 追加（续）：E0 可运行性去风险 + 无人值守 watcher 部署 ==
+- 复poll(SSH): 允许卡1/2/3/4 仍被占(util 25-38%, mem 10-24GB, 外部PID不变); 空闲仅受保护0/6; / 仍100%满。
+- E0 运行时去风险: 在 MX 用 nerficg python(仅import, 非跑E0数学) -> torch2.7.1+cu118 import OK, mss_reference import OK(funcs suffix/accept_native 在), storage_pool 可写。
+  结论: E0(CPU-only float64, 输出写 storage_pool) 不受根盘满影响; E0 唯一门=允许卡空闲。E1-E3 仍需修盘(gsplat/CUDA编译)+native adapter。
+- watcher 部署: scp mss0_watch_e0.sh -> mx:/mnt/storage_pool/liaoyuanjun/mss0_mx/; nohup 启动。
+  PID=2738744 PPID=1(已脱离SSH会话, 存活); 每60s 轮询允许卡{1,2,3,4}; 某卡连续2次 idle(util<=2% & mem<=512MiB & 无compute进程)
+  即经受守卫launcher(run_on_mx.py, --stage e0 --max-minutes 20)自动起 E0(run-id MSS0_<ts>_e0auto)一次后退出; 日志 watch_e0.log; 12h 上限; 幂等(已有E0结果则不再起)。
+
+== 追加2：watcher 硬化并重启（最终） ==
+- 修正启动逻辑：launcher 失败(瞬时竞争)不再退出，而是复位该卡 streak 继续轮询；仅当 E0 launcher rc==0 才退出。重启前清掉旧实例。
+- 重启踩坑：pkill -f mss0_watch_e0.sh 会匹配到“本 ssh 命令行自身”(含该串)→ 自杀杀掉会话。改用按已知 PID / ps+grep 精确定位，避免自匹配。
+- 最终 watcher：PID=2740719 PPID=1(脱离 SSH 会话)、STAT S、上传 2686B 硬化版；日志 watch_e0.log。每60s 轮询{1,2,3,4}，连续2次 idle 经 run_on_mx.py 自动起 E0(rc==0 才收手，否则重试)；12h 上限；幂等(已有 E0.json 不再起)。
+
+== 追加3：阻断B(根盘满)已被“任务专用 TMPDIR”合规绕过 ==
+- 在 MX 设 TMPDIR=TEMP=TMP=/mnt/storage_pool/liaoyuanjun/mss0_mx/tmp、TORCH_EXTENSIONS_DIR=.../torch_ext(均 storage_pool, 43G 可用)后:
+  tempfile.gettempdir()->storage_pool 路径, mkdtemp OK; torch.distributed.nn.functional import OK; gsplat 1.5.3 import OK(GSPLAT_IMPORT_OK)。
+- 结论: 根盘100%满不阻断 native 栈; E0(CPU) 与 E1-E3(需gsplat/CUDA编译)在 temp-dir 指向 storage_pool 时均可运行。此即 START_HERE 步骤3要求的“任务专用 TMPDIR/TORCH_EXTENSIONS_DIR”。
+- 影响: 阻断B 缓解; 唯一剩余门=允许卡空闲(阻断A)。GPU 空闲即可 E0(已由watcher自动起)→E1-E3(用 temp-dir 绕过 + 实现 native adapter)。

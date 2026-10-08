@@ -1,0 +1,46 @@
+{
+  "task": "DSH-3 ReproFast0 Lane B",
+  "deliverable": "RF0B_ENVIRONMENT",
+  "date": "2026-09-30",
+  "run_host": {
+    "name": "dsw-933622-64cc845c7d-lqswc",
+    "gpu": "NVIDIA A100-SXM4-80GB x8",
+    "torch": "2.10.0+cu128 (default env) / 2.9.1+cu128 (gsplat conda env used for C0 runs)",
+    "cuda_available": true,
+    "local_gpu_forbidden": "Windows RTX 5070 Laptop 8GB present but FORBIDDEN by fail-closed rule (no local GPU); all runs on EPIC-05 A100"
+  },
+  "c0_binary_identity": {
+    "ext_so_sha256": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+    "core_so_sha256": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+    "sb0_provenance_claim": "ext 9baf8655 / core 361b216b",
+    "provenance_gap": "Local/remote .so sha256 differ from task-pinned hashes because CUDA extensions embed the build-directory path; SB0 flagged this. Stage TIMINGS are PUBLICATION-grade; binary-hash reconciliation is a known pre-implementation blocker carried forward, not resolved by Lane B (Lane B does not rebuild the backend)."
+  },
+  "frozen_paths": {
+    "C0_WT": "/root/epic05_frozen/higs_c0_final30k_worktree",
+    "SCENE_CUDA_DIR": "/root/epic05_build_cache/scene/gsplat_scene_cuda",
+    "CORE_SO": "/root/epic05_build_cache/core/gsplat_cuda/gsplat_cuda.so",
+    "C0_SO": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so",
+    "REPO": "/root/3dgs-renderer-benchmark",
+    "PHASE7": "/root/3dgs-renderer-benchmark/scripts/epic05/phase7",
+    "SRC": "/root/3dgs-renderer-benchmark/src",
+    "REFERENCE_V1": "/root/3dgs-renderer-benchmark/baseline/reference_v1",
+    "datasets": "/root/3dgs-renderer-benchmark/data/datasets/mipnerf360",
+    "official": "/root/3dgs-renderer-benchmark/data/official/mipnerf360"
+  },
+  "c0_env_vars": {
+    "HIGS_PX_RUNTIME": "2",
+    "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+    "HIGS_BWD_H8_MR": "1",
+    "HIGS_BWD_ABSGRAD": "1",
+    "note": "ABSGRAD=1 is the densification statistic (pure aux); renderer launch shape only. These are UNCHANGED by Lane B."
+  },
+  "python_interpreter": "/root/miniforge3/envs/gsplat/bin/python",
+  "ld_library_path": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/lib",
+  "fail_closed_compliance": {
+    "no_local_gpu": true,
+    "no_hidden_backend_substitution": true,
+    "no_threshold_tuning_after_results": true,
+    "no_algorithmic_rescue": true,
+    "renderer_loss_optimizer_horizon_fixed": true
+  }
+}

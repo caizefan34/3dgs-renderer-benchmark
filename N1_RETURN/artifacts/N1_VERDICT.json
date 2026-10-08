@@ -1,0 +1,120 @@
+{
+  "campaign": "N1_ReBudgetGS_mechanism_measurement",
+  "verdict": "N1_SMALL_BUT_ACTIONABLE",
+  "rule_chain": [
+    {
+      "rule": "N1_STRONG_REALLOCATION_SIGNAL",
+      "requires": "both scenes: H2 pass, H3 pass, strong rho=0.75 reallocation pass, cheap-policy diagnostic pass",
+      "H2_room": false,
+      "H2_bicycle": false,
+      "H3_room": {
+        "A0_ge_15pct": true,
+        "A1_ge_30pct": false,
+        "A2best_ge_10pct": false
+      },
+      "H3_bicycle": {
+        "A0_ge_15pct": true,
+        "A1_ge_30pct": true,
+        "A2best_ge_10pct": false
+      },
+      "strong_room": true,
+      "strong_bicycle": false,
+      "policy_diagnostic": "not run (strong gate failed)",
+      "pass": false
+    },
+    {
+      "rule": "N1_MECHANISM_EXISTS_POLICY_WEAK",
+      "requires": "both scenes have H2/H3 + reallocation opportunity",
+      "pass": false,
+      "reason": "H2 fails in both scenes (room 0.52%, bicycle 0.00% vs the 15% gate); H3 fails in both scenes (room A1-share 12.0% < 30%, bicycle A2best-share 6.8% < 10%)"
+    },
+    {
+      "rule": "N1_SMALL_BUT_ACTIONABLE",
+      "requires": ">=5% matched-cost improvement over 0/1 skipping in >=1 scene and no catastrophic counterevidence",
+      "matched_cost_over_oracle01_room": 1.1151531519658118,
+      "matched_cost_over_oracle01_bicycle": 1.0401782593024234,
+      "room_passes_5pct": true,
+      "catastrophic_counterevidence_checks": {
+        "checkpoint_blocker": false,
+        "stage0_audit_pass_both_scenes": true,
+        "restore_bit_exact_all_checkpoints": true,
+        "heldout_render_bit_deterministic": true,
+        "camera_sequence_prefix_identical": true,
+        "replica_noise_vs_effect": "sigma_replica ~ 1e-9 vs assignment-control progress gap ~1.5e-4 (~5 orders of magnitude); per-anchor sigma_onestep ~2-5e-5, gap ~3-4 sigma \u2014 real heterogeneity, not execution noise",
+        "concurrent_gpu_contamination": "none (see N1_CONTAMINATION.json)"
+      },
+      "pass": true
+    },
+    {
+      "rule": "N1_NO_REALLOCATION_VALUE",
+      "requires": "<5% matched-cost value in BOTH scenes",
+      "pass": false,
+      "reason": "room matched-cost ratio 1.1152 >= 1.05"
+    }
+  ],
+  "checkpoint_blocker": false,
+  "interpretation": "May still support a smaller publishable optimization; do not kill solely for missing 3x-scale headroom. (prereg section 11)",
+  "key_numbers": {
+    "H1_skip_share": {
+      "room": 0.875,
+      "bicycle": 0.6145833333333334
+    },
+    "H2_share": {
+      "room": 0.005208333333333333,
+      "bicycle": 0.0
+    },
+    "H3_prefer_share": {
+      "room": {
+        "A0": 0.8489583333333334,
+        "A1": 0.11979166666666667,
+        "A2_best": 0.03125
+      },
+      "bicycle": {
+        "A0": 0.546875,
+        "A1": 0.3854166666666667,
+        "A2_best": 0.06770833333333333
+      }
+    },
+    "strong_gate_rho075": {
+      "room": true,
+      "bicycle": false
+    },
+    "assignment_progress_rho075": {
+      "room": 0.0014814736787229779,
+      "bicycle": 0.01349780025581519
+    },
+    "all_A1_progress": {
+      "room": -0.011528662405908108,
+      "bicycle": 0.003059313632547856
+    },
+    "oracle01_control_progress": {
+      "room": 0.001328493468463421,
+      "bicycle": 0.01297642989084125
+    },
+    "matched_cost_ratio": {
+      "room": 1.1151531519658118,
+      "bicycle": 1.0401782593024234
+    },
+    "A2_best_tier_histogram": {
+      "room": {
+        "high": 0,
+        "medium": 0,
+        "low": 192
+      },
+      "bicycle": {
+        "high": 0,
+        "medium": 0,
+        "low": 192
+      }
+    }
+  },
+  "stop_compliance": {
+    "no_final_online_controller": true,
+    "no_full_15K_to_30K_ReBudgetGS_training": "the only trainings launched are plain frozen P12/C0 baseline runs to 25000 iterations for probe-state generation (data generation, not ReBudgetGS)",
+    "no_threshold_tuning_after_bicycle": "this file and N1_PROBE_LIST.json precede all measurements",
+    "no_learned_network": "stage 6 is a frozen linear logistic regression (diagnostic, gated)",
+    "no_renderer_change": "frozen binaries, hashes locked",
+    "no_densification_change": "probes take no densification actions (post-densification phase; last densification at 14900 < 15000)",
+    "no_garden": true
+  }
+}

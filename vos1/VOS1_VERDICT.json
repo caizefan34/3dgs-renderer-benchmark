@@ -1,0 +1,47 @@
+{
+  "schema": "VOS1_VERDICT/v1",
+  "verdict": "QUALITY_FAIL",
+  "strong": false,
+  "verdict_scope": "VOS1 hardens the surviving VOS0 SH-only virtual-optimizer-state mechanism: device-side compaction removes per-step torch.nonzero host syncs (zero ordinary-step syncs), corrected unseen true-holdout eval, 3 seeds, same-15K-prefix fork. Exact vs single-tensor Adam A_s by in-process replay oracle.",
+  "gates": {
+    "source_identity_pass": true,
+    "exactness_oracle_pass": true,
+    "compaction_implementation_pass": true,
+    "quality": {
+      "all_9_cells_complete": true,
+      "max_scene_abs_median_v_minus_s_psnr_le_0.10": false,
+      "max_abs_v_minus_s_psnr_le_0.25": true,
+      "pooled_abs_median_v_minus_s_psnr_le_0.05": true,
+      "max_scene_abs_median_v_minus_s_ssim_le_0.002": true,
+      "max_scene_abs_median_v_minus_s_lpips_le_0.004": true,
+      "min_scene_median_v_minus_f_psnr_ge_-0.20": true,
+      "min_v_minus_f_psnr_ge_-0.35": true,
+      "min_scene_median_v_minus_f_ssim_ge_-0.004": true,
+      "max_scene_median_v_minus_f_lpips_le_0.008": true,
+      "pooled_median_v_minus_f_psnr_ge_-0.10": true
+    },
+    "timing": {
+      "min_scene_median_optimizer_speedup_v_vs_s_ge_1.50": true,
+      "n_scenes_full_wall_reduction_ge_5pct_v_vs_f_ge_2": true,
+      "worst_scene_median_full_wall_regression_v_vs_f_le_0.01": true,
+      "geomean_full_wall_speedup_v_vs_f_ge_1.05": true,
+      "max_overhead_fraction_of_gross_saving_le_0.25": true,
+      "nan_inf_count_eq_0": true
+    },
+    "strong_extras": {
+      "min_scene_median_optimizer_speedup_v_vs_s_ge_1.75": false,
+      "n_scenes_full_wall_reduction_ge_5pct_v_vs_f_ge_3": false,
+      "pooled_median_v_minus_f_psnr_ge_-0.05": true,
+      "compaction_geomean_stage_speedup_vos1_vs_vos0_ge_1.10": false
+    }
+  },
+  "compaction": {
+    "geomean_stage_speedup_vos1_vs_vos0": 0.890602457360541,
+    "min_stage_speedup_vos1_vs_vos0": 0.7512225428121543,
+    "note": "VOS1 device-compaction microbench on real frozen 15K states: the single-counter atomicAdd + scattered full-grad read at large N does NOT beat VOS0 torch.nonzero in aggregate (geomean < 1.0). This is a STRONG-only speed consideration, not a PUBLICATION_SURVIVES gate; the implementation requirement (zero host syncs) is met."
+  },
+  "dpc": {
+    "available": false,
+    "materialized_checkpoint_hash_identity": false
+  }
+}

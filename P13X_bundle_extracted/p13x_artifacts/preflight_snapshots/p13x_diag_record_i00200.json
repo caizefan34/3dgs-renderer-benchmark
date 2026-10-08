@@ -1,0 +1,114 @@
+{
+  "scene": "room",
+  "arm": "c0",
+  "iteration": 200,
+  "seed": 42,
+  "capture_point": "top of iteration body; model state == end of iteration 199 (no optimizer/densify step for iteration 200 has run yet)",
+  "n_gaussians": 112627,
+  "active_sh_degree": 0,
+  "model_param_sha256": "5f52b2d178d0ebec8f36e9e31a8be8ee7a2267ad56800fff4aafd796fe7648fa",
+  "call": {
+    "fn": "gsplat.rendering.rasterization (C0 worktree standard path)",
+    "kwargs": {
+      "tile_size": 16,
+      "packed": false,
+      "radius_clip": 0.0,
+      "eps2d": 0.3,
+      "render_mode": "RGB",
+      "rasterize_mode": "classic",
+      "camera_model": "pinhole",
+      "sh_degree": "model.active_sh_degree <dynamic>",
+      "viewmats": "cam.viewmatrix.unsqueeze(0)",
+      "Ks": "cam.K.unsqueeze(0)",
+      "width/height": "camera intrinsics (1080p)"
+    },
+    "note": "The C0 training renderer is the HIGS dynamic path, which does not return isect/tile meta. The preregistered identity block (packed=false, tile=16, eps2d=0.3, classic) designates this standard rasterization call on the identical frozen model state."
+  },
+  "meta_adapter": {
+    "radii": "renderer meta['radii'] is [1,N,2] per-axis int32. Reduced with min over the axis dim -> [N]. ProjectionEWA3DGSFused.cu writes both axis values together ((0,0) when culled; the tile-intersect kernel requires radius_x>0 AND radius_y>0), so min>0 is exactly the renderer's intersect eligibility == radii.gt(0).all(-1) (C++ validity predicate); n_mixed_axis_radii is audited per anchor.",
+    "depths": "passed through (camera dim squeezed inside snapshot_from_meta)",
+    "isect_offsets": "passed through (camera dim squeezed inside snapshot_from_meta)",
+    "flatten_ids": "passed through (reshape(-1) inside snapshot_from_meta)",
+    "isect_ids": "passed through (reshape(-1) inside snapshot_from_meta)",
+    "source": "unmodified renderer outputs; no approximation"
+  },
+  "snapshot_dir": "/root/epic05_p13x/artifacts/preflight_snapshots",
+  "anchors": [
+    {
+      "anchor_id": 0,
+      "camera_index": 0,
+      "camera_sha256": "f30fe41b294d0f53b7214d0ba8820fc374faba8eef9ff2d23f43ba94bd906583",
+      "n_visible_intersect_all": 59667,
+      "n_visible_trainer_any": 59667,
+      "n_mixed_axis_radii": 0,
+      "radii_raw_shape": [
+        1,
+        112627,
+        2
+      ],
+      "depths_raw_shape": [
+        1,
+        112627
+      ],
+      "isect_offsets_raw_shape": [
+        1,
+        68,
+        120
+      ],
+      "summary": {
+        "scene": "room",
+        "anchor_id": 0,
+        "iteration": 200,
+        "N": 112627,
+        "n_visible": 59667,
+        "n_intersections": 14918704,
+        "tile_h": 68,
+        "tile_w": 120,
+        "visible_sha256": "2e0faccaa6616f7064e13a1ef3a54bb7ad39dce63ceef8fca5f2b5c7ba7da30d",
+        "membership_order_sha256": "29f2da5f15a7643e3b496d5b41c1db1ff533b5f8ba98dc56fbcd538016b027b1",
+        "raw_npz": "/root/epic05_p13x/artifacts/preflight_snapshots/room_a00_i00200.npz"
+      }
+    },
+    {
+      "anchor_id": 1,
+      "camera_index": 310,
+      "camera_sha256": "69570d487312d2ca6b016c6d5078518e57b7ec474e39cda9e7553d984e9c61b9",
+      "n_visible_intersect_all": 53540,
+      "n_visible_trainer_any": 53540,
+      "n_mixed_axis_radii": 0,
+      "radii_raw_shape": [
+        1,
+        112627,
+        2
+      ],
+      "depths_raw_shape": [
+        1,
+        112627
+      ],
+      "isect_offsets_raw_shape": [
+        1,
+        68,
+        120
+      ],
+      "summary": {
+        "scene": "room",
+        "anchor_id": 1,
+        "iteration": 200,
+        "N": 112627,
+        "n_visible": 53540,
+        "n_intersections": 16769734,
+        "tile_h": 68,
+        "tile_w": 120,
+        "visible_sha256": "59adee56df58d1009e7dd023521ff55ea9e7fe0c29fc4f606a4060cfd9143666",
+        "membership_order_sha256": "06e3504032c33196d5cf1681e9df46485c133323d5339397148442f14b898cd8",
+        "raw_npz": "/root/epic05_p13x/artifacts/preflight_snapshots/room_a01_i00200.npz"
+      }
+    }
+  ],
+  "rng_fingerprint_before": "7fc0763e9507b7ba014cbcc77f039057b7d4b29ff36821384e0fa4c6a273bbc7",
+  "rng_fingerprint_after_restore": "7fc0763e9507b7ba014cbcc77f039057b7d4b29ff36821384e0fa4c6a273bbc7",
+  "rng_restored_exactly": true,
+  "model_param_sha256_after": "5f52b2d178d0ebec8f36e9e31a8be8ee7a2267ad56800fff4aafd796fe7648fa",
+  "model_params_unchanged": true,
+  "wall_ms": 25734.599359100685
+}

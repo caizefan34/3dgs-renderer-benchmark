@@ -1,0 +1,58 @@
+{
+  "artifact": "D0_BICYCLE_FINALN_SCREEN_ESCALATION_PREREG.json",
+  "created": "2026-09-28 (written before any CLEAN3/4/5 bicycle run was started; file mtime is authoritative)",
+  "context": "First application of the pre-registered 2.0x spread screen (D0_TRACE_VALIDITY_SCREEN_PREREG.json) to the Stage 2 30K bicycle data. Room passed all gates. Bicycle passed every hard gate and every other screen; exactly one statistic fired: the final_N relative screen.",
+  "trigger": {
+    "artifact": "D0_TRACE_VALIDITY_30k.json (first both-scene run)",
+    "verdict": "D0_TRACE_INVALID",
+    "reasons": {"room": [], "bicycle": ["final_N beyond 2x screen (ct=0.00665766401025417 cc=0.002826294573880795)"]},
+    "final_N_30k": {"clean": 3667776, "clean2": 3657439, "trace": 3681789, "ref": 3663539},
+    "final_N_ct_rels": {"trace_vs_clean": 0.003821, "trace_vs_clean2": 0.006658, "trace_vs_ref": 0.004982},
+    "final_N_cc_rels": {"clean_vs_ref": 0.001157, "clean2_vs_ref": 0.001665, "clean_vs_clean2": 0.002826},
+    "ratio_ct_over_cc": 2.3556,
+    "other_gates_verbatim": {
+      "camera_seq_trace_eq_clean": true,
+      "camera_seq_clean_eq_ref": true,
+      "loss_screen_2x": {"ct_max": 0.00906, "cc_max": 0.00833, "pass": true},
+      "n_gs_screen_2x": {"ct_max": 24350, "cc_max": 17998, "pass": true},
+      "quality_trace_in_envelope_vs_ref": true,
+      "quality_trace": {"psnr": 26.369421981101542, "ssim": 0.8360807760474608, "lpips": 0.2465939406574387},
+      "quality_ref": {"psnr": 26.368364270001997, "ssim": 0.8355331460839694, "lpips": 0.24735402285130983},
+      "d0_sumcheck_mismatches": 0,
+      "status_trace": "SUCCESS",
+      "all_losses_finite": true,
+      "dens_n_events": [144, 144, 144, 144],
+      "dens_iters_equal_all": true,
+      "ckpt_files": [5000, 10000, 15000, 20000, 25000, 30000],
+      "samples_dir_n": 1500,
+      "sample_offset": 15,
+      "n_uids": 6566757,
+      "n_births_post_init": 6512482,
+      "n_features": 30,
+      "n_eval_cameras_final": 194
+    }
+  },
+  "forensic_evidence": {
+    "eval_cadence_parity": "The frozen P12 recipe itself evaluates at iterations 500/1000/2000/5000/10000/15000/20000/25000/30000 (+final) in EVERY run (verified from CLEAN_bicycle, CLEAN2_bicycle, ref_bicycle eval_rows). The traced run carries the same eval rows plus additional d0_ckpt rows at 5000..25000; there is no evaluation asymmetry between traced and clean runs.",
+    "iteration1_loss_bit_identical": {"values": [0.20873187482357025, 0.20873187482357025, 0.20873187482357025, 0.20873187482357025], "runs": ["CLEAN_bicycle", "CLEAN2_bicycle", "TRACE_bicycle", "ref_bicycle"], "bit_identical": true},
+    "divergence_onset": "Every pair - including clean-clean and clean-reference pairs - first separates (n_gs differs by >=1) at iteration 600-800: TRACE|CLEAN at 700, TRACE|CLEAN2 at 600, CLEAN|CLEAN2 at 600, TRACE|ref at 700, CLEAN|ref at 800, CLEAN2|ref at 600. The traced run shows no onset asymmetry; the separation pattern is the known frozen-renderer backward-atomic noise amplified at densification thresholds, identical in character across all pairs.",
+    "bucketed_maxima_loss_dN_gs": {
+      "buckets": [[1, 100], [101, 1000], [1001, 5000], [5001, 10000], [10001, 15000], [15001, 20000], [20001, 25000], [25001, 30000]],
+      "TRACE|CLEAN": ["7.45e-08|0", "1.41e-03|546", "5.61e-03|15549", "4.31e-03|19320", "4.46e-03|14013", "3.39e-03|14013", "7.10e-03|14013", "6.65e-03|14013"],
+      "TRACE|CLEAN2": ["1.49e-08|0", "1.21e-03|350", "5.26e-03|23023", "3.49e-03|20152", "2.54e-03|24350", "3.64e-03|24350", "8.34e-03|24350", "4.43e-03|24350"],
+      "CLEAN|CLEAN2": ["8.94e-08|0", "5.05e-04|333", "7.01e-03|15760", "3.08e-03|11907", "5.30e-03|10684", "2.17e-03|10337", "1.75e-03|10337", "5.91e-03|10337"],
+      "TRACE|ref": ["2.98e-08|0", "8.26e-04|327", "3.08e-03|8018", "8.10e-03|10110", "2.59e-03|18250", "2.95e-03|18250", "5.00e-03|18250", "9.06e-03|18250"],
+      "CLEAN|ref": ["1.04e-07|0", "1.69e-03|306", "3.93e-03|9100", "3.79e-03|14202", "4.80e-03|4357", "3.22e-03|4237", "5.16e-03|4237", "3.07e-03|4237"],
+      "CLEAN2|ref": ["1.49e-08|0", "1.18e-03|150", "5.53e-03|17998", "4.83e-03|14230", "2.77e-03|12423", "3.42e-03|6100", "6.41e-03|6100", "8.33e-03|6100"]
+    },
+    "interpretation": "Throughout densification (iterations 600-15000) the traced run's cross distances interleave with the clean-clean and clean-reference distances at the same magnitudes (e.g. bucket 1001-5000: TRACE|CLEAN 15549, TRACE|CLEAN2 23023, CLEAN|CLEAN2 15760, CLEAN2|ref 17998). The final_N gap freezes once densification ends. The screen fired because the final-iteration cc envelope is a maximum over only three pairwise distances and the three clean runs happened to converge unusually tightly (max 0.283%), while the trace sits at its trajectory-frozen distance (0.666%). Context from this same campaign: the room CLEAN run deviates from CLEAN2/ref by 1.55% at 30K (clean-clean, no tracer), and the 3K smoke ensembles showed clean-clean relative N spreads up to ~1-2% on both scenes; a 0.67% final_N deviation is well within demonstrated frozen-recipe run-to-run spread."
+  },
+  "protocol": {
+    "step1": "Collect exactly +3 frozen-recipe clean bicycle 30K runs (CLEAN3_bicycle, CLEAN4_bicycle, CLEAN5_bicycle; FROZEN trainer, no tracer; launch command identical when resolved to the run_stage12.sh clean arm for scene=bicycle - same trainer and same resolved flag list (--arm c0 --scene bicycle --iterations 30000 plus the fixed tail), verified at deploy; clean-GPU gate 10x30s before launch).",
+    "step2": "analyze_stage12.py estimates every within-group envelope over ALL CLEAN*_<scene> replicas present plus the historical P12 reference; the 2.0x screen thresholds and every hard gate are unchanged; the original 3-run values remain computed and reported verbatim.",
+    "step3": "Re-run analyze_stage12.py on both scenes; the escalated verdict is FINAL for Stage 2.",
+    "step4": "If the screen still fires after the envelope extension: bicycle trace validity is INVALID; the canonical D0 verdict proceeds per d0_verdict.py (trace invalid -> INCONCLUSIVE per precedence); no further escalations; outcome escalated to the operator with the full evidence trail.",
+    "scope_guards": "No training semantics are touched; no thresholds are changed; no traced-run data is altered; the extension affects only the ESTIMATE of the intrinsic clean envelope via additional clean draws. This mirrors the Stage 0c smoke resolution (expand ensemble, same rule), which was pre-registered before its own data collection."
+  },
+  "finality": "One escalation round only, fixed at +3 clean bicycle runs, pre-registered before any new data exists."
+}

@@ -1,0 +1,191 @@
+{
+  "phase": "P17-P0 Provenance Repair",
+  "verdict": "P17_P0_HARD_DROP",
+  "primary_tau": 2.0,
+  "problem": "P17_UNITS/ final state holds tau=4.0 files (last run overwrote primary tau=2.0). Primary tau=2.0 unit files lost from directory.",
+  "repair_method": "Reconstructed tau=2.0 units from frozen main logs using same regex as make_aggs.py",
+
+  "frozen_originals": {
+    "aggregations": {
+      "P17_GRADIENT_AGG.json": {
+        "path": "_extracted/P17_GRADIENT_AGG.json",
+        "status": "frozen_original",
+        "role": "Primary tau=2.0 gradient aggregation (work, fidelity, step per scene)",
+        "tau": 2.0
+      },
+      "P17_STEP_AGG.json": {
+        "path": "_extracted/P17_STEP_AGG.json",
+        "status": "frozen_original",
+        "role": "Per-camera R_step + P_audit values at tau=2.0",
+        "tau": 2.0
+      },
+      "P17_WORK_ORACLE.json": {
+        "path": "_extracted/P17_WORK_ORACLE.json",
+        "status": "frozen_original",
+        "role": "Per-camera C_oracle values at tau=2.0",
+        "tau": 2.0
+      },
+      "P17_SENSITIVITY_TAU.json": {
+        "path": "_extracted/P17_SENSITIVITY_TAU.json",
+        "status": "frozen_original",
+        "role": "tau=1.0 and tau=4.0 sensitivity outputs (cannot rescue failed gate)",
+        "tau": [1.0, 4.0]
+      }
+    },
+    "verdict": {
+      "P17_VERDICT.json": {
+        "path": "_extracted/P17_VERDICT.json",
+        "status": "frozen_original",
+        "verdict": "P17_P0_HARD_DROP",
+        "note": "UNCHANGED by repair"
+      }
+    },
+    "identity": {
+      "P17_SOURCE_IDENTITY.json": {
+        "path": "_extracted/P17_SOURCE_IDENTITY.json",
+        "status": "frozen_original",
+        "role": "Frozen binary/source hashes"
+      },
+      "P17_STATE_IDENTITY.json": {
+        "path": "_extracted/P17_STATE_IDENTITY.json",
+        "status": "frozen_original",
+        "role": "Frozen scene state (N, it0, n_cameras, active_sh)"
+      }
+    },
+    "camera_set": {
+      "P17_CAMERA_SET.json": {
+        "path": "_extracted/P17_CAMERA_SET.json",
+        "status": "frozen_original",
+        "role": "Frozen probe + audit camera IDs"
+      }
+    },
+    "auxiliary": {
+      "P17_D1_PARITY.json": {
+        "path": "_extracted/P17_D1_PARITY.json",
+        "status": "frozen_original",
+        "role": "d=1 parity check results (all PASS)"
+      },
+      "P17_CONTAMINATION.json": {
+        "path": "_extracted/P17_CONTAMINATION.json",
+        "status": "frozen_original",
+        "role": "Contamination audit"
+      }
+    },
+    "logs": {
+      "room_main.log": {
+        "path": "_extracted/room_main.log",
+        "status": "frozen_original",
+        "tau": 2.0,
+        "role": "Primary room run log (12 cameras, 07:33-07:39)"
+      },
+      "bicycle_main.log": {
+        "path": "_extracted/bicycle_main.log",
+        "status": "frozen_original",
+        "tau": 2.0,
+        "role": "Primary bicycle run log (12 cameras, 07:42-07:58)"
+      },
+      "room_tau1.log": {
+        "path": "_extracted/room_tau1.log",
+        "status": "frozen_original",
+        "tau": 1.0,
+        "role": "Sensitivity run (room)"
+      },
+      "bicycle_tau1.log": {
+        "path": "_extracted/bicycle_tau1.log",
+        "status": "frozen_original",
+        "tau": 1.0,
+        "role": "Sensitivity run (bicycle)"
+      },
+      "room_tau4.log": {
+        "path": "_extracted/room_tau4.log",
+        "status": "frozen_original",
+        "tau": 4.0,
+        "role": "Sensitivity run (room) — this run's unit files are in P17_UNITS/"
+      },
+      "bicycle_tau4.log": {
+        "path": "_extracted/bicycle_tau4.log",
+        "status": "frozen_original",
+        "tau": 4.0,
+        "role": "Sensitivity run (bicycle) — this run's unit files are in P17_UNITS/"
+      }
+    },
+    "unit_directory_final_state": {
+      "P17_UNITS/": {
+        "path": "_extracted/P17_UNITS/",
+        "status": "tau=4.0 (overwritten)",
+        "note": "Final state of remote P17_UNITS/ — holds tau=4.0 unit files. The primary tau=2.0 unit files were overwritten by the tau=4 run (run_all.sh order: main → tau1 → tau4). These tau=4 files are frozen originals from the sensitivity run.",
+        "room": "12 files (camera_12..298)",
+        "bicycle": "12 files (camera_8..185)"
+      }
+    }
+  },
+
+  "reconstructed": {
+    "directory": "P17_UNITS_PRIMARY_RECONSTRUCTED/",
+    "tag": "RECONSTRUCTED_FROM_FROZEN_PRIMARY_LOGS",
+    "source_logs": ["room_main.log", "bicycle_main.log"],
+    "method": "regex parse of '<scene> cam<N>: C_oracle=.. n_d2+=.. means_cos=.. R_step=.. P_audit=..' (same as make_aggs.py)",
+    "fields_recovered": [
+      "scene", "camera_id", "tau", "d1_parity_pass",
+      "oracle_interaction_ratio", "metrics.means.cosine",
+      "step.R_step", "step.P_audit", "step.reference_improving"
+    ],
+    "fields_not_recoverable": [
+      "metrics.scales/quats/opacity/sh0/shN (only means cosine in log line)",
+      "full_cost_fraction_d2plus/d4plus/d8",
+      "detail.n_visible_full/d2/d4/d8",
+      "detail.G_dense/G_hyb",
+      "detail.n_isects_full, n_assigned_d2plus, cost_by_d",
+      "detail.L_before/L_after_dense/L_after_hyb",
+      "detail.P_audit_per_cam, L_audit_before/dense/hyb"
+    ],
+    "room_units": [
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_12.json", "camera_id": 12, "C_oracle": 0.0878, "means_cos": 0.00538236321881413, "R_step": -0.221838437206018, "P_audit": 0.001662},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_38.json", "camera_id": 38, "C_oracle": 0.0631, "means_cos": -0.000650242203846574, "R_step": 0.0171819106192267, "P_audit": -0.0003487},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_64.json", "camera_id": 64, "C_oracle": 0.0829, "means_cos": 0.00859633926302195, "R_step": 0.00434979076209749, "P_audit": 0.00139},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_90.json", "camera_id": 90, "C_oracle": 0.0961, "means_cos": 0.00321582169272006, "R_step": -0.0823249305041064, "P_audit": 0.0013},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_116.json", "camera_id": 116, "C_oracle": 0.0977, "means_cos": -0.00150130386464298, "R_step": -0.0610973030498976, "P_audit": -0.001655},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_142.json", "camera_id": 142, "C_oracle": 0.0892, "means_cos": -0.0153252901509404, "R_step": -0.0252068021771887, "P_audit": 6.247e-05},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_168.json", "camera_id": 168, "C_oracle": 0.0863, "means_cos": 0.000670874782372266, "R_step": -0.00611562296931218, "P_audit": 0.004282},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_194.json", "camera_id": 194, "C_oracle": 0.0936, "means_cos": -0.00117706111632288, "R_step": -0.0179056426503173, "P_audit": 0.002404},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_220.json", "camera_id": 220, "C_oracle": 0.1076, "means_cos": 0.00150684115942568, "R_step": 0.19160335230307, "P_audit": 0.002384},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_246.json", "camera_id": 246, "C_oracle": 0.0921, "means_cos": -0.00141394755337387, "R_step": -0.0598551438759345, "P_audit": -0.000266},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_272.json", "camera_id": 272, "C_oracle": 0.0938, "means_cos": 0.0082638468593359, "R_step": -0.0127396336900619, "P_audit": -0.0001168},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/room/camera_298.json", "camera_id": 298, "C_oracle": 0.0736, "means_cos": 0.000406136474339291, "R_step": 0.0206677894295341, "P_audit": -0.0001628}
+    ],
+    "bicycle_units": [
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_8.json", "camera_id": 8, "C_oracle": 0.0334, "means_cos": 0.00171040475834161, "R_step": -0.0341795104261106, "P_audit": -0.000245},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_24.json", "camera_id": 24, "C_oracle": 0.0257, "means_cos": 0.00772962206974626, "R_step": 0.0513292362933297, "P_audit": -0.0006892},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_40.json", "camera_id": 40, "C_oracle": 0.0309, "means_cos": 5.4139341955306e-05, "R_step": -0.0652771468714677, "P_audit": 6.538e-05},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_56.json", "camera_id": 56, "C_oracle": 0.0354, "means_cos": -0.000994842499494553, "R_step": 0.062110845069261, "P_audit": 2.354e-06},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_72.json", "camera_id": 72, "C_oracle": 0.026, "means_cos": 0.000691852706950158, "R_step": -0.0477803761956657, "P_audit": 5.295e-05},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_88.json", "camera_id": 88, "C_oracle": 0.0353, "means_cos": -0.000841345405206084, "R_step": -0.0507694368177861, "P_audit": -0.0001068},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_105.json", "camera_id": 105, "C_oracle": 0.0298, "means_cos": 0.00341946398839355, "R_step": 0.408726764605441, "P_audit": -0.0001372},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_121.json", "camera_id": 121, "C_oracle": 0.0287, "means_cos": 0.00312067638151348, "R_step": 0.0865062237045757, "P_audit": -0.0007463},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_137.json", "camera_id": 137, "C_oracle": 0.0406, "means_cos": -0.00040269794408232, "R_step": -0.153844555926007, "P_audit": -1.831e-05},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_153.json", "camera_id": 153, "C_oracle": 0.0383, "means_cos": -0.000453255401225761, "R_step": 0.0897582995041821, "P_audit": -0.001706},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_169.json", "camera_id": 169, "C_oracle": 0.0397, "means_cos": -0.00123672559857368, "R_step": -0.0484158359657253, "P_audit": -3.285e-05},
+      {"file": "P17_UNITS_PRIMARY_RECONSTRUCTED/bicycle/camera_185.json", "camera_id": 185, "C_oracle": 0.0265, "means_cos": 0.00207635015249252, "R_step": 0.0292809151988378, "P_audit": -0.0003532}
+    ]
+  },
+
+  "verification": {
+    "C_oracle_median_room": {"recon": 0.09065, "frozen": 0.09065, "match": true},
+    "C_oracle_median_bicycle": {"recon": 0.03215, "frozen": 0.03215, "match": true},
+    "C_oracle_values_room": "12/12 match P17_WORK_ORACLE.json",
+    "C_oracle_values_bicycle": "12/12 match P17_WORK_ORACLE.json",
+    "R_step_P_audit_room": "12/12 match P17_STEP_AGG.json (tol 1e-10)",
+    "R_step_P_audit_bicycle": "12/12 match P17_STEP_AGG.json (tol 1e-10)",
+    "verdict_unchanged": "P17_P0_HARD_DROP"
+  },
+
+  "prohibited_actions_compliance": {
+    "re_ran_room_bicycle": false,
+    "ran_garden": false,
+    "tried_d1_5": false,
+    "gradient_correction": false,
+    "new_routing": false,
+    "modified_gate": false,
+    "used_d0_main_gpu": false
+  }
+}

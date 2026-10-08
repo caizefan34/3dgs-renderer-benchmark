@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "audit_timestamp": "2026-08-04T00:00:00Z",
+  "capabilities": {
+    "resolution_sweep": {
+      "supported": true,
+      "implementation": "width/height arguments to rasterization; progressive-resolution via --res-schedule flag",
+      "verification": "benchmark/run_higs_train_benchmark.py lines 1533-1541",
+      "notes": "Eval always full target resolution; training resolution can be scheduled"
+    },
+    "camera_batch": {
+      "supported": true,
+      "implementation": "--n-train and --n-eval arguments; batch rasterization via viewmats [1, C, 4, 4] and Ks [1, C, 3, 3]",
+      "verification": "benchmark/run_higs_train_benchmark.py lines 1499-1500, 84-109",
+      "notes": "Multi-camera supported; single-camera (B=1) tested in round-23"
+    },
+    "fixed_state_replay": {
+      "supported": true,
+      "implementation": "Load PLY once, freeze topology, benchmark forward+backward",
+      "verification": "benchmark/run_higs_train_benchmark.py run_backend() with frozen=True",
+      "notes": "Used in all short-horizon (20-step) benchmarks"
+    },
+    "native_higs_backward": {
+      "supported": true,
+      "implementation": "higs_native backend with custom CUDA kernels (HigsNativeBackward.cu)",
+      "verification": "reports/higs-trainability-implementation.md lines 37-59; tests/test_higs_native_backward.py (61 tests)",
+      "fallback": "gsplat_recompute backend available",
+      "notes": "Verified on EPIC-05 (A100); 99-100 tests passing"
+    },
+    "phase_timing": {
+      "supported": true,
+      "implementation": "CUDA events around forward (ev0/ev1), backward (ev2/ev3), train step (ev0/ev4)",
+      "verification": "benchmark/run_higs_train_benchmark.py lines 1005-1007, 1115-1117, 1162-1168, 1406-1409",
+      "granularity": ["forward_ms", "backward_ms", "total_ms", "train_ms"],
+      "notes": "Fine-grained kernel profiling requires torch.profiler or nsys (separate)"
+    },
+    "hierarchy_rebuild_timing": {
+      "supported": true,
+      "implementation": "topology_rebuilt flag in metadata; refresh_times list",
+      "verification": "benchmark/run_higs_train_benchmark.py lines 950, 1177, 1446",
+      "notes": "Reports fraction of steps with rebuild; per-event cost measured separately in round-10"
+    },
+    "memory_reporting": {
+      "supported": true,
+      "implementation": "torch.cuda.max_memory_allocated() per backend run",
+      "verification": "benchmark/run_higs_train_benchmark.py lines 935, 1412-1413, 1433",
+      "granularity": "Peak VRAM per backend (not per-phase)",
+      "notes": "Peak includes optimizer state; detailed breakdown requires custom instrumentation"
+    },
+    "dynamic_topology": {
+      "supported": true,
+      "implementation": "higs_dynamic backend with densify/prune + Adam-state sync",
+      "verification": "benchmark/run_higs_train_benchmark.py lines 1221-1330; reports/higs-trainability-implementation.md lines 86-95",
+      "features": [
+        "_densify_gaussians()",
+        "_prune_gaussians()",
+        "sync_optimizer_state_for_topology_change()",
+        "mark_dirty() with pending-backward protection"
+      ],
+      "notes": "Used in Stage E full-training; adds ~12-27% overhead vs frozen"
+    },
+    "correctness_validation": {
+      "supported": true,
+      "implementation": "probe_native_vs_recompute() before each benchmark run",
+      "verification": "benchmark/run_higs_train_benchmark.py lines 1778-1781",
+      "metrics": ["gradient_cosine", "init_parity_psnr"],
+      "notes": "Native-vs-recompute cosine ~0.999996-1.000000; init parity PSNR 18-21 dB"
+    },
+    "intersection_counting": {
+      "supported": true,
+      "implementation": "n_isects in metadata (from isect_tiles)",
+      "verification": "benchmark/run_higs_train_benchmark.py lines 1185-1189, 1445",
+      "notes": "HiGS n_isects ≈ std n_isects on visible subset; culled Gaussians generate zero isects"
+    }
+  },
+  "instrumentation_gaps": {
+    "fine_grained_backward_decomposition": {
+      "missing": "Per-kernel timing for higs_blend_bwd vs higs_sh_vjp vs higs_projection_bwd in benchmark harness",
+      "workaround": "torch.profiler or nsys separately (rounds 10, 21, 25)",
+      "impact": "Cannot attribute speedup to specific kernels in this study; rely on existing reports",
+      "minimum_patch": "Add optional torch.profiler wrapper around loss.backward() with kernel-level events (~20 LOC)",
+      "cuda_change_required": false
+    },
+    "hierarchy_build_timing": {
+      "missing": "Separate timing for pack_gaussian_inference_scene + renderer construction",
+      "workaround": "Measured in round-10 report (3.2 ms pack, 0.35 ms construct); amortized in topology_rebuilt_frac",
+      "impact": "Cannot compute exact per-iteration amortized cost in this study",
+      "minimum_patch": "Add CUDA events around _refresh_higs_renderer_scene() when topology_rebuilt=True (~10 LOC)",
+      "cuda_change_required": false
+    },
+    "visible_count_tracking": {
+      "missing": "N_visible per step (only avg reported)",
+      "workaround": "n_visible_avg in summary; culling_ratio gives fraction",
+      "impact": "Cannot correlate speedup with visible count variations during training",
+      "minimum_patch": "Record n_visible per step in list, report percentiles (~5 LOC)",
+      "cuda_change_required": false
+    }
+  },
+  "blockers": {
+    "patched_gsplat_not_built": {
+      "status": "BLOCKED",
+      "reason": "artifacts/renderer-sources/gsplat not present on this machine",
+      "impact": "Cannot run HiGS benchmarks on this Windows laptop",
+      "workaround": "Analyze existing EPIC-05 results from reports"
+    },
+    "datasets_not_present": {
+      "status": "BLOCKED",
+      "reason": "datasets/processed/ directory empty",
+      "impact": "Cannot load PLY scenes",
+      "workaround": "Reference existing benchmark results in reports/higs-trainability-implementation.md"
+    },
+    "wrong_hardware": {
+      "status": "INFO",
+      "reason": "This machine has RTX 5070 Laptop (8GB), benchmarks require A100 (80GB)",
+      "impact": "Cannot reproduce EPIC-05 results; memory insufficient for high-N scenes",
+      "workaround": "Use existing measurements"
+    }
+  },
+  "verdict": "CAPABILITY_SUFFICIENT_FOR_ANALYSIS_FROM_EXISTING_EVIDENCE"
+}

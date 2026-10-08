@@ -1,0 +1,30 @@
+{
+ "preregistered_before_full_run": true,
+ "purpose": "G1 fidelity gate for CGT tile-response compressibility",
+ "value_gate": {
+  "psnr_db_min": 30.0,
+  "max_abs_max": 0.02,
+  "note": "held-out odd pixels, (E,T) vs black/white/colored bg"
+ },
+ "jacobian_gate": {
+  "metric": "jac_abs (RMS per-element student-teacher Jacobian error)",
+  "formula": "jac_abs <= max(REL_JAC*resp_range/TILE, ABS_FLOOR)",
+  "rel_jac": 0.5,
+  "abs_floor": 0.00125,
+  "tile": 16,
+  "note": "well-posed scale-aware absolute; raw jac_rel is degenerate for near-flat tiles (teacher_jac_norm~1e-4 -> ratios to 1e27)"
+ },
+ "q_weighted": "work-weighted cumulative passing fraction, work=tile_work (Gaussian intersections per tile)",
+ "amdahl": {
+  "target_speedup_inference": 1.25,
+  "gamma_gate": 2.0,
+  "gamma_sensitivity": [
+   1.0,
+   2.0,
+   4.0
+  ],
+  "model": "fwd_ratio=[sum_pass R_best*gamma + sum_fail M]/sum_all M; S=1/fwd_ratio; M=tile_work"
+ },
+ "sampling": "stratified random by tile work decile (non top-N), 6 views x 250 tiles x 3 ranks = 4500 records/combo",
+ "seed": 20261004
+}

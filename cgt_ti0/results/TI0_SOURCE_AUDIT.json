@@ -1,0 +1,84 @@
+{
+  "stage": "TI0_SOURCE_AUDIT",
+  "ts": "2026-10-04",
+  "purpose": "Map the frozen CGT representation + update path TI0 must inherit. Read-only. No modifications to upstream.",
+  "frozen_upstream": {
+    "g1_compressibility": {
+      "path": "/home/liaoyuanjun/cgt_realscene/final/SCRIPTS/g1_compressibility.py",
+      "sha256": "6ab224db112b5996ab6092d29471c15f20040e9f151b1f655ec98bd452a4dd73",
+      "key_api": [
+        "read_cameras_bin",
+        "read_images_bin",
+        "q2R",
+        "predict_and_vjp(p,q,cotangent)",
+        "initialize(k,q,y,seed)",
+        "fit_cgt(q,y,rank,seed,iters,dy,dweight) L-BFGS-B per-tile refit",
+        "tile_teacher(px,py,gids,means2d,conics,opac,colors)->(E,T)",
+        "teacher_jac",
+        "evaluate_tile"
+      ]
+    },
+    "g2_rigorous_certificate": {
+      "path": "/home/liaoyuanjun/cgt_realscene/final/SCRIPTS/g2_rigorous_certificate.py",
+      "sha256": "38a9152d142be548c2390355e11631ae7e2b91407f8917d566e75550acca1a4d",
+      "key_api": [
+        "teacher_interval",
+        "student_interval",
+        "box_error_bound",
+        "certify_box",
+        "certify_tile(t,p,min_size,max_depth,rng,validate)",
+        "extract_tiles(scene,ckpt,data,view_idx,max_tiles,seed)"
+      ]
+    },
+    "f0_kernel": {
+      "path": "/home/liaoyuanjun/cgt_f0_fused_cuda/src/f0_kernels.so",
+      "built": true,
+      "invoke": "lib.f0_fused_f32(means2d,conics,opac,colors,tile_off,coeffs(R=4),safe,px,out,n_tiles); lib.f0_stream_sync()",
+      "harness": "/home/liaoyuanjun/cgt_f0_fused_cuda/src/f0_harness.py"
+    },
+    "f0_prepare": {
+      "path": "/home/liaoyuanjun/cgt_f0_fused_cuda/src/f0_prepare.py",
+      "role": "builds kernel-ready per-tile workload + refs from frozen upstream math (no reimpl)"
+    }
+  },
+  "canonical_baseline": {
+    "repo": "/home/liaoyuanjun/sota_rebase_v2_repos/FastGS/",
+    "renderer": "gaussian_renderer/__init__.py render_fastgs (custom diff_gaussian_rasterization_fastgs)",
+    "rasterizer_available": "gsplat 1.5.3 (torch 2.7.1+cu118) used as canonical rasterizer for TI0-A optimizer step",
+    "note": "TI0-A uses gsplat.rasterization for the canonical forward+backward+Adam step (canonical semantics preserved); F0 fused kernel used for T_CGT_forward."
+  },
+  "checkpoint": {
+    "room_topology_stable": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_15000.pt",
+    "format": "dict keys: active_sh_degree, xyz(901818,3), shs(901818,16,3), scaling(901818,3)[log], rotation(901818,4)[quat], opacity(901818,1)[logit], max_radii2D, xyz_gradient_accum, denom, spatial_lr_scale, num_points",
+    "load": "torch.load(weights_only=False) (contains numpy scalars)",
+    "also_available": [
+      "B1_room_multiphase_v2/checkpoints/iter_5000.pt",
+      "iter_10000.pt"
+    ]
+  },
+  "data": {
+    "room_sparse": "/tmp/3dgs-renderer-benchmark/data/datasets/mipnerf360/room/sparse/0/",
+    "n_cameras": 1,
+    "n_images": 311,
+    "gt_images": "images/*.JPG"
+  },
+  "cgT_update_path_findings": {
+    "A_full_rebuild": "MECHANICALLY_DERIVABLE: extract_tiles + fit_cgt per tile (L-BFGS-B). This is the route-A production fit.",
+    "B_dirty_tiles": "MECHANICALLY_DERIVABLE: extract_tiles returns per-tile gaussian membership; dirty = tiles whose teacher field changed beyond certificate validity after theta_t->theta_t+1.",
+    "C_incremental_cert_reuse": "MECHANICALLY_DERIVABLE: certify_tile(t_{t+1}, coeffs_{t}) checks if OLD coeffs still rigorously certify against NEW teacher; pass -> reuse (no refit). This is the cheap validity check.",
+    "verdict": "All three update strategies are mechanically derivable from frozen upstream code. NONE require inventing a new algorithm (satisfies TI0 sec.3)."
+  },
+  "reuse_sha256_local": {
+    "g5_cgt_renderer.py": "MISSING",
+    "note": "cgt_student_render differentiable port available for cross-check of F0 forward"
+  },
+  "environment": {
+    "runtime_python": "/mnt/storage_pool/liaoyuanjun_mx0qual/bin/python",
+    "torch": "2.7.1+cu118",
+    "gsplat": "1.5.3",
+    "cuda": true,
+    "gpu_count": 8,
+    "scratch": "/mnt/storage_pool (35G free)",
+    "disk_tmp_full": true
+  }
+}

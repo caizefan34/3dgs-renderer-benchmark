@@ -1,0 +1,71 @@
+{
+  "task": "MSB0-P0",
+  "title": "Minimal Sufficient Backward State",
+  "date": "2026-10-01",
+  "verdict": "DROP_WORK_AMPLIFICATION",
+  "verdict_rationale": "M3 (forward-carry) is the only candidate that removes >=25% of saved bytes by construction (97.7-98.2%) AND passes Gate 4 exact-replay fidelity (cos=1.0, rel~1e-14 on all scenes). It is eliminated at Gate 5: reconstructing the bucket-boundary state requires a sequential cross-bucket forward carry = a second full tile-Gaussian traversal plus global synchronization beyond existing per-bucket boundaries. The saved bucket_color_transmittance state is NOT redundant; it is the materialized prefix that enables independent per-bucket parallel reverse-mode backward.",
+  "gate_results": {
+    "gate0_remote": {
+      "result": "PASS",
+      "detail": "All PyTorch/scene-replay executed on EPIC-05 (dsw-933622-64cc845c7d-lqswc, A100-SXM4-80GB). Local Windows = control-plane only. No CUDA kernels built or run."
+    },
+    "gate1_source_lock": {
+      "result": "PASS",
+      "detail": "faster-gaussian-splatting @ ae665af2f91a4973bb92c40fdc4cba8d12fe3c96 (2026-09-19, 'Fix build on CUDA 13'); ngs @ e458ac6e41810ad6d9405687c1e698fadd28dac5. Kernels: blend_cu (kernels_forward.cuh:355-456), blend_backward_cu (kernels_backward.cuh:252-475)."
+    },
+    "gate2_prior_art": {
+      "result": "PASS",
+      "detail": "No direct collision. M3 == original pixel-centric 3DGS backward (reconstruct transmittance while traversing), a known adjacent mechanism, not a novelty claim. See MSB0_PRIOR_ART.md."
+    },
+    "gate3_dependency": {
+      "result": "PASS",
+      "detail": "At least one candidate removes >=25% saved bytes by construction: M1 73.3-73.6%, M3 97.7-98.2%. M2 only 24.4-24.5% (<25%). Gate 3 does not fire DROP_NO_STATE_REDUNDANCY. However M1/M2 are shown non-reconstructible at Gate 4.",
+      "per_candidate_reduction_pct": {
+        "M1_drop_Cb": {
+          "room": 73.275,
+          "garden": 73.383,
+          "bicycle": 73.642
+        },
+        "M2_drop_Tb": {
+          "room": 24.425,
+          "garden": 24.461,
+          "bicycle": 24.547
+        },
+        "M3_forward_carry": {
+          "room": 97.701,
+          "garden": 97.844,
+          "bicycle": 98.19
+        }
+      }
+    },
+    "gate4_fidelity": {
+      "result": "FAIL_FOR_M1_M2",
+      "threshold": {
+        "cos_min": 0.999999,
+        "rel_l2_max": 1e-05,
+        "nan_inf_max": 0
+      },
+      "M0_vs_autograd": "M0 hand-derived backward matches independent autograd: dL_dcolor cos=1.0/rel=0, dL_dmean2d cos=1.0, dL_dopacity cos>=0.9997, dL_dconic cos 0.94-0.98 (kernel 0.5x cross-term convention, orthogonal to compositing).",
+      "M1": "FAIL - dL_dalpha collapses (cos room=0.0197, garden=0.839, bicycle=0.0735); C_b not locally reconstructible.",
+      "M2": "FAIL - dL_dcolor (cos 0.45/0.68/0.25) and dL_dalpha (cos 0.056/0.061/0.063) collapse; T_b not locally reconstructible.",
+      "M3": "PASS - exact on all scenes (cos=1.0, rel<=2.2e-11).",
+      "eliminated": [
+        "M1",
+        "M2"
+      ]
+    },
+    "gate5_overhead": {
+      "result": "FAIL_FOR_M3",
+      "detail": "M3 requires a sequential cross-bucket forward carry from the known entering state (C_0=0, T_0=1). This is a second full tile-Gaussian traversal (re-walk all Gaussians front-to-back to rebuild the prefix) and forces global synchronization across buckets (bucket b+1 input depends on bucket b output), destroying the independent per-bucket parallel reverse walk. Violates 'no second full traversal' and 'no global synchronization beyond existing boundaries'.",
+      "eliminated": [
+        "M3"
+      ]
+    },
+    "gate6_economics": {
+      "result": "NOT_REACHED",
+      "detail": "No candidate survives Gates 4+5, so Gate 6 is not reached. For reference, M3 peak-VRAM reduction if bucket_ct were eliminated = 7.86%/6.77%/8.28% (room/garden/bicycle), all <8%, and E2E would regress due to the added traversal. M1/M2 fail fidelity regardless of bytes."
+    }
+  },
+  "conclusion": "The saved bucket_color_transmittance = float4(C.rgb, T) per (bucket, tile-pixel) is the minimal-sufficient exact-replay state. Both C_b (prefix weighted color) and T_b (prefix transmittance) carry independent information required by the bucket-seeded reverse backward; neither is reconstructible from final outputs + current-bucket gaussians + neighboring summaries without a cross-bucket prefix scan. The only exact reconstruction (M3 forward-carry) re-runs the prefix sequentially = original pixel-centric 3DGS backward = work amplification + prior-art adjacency. Recommendation: KEEP_FOR_MSB1_MINIMAL_KERNEL is NOT earned; the P0 verdict is DROP_WORK_AMPLIFICATION. State elimination should not proceed; MSB1 (minimal-kernel quantization of the retained state, i.e. BSC0 composition) is the viable next step.",
+  "recommended_next": "MSB1: apply BSC0-style compression to the RETAINED bucket_color_transmittance state (it is provably non-redundant), rather than attempting elimination."
+}

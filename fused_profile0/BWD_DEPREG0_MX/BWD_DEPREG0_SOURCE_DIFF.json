@@ -1,0 +1,17 @@
+{
+  "schema": "BWD_DEPREG0_SOURCE_DIFF",
+  "date": "2026-10-07",
+  "pristine_backup": "rasterization/include/kernels_backward.cuh.orig",
+  "instrumented_source": "rasterization/include/kernels_backward.cuh",
+  "diff_file": "patches/0001_blend_backward_probe_instrumentation.diff",
+  "probe_mechanism": "Macros are injected by rewriting rasterization/include/depreg_probe.h per variant (build_fast.sh). Editing the .cuh recompiles only backward.o via ninja depfiles (fast).",
+  "macros": {
+    "BWD_DEPREG_NORECUR": "ORACLE: removes warp.shfl_up transmittance/color/grad/last_contributor recurrence AND intra-lane transmittance*=one_minus_alpha / color_pixel_after-=... carry-over (sets transmittance=1.0, last_contributor=block_size_blend). Semantically INVALID for training; timing only.",
+    "BWD_DEPREG_NOCOLOR": "ORACLE: disables color/SH gradient accumulation. INVALID for training.",
+    "BWD_DEPREG_NOOPACITY": "ORACLE: disables opacity gradient accumulation. INVALID for training.",
+    "BWD_DEPREG_NOCONIC": "ORACLE: disables conic+mean2d gradient accumulation. INVALID for training.",
+    "--maxrregcount=N": "compiler flag: caps registers/thread to force occupancy sweep."
+  },
+  "production_r0": "no macro defined; kernel is byte-for-byte the production blend_backward_cu path.",
+  "forward_unchanged": "instrumentation touches ONLY the backward kernel; forward.cu not modified; R0 forward is bit-identical to production."
+}

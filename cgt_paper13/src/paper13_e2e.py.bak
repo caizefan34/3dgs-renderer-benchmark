@@ -1,0 +1,153 @@
+#!/usr/bin/env python
+"""CGT-PAPER13 P3 E2E build-amortization oracle.
+Measures the FULL production frame path cost honestly:
+  - enumerate all non-empty tiles for a representative camera (gsplat),
+  - build (fit R4 + certify) a tile sample, time it -> per-tile build cost,
+  - time fused kernel on the sample -> per-tile render cost,
+  - extrapolate to the full frame (n_tiles_full),
+  - compare vs canonical gsplat frame (P1),
+  - report E2E novel-view ratio, break-even N, T_amortized(N).
+"""
+from __future__ import annotations
+import argparse, json, os, sys, time
+import numpy as np
+SCRIPTS="/home/liaoyuanjun/cgt_realscene/final/SCRIPTS"; F0_SRC="/home/liaoyuanjun/cgt_f0_fused_cuda/src"
+sys.path.insert(0,SCRIPTS); sys.path.insert(0,F0_SRC)
+import ctypes, torch, gsplat
+from g1_compressibility import read_cameras_bin, read_images_bin, q2R, tile_teacher, fit_cgt, TILE
+from g2_rigorous_certificate import certify_tile
+import paper13_cgt as CGT  # reuse refs_for_tile, shared_px
+
+R=4; NPX=TILE*TILE; SEED=20261004
+
+def load_scene(ckpt, data_root, scene):
+    ck=torch.load(ckpt, map_location="cpu", weights_only=False)
+    return dict(means=ck["xyz"].cuda().float(), scales=torch.exp(ck["scaling"].cuda().float()),
+               quats=ck["rotation"].cuda().float(), opacities=torch.sigmoid(ck["opacity"].cuda().float()),
+               shs=ck["shs"].cuda().float(), deg=int(ck["active_sh_degree"]),
+               cams=read_cameras_bin(f"{data_root}/{scene}/sparse/0/cameras.bin"),
+               imgs=read_images_bin(f"{data_root}/{scene}/sparse/0/images.bin"))
+
+def view_k(sd, vi):
+    iid,name,cam,qv,tv=sd["imgs"][vi]; mid,W,H,par=sd["cams"][cam]; fx,fy,cx,cy=par
+    R_w2c=q2R(qv); t_w2c=np.array(tv); t_c2w=-R_w2c.T@t_w2c
+    vm=torch.eye(4,dtype=torch.float32,device="cuda")[None]; vm[0,:3,:3]=torch.as_tensor(R_w2c,dtype=torch.float32,device="cuda"); vm[0,:3,3]=torch.as_tensor(t_w2c,dtype=torch.float32,device="cuda")
+    K=torch.as_tensor([[[fx,0,cx],[0,fy,cy],[0,0,1]]],dtype=torch.float32,device="cuda")
+    return name,K,W,H
+
+def enumerate_tiles(sd, vi, tile_size=16):
+    name,K,W,H=view_k(sd,vi)
+    rc,ra,meta=gsplat.rasterization(sd["means"],sd["quats"],sd["scales"],sd["opacities"],sd["shs"],viewmat=None if False else torch.eye(4,device="cuda")[None],K,width=W,height=H,sh_degree=sd["deg"],render_mode="RGB",packed=True,tile_size=tile_size) if False else (None,None,None)
+    # proper call
+    vm=torch.eye(4,dtype=torch.float32,device="cuda")[None]
+    iid,nm,cam,qv,tv=sd["imgs"][vi]; R_w2c=q2R(qv); t_w2c=np.array(tv)
+    vm[0,:3,:3]=torch.as_tensor(R_w2c,dtype=torch.float32,device="cuda"); vm[0,:3,3]=torch.as_tensor(t_w2c,dtype=torch.float32,device="cuda")
+    rc,ra,meta=gsplat.rasterization(sd["means"],sd["quats"],sd["scales"],sd["opacities"],sd["shs"],vm,K,width=W,height=H,sh_degree=sd["deg"],render_mode="RGB",packed=True,tile_size=tile_size)
+    io=meta["isect_offsets"].detach().cpu().numpy().reshape(-1); fi=meta["flatten_ids"].detach().cpu().numpy()
+    th,tw=int(meta["tile_height"]),int(meta["tile_width"]); total=len(fi)
+    starts=io.astype(np.int64)
+    def eot(ti,tj):
+        if tj+1<tw: return int(starts[ti*tw+tj+1])
+        if ti+1<th: return int(starts[(ti+1)*tw+tj])
+        return total
+    counts=[]
+    for ti in range(th):
+        for tj in range(tw):
+            s=int(starts[ti*tw+tj]); e=eot(ti,tj)
+            if e-s>0: counts.append(e-s)
+    return np.array(counts), int(total), name, (W,H)
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--scene",required=True); ap.add_argument("--ckpt",required=True)
+    ap.add_argument("--data-root",default="/tmp/3dgs-renderer-benchmark/data/datasets/mipnerf360")
+    ap.add_argument("--so",default="/home/liaoyuanjun/cgt_f0_fused_cuda/src/f0_kernels.so")
+    ap.add_argument("--out",required=True); ap.add_argument("--device",type=int,default=0)
+    ap.add_argument("--n-sample",type=int,default=60); ap.add_argument("--views",type=int,default=3)
+    ap.add_argument("--canonical-ms",type=float,required=True)
+    args=ap.parse_args(); os.makedirs(args.out,exist_ok=True)
+    np.seterr(divide="ignore",invalid="ignore"); torch.cuda.set_device(args.device)
+    sd=load_scene(args.ckpt, args.data_root, args.scene)
+    px=CGT.shared_px()
+    rng=np.random.default_rng(SEED)
+    # enumerate full-frame tiles across a few cameras
+    all_counts=[]; cam_info=[]
+    for vi in range(min(args.views, len(sd["imgs"]))):
+        try:
+            counts,Mt,name,wh=enumerate_tiles(sd, vi, 16)
+            all_counts.append(counts); cam_info.append({"view":name,"n_tiles":int(len(counts)),"Mt":Mt,"WxH":wh})
+        except Exception as ex:
+            print(f"  enum view {vi} failed: {ex}", flush=True)
+    counts=np.concatenate(all_counts) if all_counts else np.array([0])
+    n_tiles_full=int(len(counts)); Mt_full=int(counts.sum())
+    # build a sample of tiles from the enumerated set (use extract_tiles on view 0 for tile data)
+    from g2_rigorous_certificate import extract_tiles
+    sample_tiles=[]
+    for vi in range(min(args.views, len(sd["imgs"]))):
+        try: sample_tiles.extend(extract_tiles(args.scene, args.ckpt, args.data_root, vi, args.n_sample, SEED+vi*101))
+        except Exception: pass
+    if not sample_tiles:
+        open(os.path.join(args.out,f"e2e_{args.scene}.json"),"w").write(json.dumps({"scene":args.scene,"status":"NO_TILES"})); print("NO_TILES"); return
+    t0=time.perf_counter()
+    m2l,col_,opl,cll,cfl,safel,Ml=[],[],[],[],[],[],[]
+    for ti,t in enumerate(sample_tiles):
+        gids=t["gids"]; m2=t["means2d"]; con=t["conics"]; op=t["opac"]; cl=t["colors"]
+        E,T=tile_teacher(px[:,0:1],px[:,1:2],gids,m2,con,op,cl); y=np.concatenate([E,T],axis=1)
+        P=y.shape[0]; tr=np.arange(0,P,2); yt=y[tr]; qt=np.column_stack([px[tr,0],px[tr,1]]).astype(np.float64)
+        p=fit_cgt(qt,yt,R,SEED+ti*1000+R,200)
+        res=certify_tile(t,p,1.0,10,np.random.default_rng(SEED+ti*1000+R+7),True)
+        safel.append(int(res["passed"])); p_r=np.ascontiguousarray(p,np.float64).reshape(R,10); cfl.append(p_r)
+        m2l.append(np.ascontiguousarray(m2[gids],np.float64)); col_.append(np.ascontiguousarray(con[gids],np.float64))
+        opl.append(np.ascontiguousarray(op[gids],np.float64)); cll.append(np.ascontiguousarray(cl[gids],np.float64)); Ml.append(int(gids.shape[0]))
+    t_build_sample=(time.perf_counter()-t0)*1e3
+    Mt_s=sum(Ml); n_s=len(sample_tiles)
+    # fused kernel timing on sample
+    lib=ctypes.CDLL(args.so); P_=ctypes.c_void_p; I=ctypes.c_int; S=ctypes.c_size_t; Fl=ctypes.c_float
+    lib.f0_init(I(args.device)); lib.f0_malloc.argtypes=[S]; lib.f0_malloc.restype=P_
+    lib.f0_h2d.argtypes=[P_,P_,S]; lib.f0_d2h.argtypes=[P_,P_,S]; lib.f0_stream_sync.argtypes=[]
+    lib.f0_ev_create.argtypes=[]; lib.f0_ev_create.restype=P_; lib.f0_ev_record.argtypes=[P_]
+    lib.f0_ev_elapsed.argtypes=[P_,P_]; lib.f0_ev_elapsed.restype=Fl; lib.f0_ev_destroy.argtypes=[P_]
+    LP=[P_]*8+[I]; LS=[P_,I,P_,P_,I]; LF=[P_]*6+[I,P_]+[P_]*3+[I]
+    lib.f0_teacher_f32.argtypes=LP; lib.f0_fused_f32.argtypes=LF
+    bufs=[]
+    def up(a):
+        a=np.ascontiguousarray(a); d=lib.f0_malloc(S(a.nbytes)); lib.f0_h2d(P_(d),a.ctypes.data_as(P_),S(a.nbytes)); bufs.append(d); return int(d)
+    d_m2=up(np.concatenate(m2l,0).astype(np.float32)); d_co=up(np.concatenate(col_,0).astype(np.float32))
+    d_op=up(np.concatenate(opl,0).astype(np.float32)); d_cl=up(np.concatenate(cll,0).astype(np.float32))
+    d_px=up(np.ascontiguousarray(np.tile(px,(n_s,1)),np.float32)); d_cf=up(np.stack(cfl,0).astype(np.float32))
+    off=[0]
+    for M in Ml: off.append(off[-1]+M)
+    d_off=up(np.asarray(off,np.int32)); d_safe=up(np.asarray(safel,np.int32)); d_out=up(np.zeros((n_s,NPX,4),np.float32))
+    def time_k(launch,wu=10,rp=50):
+        for _ in range(wu): launch()
+        lib.f0_stream_sync(); e0=lib.f0_ev_create(); e1=lib.f0_ev_create(); s=[]
+        for _ in range(rp): lib.f0_ev_record(e0); launch(); lib.f0_ev_record(e1); s.append(float(lib.f0_ev_elapsed(e0,e1)))
+        lib.f0_ev_destroy(e0); lib.f0_ev_destroy(e1); lib.f0_stream_sync(); return float(np.median(s))
+    T_teacher_s=time_k(lambda: lib.f0_teacher_f32(P_(d_m2),P_(d_co),P_(d_op),P_(d_cl),P_(d_off),P_(d_px),P_(d_out),I(n_s)))
+    T_fused_s=time_k(lambda: lib.f0_fused_f32(P_(d_m2),P_(d_co),P_(d_op),P_(d_cl),P_(d_off),P_(d_cf),I(R),P_(d_safe),P_(d_px),P_(d_out),I(n_s)))
+    # per-tile costs + full-frame extrapolation
+    t_build_per_tile=t_build_sample/n_s; t_fused_per_tile=T_fused_s/n_s; t_teacher_per_tile=T_teacher_s/n_s
+    T_build_full=t_build_per_tile*n_tiles_full; T_cgt_frame=t_fused_per_tile*n_tiles_full
+    T_canon=args.canonical_ms
+    T_e2e_novel=T_build_full+T_cgt_frame
+    S_novel=T_canon/T_e2e_novel if T_e2e_novel>0 else None
+    saving_per_frame=max(T_canon-T_cgt_frame,1e-9)
+    N_break=int(np.ceil(T_build_full/saving_per_frame)) if T_canon>T_cgt_frame else None
+    def Tam(N): return (T_build_full+N*T_cgt_frame)/N if N>0 else None
+    res={"scene":args.scene,"status":"OK","camera":cam_info,
+         "n_tiles_full_frame":n_tiles_full,"Mt_full_frame":Mt_full,
+         "n_sample":n_s,"Mt_sample":Mt_s,
+         "t_build_sample_ms":t_build_sample,"t_build_per_tile_ms":t_build_per_tile,
+         "t_fused_sample_ms":T_fused_s,"t_fused_per_tile_ms":t_fused_per_tile,
+         "t_teacher_per_tile_ms":t_teacher_per_tile,
+         "T_build_full_ms":T_build_full,"T_cgt_frame_ms":T_cgt_frame,
+         "T_canonical_frame_ms":T_canon,"T_e2e_novel_view_ms":T_e2e_novel,
+         "S_e2e_novel_view":S_novel,
+         "N_break_frames":N_break,
+         "T_amortized":{"N1":Tam(1),"N10":Tam(10),"N100":Tam(100),"N1000":Tam(1000)},
+         "safe_fraction_sample":float(np.mean(safel))}
+    open(os.path.join(args.out,f"e2e_{args.scene}.json"),"w").write(json.dumps(res,indent=2))
+    print(f"[{args.scene}] n_tiles_full={n_tiles_full} T_build_full={T_build_full:.0f}ms T_cgt_frame={T_cgt_frame:.1f}ms T_canon={T_canon:.1f}ms S_novel={S_novel:.3f} N_break={N_break}", flush=True)
+
+if __name__=="__main__":
+    main()

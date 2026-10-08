@@ -1,0 +1,79 @@
+{
+  "phase": "P18-P0",
+  "artifact": "P18_VARIANT_TABLE",
+  "created_utc": "2026-09-28T12:01:00Z",
+  "note": "Per-variant results. Phases 4-5 (integrated forward/backward fidelity) were NOT executed: no variant cleared the evaluator performance floor (median S_eval >= 4.0), and the HARD DROP trigger fired (median S_eval < 2.5 for all variants in both primary scenes). Numerical reference validation (phase 1) IS available and confirms the reconstruction is correct, so the negative result is a performance one, not a numerical one.",
+  "gates": {
+    "S_eval_evaluator": ">= 4.0 (median)",
+    "S_F_forward": ">= 1.4", "S_B_backward": ">= 1.4", "S_FB": ">= 1.75",
+    "hard_drop": "any primary scene median S_eval < 2.5  OR  all NUMERIC_PASS S_FB < 1.30  OR  no variant passes numerical gate"
+  },
+  "variants": {
+    "DIRECT": {
+      "role": "baseline (frozen C0)",
+      "reference_validation": "n/a (ground truth)",
+      "S_eval": null,
+      "numeric_pass": true,
+      "note": "1 MUFU.EX2 per pixel (SASS); the SFU exp is the inner-loop critical path"
+    },
+    "QSCAN4": {
+      "live_threshold": ">= 2/4",
+      "reference_validation": {
+        "synthetic": {"max_abs": 1.9e-06, "branch_mm": 0, "nan": 0},
+        "room_real": {"max_abs": 1.9e-06, "branch_mm": 0, "nan": 0},
+        "bicycle_real": {"max_abs": 2.5e-09, "branch_mm": 0, "nan": 0}
+      },
+      "S_eval": {"room_exp2": 0.982, "room_exp": 0.974, "bicycle_exp2": 0.954, "bicycle_exp": 0.954, "median": 0.966},
+      "numeric_pass": true,
+      "S_eval_gate_4x": false,
+      "hard_drop_floor_2_5": true,
+      "integrated": "not run (evaluator floor not cleared)"
+    },
+    "QSCAN8": {
+      "live_threshold": ">= 4/8",
+      "reference_validation": {
+        "synthetic": {"max_abs": 1.9e-06, "branch_mm": 0, "nan": 0},
+        "room_real": {"max_abs": 1.9e-06, "branch_mm": 0, "nan": 0},
+        "bicycle_real": {"max_abs": 4.9e-09, "branch_mm": 0, "nan": 0}
+      },
+      "S_eval": {"room_exp2": 0.971, "room_exp": 0.974, "bicycle_exp2": 0.975, "bicycle_exp": 0.970, "median": 0.972},
+      "numeric_pass": true,
+      "S_eval_gate_4x": false,
+      "hard_drop_floor_2_5": true,
+      "integrated": "not run (evaluator floor not cleared)"
+    },
+    "QSCAN16": {
+      "live_threshold": ">= 8/16",
+      "reference_validation": {
+        "synthetic": {"max_abs": 1.9e-06, "branch_mm": 0, "nan": 0},
+        "room_real": {"max_abs": 2.0e-06, "branch_mm": 0, "nan": 0},
+        "bicycle_real": {"max_abs": 1.6e-08, "branch_mm": 0, "nan": 0}
+      },
+      "S_eval": {"room_exp2": 0.974, "room_exp": 0.973, "bicycle_exp2": 0.964, "bicycle_exp": 0.967, "median": 0.969},
+      "numeric_pass": true,
+      "S_eval_gate_4x": false,
+      "hard_drop_floor_2_5": true,
+      "integrated": "not run (evaluator floor not cleared)"
+    }
+  },
+  "sass_static_inspection": {
+    "DIRECT_eval_direct_exp2/expf": {"MUFU_EX2": 1, "SHFL": 0, "sass_lines": 84},
+    "QSCAN4": {"MUFU_EX2": 4, "SHFL": 3, "sass_lines": 212},
+    "QSCAN8": {"MUFU_EX2": 4, "SHFL": 4, "sass_lines": 228},
+    "QSCAN16": {"MUFU_EX2": 4, "SHFL": 5, "sass_lines": 260},
+    "interpretation": "DIRECT is SFU-exp-bound: exactly one dynamic MUFU.EX2 (exp2) per pixel, 84 SASS lines. QSCAN's 4 MUFU.EX2 are the LEADER seed exps (G0, r0, k, k^pos) — one set per subgroup — that EVERY lane depends on, so they remain on the critical path (they cannot be overlapped away because the lane's G_j = G0 * prefix_j needs G0 first). The prefix scan adds SHFL + FMUL (~192 extra SASS lines). The per-lane quadratic FMA (the only work QSCAN would reduce) is only ~3 FFMAs — a negligible fraction of the exp's SFU latency. Hence QSCAN ~ DIRECT on an A100 with a wide MUFU pipeline.",
+    "source": "cuobjdump --dump-sass of p18_eval.so (A100, sm_80, -use_fast_math -O3)"
+  },
+  "real_trace_characterization": {
+    "note": "Captured from the frozen C0 forward raster (TILE_SIZE=16), 32 x-positions per visible (gaussian, image-row), stratified by live-lane population (alpha>=1/255 cull).",
+    "room": {"n_visible_rows": 2170594, "mean_live_pop": 0.043, "median_live_pop": 0, "pop_hist_top": {"0": 2166431, "1": 123, "2": 115}},
+    "bicycle": {"n_visible_rows": 5869368, "mean_live_pop": 0.006, "median_live_pop": 0, "pop_hist_top": {"0": 5867695, "1": 56, "2": 50}},
+    "interpretation": "Live-lane populations are near-zero: the C0 Gaussians are tight (MAX_EXTEND=3.33 sigma culling), so an on-tile (gaussian, row) has ~0-2 live pixels out of 32. The alpha-cull is already extremely sparse. This means (a) the inner loop is mostly exp-evaluations that are about to be culled anyway, and (b) there is little redundant per-pixel work for a quotient reconstruction to eliminate. The exp remains the per-pixel op."
+  },
+  "decision": {
+    "triggered": "HARD_DROP (protocol section 16)",
+    "reason": "median S_eval < 2.5 for EVERY variant in BOTH primary scenes (room AND bicycle). Best variant QSCAN8 median S_eval ~0.97 << 2.5.",
+    "phases_not_run": ["integrated forward fidelity (8 cameras)", "integrated backward fidelity", "DIRECT repeat noise floor", "garden Stage B"],
+    "reminders": ["no git commit", "no full training", "no threshold/gamma/tile changes", "no camera changes", "no quality-gate relaxation", "no P18-P1"]
+  }
+}

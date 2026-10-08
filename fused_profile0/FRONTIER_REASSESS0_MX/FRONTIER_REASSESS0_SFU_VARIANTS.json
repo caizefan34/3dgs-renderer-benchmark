@@ -1,0 +1,37 @@
+{
+  "schema": "FRONTIER_REASSESS0_SFU_VARIANTS",
+  "date": "2026-10-07",
+  "variants": [
+    {
+      "variant": "expf (production)",
+      "exact_math_identity": true,
+      "compiler_approximation": false,
+      "classification": "EXACT_PATH",
+      "ulp_rel_error": 0.0,
+      "mufu_ex2": 4,
+      "float_ops": 246
+    },
+    {
+      "variant": "__expf",
+      "exact_math_identity": true,
+      "compiler_approximation": true,
+      "classification": "APPROX_PATH",
+      "ulp_rel_error": "~2 ULP (fast intrinsic)",
+      "mufu_ex2": 4,
+      "float_ops": 234
+    },
+    {
+      "variant": "exp2f(x*log2e)",
+      "exact_math_identity": true,
+      "compiler_approximation": true,
+      "classification": "APPROX_PATH",
+      "ulp_rel_error": "not bit-exact to expf (same bare-EX2 SASS as __expf)",
+      "mufu_ex2": 4,
+      "float_ops": 234
+    }
+  ],
+  "timing_note": "Paired timing under heavy MX contention (all 8 GPUs ~22-28GB foreign jobs, multiple at 97-99% util) was not completable within caps (dataset load alone exceeded the timeout). Per spec section 10, timing is required only if a semantically admissible EXACT alternative exists; none does. Approximate potential is recorded as context for F4 only.",
+  "F2_exact_verdict": "NO_GO",
+  "F2_exact_reason": "No exact faster SFU variant exists. expf already compiles to MUFU.EX2 + minimal correction; the only faster forms (__expf, exp2f) are APPROXIMATE (drop the polynomial). Exact path is already optimal on SM80.",
+  "approximate_context_for_F4": "__expf/exp2f save ~12 float ops (same SFU count); approximate potential only, not an exact lane."
+}

@@ -1,0 +1,4809 @@
+Reparametrizing 3D Gaussian Splatting for Real-Time Palette-based Color and Luminance Editing
+Report GitHub Issue
+×
+Title:
+Content selection saved. Describe the issue below:
+Description:
+Submit without GitHub
+Submit in GitHub
+arXiv is now an independent nonprofit!
+Learn more
+×
+Back to arXiv
+Why HTML?
+Report Issue
+Back to Abstract
+Download PDF
+Abstract.
+1
+Introduction
+2
+Related Work
+Appearance editing in neural scene representations.
+Palette-based image recoloring.
+3
+Background and Motivation
+4
+Method: Representation and Finetuning
+4.1
+View-space Palette Decomposition
+4.2
+Barycentric Supervision
+4.3
+Joint Palette and Weight SH Finetuning
+4.4
+Rank-1 Factorization of Higher-Order Weight SH
+5
+Method: Editing
+5.1
+Editing Model and Constraints
+5.2
+Constraint-Driven Solver
+6
+Results and Evaluation
+6.1
+Implementation Details and Performance
+6.2
+Evaluation
+7
+Conclusion
+Limitations and Future Work.
+Acknowledgements
+References
+License: CC BY 4.0
+arXiv:2609.03897v1 [cs.GR] 03 Sep 2026
+Reparametrizing 3D Gaussian Splatting for Real-Time Palette-based Color and Luminance Editing
+Conference:
+SIGGRAPH Asia 2026 Conference Papers; December 01–04, 2026; Kuala Lumpur, Malaysia
+SIGGRAPH Asia 2026 Conference Papers (SA Conference Papers ’26), December 01–04, 2026, Kuala Lumpur, Malaysia
+DOI:
+10.1145/3829340.3842202
+ISBN:
+979-8-4007-2842-6/2026/12
+CCS:
+Computing methodologies Rendering
+CCS:
+Computing methodologies Image processing
+Cheng-Kang Ted Chao
+email:
+cchao8@gmu.edu
+Affiliation:
+George Mason University
+,
+USA
+and
+Yotam Gingold
+email:
+ygingold@gmu.edu
+Affiliation:
+George Mason University
+,
+USA
+© cc
+Figure 1.
+Given a pretrained vanilla 3DGS
+(left)
+, our method reparametrizes its per-Gaussian color spherical harmonics (SH) into view-dependent palette-weight SH
+(middle; white component omitted since the scene’s background is white)
+, yielding sparse, high-quality weights for editing. The user edits the scene through three real-time interactions
+(right)
+: palette manipulation, per-palette tone curves, and pixel-level color constraints (the click marker indicates a constraint from dark yellow to blue), all propagating consistently across novel views. A constraint-driven solver jointly satisfies the three modalities in tens of milliseconds, and the edited representation bakes back into a vanilla 3DGS for standard viewers: palette edits at no additional cost, tone-curve edits in a few seconds.
+Scene:
+“SPLAT PAINT – EXPERIMENT”
+by
+Stéphane Agullo
+.
+Abstract.
+Professional color editing requires precise control over both color (hue and saturation) and lightness, ideally through separate, independent controls. We present a real-time interactive color editing framework for 3D Gaussian Splatting that supports palette-based recoloring, per-palette tone curves for color-aware luminance adjustment, and pixel-level color constraints. Rather than training a new representation from scratch, we reparameterize the spherical harmonics of a pretrained vanilla 3DGS to encode view-dependent palette weights. We simultaneously solve for weights and palette colors via a loss based on image-space sparsity. Luminance editing is realized as a per-pixel weight shift along the achromatic axis, which we show is equivalent to a per-pixel palette-aware luminance edit. This view-space formulation addresses a core limitation of prior primitive-space methods, where alpha-blending breaks per-Gaussian sparsity and causes edits to bleed into unintended regions. Our edits run in tens of milliseconds via an iteratively reweighted least squares and damped block-coordinate descent that couples tone curves and palette shifts under view-space sparsity. Our representation can be efficiently baked back into a vanilla 3DGS, preserving compatibility with standard viewers. We demonstrate sparser, more localized edits than prior palette-based 3DGS methods, while enabling independent luminance control per palette color and view-consistent pixel-level constraints, capabilities previously unavailable for 3DGS.
+Keywords:
+3D gaussian splatting, palette-based image editing, color, optimization, luminance, tone curves
+†
+†
+cc-license:
+by
+Figure 2.
+Palette-based tone-curve edits in RGB-space.
+Given the input view
+(left)
+, shifting the green palette color along its luminance axis uniformly brightens
+(second)
+or darkens
+(third)
+every pixel that uses it. Our per-palette tone curve
+(fourth)
+reshapes the luminance mapping for green independently, adding contrast across the greens (trees and grass) while leaving other colors untouched, and propagates consistently across novel views
+(right)
+. We formulate tone curves in RGB-space rather than Lab-space
+(
+Chao et al., 2023a
+)
+to keep palette bake-back closed-form.
+Scene:
+"Berkswell Windmill"
+by
+Ian Jenkins
+.
+1.
+Introduction
+Color grading for 3D scenes is central to modern content creation, from visual effects and film production
+(
+Debevec, 2008
+)
+to virtual production and augmented reality
+(
+Jeffrey Okun and Susan Zwerman, 2020
+)
+.
+Beyond global adjustments, artists need selective control over specific color ranges, with edits that remain photorealistic and geometrically consistent across viewpoints.
+In 2D, palette-based editing
+(
+Chang et al., 2015
+;
+Tan et al., 2016
+;
+Tan et al., 2018
+)
+offers an intuitive workflow by expressing each pixel as a mixture of a small set of palette colors and propagating edits by keeping the mixing weights fixed.
+This paradigm has been improved through better palette extraction and sparser, more localized decompositions
+(
+Aksoy et al., 2017
+;
+Wang et al., 2019
+;
+Chao et al., 2023b
+;
+Zhang et al., 2025b
+)
+. Professional workflows benefit from independent lightness control per color range, e.g., via palette-aware tone curves
+(
+Chao et al., 2023a
+)
+.
+Extending these capabilities to 3D scenes requires not only multi-view consistency, but also palette decompositions that remain sparse and editable in the rendered images users observe and edit.
+Recent reconstruction methods such as NeRF
+(
+Mildenhall et al., 2021
+)
+and 3D Gaussian Splatting (3DGS)
+(
+Kerbl et al., 2023
+)
+enable photorealistic novel-view synthesis, and several methods adapt palette-based editing to NeRF
+(
+Kuang et al., 2023
+;
+Gong et al., 2023
+;
+Wu et al., 2022
+)
+and 3DGS
+(
+Ren et al., 2024
+;
+Bi et al., 2025
+)
+by decomposing each primitive’s diffuse color into weighted combinations of palette colors.
+However, primitive-level decomposition suffers from a fundamental mismatch: alpha-blending many Gaussians at a single pixel breaks per-primitive sparsity, producing dense pixel-level decompositions that cause palette edits to bleed into unintended regions (Fig.
+9
+).
+Palette-based NeRF methods face similar issues and additionally require expensive preprocessing for weight guidance.
+Prior palette-based 3DGS methods also lack color-aware tone curves, and their pixel-level color constraints require joint re-optimization of palette and view-dependent components, preventing real-time interaction (see Fig. 6 in supplemental)
+We present a real-time color grading framework for 3DGS that resolves these limitations by finetuning a pretrained vanilla 3DGS into a
+palette subspace
+, where each Gaussian’s spherical harmonics (SH) encode view-dependent palette weights instead of RGB colors. Palette decomposition then occurs at the pixel-level after splatting, in the same view-space where edits are perceived and specified. To absorb the storage overhead, we factorize the higher-order weight SH into rank-1 form with little quality loss (Table
+1
+). This view-space formulation supports three complementary editing controls (Fig.
+1
+,
+2
+, and
+8
+): direct palette manipulation, per-palette tone curves for color-aware luminance adjustment, and pixel-level color constraints from any rendered view. To ensure perceptually similar colors receive similar decompositions, we introduce a color consistency loss based on inverse barycentric coordinates with respect to the current palette. We adapt the 2D constraint-driven solver of
+Chao et al. (2023a)
+via iteratively reweighted least squares (IRLS) and damped block-coordinate descent (dBCD) that couples tone curves and palette shifts, running in tens of milliseconds per edit. Edits bake back into a vanilla 3DGS at essentially no cost for palette edits, or with a brief finetuning step (a few seconds) for luminance edits, preserving compatibility with standard viewers. We evaluate on multiple scenes and show that our framework provides editing capabilities unavailable in prior palette-based 3DGS methods while also improving edit quality and interactivity. Code for this work can be found at
+https://github.com/tedchao/ReparamGS-Palette
+.
+2.
+Related Work
+Appearance editing in neural scene representations.
+Neural scene representations such as NeRF
+(
+Mildenhall et al., 2021
+)
+and 3DGS
+(
+Kerbl et al., 2023
+)
+have enabled a wide range of appearance editing techniques by explicitly modeling view-dependent radiance. Text-driven editing
+(
+Haque et al., 2023
+;
+Zhuang et al., 2023
+;
+Chen et al., 2024
+;
+Kamata et al., 2023
+;
+Bao et al., 2023
+)
+and neural style transfer
+(
+Zhang et al., 2022
+;
+Gu et al., 2021
+;
+Liu et al., 2024
+;
+Huang et al., 2022
+;
+Fan et al., 2022
+;
+Zhang et al., 2025a
+)
+support semantic or artistic modifications but lack direct color control and often struggle with multi-view consistency, making them unsuitable for professional color grading. Relighting and tone mapping methods
+(
+Gao et al., 2024
+;
+Cui et al., 2025
+;
+Liu et al., 2025
+)
+target photometric consistency through physically based rendering or luminance-domain processing, but offer no palette-based abstractions or selective color control. Segmentation-driven editing methods
+(
+Cen et al., 2023
+;
+Chen et al., 2025
+;
+Tsang et al., 2026
+;
+Rutayisire et al., 2025
+;
+Mazzucchelli et al., 2026
+)
+support object- or region-level recoloring, and intrinsic decomposition methods
+(
+Lanvin et al., 2026
+)
+enable material-level edits via per-pixel reflectance-shading separation.
+These approaches decompose scenes by spatial regions or material components rather than by color, targeting a different class of edits: they do not provide per-color tone-curve control, color-coherent propagation across spatially disconnected regions, or interactive constraint-driven optimization. They are orthogonal to our palette-based formulation.
+Figure 3.
+Method overview.
+Starting from a vanilla 3DGS (
+left
+), we reparametrize the scene into a palette subspace. We freeze all geometric parameters (position, covariance, opacity) and finetune each splat’s color spherical harmonics (SH) into palette-weight SH, jointly optimized with the palette (Sec.
+4.3
+). Our reparametrization splats palette weights rather than colors, shown in the middle as per-palette weight layers from a given view. We supervise these view-space splatted weights against the barycentric decomposition of the frozen splatted color over the current palette (Sec.
+4.2
+), which makes the weights sparse and assigns similar colors consistent weights. Red dotted lines denote the gradients of our losses (
+ℒ
+color
+\mathcal{L}_{\text{color}}
+,
+ℒ
+pos
+\mathcal{L}_{\text{pos}}
+,
+ℒ
+compact
+\mathcal{L}_{\text{compact}}
+,
+ℒ
+sep
+\mathcal{L}_{\text{sep}}
+) backpropagated for finetuning. The resulting representation supports palette-based recoloring and luminance edits consistent across views (
+right
+).
+Scene:
+“Container”
+by
+Wu (Creality PIKA)
+.
+Closer to our work,
+Tojo and Umetani (2022)
+extends posterization-style editing
+(
+Chao et al., 2021
+)
+to NeRFs for synthetic scenes, while PaletteNeRF
+(
+Kuang et al., 2023
+)
+and RecolorNeRF
+(
+Gong et al., 2023
+)
+support real-world scenes via palette decomposition of volumetric points, at the cost of expensive preprocessing and slow rendering.
+Recent palette-based 3DGS methods
+(
+Ren et al., 2024
+;
+Bi et al., 2025
+)
+achieve real-time performance by decomposing each Gaussian’s color into mixtures of global palette colors, but their primitive-level decomposition does not survive alpha-blending: sparsity at the primitive level does not translate into sparsity in the rendered image, manifesting as color bleeding (Fig. 5 in supplemental).
+We address this limitation by reparametrizing a pretrained 3DGS into a palette subspace where decomposition occurs at the pixel level after splatting, while remaining compatible with standard 3DGS viewers via bake-back.
+Palette-based image recoloring.
+Palette-based image recoloring enables intuitive color control by representing each pixel as a mixture of a small set of representative palette colors.
+Chang et al. (2015)
+introduced this paradigm via color clustering and radial-basis-function-weighted color deformation. Subsequent work formulated palette extraction and decomposition geometrically in color space:
+Tan et al. (2016)
+proposed convex-hull-based decomposition into translucent color layers, and
+Tan et al. (2018)
+extended this to spatially coherent additive mixing weights in RGBXY-space, enabling recoloring and color harmonization
+(
+Tan et al., 2025
+)
+. Other approaches improve palette quality via optimization
+(
+Wang et al., 2019
+)
+or coarse-to-fine convex hull construction
+(
+Sun et al., 2023
+)
+. Continuous palette formulations
+(
+Shugrina et al., 2020
+)
+provide an alternative to discrete palettes for direct manipulation of color distributions.
+Independent of palette extraction,
+Chao et al. (2023a)
+introduced palette-aware tone curves to support independent lightness and contrast control per palette color and image-space color constraints.
+Extensions to video recoloring compute temporally coherent RGBT palettes
+(
+Du et al., 2021
+)
+, with later work accelerating palette evolution via Bézier interpolation between frames
+(
+Du et al., 2025
+)
+.
+A fundamental limitation of palette-based recoloring is its difficulty in selectively editing objects that share similar colors, addressed by incorporating segmentation
+(
+Chao et al., 2023b
+)
+or by extracting semantic palettes in high-dimensional feature spaces
+(
+Du et al., 2024
+;
+Zhang et al., 2025b
+)
+. Unmixing approaches
+(
+Aksoy et al., 2016
+;
+Aksoy et al., 2017
+;
+Koyama and Goto, 2018
+)
+instead formulate recoloring as energy minimization to produce sparse layers of nearly homogeneous colors. All these methods operate in image space, where palette weights are defined, regularized, and edited at the pixel-level; this assumption breaks down for 3D scenes (Fig. 4 in supplemental), motivating our view-space formulation.
+3.
+Background and Motivation
+Recent work
+(
+Ren et al., 2024
+;
+Bi et al., 2025
+)
+extends 3DGS
+(
+Kerbl et al., 2023
+)
+to palette-based color editing by decomposing each Gaussian’s diffuse color as a linear combination of a small set of palette colors. Let
+K
+K
+denote the number of palette colors,
+𝐏
+∈
+ℝ
+K
+×
+3
+\mathbf{P}\in\mathbb{R}^{K\times 3}
+a trainable global palette shared across the scene, and
+𝐰
+i
+∈
+ℝ
+K
+\mathbf{w}_{i}\in\mathbb{R}^{K}
+a per-Gaussian weight vector with
+w
+i
+,
+k
+∈
+[
+0
+,
+1
+]
+w_{i,k}\in[0,1]
+and
+∑
+k
+w
+i
+,
+k
+=
+1
+\sum_{k}w_{i,k}=1
+. Gaussian
+i
+i
+’s diffuse component is then
+𝐜
+i
+d
+=
+𝐰
+i
+⊤
+​
+𝐏
+\mathbf{c}_{i}^{d}=\mathbf{w}_{i}^{\top}\mathbf{P}
+, and view-dependent effects are captured by an additive specular component
+𝐜
+i
+s
+​
+(
+θ
+,
+ϕ
+)
+\mathbf{c}_{i}^{s}(\theta,\phi)
+at viewpoint
+(
+θ
+,
+ϕ
+)
+(\theta,\phi)
+, modeled via low-order spherical harmonics
+(
+Ren et al., 2024
+)
+or neural offsets
+(
+Bi et al., 2025
+)
+, yielding the full per-Gaussian color
+𝐜
+i
+​
+(
+θ
+,
+ϕ
+)
+=
+𝐜
+i
+d
++
+𝐜
+i
+s
+​
+(
+θ
+,
+ϕ
+)
+\mathbf{c}_{i}(\theta,\phi)=\mathbf{c}_{i}^{d}+\mathbf{c}_{i}^{s}(\theta,\phi)
+. Weights
+𝐰
+i
+\mathbf{w}_{i}
+are stored per-Gaussian or, for compression, decoded from each Gaussian’s position through a small Hash-MLP
+(
+Müller et al., 2022
+)
+, and jointly optimized with
+𝐏
+\mathbf{P}
+and the Gaussian parameters under sparsity regularization
+(
+Aksoy et al., 2017
+)
+. Letting
+𝒩
+𝐱
+\mathcal{N}_{\mathbf{x}}
+denote the depth-sorted set of Gaussians affecting pixel
+𝐱
+\mathbf{x}
+and
+α
+i
+′
+\alpha_{i}^{\prime}
+each Gaussian’s opacity modulated by its 2D spatial footprint, plugging the diffuse decomposition into the 3DGS rendering pipeline
+(
+Kerbl et al., 2023
+)
+and factoring out
+𝐏
+\mathbf{P}
+gives:
+(1)
+𝐂
+(
+𝐱
+;
+θ
+,
+ϕ
+)
+=
+[
+∑
+i
+∈
+𝒩
+𝐱
+𝐰
+i
+⊤
+​
+α
+i
+′
+​
+∏
+j
+=
+1
+i
+−
+1
+(
+1
+−
+α
+j
+′
+)
+]
+​
+𝐏
+⏟
+diffuse: weighted palette
++
+∑
+i
+∈
+𝒩
+𝐱
+𝐜
+i
+s
+​
+(
+θ
+,
+ϕ
+)
+​
+α
+i
+′
+​
+∏
+j
+=
+1
+i
+−
+1
+(
+1
+−
+α
+j
+′
+)
+⏟
+specular
+.
+\mathbf{C}(\mathbf{x};\theta,\phi)=\underbrace{\left[\sum_{i\in\mathcal{N}_{\mathbf{x}}}\mathbf{w}_{i}^{\top}\,\alpha_{i}^{\prime}\prod_{j=1}^{i-1}(1-\alpha_{j}^{\prime})\right]\mathbf{P}}_{\text{diffuse: weighted palette}}+\underbrace{\sum_{i\in\mathcal{N}_{\mathbf{x}}}\mathbf{c}_{i}^{s}(\theta,\phi)\,\alpha_{i}^{\prime}\prod_{j=1}^{i-1}(1-\alpha_{j}^{\prime})}_{\text{specular}}.
+This formulation reveals two fundamental limitations of primitive-space decomposition.
+First
+, the pixel-level palette weights (first term of Eq.
+1
+) are alpha-blended per-Gaussian weights
+𝐰
+i
+\mathbf{w}_{i}
+. Even when each
+𝐰
+i
+\mathbf{w}_{i}
+is sparse and sums to one, blending many Gaussians at a pixel breaks sparsity, producing nonzero weights across most palette colors and causing edits to bleed into unintended regions (Fig.
+9
+, and supplemental). In regions of sparse coverage, the residual
+(
+1
+−
+∑
+j
+w
+j
+)
+(1-\sum_{j}w_{j})
+contributes black, diluting editing control.
+Second
+, because
+𝐏
+\mathbf{P}
+affects only the diffuse term while specular highlights remain independent, enforcing pixel-level color constraints is ill-posed: optimizing the palette alone causes bleeding; adding regularization still bleeds, converges slowly (over 10 seconds on GPU), and drives the palette to extreme values; jointly optimizing the palette and specular SH converges faster but shows severe bleeds, as SH encode global view-dependent
+effects with no clear strategy to impose local regularization (see Fig. 6 in supplemental).
+4.
+Method: Representation and Finetuning
+Our goal is to enable real-time, high-quality palette-based editing of 3DGS scenes through three controls: direct palette manipulation, per-palette tone curves for independent luminance adjustment, and pixel-level color constraints that propagate consistently across novel views (Figs.
+1
+and
+8
+). This requires two design choices.
+First
+, since edits are specified and perceived at the pixel-level, we splat palette weights rather than colors (§
+4.1
+) and regularize them in view-space for sparsity and color consistency (§
+4.2
+).
+Second
+, to remain compatible with vanilla 3DGS, we reparametrize a pretrained vanilla 3DGS by freezing geometric parameters and replacing the color SH with palette-weight SH, jointly optimized with the palette (§
+4.3
+). This keeps the palette linear in the rendering pipeline, enabling closed-form bake-back for palette edits and a brief finetuning step for tone-curve edits. An overview of our method is shown in Fig.
+3
+. Editing is deferred to §
+5
+.
+4.1.
+View-space Palette Decomposition
+We work entirely in RGB-space throughout the framework. Given a pretrained vanilla 3DGS, we fix all geometric parameters (position
+𝝁
+i
+\boldsymbol{\mu}_{i}
+, covariance
+𝚺
+i
+\boldsymbol{\Sigma}_{i}
+, opacity
+α
+i
+\alpha_{i}
+) and finetune
+1
+1
+1
+Although the SH coefficients are randomly initialized, we refer to this stage as finetuning because it adapts the pretrained Gaussian geometry to a new appearance representation rather than training a 3DGS from scratch.
+only the per-Gaussian SH coefficients to encode view-dependent palette weights
+𝐰
+i
+∈
+ℝ
+K
+\mathbf{w}_{i}\in\mathbb{R}^{K}
+instead of RGB colors, where
+K
+K
+is the total number of palette colors. The palette
+𝐏
+=
+[
+𝟘
+,
+𝟙
+,
+𝐩
+1
+,
+…
+,
+𝐩
+K
+−
+2
+]
+∈
+ℝ
+K
+×
+3
+\mathbf{P}=[\mathbb{0},\mathbb{1},\mathbf{p}_{1},\ldots,\mathbf{p}_{K-2}]\in\mathbb{R}^{K\times 3}
+has two fixed achromatic anchors (black
+𝟘
+\mathbb{0}
+and white
+𝟙
+\mathbb{1}
+) and
+K
+−
+2
+K-2
+learnable chromatic vertices
+𝐩
+i
+∈
+[
+0
+,
+1
+]
+3
+\mathbf{p}_{i}\in[0,1]^{3}
+, so that black and white are always representable without consuming chromatic capacity. For a viewpoint
+(
+θ
+,
+ϕ
+)
+(\theta,\phi)
+, each Gaussian’s weight vector is
+𝐰
+i
+​
+(
+θ
+,
+ϕ
+)
+=
+∑
+l
+,
+m
+f
+l
+,
+m
+,
+i
+w
+​
+Y
+l
+m
+​
+(
+θ
+,
+ϕ
+)
+∈
+ℝ
+K
+\mathbf{w}_{i}(\theta,\phi)=\sum_{l,m}f^{w}_{l,m,i}\,Y_{l}^{m}(\theta,\phi)\in\mathbb{R}^{K}
+, where
+f
+l
+,
+m
+,
+i
+w
+∈
+ℝ
+K
+f^{w}_{l,m,i}\in\mathbb{R}^{K}
+are learned SH coefficients. Letting
+β
+i
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+=
+α
+i
+′
+​
+∏
+j
+=
+1
+i
+−
+1
+(
+1
+−
+α
+j
+′
+)
+\beta_{i}(\mathbf{x};\theta,\phi)=\alpha_{i}^{\prime}\,\prod_{j=1}^{i-1}(1-\alpha_{j}^{\prime})
+denote the alpha-blending coefficient at pixel
+𝐱
+\mathbf{x}
+(a fixed constant under our frozen geometry), splatting these vectors yields per-pixel weights
+(2)
+𝐖
+⁡
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+=
+∑
+i
+∈
+𝒩
+𝐱
+β
+i
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+​
+𝐰
+i
+​
+(
+θ
+,
+ϕ
+)
+,
+\mathbf{W}(\mathbf{x};\theta,\phi)=\sum_{i\in\mathcal{N}_{\mathbf{x}}}\beta_{i}(\mathbf{x};\theta,\phi)\,\mathbf{w}_{i}(\theta,\phi),
+from which the rendered pixel color is recovered as
+𝐏
+⊤
+​
+𝐖
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+\mathbf{P}^{\top}\mathbf{W}(\mathbf{x};\theta,\phi)
+. The combination of frozen
+β
+i
+\beta_{i}
+and a linear SH-to-weights map keeps the rendering pipeline linear in the palette, allowing us to bake any palette edit back into vanilla 3DGS at no additional cost (see supplemental for full proof).
+4.2.
+Barycentric Supervision
+The view-space weights of §
+4.1
+are directly available for regularization, but two further properties are critical for high-quality palette editing: sparsity, which prevents edits from bleeding across colors, and color consistency, which ensures similar colors propagate edits identically (Fig. 6 in supplemental). We achieve both properties simultaneously by supervising the splatted weights
+𝐖
+⁡
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+\mathbf{W}(\mathbf{x};\theta,\phi)
+against the
+barycentric decomposition
+of the frozen splatted color
+𝐜
+⁡
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+∈
+ℝ
+3
+\mathbf{c}(\mathbf{x};\theta,\phi)\in\mathbb{R}^{3}
+of the vanilla 3DGS over the current palette
+𝐏
+\mathbf{P}
+: barycentric coordinates are inherently 4-sparse for any color inside a tetrahedral wedge, and similar colors lying within the same wedge receive nearby barycentric coordinates by construction.
+To realize this barycentric decomposition, we tessellate
+𝐏
+\mathbf{P}
+into
+K
+−
+2
+K-2
+tetrahedral wedges
+T
+i
+=
+(
+𝟎
+,
+𝟏
+,
+𝐩
+i
+,
+𝐩
+i
++
+1
+)
+T_{i}=(\mathbf{0},\mathbf{1},\mathbf{p}_{i},\mathbf{p}_{i+1})
+,
+i
+=
+1
+,
+…
+,
+K
+−
+2
+i=1,\ldots,K-2
+with wraparound on
+i
++
+1
+i+1
+, each fanning around the line of greys
+(
+Tan et al., 2018
+)
+. Choosing which wedge a given color belongs to requires the chromatic vertices to be ordered around the grey axis, and re-sorting them after every gradient step would break the optimization. We sidestep this by parameterizing each chromatic vertex
+𝐩
+i
+\mathbf{p}_{i}
+in HSL-space with hue
+h
+i
+∈
+[
+0
+,
+2
+​
+π
+)
+h_{i}\in[0,2\pi)
+, saturation
+s
+i
+∈
+[
+0
+,
+1
+]
+s_{i}\in[0,1]
+, and lightness
+l
+i
+∈
+[
+0
+,
+1
+]
+l_{i}\in[0,1]
+, recovering its RGB position via the standard HSL-to-RGB transform. Hues are represented as cumulative offsets from a learnable base angle
+h
+0
+h_{0}
+:
+h
+i
+=
+(
+h
+0
++
+∑
+k
+<
+i
+g
+k
+)
+mod
+2
+​
+π
+h_{i}=(h_{0}+\sum_{k<i}g_{k})\bmod 2\pi
+,
+where the gaps
+g
+k
+=
+2
+​
+π
+⋅
+softplus
+⁡
+(
+g
+~
+k
+)
+/
+∑
+j
+softplus
+⁡
+(
+g
+~
+j
+)
+g_{k}=2\pi\cdot\mathrm{softplus}(\tilde{g}_{k})/\sum_{j}\mathrm{softplus}(\tilde{g}_{j})
+are softplus-normalized to sum to
+2
+​
+π
+2\pi
+, so the
+𝐩
+i
+\mathbf{p}_{i}
+are always in counter-clockwise hue order around the achromatic axis without explicit sorting.
+Figure 4.
+Differentiable barycentric soft wedge selection (§
+4.2
+).
+The palette is tessellated into
+K
+−
+2
+K-2
+tetrahedral wedges
+T
+i
+=
+(
+𝟎
+,
+𝟏
+,
+𝐩
+i
+,
+𝐩
+i
++
+1
+)
+T_{i}=(\mathbf{0},\mathbf{1},\mathbf{p}_{i},\mathbf{p}_{i+1})
+fanning around the grey axis (shown in 2D, with the grey axis collapsed to the central point).
+Left:
+for each wedge we solve for the raw barycentric coordinates of the query color
+𝐜
+\mathbf{c}
+and project them onto the simplex via softplus to obtain a reconstruction
+𝐜
+i
+recon
+\mathbf{c}_{i}^{\mathrm{recon}}
+; the containing wedge (
+T
+2
+T_{2}
+) yields
+𝐜
+i
+recon
+≈
+𝐜
+\mathbf{c}_{i}^{\mathrm{recon}}\approx\mathbf{c}
+, while the others are pulled toward their interior.
+Right:
+a softmax over
+−
+e
+i
+/
+τ
+-e_{i}/\tau
+with
+e
+i
+=
+‖
+𝐜
+i
+recon
+−
+𝐜
+‖
+2
+2
+e_{i}=\|\mathbf{c}_{i}^{\mathrm{recon}}-\mathbf{c}\|_{2}^{2}
+selects the containing wedge crisply, and the target weights
+𝐖
+bary
+\mathbf{W}_{\mathrm{bary}}
+are formed from its raw barycentric coordinates.
+With the wedge tessellation well-defined throughout optimization, we construct
+target barycentric coordinates
+𝐖
+bary
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+∈
+ℝ
+K
+\mathbf{W}_{\mathrm{bary}}(\mathbf{x};\theta,\phi)\in\mathbb{R}^{K}
+that decompose
+𝐜
+⁡
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+\mathbf{c}(\mathbf{x};\theta,\phi)
+over
+𝐏
+\mathbf{P}
+. A 2D illustration of the algorithm can be seen in Fig.
+4
+. For each wedge
+T
+i
+T_{i}
+, we solve a
+3
+×
+3
+3\times 3
+linear system to obtain the unique barycentric coordinates
+(
+a
+i
+,
+b
+i
+,
+c
+i
+,
+d
+i
+)
+(a_{i},b_{i},c_{i},d_{i})
+satisfying
+𝐜
+=
+a
+i
+​
+𝟎
++
+b
+i
+​
+𝟏
++
+c
+i
+​
+𝐩
+i
++
+d
+i
+​
+𝐩
+i
++
+1
+\mathbf{c}=a_{i}\mathbf{0}+b_{i}\mathbf{1}+c_{i}\mathbf{p}_{i}+d_{i}\mathbf{p}_{i+1}
+and
+a
+i
++
+b
+i
++
+c
+i
++
+d
+i
+=
+1
+a_{i}+b_{i}+c_{i}+d_{i}=1
+. Choosing which wedge
+𝐜
+\mathbf{c}
+belongs to is non-trivial because
+𝐜
+\mathbf{c}
+may lie outside any single wedge, in which case some of
+(
+a
+i
+,
+b
+i
+,
+c
+i
+,
+d
+i
+)
+(a_{i},b_{i},c_{i},d_{i})
+are negative. We therefore use the softplus simplex projection only as a tool for
+soft wedge selection
+: we project each set of coordinates onto the simplex via
+a
+~
+i
+=
+softplus
+⁡
+(
+a
+i
+)
+/
+(
+softplus
+⁡
+(
+a
+i
+)
++
+softplus
+⁡
+(
+b
+i
+)
++
+softplus
+⁡
+(
+c
+i
+)
++
+softplus
+⁡
+(
+d
+i
+)
+)
+\widetilde{a}_{i}=\mathrm{softplus}(a_{i})/(\mathrm{softplus}(a_{i})+\mathrm{softplus}(b_{i})+\mathrm{softplus}(c_{i})+\mathrm{softplus}(d_{i}))
+and similarly for
+b
+~
+i
+,
+c
+~
+i
+,
+d
+~
+i
+\widetilde{b}_{i},\widetilde{c}_{i},\widetilde{d}_{i}
+, reconstruct each wedge’s color as
+𝐜
+i
+recon
+=
+a
+~
+i
+​
+𝟎
++
+b
+~
+i
+​
+𝟏
++
+c
+~
+i
+​
+𝐩
+i
++
+d
+~
+i
+​
+𝐩
+i
++
+1
+\mathbf{c}_{i}^{\mathrm{recon}}=\widetilde{a}_{i}\mathbf{0}+\widetilde{b}_{i}\mathbf{1}+\widetilde{c}_{i}\mathbf{p}_{i}+\widetilde{d}_{i}\mathbf{p}_{i+1}
+, measure the wedge’s reconstruction error
+e
+i
+=
+‖
+𝐜
+i
+recon
+−
+𝐜
+‖
+2
+2
+e_{i}=\|\mathbf{c}_{i}^{\mathrm{recon}}-\mathbf{c}\|_{2}^{2}
+, and softly select the best-fitting wedge by softmax over errors,
+π
+i
+=
+exp
+(
+−
+e
+i
+/
+τ
+)
+/
+∑
+j
+=
+1
+K
+−
+2
+exp
+(
+−
+e
+j
+/
+τ
+)
+\pi_{i}=\exp(-e_{i}/\tau)/\sum_{j=1}^{K-2}\exp(-e_{j}/\tau)
+,
+with temperature
+τ
+=
+10
+−
+9
+\tau=10^{-9}
+. The final target weights are a soft mixture of the
+raw
+(unprojected) barycentric coordinates across all wedges,
+𝐖
+bary
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+=
+∑
+i
+π
+i
+​
+𝐰
+i
+raw
+\mathbf{W}_{\mathrm{bary}}(\mathbf{x};\theta,\phi)=\sum_{i}\pi_{i}\mathbf{w}_{i}^{\mathrm{raw}}
+, where
+𝐰
+i
+raw
+∈
+ℝ
+K
+\mathbf{w}_{i}^{\mathrm{raw}}\in\mathbb{R}^{K}
+places
+(
+a
+i
+,
+b
+i
+,
+c
+i
+,
+d
+i
+)
+(a_{i},b_{i},c_{i},d_{i})
+into the four entries indexing the vertices of wedge
+T
+i
+T_{i}
+(i.e., the entries for
+𝟎
+,
+𝟏
+,
+𝐩
+i
+,
+𝐩
+i
++
+1
+\mathbf{0},\mathbf{1},\mathbf{p}_{i},\mathbf{p}_{i+1}
+) and zeros elsewhere.
+This choice ensures that for any color
+𝐜
+\mathbf{c}
+strictly inside a wedge
+T
+i
+∗
+T_{i^{*}}
+, the targets recover
+𝐜
+\mathbf{c}
+’s true barycentric coordinates exactly in the small-
+τ
+\tau
+limit. The full computation is differentiable in
+𝐏
+\mathbf{P}
+, so gradients flow back to the chromatic vertices during finetuning.
+4.3.
+Joint Palette and Weight SH Finetuning
+We finetune the per-Gaussian SH coefficients
+{
+f
+l
+,
+m
+,
+i
+w
+}
+\{f^{w}_{l,m,i}\}
+and palette parameters
+{
+h
+0
+,
+g
+~
+k
+,
+s
+i
+,
+l
+i
+}
+\{h_{0},\tilde{g}_{k},s_{i},l_{i}\}
+jointly against the barycentric targets, minimizing
+ℒ
+=
+ℒ
+color
++
+λ
+pos
+​
+ℒ
+pos
++
+λ
+compact
+​
+ℒ
+compact
++
+λ
+sep
+​
+ℒ
+sep
+\mathcal{L}=\mathcal{L}_{\mathrm{color}}+\lambda_{\mathrm{pos}}\,\mathcal{L}_{\mathrm{pos}}+\lambda_{\mathrm{compact}}\,\mathcal{L}_{\mathrm{compact}}+\lambda_{\mathrm{sep}}\,\mathcal{L}_{\mathrm{sep}}
+,
+where
+ℒ
+color
+=
+1
+H
+​
+W
+​
+∑
+𝐱
+‖
+𝐖
+⁡
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+−
+𝐖
+bary
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+‖
+2
+2
+\mathcal{L}_{\mathrm{color}}=\frac{1}{HW}\sum_{\mathbf{x}}\|\mathbf{W}(\mathbf{x};\theta,\phi)-\mathbf{W}_{\mathrm{bary}}(\mathbf{x};\theta,\phi)\|_{2}^{2}
+is the barycentric supervision loss (§
+4.2
+).
+The auxiliary terms regularize the splatted weights and the palette geometry:
+ℒ
+pos
+=
+mean
+⁡
+(
+ReLU
+⁡
+(
+−
+𝐖
+)
+)
+\mathcal{L}_{\mathrm{pos}}=\mathrm{mean}(\mathrm{ReLU}(-\mathbf{W}))
+discourages negative splatted weights without breaking the linearity of the SH-to-weights map required for closed-form bake-back;
+ℒ
+compact
+=
+∑
+i
+=
+1
+K
+−
+2
+vol
+⁡
+(
+T
+i
+)
+\mathcal{L}_{\mathrm{compact}}=\sum_{i=1}^{K-2}\mathrm{vol}(T_{i})
+is the sum of wedge volumes, counterbalancing
+ℒ
+color
+\mathcal{L}_{\mathrm{color}}
+’s tendency to create non-representative palette; and
+ℒ
+sep
+\mathcal{L}_{\mathrm{sep}}
+penalizes any hue gap
+g
+k
+g_{k}
+falling below a minimum fraction of the even spacing
+2
+​
+π
+/
+(
+K
+−
+2
+)
+2\pi/(K-2)
+, preventing palette from collapsing. We schedule
+λ
+compact
+\lambda_{\mathrm{compact}}
+so that compactness pressure ramps up in the late stage of training, allowing the palette to first expand toward the scene’s color distribution before being tightened. Full hyperparameter values, the schedule, and additional implementation details are provided in §
+6
+.
+4.4.
+Rank-1 Factorization of Higher-Order Weight SH
+The representation in §
+4.1
+replaces each Gaussian’s color SH with
+K
+K
+-channel weight SH, blowing up per-Gaussian SH storage by a factor of
+K
+/
+3
+K/3
+relative to vanilla 3DGS (
+2
+×
+2\times
+for
+K
+=
+6
+K=6
+). To mitigate this, we factorize the higher-order (
+l
+≥
+1
+l\geq 1
+) weight SH coefficients via a reshaped outer product, leaving the band-zero (
+l
+=
+0
+l=0
+) term unfactorized. Empirically, this gives negligible reconstruction loss compared to finetuning with the full weight SH (Table
+1
+) and produces visually comparable recoloring results, though not pixel-identical (Fig.
+5
+). This holds even on highly reflective, view-dependent content, where the factorization preserves specular highlights with little quality loss at lower memory (Fig.
+6
+). To describe the factorization, we first fix notation for the unfactorized form. Let
+L
+L
+denote the maximum SH band; each Gaussian
+i
+i
+has
+(
+L
++
+1
+)
+2
+−
+1
+(L+1)^{2}-1
+higher-order SH coefficients per channel, and stacking all
+K
+K
+channels gives a matrix
+𝐌
+i
+∈
+ℝ
+K
+×
+(
+(
+L
++
+1
+)
+2
+−
+1
+)
+\mathbf{M}_{i}\in\mathbb{R}^{K\times((L+1)^{2}-1)}
+. The view-dependent weight vector at direction
+(
+θ
+,
+ϕ
+)
+(\theta,\phi)
+is
+(3)
+𝐰
+i
+​
+(
+θ
+,
+ϕ
+)
+=
+𝐟
+i
+w
+,
+0
++
+𝐌
+i
+​
+𝐘
+≥
+1
+​
+(
+θ
+,
+ϕ
+)
+,
+\mathbf{w}_{i}(\theta,\phi)=\mathbf{f}^{w,0}_{i}+\mathbf{M}_{i}\,\mathbf{Y}^{\geq 1}(\theta,\phi),
+where
+𝐟
+i
+w
+,
+0
+∈
+ℝ
+K
+\mathbf{f}^{w,0}_{i}\in\mathbb{R}^{K}
+holds the band-zero coefficients and
+𝐘
+≥
+1
+​
+(
+θ
+,
+ϕ
+)
+∈
+ℝ
+(
+L
++
+1
+)
+2
+−
+1
+\mathbf{Y}^{\geq 1}(\theta,\phi)\in\mathbb{R}^{(L+1)^{2}-1}
+are the higher-order SH basis values. To factorize, choose positive integers
+P
+,
+Q
+≥
+1
+P,Q\geq 1
+with
+P
+⋅
+Q
+=
+K
+⋅
+(
+(
+L
++
+1
+)
+2
+−
+1
+)
+P\cdot Q=K\cdot((L+1)^{2}-1)
+and store
+𝐚
+i
+∈
+ℝ
+P
+\mathbf{a}_{i}\in\mathbb{R}^{P}
+,
+𝐛
+i
+∈
+ℝ
+Q
+\mathbf{b}_{i}\in\mathbb{R}^{Q}
+per Gaussian. We form
+𝐒
+i
+=
+vec
+⁡
+(
+𝐚
+i
+​
+𝐛
+i
+⊤
+)
+∈
+ℝ
+P
+​
+Q
+\mathbf{S}_{i}=\mathrm{vec}(\mathbf{a}_{i}\mathbf{b}_{i}^{\top})\in\mathbb{R}^{PQ}
+via row-major vectorization, and reshape it into the approximated coefficient matrix
+𝐌
+^
+i
+∈
+ℝ
+K
+×
+(
+(
+L
++
+1
+)
+2
+−
+1
+)
+\widehat{\mathbf{M}}_{i}\in\mathbb{R}^{K\times((L+1)^{2}-1)}
+by
+(4)
+𝐌
+^
+i
+​
+[
+k
+,
+l
+​
+m
+]
+=
+𝐒
+i
+​
+[
+l
+​
+m
+⋅
+K
++
+k
+]
+,
+\widehat{\mathbf{M}}_{i}[k,lm]=\mathbf{S}_{i}[lm\cdot K+k],
+for
+0
+≤
+k
+<
+K
+0\leq k<K
+and
+0
+≤
+l
+​
+m
+<
+(
+L
++
+1
+)
+2
+−
+1
+0\leq lm<(L+1)^{2}-1
+, so successive
+K
+K
+-chunks of
+𝐒
+i
+\mathbf{S}_{i}
+fill the columns of
+𝐌
+^
+i
+\widehat{\mathbf{M}}_{i}
+. The approximated weight vector follows Eq.
+3
+with
+𝐌
+i
+\mathbf{M}_{i}
+replaced by
+𝐌
+^
+i
+\widehat{\mathbf{M}}_{i}
+. Note that
+𝐚
+i
+​
+𝐛
+i
+⊤
+\mathbf{a}_{i}\mathbf{b}_{i}^{\top}
+is rank-1 but
+𝐌
+^
+i
+\widehat{\mathbf{M}}_{i}
+in general is not.
+This reduces per-Gaussian SH storage from
+K
+⋅
+(
+L
++
+1
+)
+2
+K\cdot(L+1)^{2}
+to
+K
++
+P
++
+Q
+K+P+Q
+. By AM-GM,
+P
++
+Q
+P+Q
+is minimized at
+P
+=
+Q
+P=Q
+subject to
+P
+⋅
+Q
+=
+K
+⋅
+(
+(
+L
++
+1
+)
+2
+−
+1
+)
+P\cdot Q=K\cdot((L+1)^{2}-1)
+. For
+K
+=
+6
+K=6
+,
+L
+=
+3
+L=3
+, the closest integer factorization is
+(
+P
+,
+Q
+)
+=
+(
+9
+,
+10
+)
+(P,Q)=(9,10)
+, giving
+25
+25
+scalars per Gaussian, roughly half of vanilla 3DGS’s
+48
+48
+(Table
+1
+).
+5.
+Method: Editing
+With the palette and per-Gaussian weight SH finetuned (§
+4
+), users edit the scene in real-time via three constraint types: pixel-level color constraints (clicking a point in any rendered view and choosing a target color), palette constraints (modifying a palette), or per-palette tone-curve constraints (placing control points on a curve). All three feed a single optimization that seeks the smallest change to the palette and tone curves satisfying all constraints simultaneously, leaving the splatted weights and Gaussian parameters fixed. We define the editing model and constraint types (§
+5.1
+), then describe a constraint-driven solver based on iteratively reweighted least squares (IRLS) and damped block coordinate descent (dBCD) (§
+5.2
+).
+Figure 5.
+Full vs. rank-1 SH for recoloring.
+The full SH parametrization (
+middle
+) and rank-1 factorization (
+right
+) recover nearly identical palettes; editing the same palette slot from orange to purple (red underline) produces visually comparable results under both, differing only in fine detail. The FLIP difference maps
+(
+Andersson et al., 2020
+)
+, each comparing a method’s edit to its own unedited rendering, highlight the same regions under full SH and rank-1, with only slightly higher intensity for rank-1; this confirms that the recolor localizes consistently across both. Storage for each model is annotated beneath.
+Scene:
+“Airship”
+by
+Austin Beaulier
+.
+5.1.
+Editing Model and Constraints
+Let
+𝐏
+∈
+ℝ
+K
+×
+3
+\mathbf{P}\in\mathbb{R}^{K\times 3}
+denote the trained palette and
+𝐖
+⁡
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+∈
+ℝ
+K
+\mathbf{W}(\mathbf{x};\theta,\phi)\in\mathbb{R}^{K}
+the splatted weights at pixel
+𝐱
+\mathbf{x}
+from viewpoint
+(
+θ
+,
+ϕ
+)
+(\theta,\phi)
+. We associate each palette vertex
+𝐩
+i
+\mathbf{p}_{i}
+with a tone curve
+f
+i
+:
+[
+0
+,
+1
+]
+→
+[
+0
+,
+1
+]
+f_{i}:[0,1]\to[0,1]
+defined as a biharmonic function
+(
+Chao et al., 2023a
+)
+parametrized by user-placed control points; initially every
+f
+i
+f_{i}
+is an identity function and the palette is unchanged. We discretize each
+f
+i
+f_{i}
+at
+S
+S
+equally spaced sample points and let
+𝐋
+i
+∈
+ℝ
+S
+\mathbf{L}_{i}\in\mathbb{R}^{S}
+denote the vector of sampled values. The free editing variables are the palette modification
+Δ
+​
+𝐏
+∈
+ℝ
+K
+×
+3
+\Delta\mathbf{P}\in\mathbb{R}^{K\times 3}
+and the tone-curve sample vectors
+{
+𝐋
+i
+}
+i
+=
+1
+K
+\{\mathbf{L}_{i}\}_{i=1}^{K}
+, with all other parameters of the trained representation held fixed.
+These two sets of variables determine the edited color at every pixel. We realize luminance editing by redistributing weight mass between the black (
+𝟘
+\mathbb{0}
+) and white (
+𝟙
+\mathbb{1}
+) palette of
+𝐖
+\mathbf{W}
+. Concretely, given a viewpoint
+(
+θ
+,
+ϕ
+)
+(\theta,\phi)
+and a pixel
+𝐱
+\mathbf{x}
+, the splatted weights are
+𝐖
+⁡
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+=
+(
+W
+1
+,
+W
+2
+,
+W
+3
+,
+…
+,
+W
+K
+)
+\mathbf{W}(\mathbf{x};\theta,\phi)=(W_{1},W_{2},W_{3},\ldots,W_{K})
+with index
+1
+1
+for black and index
+2
+2
+for white, and the edited weights are (dropping the
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+(\mathbf{x};\theta,\phi)
+for compactness)
+(5)
+W
+1
+′
+=
+W
+1
+−
+δ
+,
+W
+2
+′
+=
+W
+2
++
+δ
+,
+W
+i
+′
+=
+W
+i
+​
+for
+​
+i
+≥
+3
+,
+W_{1}^{\prime}=W_{1}-\delta,\qquad W_{2}^{\prime}=W_{2}+\delta,\qquad W_{i}^{\prime}=W_{i}\;\;\text{for}\;\;i\geq 3,
+where the luminance shift
+δ
+⁡
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+\delta(\mathbf{x};\theta,\phi)
+is computed from the per-pixel luminance
+L
+0
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+=
+𝐰
+L
+⊤
+​
+𝐂
+0
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+L_{0}(\mathbf{x};\theta,\phi)=\mathbf{w}_{L}^{\top}\mathbf{C}_{0}(\mathbf{x};\theta,\phi)
+(BT.709
+(
+International Telecommunication Union, 2015
+)
+,
+𝐰
+L
+=
+(
+0.2126
+,
+0.7152
+,
+0.0722
+)
+⊤
+\mathbf{w}_{L}=(0.2126,0.7152,0.0722)^{\top}
+, with
+𝐂
+0
+\mathbf{C}_{0}
+the original rendered color) and the tone-curve samples as
+(6)
+δ
+⁡
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+=
+∑
+i
+=
+1
+K
+W
+~
+i
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+⋅
+(
+f
+i
+​
+(
+L
+0
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+)
+−
+L
+0
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+)
+,
+\delta(\mathbf{x};\theta,\phi)=\sum_{i=1}^{K}\widetilde{W}_{i}(\mathbf{x};\theta,\phi)\cdot\big(f_{i}(L_{0}(\mathbf{x};\theta,\phi))-L_{0}(\mathbf{x};\theta,\phi)\big),
+Here
+W
+~
+i
+\widetilde{W}_{i}
+is obtained by scaling the black and white entries of
+𝐖
+\mathbf{W}
+by a small factor (we use
+η
+=
+0.01
+\eta=0.01
+) and renormalizing the result to sum to one, so chromatic palette colors dominate the shift. The edited color then follows from the modified weights and the edited palette is,
+(7)
+𝐂
+′
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+=
+(
+𝐏
++
+Δ
+​
+𝐏
+)
+⊤
+​
+𝐖
+′
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+.
+\mathbf{C}^{\prime}(\mathbf{x};\theta,\phi)=(\mathbf{P}+\Delta\mathbf{P})^{\top}\mathbf{W}^{\prime}(\mathbf{x};\theta,\phi).
+We prove in the supplemental materials that the weight shift alone (Eq.
+5
+, with
+Δ
+​
+𝐏
+=
+𝟎
+\Delta\mathbf{P}=\mathbf{0}
+) is equivalent to a per-pixel luminance edit applied in proportion to each palette color’s chromatic weight: the resulting per-pixel BT.709 luminance is the chromatic-weight-blended target
+L
+0
+′
+​
+(
+𝐱
+)
+=
+∑
+i
+≥
+3
+W
+~
+i
+​
+f
+i
+​
+(
+L
+0
+​
+(
+𝐱
+)
+)
+L_{0}^{\prime}(\mathbf{x})=\sum_{i\geq 3}\widetilde{W}_{i}\,f_{i}(L_{0}(\mathbf{x}))
+, and the chromatic component of the rendered color is preserved exactly. When black and white are kept fixed (
+Δ
+​
+𝐏
+1
+=
+Δ
+​
+𝐏
+2
+=
+𝟎
+\Delta\mathbf{P}_{1}=\Delta\mathbf{P}_{2}=\mathbf{0}
+), Eq.
+7
+simplifies to
+(8)
+𝐂
+′
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+=
+(
+𝐏
++
+Δ
+​
+𝐏
+)
+⊤
+​
+𝐖
+​
+(
+𝐱
+,
+θ
+,
+ϕ
+)
++
+δ
+⁡
+(
+𝐱
+,
+θ
+,
+ϕ
+)
+​
+𝟙
+\mathbf{C}^{\prime}(\mathbf{x};\theta,\phi)=(\mathbf{P}+\Delta\mathbf{P})^{\top}\mathbf{W}(\mathbf{x};\theta,\phi)+\delta(\mathbf{x};\theta,\phi)\mathbb{1}
+Figure 6.
+Rank-1 SH on highly reflective content
+preserves specular highlights at much lower memory. On the metallic
+Cthulhu Statue
+, our rank-1 factorization (
+right
+) costs little reconstruction quality relative to full SH (
+middle
+,
+∼
+0.6
+{\sim}0.6
+dB PSNR) while using under half the storage and less than vanilla 3DGS (
+left
+).
+Palette swatches and per-model storage are annotated.
+Scene:
+“Cthulhu Statue”
+by
+Christoph Schindelar
+.
+Given this editing model, users specify the desired edit via three types of constraints. A
+pixel-level color constraint
+is a tuple
+(
+𝐱
+n
+,
+(
+θ
+n
+,
+ϕ
+n
+)
+,
+𝐜
+n
+tgt
+)
+(\mathbf{x}_{n},\allowbreak(\theta_{n},\phi_{n}),\allowbreak\mathbf{c}_{n}^{\mathrm{tgt}})
+specifying that the edited color
+𝐂
+′
+​
+(
+𝐱
+n
+,
+θ
+n
+,
+ϕ
+n
+)
+\mathbf{C}^{\prime}(\mathbf{x}_{n};\theta_{n},\phi_{n})
+, evaluated using the splatted weights
+𝐖
+⁡
+(
+𝐱
+n
+,
+θ
+n
+,
+ϕ
+n
+)
+\mathbf{W}(\mathbf{x}_{n};\theta_{n},\phi_{n})
+at that pixel
+𝐱
+n
+\mathbf{x}_{n}
+, should equal a target color
+𝐜
+n
+tgt
+\mathbf{c}_{n}^{\mathrm{tgt}}
+. A
+palette constraint
+is a pair
+(
+i
+,
+𝐩
+i
+tgt
+)
+(i,\mathbf{p}_{i}^{\mathrm{tgt}})
+specifying that the edited vertex
+𝐩
+i
++
+Δ
+​
+𝐩
+i
+\mathbf{p}_{i}+\Delta\mathbf{p}_{i}
+should equal
+𝐩
+i
+tgt
+\mathbf{p}_{i}^{\mathrm{tgt}}
+.
+A
+tone-curve constraint
+is a tuple
+(
+i
+,
+x
+n
+,
+y
+n
+)
+(i,x_{n},y_{n})
+specifying that
+f
+i
+​
+(
+x
+n
+)
+=
+y
+n
+f_{i}(x_{n})=y_{n}
+, i.e., the user has placed a control point at
+(
+x
+n
+,
+y
+n
+)
+(x_{n},y_{n})
+on the tone curve of palette color
+i
+i
+.
+5.2.
+Constraint-Driven Solver
+Given
+N
+img
+N_{\mathrm{img}}
+pixel-level color constraints,
+N
+p
+N_{p}
+palette constraints, and
+N
+l
+N_{l}
+tone-curve constraints, our goal is to find the smallest change to
+Δ
+​
+𝐏
+∈
+ℝ
+K
+×
+3
+\Delta\mathbf{P}\in\mathbb{R}^{K\times 3}
+and
+{
+𝐋
+i
+∈
+ℝ
+S
+}
+i
+=
+1
+K
+\{\mathbf{L}_{i}\in\mathbb{R}^{S}\}_{i=1}^{K}
+that satisfies all of them. We use
+𝐁
+∈
+ℝ
+S
+×
+S
+\mathbf{B}\in\mathbb{R}^{S\times S}
+to denote the discrete Laplacian with mirroring at endpoints for natural boundary conditions. The editing problem is a sparsity-regularized constrained optimization
+2
+2
+2
+We use
+w
+eq
+=
+10
+3
+w_{\mathrm{eq}}=10^{3}
+to enforce constraints stiffly and
+w
+sp
+=
+0.1
+w_{\mathrm{sp}}=0.1
+.
+:
+(9)
+min
+{
+𝐋
+i
+}
+,
+Δ
+​
+𝐏
+E
+sp
++
+w
+eq
+​
+(
+E
+img
++
+E
+l
++
+E
+p
+)
+,
+\min_{\{\mathbf{L}_{i}\},\,\Delta\mathbf{P}}\quad E_{\mathrm{sp}}\;+\;w_{\mathrm{eq}}\,\big(E_{\mathrm{img}}+E_{l}+E_{p}\big),
+subject to
+𝐋
+i
+,
+1
+=
+0
+\mathbf{L}_{i,1}=0
+and
+𝐋
+i
+,
+S
+=
+1
+\mathbf{L}_{i,S}=1
+for all
+i
+i
+(pinning the first and last samples of each tone curve to
+0
+0
+and
+1
+1
+), where
+E
+sp
+E_{\mathrm{sp}}
+is the
+L
+2
+,
+1
+L_{2,1}
+sparsity term
+(
+Chao et al., 2023a
+)
+:
+(10)
+E
+sp
+=
+∑
+i
+=
+1
+K
+𝐋
+i
+⊤
+​
+𝐁
+⊤
+​
+𝐁
+​
+𝐋
+i
++
+w
+sp
+⋅
+‖
+Δ
+​
+𝐩
+i
+‖
+2
+2
+,
+E_{\mathrm{sp}}\;=\;\sum_{i=1}^{K}\sqrt{\,\mathbf{L}_{i}^{\top}\mathbf{B}^{\top}\mathbf{B}\,\mathbf{L}_{i}\;+\;w_{\mathrm{sp}}\cdot\|\Delta\mathbf{p}_{i}\|_{2}^{2}\,},
+which induces global sparsity across palette colors and per-palette tone curves. The pixel-level color constraint loss
+E
+img
+E_{\mathrm{img}}
+aggregates the squared color residual at every constraint pixel,
+(11)
+E
+img
+=
+∑
+n
+=
+1
+N
+img
+‖
+𝐂
+′
+​
+(
+𝐱
+n
+,
+θ
+n
+,
+ϕ
+n
+)
+−
+𝐜
+n
+tgt
+‖
+2
+2
+,
+E_{\mathrm{img}}\;=\;\sum_{n=1}^{N_{\mathrm{img}}}\big\|\mathbf{C}^{\prime}(\mathbf{x}_{n};\theta_{n},\phi_{n})-\mathbf{c}_{n}^{\mathrm{tgt}}\big\|_{2}^{2},
+with
+𝐂
+′
+\mathbf{C}^{\prime}
+from Eq.
+7
+. The tone-curve and palette constraint losses are the squared discrepancies against their targets,
+(12)
+E
+l
+=
+∑
+i
+=
+1
+K
+‖
+𝐒
+i
+⊙
+𝐋
+i
+−
+𝐋
+i
+tgt
+‖
+2
+2
+,
+E
+p
+=
+∑
+i
+∈
+P
+c
+‖
+(
+𝐩
+i
++
+Δ
+​
+𝐩
+i
+)
+−
+𝐩
+i
+tgt
+‖
+2
+2
+,
+E_{l}\;=\;\sum_{i=1}^{K}\|\mathbf{S}_{i}\odot\mathbf{L}_{i}-\mathbf{L}_{i}^{\mathrm{tgt}}\|_{2}^{2},\qquad E_{p}\;=\;\sum_{i\in P_{c}}\big\|(\mathbf{p}_{i}+\Delta\mathbf{p}_{i})-\mathbf{p}_{i}^{\mathrm{tgt}}\big\|_{2}^{2},
+where
+𝐒
+i
+,
+𝐋
+i
+tgt
+∈
+ℝ
+S
+\mathbf{S}_{i},\mathbf{L}_{i}^{\mathrm{tgt}}\in\mathbb{R}^{S}
+are selection/target vectors over curve
+i
+i
+’s sample positions, and
+P
+c
+P_{c}
+is the index set of constrained palette colors.
+User constraints on black and white (
+i
+∈
+{
+1
+,
+2
+}
+i\in\{1,2\}
+) bypass
+E
+p
+E_{p}
+and directly update
+𝐏
+\mathbf{P}
+,
+preserving the weight-shift equivalence (Eq.
+8
+).
+Our
+E
+img
+E_{\mathrm{img}}
+couples the luminance and palette blocks in RGB-space: both tone curve contributions (via
+δ
+⁡
+(
+𝐱
+)
+⋅
+𝟙
+\delta(\mathbf{x})\cdot\mathbb{1}
+in Eq.
+8
+) and palette shifts (via
+∑
+i
+W
+i
+​
+(
+𝐱
+)
+​
+Δ
+​
+𝐩
+i
+\sum_{i}W_{i}(\mathbf{x})\Delta\mathbf{p}_{i}
+) contribute to the same color residual, and chromatic palette edits can produce nonzero projections onto the grey axis.
+Chao et al. (2023a)
+avoid this coupling by working in Lab-space, where tone curves affect only
+L
+∗
+L^{*}
+and palette shifts only
+a
+​
+b
+ab
+, so the
+E
+img
+E_{\mathrm{img}}
+residual separates along these axes. This orthogonality lets them apply BCD on lightness and chroma as independent sub-problems, yielding a fast solver. We thoroughly investigated a Lab-space formulation (supplemental), but adopting it requires a non-linear Lab-to-RGB map at edit time and breaks closed-form bake-back for palette edits. We therefore stay in RGB-space and design a tailored solver that exploits two structural properties of the problem.
+A direct general-purpose solver would run far too slowly for interaction, because of the problem size: Eq.
+9
+has
+S
+​
+K
++
+3
+​
+(
+K
+−
+2
+)
+SK+3(K-2)
+unknowns (e.g.,
+∼
+600
+{\sim}600
+for
+S
+=
+100
+S=100
+,
+K
+=
+6
+K=6
+).
+The first property comes from the
+L
+2
+,
+1
+L_{2,1}
+square root in
+E
+sp
+E_{\mathrm{sp}}
+(Eq.
+10
+). Let
+a
+i
+=
+𝐋
+i
+⊤
+​
+𝐁
+⊤
+​
+𝐁
+​
+𝐋
+i
++
+w
+sp
+​
+‖
+Δ
+​
+𝐩
+i
+‖
+2
+2
+a_{i}=\mathbf{L}_{i}^{\top}\mathbf{B}^{\top}\mathbf{B}\,\mathbf{L}_{i}+w_{\mathrm{sp}}\|\Delta\mathbf{p}_{i}\|_{2}^{2}
+denote the argument of the
+i
+i
+-th square root, so
+E
+sp
+=
+∑
+i
+a
+i
+E_{\mathrm{sp}}=\sum_{i}\sqrt{a_{i}}
+. The square root is non-differentiable at
+a
+i
+=
+0
+a_{i}=0
+and produces a
+a
+i
+\sqrt{a_{i}}
+-denominator in the gradient, making the sub-problem in
+(
+𝐋
+,
+Δ
+​
+𝐏
+)
+(\mathbf{L},\Delta\mathbf{P})
+non-linear. We sidestep both issues via the variational identity
+(13)
+a
+i
+=
+min
+d
+i
+>
+0
+⁡
+a
+i
+2
+​
+d
+i
++
+d
+i
+2
+,
+which has unique minimizer
+​
+d
+i
+∗
+=
+a
+i
+.
+\sqrt{a_{i}}\;=\;\min_{d_{i}>0}\,\frac{a_{i}}{2d_{i}}+\frac{d_{i}}{2},\>\text{which has unique minimizer }d_{i}^{*}=\sqrt{a_{i}}.
+Introducing auxiliary scalars
+{
+d
+i
+}
+i
+=
+1
+K
+\{d_{i}\}_{i=1}^{K}
+and replacing
+E
+sp
+E_{\mathrm{sp}}
+with the augmented energy
+E
+~
+sp
+​
+(
+𝐋
+,
+Δ
+​
+𝐏
+,
+{
+d
+i
+}
+)
+=
+∑
+i
+[
+a
+i
+2
+​
+d
+i
++
+d
+i
+2
+]
+\widetilde{E}_{\mathrm{sp}}(\mathbf{L},\Delta\mathbf{P},\{d_{i}\})=\sum_{i}\big[\tfrac{a_{i}}{2d_{i}}+\tfrac{d_{i}}{2}\big]
+preserves the minimum but makes the
+(
+𝐋
+,
+Δ
+​
+𝐏
+)
+(\mathbf{L},\Delta\mathbf{P})
+block quadratic when
+{
+d
+i
+}
+\{d_{i}\}
+are frozen. IRLS alternates between solving for
+(
+𝐋
+,
+Δ
+​
+𝐏
+)
+(\mathbf{L},\Delta\mathbf{P})
+via a linear system with
+{
+d
+i
+}
+\{d_{i}\}
+frozen and updating each
+d
+i
+←
+a
+i
+d_{i}\leftarrow\sqrt{a_{i}}
+in closed-form (
+{
+1
+/
+d
+i
+}
+\{1/d_{i}\}
+serve as the IRLS weights). The second property targets the coupling:
+𝐂
+′
+​
+(
+𝐱
+)
+\mathbf{C}^{\prime}(\mathbf{x})
+is affine in
+(
+𝐋
+,
+Δ
+​
+𝐏
+)
+(\mathbf{L},\Delta\mathbf{P})
+jointly (Eq.
+8
+), so
+E
+img
+E_{\mathrm{img}}
+becomes quadratic in each block when the other is held fixed. BCD alternates between an
+𝐋
+\mathbf{L}
+-step and a
+Δ
+​
+𝐏
+\Delta\mathbf{P}
+-step, each treating the other block as constant. Concretely, the pixel constraint
+𝐂
+′
+​
+(
+𝐱
+n
+)
+=
+𝐜
+n
+tgt
+\mathbf{C}^{\prime}(\mathbf{x}_{n})=\mathbf{c}_{n}^{\mathrm{tgt}}
+(Eq.
+8
+) rearranges to
+(
+𝐜
+n
+tgt
+−
+𝐂
+0
+​
+(
+𝐱
+n
+)
+)
+=
+∑
+i
+=
+1
+K
+W
+i
+​
+(
+𝐱
+n
+)
+​
+Δ
+​
+𝐩
+i
++
+δ
+⁡
+(
+𝐱
+n
+)
+⋅
+𝟙
+\big(\mathbf{c}_{n}^{\mathrm{tgt}}-\mathbf{C}_{0}(\mathbf{x}_{n})\big)=\sum_{i=1}^{K}W_{i}(\mathbf{x}_{n})\Delta\mathbf{p}_{i}+\delta(\mathbf{x}_{n})\cdot\mathbb{1}
+, splitting the color residual between palette and luminance contributions. The
+𝐋
+\mathbf{L}
+-step absorbs the luminance residual that
+Δ
+​
+𝐏
+\Delta\mathbf{P}
+has not covered (projecting onto
+𝐰
+L
+\mathbf{w}_{L}
+(
+International Telecommunication Union, 2015
+)
+),
+(14)
+Δ
+​
+L
+∗
+​
+(
+𝐱
+n
+)
+=
+𝐰
+L
+⊤
+​
+(
+𝐜
+n
+tgt
+−
+𝐂
+0
+​
+(
+𝐱
+n
+)
+)
+−
+𝐰
+L
+⊤
+​
+∑
+i
+=
+1
+K
+W
+i
+​
+(
+𝐱
+n
+)
+​
+Δ
+​
+𝐩
+i
+,
+\Delta L^{*}(\mathbf{x}_{n})\;=\;\mathbf{w}_{L}^{\top}\big(\mathbf{c}_{n}^{\mathrm{tgt}}-\mathbf{C}_{0}(\mathbf{x}_{n})\big)\;-\;\mathbf{w}_{L}^{\top}\!\!\sum_{i=1}^{K}W_{i}(\mathbf{x}_{n})\Delta\mathbf{p}_{i},
+while the
+Δ
+​
+𝐏
+\Delta\mathbf{P}
+-step absorbs the full color residual that
+δ
+\delta
+has not covered,
+(15)
+𝐫
+P
+​
+(
+𝐱
+n
+)
+=
+(
+𝐜
+n
+tgt
+−
+𝐂
+0
+​
+(
+𝐱
+n
+)
+)
+−
+δ
+⁡
+(
+𝐱
+n
+)
+⋅
+𝟙
+.
+\mathbf{r}^{P}(\mathbf{x}_{n})\;=\;\big(\mathbf{c}_{n}^{\mathrm{tgt}}-\mathbf{C}_{0}(\mathbf{x}_{n})\big)\;-\;\delta(\mathbf{x}_{n})\cdot\mathbb{1}.
+The asymmetry is intentional:
+δ
+\delta
+acts only along the grey axis, so projecting onto luminance (Eq.
+14
+) determines its target;
+Δ
+​
+𝐏
+\Delta\mathbf{P}
+acts in 3D, so it must see the full residual (Eq.
+15
+) including the grey-axis component, otherwise the chromatic palette shifts cannot absorb luminance work and
+δ
+\delta
+alone bears it. This distinguishes our setup from
+Chao et al. (2023a)
+, whose Lab-space residual decomposes orthogonally so that each block sees an independent projection. Combining IRLS with BCD yields three cheap sub-problems: an
+𝐋
+\mathbf{L}
+-step that solves a sparse linear system in
+S
+​
+K
+SK
+unknowns, a
+Δ
+​
+𝐏
+\Delta\mathbf{P}
+-step that solves a small unconstrained quadratic in
+3
+​
+(
+K
+−
+2
+)
+3(K-2)
+unknowns via inner IRLS, and a closed-form
+d
+d
+-step from the variational identity. Plain alternation oscillates because both blocks satisfy the grey-axis component of the image-space residual: tone curves contribute
+δ
+⁡
+(
+𝐱
+)
+⋅
+𝟙
+\delta(\mathbf{x})\cdot\mathbb{1}
+, chromatic palette shifts contribute the grey-axis projection of
+∑
+i
+W
+i
+​
+(
+𝐱
+)
+​
+Δ
+​
+𝐩
+i
+\sum_{i}W_{i}(\mathbf{x})\Delta\mathbf{p}_{i}
+, and each block’s update absorbs whatever the other just provided. We damp each block update with a convex combination of the previous iterate, breaking the oscillation and yielding monotone convergence in practice. Convergence typically requires 5–15 outer iterations and tens of milliseconds per edit; explicit forms of the
+𝐋
+\mathbf{L}
+and
+Δ
+​
+𝐏
+\Delta\mathbf{P}
+systems, the damping rule, and the full algorithm are provided in the supplemental.
+Table 1.
+Quantitative comparison with vanilla 3DGS
+(
+Kerbl et al., 2023
+)
+on LLFF
+(
+Mildenhall et al., 2019
+)
+, Tanks&Temples
+(
+Knapitsch et al., 2017
+)
+, and NeRF Synthetic
+(
+Mildenhall et al., 2021
+)
+. Our rank-1 factorization (
+Ours-R-NC
+,
+Ours-R-C
+) matches the full weight SH (
+Ours-Full-NC
+) at
+∼
+60
+%
+{\sim}60\%
+of vanilla 3DGS storage.
+K
+K
+-channel weight splatting modestly reduces FPS, in exchange for editable view-space palette weights.
+NC
+(non-clamped) and
+C
+(clamped) refer to the simplex-clamped barycentric targets in the final finetuning stage (§
+6.1
+);
+Ours-R-C
+trades
+∼
+1
+{\sim}1
+dB PSNR for non-negative, edit-friendly weights.
+Dataset
+LLFF
+Tanks&Temples
+NeRF Synthetic
+Method
+|
+|
+Metric
+LPIPS
+↓
+\downarrow
+SSIM
+↑
+\uparrow
+PSNR
+↑
+\uparrow
+Train
+†
+FPS
+†
+Mem
+LPIPS
+↓
+\downarrow
+SSIM
+↑
+\uparrow
+PSNR
+↑
+\uparrow
+Train
+†
+FPS
+†
+Mem
+LPIPS
+↓
+\downarrow
+SSIM
+↑
+\uparrow
+PSNR
+↑
+\uparrow
+Train
+†
+FPS
+†
+Mem
+Vanilla 3DGS
+0.207
+0.782
+22.84
+3m22s
+192
+86.5MB
+0.146
+0.828
+22.05
+46m37s
+168
+229MB
+0.033
+0.960
+30.50
+8m33s
+218
+35.5MB
+Ours-Full-NC
+0.220
+0.769
+22.34
+41s
+∗
+164
+142MB
+0.1662
+0.807
+21.19
+2m50s
+∗
+143
+417MB
+0.041
+0.952
+30.15
+56.8s
+∗
+201
+54.8MB
+Ours-R-NC
+0.221
+0.768
+22.09
+38.9s
+∗
+166
+53.5MB
+0.169
+0.797
+21.42
+2m28s
+∗
+143
+140MB
+0.044
+0.948
+29.61
+53.5s
+∗
+202
+21.7MB
+Ours-R-C
+0.227
+0.766
+21.97
+38.8s
+∗
+166
+53.5MB
+0.174
+0.792
+21.12
+2m28s
+∗
+143
+140MB
+0.047
+0.945
+29.03
+54.9s
+∗
+201
+21.7MB
+†
+Training on NVIDIA H200; FPS on NVIDIA A100.
+∗
+“Train” is finetuning duration only (on pretrained vanilla 3DGS).
+K
+=
+5
+K=5
+for all datasets except Tanks&Temples (
+K
+=
+6
+K=6
+). We train vanilla 3DGS with uniform default settings across all scenes.
+6.
+Results and Evaluation
+We demonstrate a range of editing capabilities: palette-based recoloring (Figs.
+1
+,
+3
+,
+5
+,
+7
+,
+8
+), palette-aware luminance editing (Figs.
+1
+,
+2
+,
+3
+,
+7
+,
+8
+), and pixel-level color constraints (Figs.
+1
+,
+8
+); see the supplemental for more results. All edits run in real-time, propagate consistently across novel views, and can bake back into vanilla 3DGS for use with standard viewers.
+6.1.
+Implementation Details and Performance
+We implement our method in PyTorch with custom CUDA kernels for efficient weight splatting, and the real-time editing interface in Rust on top of Brush
+(
+Brussee, 2024
+)
+, a WebGPU-based 3DGS viewer. The interface sustains
+∼
+200
+{\sim}200
+FPS on a MacBook Pro with Apple Silicon (M5 Pro, 18-core CPU, 20-core GPU, 24 GB unified memory). Across all examples, we finetune with weight SH of degree
+L
+=
+3
+L=3
+, the rank-1 factorization of §
+4.4
+for higher-order SH, and
+K
+=
+5
+K=5
+or
+6
+6
+palette colors. Each scene is finetuned for 30–50 epochs from a pretrained vanilla 3DGS checkpoint using Adam
+(
+Kingma and Ba, 2014
+)
+with views shuffled per epoch, taking 40 s to 3 min on NVIDIA H200 (Table
+1
+). Chromatic palette vertices
+{
+𝐩
+i
+}
+i
+=
+3
+K
+\{\mathbf{p}_{i}\}_{i=3}^{K}
+are initialized from a simplified convex hull
+(
+Tan et al., 2016
+)
+of the frozen renders with quantization; black and white are fixed. Hyperparameters:
+λ
+pos
+=
+0.5
+\lambda_{\mathrm{pos}}=0.5
+,
+λ
+compact
+=
+0.001
+\lambda_{\mathrm{compact}}=0.001
+(ramped
+5
+×
+5\times
+after the first
+2
+/
+3
+2/3
+of training),
+λ
+sep
+=
+1.0
+\lambda_{\mathrm{sep}}=1.0
+with minimum hue-gap fraction
+0.3
+0.3
+(§
+4.3
+). For transparent-background scenes, we add an alpha-channel supervision term (
+λ
+alpha
+=
+1.0
+\lambda_{\mathrm{alpha}}=1.0
+). After
+70
+%
+70\%
+of training we clamp barycentric supervision targets to the simplex to prevent negative splatted weights (which would invert palette edits at those pixels). We follow the evaluation protocol of
+Barron et al. (2021)
+: hold out every 8th image as a test view, and train vanilla 3DGS baselines with uniform default settings across all scenes.
+At edit time, the constraint-driven solver (§
+5.2
+) runs on a single CPU thread and converges in  8 outer iterations of damped BCD (
+α
+=
+0.7
+\alpha=0.7
+). All edits complete in 5–15 ms.
+Figure 7.
+Our sparse palette decomposition keeps edits local and view-consistent (
+inset
+).
+Here we recolor the green track to blue, the decorative frame to green, and the central disc from purple to red by editing three palette entries (red underlines), and additionally adjust the track’s contrast with its tone curve. The palette is shown beneath each view.
+Scene:
+“LEGO roller coaster”
+by
+wanyanyan
+.
+6.2.
+Evaluation
+We evaluate on three aspects: reconstruction fidelity to verify that editability does not degrade too much on novel-view synthesis (Table
+1
+); edit locality and consistency under palette and tone-curve modifications (Fig.
+9
+); and pixel-level editing against primitive-space baselines. The supplemental presents additional evaluations and comparisons (§E), a proof of lossless palette bake-back together with finetuning time and quality for tone-curve bake-back (§B), and an extensive investigation of a Lab-space variant (§D, closer to
+Chao et al. (2023a)
+) that splats palette weights and lightness as separate SH-encoded quantities and edits in CIELAB
+ab
+-space, which informed our choice of RGB by exposing two structural drawbacks: a non-linear Lab-to-RGB transform at edit time and the loss of closed-form palette bake-back.
+We compare against our implementations of recent palette-based 3DGS methods
+3
+3
+3
+Code is available at
+https://github.com/tedchao/ReparamGS-Palette/tree/main/others
+, PaletteGaussian
+(
+Ren et al., 2024
+)
+and RecolorGaussian
+(
+Bi et al., 2025
+)
+, both of which decompose appearance in primitive space (per Gaussian). Despite per-Gaussian sparsity regularization, alpha blending during rasterization mixes contributions from many Gaussians at each pixel, so pixel weights are non-sparse in view-space and palette edits bleed into unintended regions (Fig.
+9
+and supplemental §E.2). For pixel-level editing (§E.3), the primitive-space baselines require joint gradient descent over palette and per-Gaussian SH, taking 3.75–13.02 s per edit on NVIDIA H200 while still exhibiting color bleeding; over-regularizing the palette pushes the optimizer to compensate through the view-dependent SH originally intended for specular effects, producing an unnatural appearance (Fig. 6 in supplemental). We additionally compare against a 2D editing heuristic that edits a single rendered view with ColorfulCurves
+(
+Chao et al., 2023a
+)
+and finetunes the per-Gaussian SH to reproduce the edit (§E.1). Because supervision is available only on the edited view, the heuristic produces visible artifacts in novel views and adds
+5.2
+5.2
+s of SH finetuning per edit. In contrast, our view-space formulation achieves localized edits through a constraint-driven solve over the palette
+𝐏
+\mathbf{P}
+and tone curves
+{
+f
+i
+}
+\{f_{i}\}
+alone, with all Gaussian parameters fixed, propagating consistently across novel views. PaletteGaussian additionally proposes object-level editing through a second-stage training pass with segmentation masks. The masks shown in their work are coarse and lack the soft boundaries needed for natural color compositing in complex regions such as forests, as noted by
+Chao et al. (2023a)
+. More critically, even when segmentation succeeds, the underlying primitive-space weights are still non-sparse after alpha blending, so the same locality limitations and color bleeding persist within each segmented region.
+7.
+Conclusion
+Palette-based image editing follows a simple recipe: take an image, reparametrize it for editability. We present a real-time color grading approach for 3D Gaussian Splatting that applies the same principle in 3D. Our method reparametrizes a pretrained vanilla 3DGS into a view-space palette decomposition, in which each Gaussian carries weight SH that alpha-blend into per-pixel mixing weights over a small, scene-adaptive palette. We supervise the reparametrization with differentiable barycentric targets to obtain sparse, color-consistent weights, and we encode the higher-order weight SH with a rank-1 factorization that roughly halves the storage of vanilla 3DGS. We design a constraint-driven solver based on dBCD with IRLS that jointly satisfies palette, tone-curve, and pixel-level color constraints in tens of milliseconds per edit, and the edited representation bakes back into a vanilla 3DGS: palette edits in closed-form, tone-curve edits in seconds of finetuning. Extensive experiments demonstrate the effectiveness of our approach across a variety of scenes and editing scenarios.
+Limitations and Future Work.
+Our method has several limitations that suggest directions for future work. First, our representation requires a brief finetuning stage from a pretrained vanilla 3DGS; deriving an analytical mapping from color SH to weight SH given a palette would remove this stage entirely. Second, tone-curve edits cannot be baked back in closed-form because the per-pixel luminance shift is non-linear in the rendered color, so they require a brief finetuning stage. Reducing or eliminating this stage, for instance by approximating the luminance shift with a piecewise-linear correction baked into the weight SH, is an interesting direction. Third, our method does not support semantic or object-level editing constraints. Incorporating segmentation-aware decompositions
+(
+Chao et al., 2023b
+;
+Aksoy et al., 2018
+)
+, as demonstrated for NeRFs
+(
+Chen et al., 2025
+)
+, could enable selective recoloring of specific objects or materials while preserving our view-space sparsity advantages.
+Acknowledgements.
+We thank our anonymous reviewers for their constructive feedback.
+This work was supported by the Sponsor United States National Science Foundation
+http://nsf.gov/
+(Grant #IIS-2402893).
+References
+Aksoy
+et al.
+(2016)
+Y. Aksoy, T. O. Aydin, M. Pollefeys, and A. Smolić
+Interactive high-quality green-screen keying via color unmixing
+.
+ACM Trans. Graph.
+.
+Cited by:
+§2
+.
+Aksoy
+et al.
+(2017)
+Y. Aksoy, T. O. Aydin, A. Smolić, and M. Pollefeys
+Unmixing-based soft color segmentation for image manipulation
+.
+ACM Trans. Graph.
+.
+Cited by:
+§1
+,
+§2
+,
+§3
+.
+Aksoy
+et al.
+(2018)
+Y. Aksoy, T. Oh, S. Paris, M. Pollefeys, and W. Matusik
+Semantic soft segmentation
+.
+ACM Transactions on Graphics (TOG)
+37
+(
+4
+),
+pp. 1–13
+.
+Cited by:
+§7
+.
+Andersson
+et al.
+(2020)
+P. Andersson, J. Nilsson, T. Akenine-Möller, M. Oskarsson, K. Åström, and M. D. Fairchild
+FLIP: a difference evaluator for alternating images.
+.
+Proc. ACM Comput. Graph. Interact. Tech.
+3
+(
+2
+),
+pp. 15–1
+.
+Cited by:
+Figure 5
+,
+Figure 9
+.
+Bao
+et al.
+(2023)
+C. Bao, Y. Zhang, B. Yang, T. Fan, Z. Yang, H. Bao, G. Zhang, and Z. Cui
+SINE: semantic-driven image-based NeRF editing with prior-guided editing field
+.
+In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition
+,
+pp. 20919–20929
+.
+Cited by:
+§2
+.
+Barron
+et al.
+(2021)
+J. T. Barron, B. Mildenhall, M. Tancik, P. Hedman, R. Martin-Brualla, and P. P. Srinivasan
+Mip-NeRF: a multiscale representation for anti-aliasing neural radiance fields
+.
+In
+Proceedings of the IEEE/CVF international conference on computer vision
+,
+pp. 5855–5864
+.
+Cited by:
+§6.1
+.
+Bi
+et al.
+(2025)
+H. Bi, J. Wu, and Z. Huang
+RecolorGaussian: palette-based 3d scene recoloring with gaussian splatting
+.
+In
+IJCNN
+,
+pp. 1–8
+.
+Cited by:
+§1
+,
+§2
+,
+§3
+,
+§6.2
+,
+Figure 9
+.
+Brussee (2024)
+A. Brussee
+Brush: a WebGPU-based 3d Gaussian Splatting viewer
+.
+Note:
+https://github.com/ArthurBrussee/brush
+Accessed: 2026-05
+Cited by:
+§6.1
+.
+Cen
+et al.
+(2023)
+J. Cen, J. Fang, C. Yang, L. Xie, X. Zhang, W. Shen, and Q. Tian
+Segment any 3d gaussians
+.
+arXiv preprint arXiv:2312.00860
+.
+Cited by:
+§2
+.
+Chang
+et al.
+(2015)
+H. Chang, O. Fried, Y. Liu, S. DiVerdi, and A. Finkelstein
+Palette-based photo recoloring.
+.
+ACM Trans. Graph.
+34
+(
+4
+),
+pp. 139–1
+.
+Cited by:
+§1
+,
+§2
+.
+Chao
+et al.
+(2023a)
+C. T. Chao, J. Klein, J. Tan, J. Echevarria, and Y. Gingold
+ColorfulCurves: palette-aware lightness control and color editing via sparse optimization
+.
+ACM Transactions on Graphics (TOG)
+42
+(
+4
+),
+pp. 1–12
+.
+Cited by:
+Figure 2
+,
+§1
+,
+§1
+,
+§2
+,
+§5.1
+,
+§5.2
+,
+§5.2
+,
+§5.2
+,
+§6.2
+,
+§6.2
+.
+Chao
+et al.
+(2023b)
+C. T. Chao, J. Klein, J. Tan, J. Echevarria, and Y. Gingold
+LoCoPalettes: local control for palette-based image editing
+.
+In
+Computer graphics forum
+,
+Vol.
+42
+,
+pp. e14892
+.
+Cited by:
+§1
+,
+§2
+,
+§7
+.
+Chao
+et al.
+(2021)
+C. T. Chao, K. Singh, and Y. Gingold
+PosterChild: blend-aware artistic posterization
+.
+In
+Computer Graphics Forum
+,
+Vol.
+40
+,
+pp. 87–99
+.
+Cited by:
+§2
+.
+Chen
+et al.
+(2025)
+W. Chen, Z. Zha, S. Wang, B. Wen, X. Yuan, J. Zhou, Z. Fan, G. Yan, and C. Zhu
+KaRF: weakly-supervised Kolmogorov-Arnold networks-based radiance fields for local color editing
+.
+In
+39th Conference on Neural Information Processing Systems (NeurIPS)
+,
+Cited by:
+§2
+,
+§7
+.
+Chen
+et al.
+(2024)
+Y. Chen, Z. Chen, C. Zhang, F. Wang, X. Yang, Y. Wang, Z. Cai, L. Yang, H. Liu, and G. Lin
+GaussianEditor: swift and controllable 3D editing with Gaussian splatting
+.
+In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition
+,
+pp. 21476–21485
+.
+Cited by:
+§2
+.
+Cui
+et al.
+(2025)
+Z. Cui, X. Chu, and T. Harada
+Luminance-GS: adapting 3D Gaussian splatting to challenging lighting conditions with view-adaptive curve adjustment
+.
+In
+Proceedings of the CVPR Conference
+,
+Cited by:
+§2
+.
+Debevec (2008)
+P. Debevec
+Rendering synthetic objects into real scenes: bridging traditional and image-based graphics with global illumination and high dynamic range photography
+.
+In
+Acm siggraph 2008 classes
+,
+pp. 1–10
+.
+Cited by:
+§1
+.
+Du
+et al.
+(2021)
+Z. Du, K. Lei, K. Xu, J. Tan, and Y. Gingold
+Video recoloring via spatial-temporal geometric palettes
+.
+ACM Trans. Graph.
+.
+Cited by:
+§2
+.
+Du
+et al.
+(2025)
+Z. Du, J. Zhou, K. Li, J. Hao, Z. Huang, and K. Xu
+Fast video recoloring via curve-based palettes
+.
+IEEE Trans. on Image Proc.
+.
+Cited by:
+§2
+.
+Du
+et al.
+(2024)
+Z. Du, J. Zhou, Z. Xia, B. Seng, and K. Xu
+Palette-based content-aware image recoloring
+.
+In
+International Conference on Computational Visual Media
+,
+pp. 240–258
+.
+Cited by:
+§2
+.
+Fan
+et al.
+(2022)
+Z. Fan, Y. Jiang, P. Wang, X. Gong, D. Xu, and Z. Wang
+Unified implicit neural stylization
+.
+In
+European conference on computer vision
+,
+Cited by:
+§2
+.
+Gao
+et al.
+(2024)
+J. Gao, C. Gu, Y. Lin, Z. Li, H. Zhu, X. Cao, L. Zhang, and Y. Yao
+Relightable 3D Gaussians: realistic point cloud relighting with BRDF decomposition and ray tracing
+.
+In
+European Conference on Computer Vision
+,
+Cited by:
+§2
+.
+Gong
+et al.
+(2023)
+B. Gong, Y. Wang, X. Han, and Q. Dou
+RecolorNeRF: layer decomposed radiance fields for efficient color editing of 3D scenes
+.
+In
+Proceedings of the 31st ACM International Conference on Multimedia
+,
+pp. 8004–8015
+.
+Cited by:
+§1
+,
+§2
+.
+Gu
+et al.
+(2021)
+J. Gu, L. Liu, P. Wang, and C. Theobalt
+StyleNeRF: a style-based 3D-aware generator for high-resolution image synthesis
+.
+arXiv preprint arXiv:2110.08985
+.
+Cited by:
+§2
+.
+Haque
+et al.
+(2023)
+A. Haque, M. Tancik, A. A. Efros, A. Holynski, and A. Kanazawa
+Instruct-NeRF2NeRF: editing 3D scenes with instructions
+.
+In
+Proceedings of the IEEE/CVF international conference on computer vision
+,
+Cited by:
+§2
+.
+Huang
+et al.
+(2022)
+Y. Huang, Y. He, Y. Yuan, Y. Lai, and L. Gao
+StylizedNeRF: consistent 3D scene stylization as stylized NeRF via 2D-3D mutual learning
+.
+In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition
+,
+Cited by:
+§2
+.
+International Telecommunication Union (2015)
+International Telecommunication Union
+Recommendation ITU-R BT.709-6: parameter values for the HDTV standards for production and international programme exchange
+.
+ITU
+.
+Note:
+https://www.itu.int/rec/R-REC-BT.709
+Cited by:
+§5.1
+,
+§5.2
+.
+Jeffrey Okun and Susan Zwerman (2020)
+V. Jeffrey Okun and V. Susan Zwerman
+The ves handbook of visual effects: industry standard vfx practices and procedures
+.
+Routledge
+.
+Cited by:
+§1
+.
+Kamata
+et al.
+(2023)
+H. Kamata, Y. Sakuma, A. Hayakawa, M. Ishii, and T. Narihira
+Instruct 3D-to-3D: text instruction guided 3D-to-3D conversion
+.
+arXiv preprint arXiv:2303.15780
+.
+Cited by:
+§2
+.
+Kerbl
+et al.
+(2023)
+B. Kerbl, G. Kopanas, T. Leimkühler, and G. Drettakis
+3D Gaussian splatting for real-time radiance field rendering.
+.
+ACM Trans. Graph.
+42
+(
+4
+),
+pp. 139–1
+.
+Cited by:
+§1
+,
+§2
+,
+§3
+,
+Table 1
+.
+Kingma and Ba (2014)
+D. P. Kingma and J. Ba
+Adam: a method for stochastic optimization
+.
+arXiv preprint arXiv:1412.6980
+.
+Cited by:
+§6.1
+.
+Knapitsch
+et al.
+(2017)
+A. Knapitsch, J. Park, Q. Zhou, and V. Koltun
+Tanks and temples: benchmarking large-scale scene reconstruction
+.
+ACM Transactions on Graphics (ToG)
+36
+(
+4
+),
+pp. 1–13
+.
+Cited by:
+Table 1
+,
+Figure 9
+.
+Koyama and Goto (2018)
+Y. Koyama and M. Goto
+Decomposing images into layers with advanced color blending
+.
+In
+Computer Graphics Forum
+,
+Vol.
+37
+,
+pp. 397–407
+.
+Cited by:
+§2
+.
+Kuang
+et al.
+(2023)
+Z. Kuang, F. Luan, S. Bi, Z. Shu, G. Wetzstein, and K. Sunkavalli
+PaletteNeRF: palette-based appearance editing of neural radiance fields
+.
+In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition
+,
+Cited by:
+§1
+,
+§2
+.
+Lanvin
+et al.
+(2026)
+A. Lanvin, J. Hu, S. Lucas, A. Bousseau, and G. Drettakis
+Intrinsic decomposition and editing of 3d gaussian splats
+.
+Proc. ACM Comput. Graph. Interact. Tech.
+9
+(
+1
+).
+External Links:
+Link
+,
+Document
+Cited by:
+§2
+.
+Liu
+et al.
+(2025)
+J. Liu, L. Kong, B. Li, and D. Xu
+GaussHDR: high dynamic range Gaussian splatting via learning unified 3D and 2D local tone mapping
+.
+In
+Proceedings of the Computer Vision and Pattern Recognition Conference
+,
+pp. 5991–6000
+.
+Cited by:
+§2
+.
+Liu
+et al.
+(2024)
+K. Liu, F. Zhan, M. Xu, C. Theobalt, L. Shao, and S. Lu
+StyleGaussian: instant 3D style transfer with Gaussian splatting
+.
+In
+SIGGRAPH Asia 2024 Technical Communications
+,
+pp. 1–4
+.
+Cited by:
+§2
+.
+Mazzucchelli
+et al.
+(2026)
+A. Mazzucchelli, I. Ojeda-Martin, F. Rivas-Manzaneque, E. Garces, A. Penate-Sanchez, and F. Moreno-Noguer
+VIRGi: view-dependent instant recoloring of 3d gaussians splats
+.
+arXiv preprint arXiv:2603.02986
+.
+Cited by:
+§2
+.
+Mildenhall
+et al.
+(2019)
+B. Mildenhall, P. P. Srinivasan, R. Ortiz-Cayon, N. K. Kalantari, R. Ramamoorthi, R. Ng, and A. Kar
+Local light field fusion: practical view synthesis with prescriptive sampling guidelines
+.
+ACM Transactions on Graphics (ToG)
+38
+(
+4
+),
+pp. 1–14
+.
+Cited by:
+Table 1
+.
+Mildenhall
+et al.
+(2021)
+B. Mildenhall, P. P. Srinivasan, M. Tancik, J. T. Barron, R. Ramamoorthi, and R. Ng
+NeRF: representing scenes as neural radiance fields for view synthesis
+.
+Communications of the ACM
+65
+(
+1
+),
+pp. 99–106
+.
+Cited by:
+§1
+,
+§2
+,
+Table 1
+.
+Müller
+et al.
+(2022)
+T. Müller, A. Evans, C. Schied, and A. Keller
+Instant neural graphics primitives with a multiresolution hash encoding
+.
+ACM transactions on graphics (TOG)
+41
+(
+4
+),
+pp. 1–15
+.
+Cited by:
+§3
+.
+Ren
+et al.
+(2024)
+C. Ren, H. Qiu, Y. Shao, Z. Qiu, and K. Song
+PaletteGaussian: 3D photorealistic color editing with Gaussian splatting
+.
+In
+2024 IEEE International Symposium on Mixed and Augmented Reality (ISMAR)
+,
+Vol.
+,
+pp. 1206–1215
+.
+External Links:
+Document
+Cited by:
+§1
+,
+§2
+,
+§3
+,
+§6.2
+,
+Figure 9
+.
+Rutayisire
+et al.
+(2025)
+L. Rutayisire, N. Capodieci, and F. Pellacini
+ReCoGS: real-time ReColoring for Gaussian splatting scenes
+.
+In
+STAG: Smart Tools and App. in Graphics
+,
+Cited by:
+§2
+.
+Shugrina
+et al.
+(2020)
+M. Shugrina, A. Kar, S. Fidler, and K. Singh
+Nonlinear color triads for approximation, learning and direct manipulation of color distributions
+.
+ACM Transactions on Graphics (TOG)
+39
+(
+4
+),
+pp. 97–1
+.
+Cited by:
+§2
+.
+Sun
+et al.
+(2023)
+Q. Sun, Y. Nie, Q. Zhang, and G. Li
+Building coarse to fine convex hulls with auxiliary vertices for palette-based image recoloring
+.
+IEEE Transactions on Visualization and Computer Graphics
+30
+(
+8
+),
+pp. 5581–5595
+.
+Cited by:
+§2
+.
+Tan
+et al.
+(2018)
+J. Tan, J. Echevarria, and Y. Gingold
+Efficient palette-based decomposition and recoloring of images via rgbxy-space geometry
+.
+ACM Transactions on Graphics (TOG)
+37
+(
+6
+),
+pp. 1–10
+.
+Cited by:
+§1
+,
+§2
+,
+§4.2
+.
+Tan
+et al.
+(2025)
+J. Tan, J. Echevarria, and Y. Gingold
+Palette-based color harmonization
+.
+IEEE Transactions on Visualization and Computer Graphics
+.
+Cited by:
+§2
+.
+Tan
+et al.
+(2016)
+J. Tan, J. M. Lien, and Y. Gingold
+Decomposing images into layers via rgb-space geometry
+.
+ACM Transactions on Graphics
+36
+(
+1
+),
+pp. 1–14
+.
+Cited by:
+§1
+,
+§2
+,
+§6.1
+.
+Tojo and Umetani (2022)
+K. Tojo and N. Umetani
+Recolorable posterization of volumetric radiance fields using visibility-weighted palette extraction
+.
+In
+Computer Graphics Forum
+,
+Vol.
+41
+,
+pp. 149–160
+.
+Cited by:
+§2
+.
+Tsang
+et al.
+(2026)
+C. F. Tsang, A. Hu, O. Perel, C. Kolve, and M. Shugrina
+ArtisanGS: interactive tools for gaussian splat selection with ai and human in the loop
+.
+arXiv preprint arXiv:2602.10173
+.
+Cited by:
+§2
+.
+Wang
+et al.
+(2019)
+Y. Wang, Y. Liu, and K. Xu
+An improved geometric approach for palette-based image decomposition and recoloring
+.
+In
+Computer Graphics Forum
+,
+Vol.
+38
+.
+Cited by:
+§1
+,
+§2
+.
+Wu
+et al.
+(2022)
+Q. Wu, J. Tan, and K. Xu
+PaletteNeRF: palette-based color editing for NeRFs
+.
+arXiv preprint arXiv:2212.12871
+.
+Cited by:
+§1
+.
+Zhang
+et al.
+(2025a)
+D. Zhang, Y. Yuan, Z. Chen, F. Zhang, Z. He, S. Shan, and L. Gao
+StylizedGS: controllable stylization for 3G Gaussian splatting
+.
+IEEE Transactions on Pattern Analysis and Machine Intelligence
+.
+Cited by:
+§2
+.
+Zhang
+et al.
+(2022)
+K. Zhang, N. Kolkin, S. Bi, F. Luan, Z. Xu, E. Shechtman, and N. Snavely
+Arf: artistic radiance fields
+.
+In
+ECCV
+,
+pp. 717–733
+.
+Cited by:
+§2
+.
+Zhang
+et al.
+(2025b)
+Z. Zhang, B. Seng, Y. Du, K. Li, Z. Wang, and Z. Du
+Semantic palette-guided color propagation
+.
+arXiv preprint arXiv:2506.01441
+.
+Cited by:
+§1
+,
+§2
+.
+Zhuang
+et al.
+(2023)
+J. Zhuang, C. Wang, L. Lin, L. Liu, and G. Li
+DreamEditor: text-driven 3D scene editing with neural fields
+.
+In
+SIGGRAPH Asia 2023
+,
+Cited by:
+§2
+.
+Figure 8.
+Gallery 1 of edits.
+We edit a variety of scenes through palette modifications (red underlines), per-palette tone curves, and pixel-level color constraints (black circles with specified target colors). Each edited view combines multiple types of edits applied jointly, and propagates consistently across novel views. Additional editing examples can be found in the supplemental materials.
+Scenes (top to bottom):
+"Metallyticus splendidus"
+by
+Fabian Plum
+, Lego from NeRF synthetic dataset,
+"ISLAND – DIORAMA"
+by
+Stéphane Agullo
+,
+"Harley-Davidson Street Glide (XGRIDS PortalCam)"
+by
+Paolo Tosolini
+.
+Figure 9.
+Sparsity comparison against primitive-space palette methods.
+We compare against PaletteGaussian
+(
+Ren et al., 2024
+)
+and RecolorGaussian
+(
+Bi et al., 2025
+)
+on two palette edits applied to the same scene (
+Edit 1
+: trees green to brown;
+Edit 2
+: truck cyan to teal/purple). Difference maps
+(
+Andersson et al., 2020
+)
+(right) show that our edits remain localized to the targeted region while the baselines bleed into unintended regions. Although the baselines’ per-Gaussian weights are sparse, alpha blending during rasterization mixes contributions from many Gaussians at each pixel, destroying sparsity in view-space where edits actually happen. Our view-space color consistency loss (Sec.
+4.2
+) enforces sparsity at the pixel level directly. Additional comparisons are provided in the supplemental.
+Scenes:
+Truck
+from Tanks & Temples
+(
+Knapitsch et al., 2017
+)
+.
+Experimental support, please
+view the build logs
+for errors. Generated by
+L
+A
+T
+E
+xml
+.
+Instructions for reporting errors
+We are continuing to improve HTML versions of papers, and your feedback helps enhance accessibility and mobile
+      support. To report errors in the HTML that will help us improve conversion and rendering, choose any of the
+      methods listed below:
+Click the "Report Issue"
+(
+)
+button, located in the page header.
+Tip:
+You can select the relevant text first, to include it in your report.
+Our team has already identified
+the following issues
+. We appreciate your time reviewing and reporting rendering errors we
+      may not have found yet. Your efforts will help us improve the HTML versions for all readers, because disability
+      should not be a barrier to accessing research. Thank you for your continued support in championing open access for
+      all.
+Have a free development cycle? Help support accessibility at arXiv! Our collaborators at LaTeXML maintain a
+list of packages that need conversion
+, and welcome
+developer contributions
+.
+We gratefully acknowledge support from
+        our
+major funders
+,
+member institutions
+,
+,
+        and all contributors.
+About
+·
+Help
+·
+Contact
+·
+Subscribe
+·
+Copyright
+·
+Privacy
+·
+Accessibility
+·
+Operational Status
+(opens in new tab)
+Major funding support from

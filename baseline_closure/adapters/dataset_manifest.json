@@ -1,0 +1,36 @@
+{
+  "artifact": "BASELINE_DATASET_MANIFEST",
+  "version": "1.0",
+  "date": "2026-09-25",
+  "purpose": "The canonical 13-scene benchmark layout that every P8/P9/P10 method must consume via baseline_closure/adapters/dataset_adapter.py. This layout supersedes the P5-era per-baseline dataset trees (including the manually-created garden variant, whose caveat is retired going forward).",
+  "scene_split": "official --eval train/test split per data/datasets/official_training_datasets.json; FINAL-30K protocol final eval = all cameras at iteration 30000.",
+  "canonical_roots": {
+    "local_windows": {
+      "repo": "C:/Users/36570/3dgs-renderer-benchmark",
+      "datasets_dir": "<repo>/data/datasets/<family>/<scene>",
+      "official_cameras_dir": "<repo>/data/official/mipnerf360/<scene>",
+      "note": "Local tree is a partial mirror: datasets has bicycle/bonsai/counter/garden/kitchen/room only; official cameras present for bicycle/garden/room only. Full 13-scene runs happen on the mx host."
+    },
+    "remote_mx": {
+      "canonical": "/mnt/storage_pool/liaoyuanjun/benchmark_data/<family>/<scene>",
+      "note": "All 13 scenes present (verified by _mx_check_sparse.py); layout <scene>/{images, sparse/0/{cameras.bin, images.bin, points3D.bin}}."
+    }
+  },
+  "families": {
+    "mipnerf360": ["bicycle", "bonsai", "counter", "flowers", "garden", "kitchen", "room", "stump", "treehill"],
+    "tanksandtemples": ["truck", "train"],
+    "deepblending": ["drjohnson", "playroom"]
+  },
+  "required_files_per_scene": [
+    "images/ (at least one of .jpg/.jpeg/.png)",
+    "sparse/0/cameras.bin",
+    "sparse/0/images.bin",
+    "sparse/0/points3D.bin"
+  ],
+  "resolution_conventions": {
+    "matched_protocol_p8": "GTDataset resolution='1080p' (target 1920x1080 via benchmark_framework.resize_cameras); per-scene effective sizes recorded in run provenance.",
+    "graphdeco_family_p9_native": "-i images with -r -1 auto-1600px (b0/taming/speedy/fastgs upstream behavior); no override applied.",
+    "faster_gs_p9_native": "IMAGE_SCALE_FACTOR 0.25 (mipnerf360) / 1.0 (tanksandtemples, deepblending) via adapter-generated YAML."
+  },
+  "prior_dataset_evidence": ["reports/dataset_report.md", "docs/datasets.md (hash pinning incl. tandt_db.zip SHA-256 816e62f2...)", "data/datasets/official_training_datasets.json"]
+}

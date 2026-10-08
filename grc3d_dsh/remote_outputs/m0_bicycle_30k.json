@@ -1,0 +1,511 @@
+{
+  "tag": "ckpt_30000.pt",
+  "mode": "ckpt",
+  "identity": {
+    "host": "dsw-933622-64cc845c7d-lqswc",
+    "gpu_index_requested": 3,
+    "CUDA_VISIBLE_DEVICES": "3",
+    "gpu_before": [
+      "0, NVIDIA A100-SXM4-80GB, GPU-d94b65aa-4a44-3402-7a54-72ef0f3d8ff3, 32757 MiB, 81920 MiB, 0 %",
+      "1, NVIDIA A100-SXM4-80GB, GPU-f2f1e3be-845d-e628-eaae-d5d134e831e4, 32757 MiB, 81920 MiB, 0 %",
+      "2, NVIDIA A100-SXM4-80GB, GPU-bcca92b9-0234-7ec9-a2f0-a63925d52146, 9145 MiB, 81920 MiB, 96 %",
+      "3, NVIDIA A100-SXM4-80GB, GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72, 577 MiB, 81920 MiB, 0 %",
+      "4, NVIDIA A100-SXM4-80GB, GPU-ff6ab27d-a9ad-36e1-7d59-997da8191fda, 0 MiB, 81920 MiB, 0 %",
+      "5, NVIDIA A100-SXM4-80GB, GPU-bf5e4714-c12e-2914-78bb-be3ff2607296, 0 MiB, 81920 MiB, 0 %",
+      "6, NVIDIA A100-SXM4-80GB, GPU-e4fb3361-0a0d-c9ae-6172-38327f8215e6, 573 MiB, 81920 MiB, 0 %",
+      "7, NVIDIA A100-SXM4-80GB, GPU-75e61ed9-23aa-3757-40df-45bb414d403a, 0 MiB, 81920 MiB, 0 %"
+    ],
+    "python": "3.10.21",
+    "torch": "2.9.1+cu128",
+    "cuda": "12.8",
+    "gsplat_file": "/root/epic05_p8/gsplat-main-512d366b/gsplat/__init__.py",
+    "gsplat_so_sha256": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+    "gmain_tree": "/root/epic05_p8/gsplat-main-512d366b",
+    "gmain_pin": "512d366b67073d77ca099ede742683c165dfc23b (gsplat main, P8 pin 2026-09-25)",
+    "scene": "bicycle",
+    "resolution_hw": [
+      1080,
+      1920
+    ],
+    "eps2d": 0.3,
+    "background": "black",
+    "tile_size": 16,
+    "packed": false,
+    "camera_index": 163,
+    "camera_rule": "first index of frozen camera_sequence (pre-registered)",
+    "camera_hash": "e596a8e5043795d81e4b188b6b76c0bad6bb20a24143c36c40c1aec7c31bbd54",
+    "camera_json_sha256": "5f0ebcb6b33e415061a485ed9961fb277cf7e875586f0d82d88b746d9d9fd502",
+    "gt_file": "/root/3dgs-renderer-benchmark/data/datasets/mipnerf360/bicycle/images/_DSC8838.JPG",
+    "gt_file_sha256": "1bb4b60ed1d9867632dcfcd828b644c8cb9e7a87ac8ebdfee62e3328efe20748",
+    "fused_loss_identity": {
+      "module_file": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim/__init__.py",
+      "so_path": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim_cuda.cpython-310-x86_64-linux-gnu.so",
+      "so_sha256": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb"
+    },
+    "checkpoint": "/root/epic05_p12/runs/p12a/p12a_gmainf_s42_bicycle/ckpt_30000.pt",
+    "checkpoint_sha256": "08f51400bbe301d1bf176f135688103f0d4108e88916bc3a9a3f65ee26f2fe51",
+    "checkpoint_iteration": 30000,
+    "checkpoint_arm": "gmain",
+    "n_gaussians": 3706340,
+    "active_sh_degree": 3,
+    "seed": 42
+  },
+  "mapping_audit": {
+    "model_source": "baseline/reference_v1/gaussian_model.py (EPIC repo, read-only)",
+    "model_attribute_map": {
+      "means<-_xyz": "gaussian_model.py L85-86 get_xyz returns _xyz (raw)",
+      "quats<-_rotation": "L81-82 get_rotation = F.normalize(_rotation); raw _rotation exported",
+      "log_scales<-_scaling": "L76-78 get_scaling = exp(_scaling); raw log exported",
+      "opacity_logits<-_opacity": "L88-90 get_opacity = sigmoid(_opacity).squeeze(-1); raw logit exported [N]",
+      "sh0<-_shs[:, :1]": "L92-96 get_features slices _shs to (active_sh_degree+1)^2; raw full tensor exported",
+      "shN<-_shs[:, 1:]": "same tensor; cat(sh0, shN) == _shs"
+    },
+    "export_py_deviation": {
+      "finding": "grc3d/export.py snapshot() targets graphdeco attribute names _features_dc/_features_rest; the EPIC reference_v1 GaussianModel has no such attributes (single _shs [N,16,3] tensor). The bundle mapping was adapted explicitly for this model after reading its source; the package file was not modified.",
+      "adapted": {
+        "sh0": "_shs[:, :1]",
+        "shN": "_shs[:, 1:]"
+      }
+    },
+    "checkpoint_field_equality": {
+      "means==ckpt.xyz": true,
+      "quats==ckpt.rotation": true,
+      "log_scales==ckpt.scaling": true,
+      "opacity_logits==ckpt.opacity": true,
+      "sh0==ckpt.shs[:, :1]": true,
+      "shN==ckpt.shs[:, 1:]": true
+    },
+    "activation_semantics": {
+      "exp(log_scales)==get_scaling": true,
+      "sigmoid(opacity_logits)==get_opacity": true,
+      "normalize(quats)==get_rotation": true,
+      "sh0|shN==get_features(full)": true,
+      "log_scales_stats": {
+        "min": -16.577001571655273,
+        "max": 1.5548501014709473
+      },
+      "opacity_logits_stats": {
+        "min": -6.32228946685791,
+        "max": 17.057653427124023
+      },
+      "n_gaussians": 3706340,
+      "sh_tensor_shape": [
+        [
+          1,
+          3
+        ],
+        [
+          15,
+          3
+        ]
+      ]
+    }
+  },
+  "renderer_parity": {
+    "forward": {
+      "maxabs": 0.002970069646835327,
+      "meanabs": 2.1491042900834145e-07,
+      "sum_abs": 1.3369147777557373,
+      "pass": false
+    },
+    "groups": {
+      "means": {
+        "relative_l2": 0.00038084556784864933,
+        "maxabs": 7.097942352294922,
+        "reference_norm": 56042.59078563243,
+        "pass_": false
+      },
+      "quats": {
+        "relative_l2": 0.0013088498742063175,
+        "maxabs": 1.0946052074432373,
+        "reference_norm": 1985.792146440373,
+        "pass_": false
+      },
+      "log_scales": {
+        "relative_l2": 0.0004887644568357254,
+        "maxabs": 0.03180750831961632,
+        "reference_norm": 175.5449428617089,
+        "pass_": false
+      },
+      "opacity_logits": {
+        "relative_l2": 0.00018972249593845976,
+        "maxabs": 0.010252505540847778,
+        "reference_norm": 119.88334179998725,
+        "pass_": false
+      },
+      "sh0": {
+        "relative_l2": 0.00014232684716486156,
+        "maxabs": 0.0023476630449295044,
+        "reference_norm": 88.83294205923532,
+        "pass_": false
+      },
+      "shN": {
+        "relative_l2": 0.000142326837297321,
+        "maxabs": 0.004231810569763184,
+        "reference_norm": 344.0484856417041,
+        "pass_": false
+      }
+    },
+    "checks": {
+      "forward_maxabs<=1e-5": false,
+      "group_grad_rel_l2<=1e-4": false
+    },
+    "note": "package renderer runs absgrad=False (diagnostic switch); baseline runs absgrad=True. Cotangent V is seeded random, same for both.",
+    "absgrad_invariance": {
+      "forward_maxabs": 0.0,
+      "groups": {
+        "means": {
+          "relative_l2": 5.197269116711781e-07,
+          "maxabs": 0.0121612548828125
+        },
+        "quats": {
+          "relative_l2": 0.0001356008265768473,
+          "maxabs": 0.09575653076171875
+        },
+        "log_scales": {
+          "relative_l2": 2.7982711878104758e-05,
+          "maxabs": 0.001400381326675415
+        },
+        "opacity_logits": {
+          "relative_l2": 3.0226596914663904e-07,
+          "maxabs": 1.33514404296875e-05
+        },
+        "sh0": {
+          "relative_l2": 7.442744222858431e-07,
+          "maxabs": 2.5510787963867188e-05
+        },
+        "shN": {
+          "relative_l2": 7.466662830310479e-07,
+          "maxabs": 4.076957702636719e-05
+        }
+      }
+    },
+    "quats_pre_normalized": {
+      "forward_maxabs": 0.002970069646835327
+    }
+  },
+  "ssim_parity": {
+    "scalar": {
+      "fused": 0.04561968892812729,
+      "package_loss_map": 0.045619696378707886,
+      "abs_diff": 7.450580596923828e-09,
+      "pass": true
+    },
+    "image_gradient": {
+      "relative_l2": 6.201626943228833e-06,
+      "maxabs": 1.5620571502950042e-10,
+      "reference_norm": 0.001179895810088229,
+      "maxabs<=1e-5": true
+    },
+    "model_gradients": {
+      "means": {
+        "relative_l2": 2.210732957075042e-06,
+        "maxabs": 2.3084794520400465e-08,
+        "reference_norm": 0.05954272234531002,
+        "pass_": true
+      },
+      "quats": {
+        "relative_l2": 0.00015945399069475905,
+        "maxabs": 2.8251452022232115e-07,
+        "reference_norm": 0.004478159589329689,
+        "pass_": false
+      },
+      "log_scales": {
+        "relative_l2": 4.092389743951791e-06,
+        "maxabs": 2.336719262530096e-09,
+        "reference_norm": 0.0019174701475987836,
+        "pass_": true
+      },
+      "opacity_logits": {
+        "relative_l2": 1.498892944386553e-06,
+        "maxabs": 1.1059455573558807e-09,
+        "reference_norm": 0.001166488019616838,
+        "pass_": true
+      },
+      "sh0": {
+        "relative_l2": 2.2769960118019043e-06,
+        "maxabs": 1.3387762010097504e-09,
+        "reference_norm": 0.001162690172571835,
+        "pass_": true
+      },
+      "shN": {
+        "relative_l2": 2.2820090553840115e-06,
+        "maxabs": 2.2118911147117615e-09,
+        "reference_norm": 0.00450307928989788,
+        "pass_": true
+      }
+    }
+  },
+  "p1_corrector": {
+    "loss_abs_diff": 0.0,
+    "n_selected": 510,
+    "groups": {
+      "means": {
+        "relative_l2": 1.1618584085612463e-06,
+        "maxabs": 3.1706804293207824e-08,
+        "pass_": true
+      },
+      "quats": {
+        "relative_l2": 0.00014296297018917962,
+        "maxabs": 2.4353948901989497e-07,
+        "pass_": false
+      },
+      "log_scales": {
+        "relative_l2": 4.27726825918411e-06,
+        "maxabs": 2.8547830766001425e-09,
+        "pass_": true
+      },
+      "opacity_logits": {
+        "relative_l2": 4.3838767223626356e-07,
+        "maxabs": 3.2014213502407074e-10,
+        "pass_": true
+      },
+      "sh0": {
+        "relative_l2": 6.111497072177e-07,
+        "maxabs": 3.4924596548080444e-10,
+        "pass_": true
+      },
+      "shN": {
+        "relative_l2": 6.1237840851305e-07,
+        "maxabs": 6.111804395914078e-10,
+        "pass_": true
+      }
+    }
+  },
+  "halo": {
+    "n_blocks": 510,
+    "rows": 17,
+    "cols": 30,
+    "partial_last_row_px": 56,
+    "all_block_scalar_maxabs": 0.0,
+    "grad_subset": {
+      "block_0": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": true
+      },
+      "block_15": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_29": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": true
+      },
+      "block_155": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_160": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_172": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_194": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_220": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_239": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_240": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_269": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_350": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_357": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_479": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_480": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": true
+      },
+      "block_481": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_487": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_495": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_502": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": false
+      },
+      "block_509": {
+        "relative_l2": 0.0,
+        "maxabs": 0.0,
+        "is_edge": true
+      }
+    }
+  },
+  "thresholds": {
+    "loss_abs": 1e-06,
+    "image_maxabs": 1e-05,
+    "group_grad_rel_l2": 0.0001,
+    "group_grad_maxabs_when_small_norm": 1e-07
+  },
+  "checks": {
+    "mapping.checkpoint_fields_equal": {
+      "pass": true,
+      "detail": {
+        "means==ckpt.xyz": true,
+        "quats==ckpt.rotation": true,
+        "log_scales==ckpt.scaling": true,
+        "opacity_logits==ckpt.opacity": true,
+        "sh0==ckpt.shs[:, :1]": true,
+        "shN==ckpt.shs[:, 1:]": true
+      }
+    },
+    "mapping.activation_semantics": {
+      "pass": true,
+      "detail": {
+        "exp(log_scales)==get_scaling": true,
+        "sigmoid(opacity_logits)==get_opacity": true,
+        "normalize(quats)==get_rotation": true,
+        "sh0|shN==get_features(full)": true,
+        "log_scales_stats": {
+          "min": -16.577001571655273,
+          "max": 1.5548501014709473
+        },
+        "opacity_logits_stats": {
+          "min": -6.32228946685791,
+          "max": 17.057653427124023
+        },
+        "n_gaussians": 3706340,
+        "sh_tensor_shape": [
+          [
+            1,
+            3
+          ],
+          [
+            15,
+            3
+          ]
+        ]
+      }
+    },
+    "renderer.forward_image": {
+      "pass": false,
+      "detail": {
+        "maxabs": 0.002970069646835327,
+        "meanabs": 2.1491042900834145e-07,
+        "sum_abs": 1.3369147777557373,
+        "pass": false
+      }
+    },
+    "renderer.group_gradients": {
+      "pass": false,
+      "detail": {
+        "means": 0.00038084556784864933,
+        "quats": 0.0013088498742063175,
+        "log_scales": 0.0004887644568357254,
+        "opacity_logits": 0.00018972249593845976,
+        "sh0": 0.00014232684716486156,
+        "shN": 0.000142326837297321
+      }
+    },
+    "renderer.absgrad_invariance": {
+      "pass": false,
+      "detail": {
+        "means": 5.197269116711781e-07,
+        "quats": 0.0001356008265768473,
+        "log_scales": 2.7982711878104758e-05,
+        "opacity_logits": 3.0226596914663904e-07,
+        "sh0": 7.442744222858431e-07,
+        "shN": 7.466662830310479e-07
+      }
+    },
+    "ssim.scalar_loss": {
+      "pass": true,
+      "detail": {
+        "fused": 0.04561968892812729,
+        "package_loss_map": 0.045619696378707886,
+        "abs_diff": 7.450580596923828e-09,
+        "pass": true
+      }
+    },
+    "ssim.image_gradient": {
+      "pass": true,
+      "detail": {
+        "relative_l2": 6.201626943228833e-06,
+        "maxabs": 1.5620571502950042e-10,
+        "reference_norm": 0.001179895810088229,
+        "maxabs<=1e-5": true
+      }
+    },
+    "ssim.model_gradients": {
+      "pass": false,
+      "detail": {
+        "means": 2.210732957075042e-06,
+        "quats": 0.00015945399069475905,
+        "log_scales": 4.092389743951791e-06,
+        "opacity_logits": 1.498892944386553e-06,
+        "sh0": 2.2769960118019043e-06,
+        "shN": 2.2820090553840115e-06
+      }
+    },
+    "p1_corrector.vs_dense": {
+      "pass": false,
+      "detail": {
+        "loss_abs_diff": 0.0
+      }
+    },
+    "halo.all_block_scalars<=1e-6": {
+      "pass": true,
+      "detail": {
+        "maxabs": 0.0
+      }
+    },
+    "halo.gradients<=1e-5": {
+      "pass": true,
+      "detail": {
+        "n_subset": 20
+      }
+    }
+  },
+  "cuda_memory_peak_gb": 13.88832712173462,
+  "verdict_M0": "FAIL"
+}

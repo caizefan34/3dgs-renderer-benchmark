@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-10-08T14:30:00Z",
+  "campaign": "TRAINABLE_HIGS_RUNTIME_RECOVERY_R8_MX",
+  "status": "HIGS_RUNTIME_RECOVERED",
+  "higs_entrypoint": {
+    "function": "rasterize_gaussian_higs_frozen",
+    "module": "gsplat.experimental.render.functional",
+    "recovered": true
+  },
+  "binary_identity": {
+    "baseline_sha256": "40a009837e75620454059cfdbb5088cc08423f281e4c734da3053b727d39df50",
+    "baseline_verified": true,
+    "candidate_sha256": "b64d02c1cdad51bfc9ff0c2c435f9a4c1d1603466700194fb30f1c2348bcf2c3",
+    "candidate_verified": true
+  },
+  "test_results": {
+    "test_580k": {
+      "status": "PASS",
+      "forward": "SUCCESS",
+      "backward": "SUCCESS",
+      "peak_memory_gb": 12.07,
+      "result_keys": ["frame", "alpha", "densification_info", "metadata"]
+    },
+    "test_4p4m": {
+      "status": "OOM_REPRODUCED",
+      "allocation_request_gb": 111.28,
+      "gpu_total_gb": 39.49,
+      "gpu_free_gb": 13.50,
+      "other_processes_gb": 23.45,
+      "pytorch_allocated_gb": 2.53,
+      "error": "CUDA out of memory"
+    }
+  },
+  "answers": {
+    "q1_entrypoint_found": true,
+    "q2_candidate_loaded": true,
+    "q3_580k_passed": true,
+    "q4_4p4m_called": true,
+    "q5_oom_reproduced": true,
+    "q6_allocation_site": "NOT_IDENTIFIED",
+    "q7_conditions_changed": "Allocation size: R8=111.28GB vs R3=13.90GB",
+    "q8_next_step": "INSTRUMENT_ALLOCATIONS"
+  },
+  "comparison_with_r3": {
+    "r3_allocation_gb": 13.90,
+    "r8_allocation_gb": 111.28,
+    "ratio": 8.0,
+    "both_oom": true,
+    "possible_factors": [
+      "Different GPU memory state",
+      "Other processes占用",
+      "Different batch composition",
+      "Different camera configuration"
+    ]
+  },
+  "verdict": {
+    "runtime_recovery": "SUCCESS",
+    "r3_reproduction": "PARTIAL",
+    "root_cause": "NOT_IDENTIFIED",
+    "next_action": "INSTRUMENT_ALLOCATIONS"
+  }
+}

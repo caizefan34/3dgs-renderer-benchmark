@@ -1,0 +1,668 @@
+{
+  "schema": "AMPS0_BASELINE_AUDIT",
+  "generated": "2026-10-05",
+  "role": "strong_baseline",
+  "primary_target": "Faster-GS fused training backend",
+  "reason": "Objective section 2: primary target is official/reproducible Faster-GS fused training backend. Faster-GS fused beats frozen C0 (gsplat) by 1.45-1.76x cross-backend on all 3 scenes (room/garden/bicycle). Vanilla 3DGS and clean gsplat retained only as diagnostic secondary baselines, never for headline speed.",
+  "frozen": {
+    "repo": "nerficg-project/faster-gaussian-splatting (NeRFICG framework)",
+    "framework_commit": "e458ac6e41810ad6d9405687c1e698fadd28dac5",
+    "method_lane": "FasterGSFused",
+    "method_commit": "ae665af2f91a4973bb92c40fdc4cba8d12fe3c96",
+    "remote": "https://github.com/nerficg-project/faster-gaussian-splatting",
+    "cuda_backend": "FasterGSFusedCudaBackend (pip-installed, non-editable)",
+    "cuda_backend_so_sha256": "3dc319970dc3a64595633887e4559965053b3b35abe78c2210d7484ef917ee91",
+    "toolchain": {
+      "gpu": "NVIDIA A100-SXM4-80GB (8x); all runs pinned to GPU index 1 (UUID GPU-f2f1e3be-845d-e628-aaae-d5d134e831e4)",
+      "python": "3.11.16 (main, Sep  2 2026, 23:39:52) [GCC 15.3.0]",
+      "torch": "2.8.0+cu128",
+      "cuda_runtime": "",
+      "driver": "570.133.20",
+      "compiler": "gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0",
+      "cudnn": "91002",
+      "conda_env": "/root/miniforge3/envs/p16_fastergs"
+    },
+    "authoritative_timing_host": "EPIC-05 A100-SXM4-80GB (GPU index 1)",
+    "local_gpu_used": false,
+    "timing_discipline": "exclusive GPU, CUDA_VISIBLE_DEVICES pinned at exec-time, no concurrent arms, contention audit (nvidia-smi before/after). All 12 runs contention_flag=False -> timing_authoritative=True.",
+    "evidence_dir": "fgs_strong_baseline_final/",
+    "evidence_sha256": {
+      "FGS_TIMING.json": "1bbdb007d8e784379b8512d184a9438db906cd06b5d945cbee6599752cb4f5a0",
+      "FGS_CONFIGS.json": "80d9a14927ae7d13eb9c24506f6913f5ee074d033972bea19d6e3159228830ba",
+      "FGS_SOURCE_LOCK.json": "9fa4e268c18348c684b415ee1fd5b5305b90eae149dc6066b8e0aafe083fc372",
+      "FGS_ENVIRONMENT.json": "20b2f9fe1993db6a70b10cfe6decdeb1bd97ea574833462b8dc0a167cb67d5ef",
+      "FGS_QUALITY.json": "44bfae097bb3d400de111ad106731daa80a469989a3ee23b31979b337279ba6a"
+    }
+  },
+  "fused_runs": {
+    "fgs_fused_iso_bicycle_s42_30000": {
+      "wall_s": 522.537,
+      "framework_total_time_s": 456.96272799999997,
+      "training_iteration_s": 448,
+      "peak_vram_gib": 10.127,
+      "n_gaussians_final": 4720561,
+      "exit_code": null
+    },
+    "fgs_fused_iso_garden_s42_30000": {
+      "wall_s": 593.187,
+      "framework_total_time_s": 531.006994,
+      "training_iteration_s": 523,
+      "peak_vram_gib": 10.356,
+      "n_gaussians_final": 4809378,
+      "exit_code": null
+    },
+    "fgs_fused_iso_room_s42_30000": {
+      "wall_s": 356.432,
+      "framework_total_time_s": 264.79121299999997,
+      "training_iteration_s": 260,
+      "peak_vram_gib": 8.347,
+      "n_gaussians_final": 1262605,
+      "exit_code": null
+    }
+  },
+  "per_scene_config_room": {
+    "fgs_main_iso_room_s42_30000": {
+      "method": "FasterGS",
+      "lane": "main",
+      "scene": "room",
+      "protocol": "corrected_iso",
+      "config_path": "/root/fgs_strong_baseline/configs/fgs_main_iso_room_s42_30000.yaml",
+      "seed": 42,
+      "iterations": 30000,
+      "dataset_path": "/root/3dgs-renderer-benchmark/data/datasets_sb0_stretched1080/room",
+      "test_step": 8,
+      "image_scale_factor": 0.5,
+      "apply_pca": false,
+      "densification": {
+        "start": 600,
+        "end": 14900,
+        "interval": 100,
+        "grad_threshold": 0.0002,
+        "percent_dense": 0.01,
+        "use_mcmc": false,
+        "max_primitives": 1000000
+      },
+      "pruning": {
+        "use": false,
+        "start": 6000,
+        "end": 30000,
+        "interval": 3000,
+        "soft_ratio": 0.8,
+        "hard_ratio": 0.3
+      },
+      "opacity_reset_interval": 3000,
+      "extra_opacity_reset_iteration": 500,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "filter_3d": {
+        "use": false,
+        "variant": false,
+        "variance": 0.2
+      },
+      "random_background": false,
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_interval": 5000,
+      "wandb_active": false,
+      "render_testset": true
+    },
+    "fgs_fused_iso_room_s42_30000": {
+      "method": "FasterGSFused",
+      "lane": "fused",
+      "scene": "room",
+      "protocol": "corrected_iso",
+      "config_path": "/root/fgs_strong_baseline/configs/fgs_fused_iso_room_s42_30000.yaml",
+      "seed": 42,
+      "iterations": 30000,
+      "dataset_path": "/root/3dgs-renderer-benchmark/data/datasets_sb0_stretched1080/room",
+      "test_step": 8,
+      "image_scale_factor": 0.5,
+      "apply_pca": false,
+      "densification": {
+        "start": 600,
+        "end": 14900,
+        "interval": 100,
+        "grad_threshold": 0.0002,
+        "percent_dense": 0.01,
+        "use_mcmc": false,
+        "max_primitives": 1000000
+      },
+      "pruning": {
+        "use": false,
+        "start": 6000,
+        "end": 30000,
+        "interval": 3000,
+        "soft_ratio": 0.8,
+        "hard_ratio": 0.3
+      },
+      "opacity_reset_interval": 3000,
+      "extra_opacity_reset_iteration": 500,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "filter_3d": {
+        "use": false,
+        "variant": false,
+        "variance": 0.2
+      },
+      "random_background": false,
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_interval": 5000,
+      "wandb_active": false,
+      "render_testset": true
+    },
+    "fgs_basis_iso_room_s42_30000": {
+      "method": "FasterGSBasis",
+      "lane": "basis",
+      "scene": "room",
+      "protocol": "corrected_iso",
+      "config_path": "/root/fgs_strong_baseline/configs/fgs_basis_iso_room_s42_30000.yaml",
+      "seed": 42,
+      "iterations": 30000,
+      "dataset_path": "/root/3dgs-renderer-benchmark/data/datasets_sb0_stretched1080/room",
+      "test_step": 8,
+      "image_scale_factor": 0.5,
+      "apply_pca": false,
+      "densification": {
+        "start": 600,
+        "end": 14900,
+        "interval": 100,
+        "grad_threshold": 0.0002,
+        "percent_dense": 0.01,
+        "use_mcmc": false,
+        "max_primitives": 1000000
+      },
+      "pruning": {
+        "use": false,
+        "start": 6000,
+        "end": 30000,
+        "interval": 3000,
+        "soft_ratio": 0.8,
+        "hard_ratio": 0.3
+      },
+      "opacity_reset_interval": 3000,
+      "extra_opacity_reset_iteration": 500,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "filter_3d": {
+        "use": false,
+        "variant": false,
+        "variance": 0.2
+      },
+      "random_background": false,
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_interval": 5000,
+      "wandb_active": false,
+      "render_testset": true
+    }
+  },
+  "quality": {
+    "metric": "corrected true-holdout (i%8==0 excluded from training, evaluated on excluded cameras), 1920x1080 iso stretch, seed42, 30K",
+    "generated": "2026-10-01T11:40:18.712508",
+    "scenes": {
+      "room": {
+        "lanes": {
+          "main": {
+            "psnr": 31.71531775058844,
+            "ssim": 0.9202772302505298,
+            "lpips": 0.2943174002262262,
+            "n_gaussians": 1276911,
+            "gaussian_trajectory": [
+              {
+                "checkpoint": "0005000.pt",
+                "iteration": 5000,
+                "n_gaussians": 927831
+              },
+              {
+                "checkpoint": "0010000.pt",
+                "iteration": 10000,
+                "n_gaussians": 1223869
+              },
+              {
+                "checkpoint": "0015000.pt",
+                "iteration": 15000,
+                "n_gaussians": 1324490
+              },
+              {
+                "checkpoint": "0020000.pt",
+                "iteration": 20000,
+                "n_gaussians": 1324490
+              },
+              {
+                "checkpoint": "0025000.pt",
+                "iteration": 25000,
+                "n_gaussians": 1324490
+              },
+              {
+                "checkpoint": "final.pt",
+                "iteration": 0,
+                "n_gaussians": 1276911
+              }
+            ]
+          },
+          "fused": {
+            "psnr": 31.63250062404535,
+            "ssim": 0.9199354831988995,
+            "lpips": 0.2956825628494605,
+            "n_gaussians": 1262605,
+            "gaussian_trajectory": [
+              {
+                "checkpoint": "0005000.pt",
+                "iteration": 5000,
+                "n_gaussians": 920595
+              },
+              {
+                "checkpoint": "0010000.pt",
+                "iteration": 10000,
+                "n_gaussians": 1207962
+              },
+              {
+                "checkpoint": "0015000.pt",
+                "iteration": 15000,
+                "n_gaussians": 1310915
+              },
+              {
+                "checkpoint": "0020000.pt",
+                "iteration": 20000,
+                "n_gaussians": 1310915
+              },
+              {
+                "checkpoint": "0025000.pt",
+                "iteration": 25000,
+                "n_gaussians": 1310915
+              },
+              {
+                "checkpoint": "final.pt",
+                "iteration": 0,
+                "n_gaussians": 1262605
+              }
+            ]
+          },
+          "basis": {
+            "psnr": 31.675369653946316,
+            "ssim": 0.9199648209107227,
+            "lpips": 0.2958997950339929,
+            "n_gaussians": 1230942,
+            "gaussian_trajectory": [
+              {
+                "checkpoint": "0005000.pt",
+                "iteration": 5000,
+                "n_gaussians": 898515
+              },
+              {
+                "checkpoint": "0010000.pt",
+                "iteration": 10000,
+                "n_gaussians": 1181872
+              },
+              {
+                "checkpoint": "0015000.pt",
+                "iteration": 15000,
+                "n_gaussians": 1277190
+              },
+              {
+                "checkpoint": "0020000.pt",
+                "iteration": 20000,
+                "n_gaussians": 1277190
+              },
+              {
+                "checkpoint": "0025000.pt",
+                "iteration": 25000,
+                "n_gaussians": 1277190
+              },
+              {
+                "checkpoint": "final.pt",
+                "iteration": 0,
+                "n_gaussians": 1230942
+              }
+            ]
+          }
+        },
+        "frozen_C0": {
+          "psnr": 30.7982,
+          "ssim": 0.9155,
+          "lpips": 0.307
+        }
+      },
+      "garden": {
+        "lanes": {
+          "main": {
+            "psnr": 26.880102793375652,
+            "ssim": 0.839240774512291,
+            "lpips": 0.15855509725709757,
+            "n_gaussians": 4814980,
+            "gaussian_trajectory": [
+              {
+                "checkpoint": "0005000.pt",
+                "iteration": 5000,
+                "n_gaussians": 3326682
+              },
+              {
+                "checkpoint": "0010000.pt",
+                "iteration": 10000,
+                "n_gaussians": 4578246
+              },
+              {
+                "checkpoint": "0015000.pt",
+                "iteration": 15000,
+                "n_gaussians": 4840096
+              },
+              {
+                "checkpoint": "0020000.pt",
+                "iteration": 20000,
+                "n_gaussians": 4840096
+              },
+              {
+                "checkpoint": "0025000.pt",
+                "iteration": 25000,
+                "n_gaussians": 4840096
+              },
+              {
+                "checkpoint": "final.pt",
+                "iteration": 0,
+                "n_gaussians": 4814980
+              }
+            ]
+          },
+          "fused": {
+            "psnr": 26.900856733322144,
+            "ssim": 0.8392521912852923,
+            "lpips": 0.15890810017784437,
+            "n_gaussians": 4809378,
+            "gaussian_trajectory": [
+              {
+                "checkpoint": "0005000.pt",
+                "iteration": 5000,
+                "n_gaussians": 3330092
+              },
+              {
+                "checkpoint": "0010000.pt",
+                "iteration": 10000,
+                "n_gaussians": 4573344
+              },
+              {
+                "checkpoint": "0015000.pt",
+                "iteration": 15000,
+                "n_gaussians": 4833988
+              },
+              {
+                "checkpoint": "0020000.pt",
+                "iteration": 20000,
+                "n_gaussians": 4833988
+              },
+              {
+                "checkpoint": "0025000.pt",
+                "iteration": 25000,
+                "n_gaussians": 4833988
+              },
+              {
+                "checkpoint": "final.pt",
+                "iteration": 0,
+                "n_gaussians": 4809378
+              }
+            ]
+          },
+          "basis": {
+            "psnr": 26.875518639882404,
+            "ssim": 0.8388198216756185,
+            "lpips": 0.15931686821083227,
+            "n_gaussians": 4744171,
+            "gaussian_trajectory": [
+              {
+                "checkpoint": "0005000.pt",
+                "iteration": 5000,
+                "n_gaussians": 3291361
+              },
+              {
+                "checkpoint": "0010000.pt",
+                "iteration": 10000,
+                "n_gaussians": 4512619
+              },
+              {
+                "checkpoint": "0015000.pt",
+                "iteration": 15000,
+                "n_gaussians": 4769467
+              },
+              {
+                "checkpoint": "0020000.pt",
+                "iteration": 20000,
+                "n_gaussians": 4769467
+              },
+              {
+                "checkpoint": "0025000.pt",
+                "iteration": 25000,
+                "n_gaussians": 4769467
+              },
+              {
+                "checkpoint": "final.pt",
+                "iteration": 0,
+                "n_gaussians": 4744171
+              }
+            ]
+          }
+        },
+        "frozen_C0": {
+          "psnr": 26.0088,
+          "ssim": 0.8199,
+          "lpips": 0.1981
+        }
+      },
+      "bicycle": {
+        "lanes": {
+          "main": {
+            "psnr": 24.725347900390624,
+            "ssim": 0.7292082238197327,
+            "lpips": 0.2872322505712509,
+            "n_gaussians": 4767826,
+            "gaussian_trajectory": [
+              {
+                "checkpoint": "0005000.pt",
+                "iteration": 5000,
+                "n_gaussians": 2202771
+              },
+              {
+                "checkpoint": "0010000.pt",
+                "iteration": 10000,
+                "n_gaussians": 3956587
+              },
+              {
+                "checkpoint": "0015000.pt",
+                "iteration": 15000,
+                "n_gaussians": 4863296
+              },
+              {
+                "checkpoint": "0020000.pt",
+                "iteration": 20000,
+                "n_gaussians": 4863296
+              },
+              {
+                "checkpoint": "0025000.pt",
+                "iteration": 25000,
+                "n_gaussians": 4863296
+              },
+              {
+                "checkpoint": "final.pt",
+                "iteration": 0,
+                "n_gaussians": 4767826
+              }
+            ]
+          },
+          "fused": {
+            "psnr": 24.737877883911132,
+            "ssim": 0.7281466245651245,
+            "lpips": 0.28880692064762115,
+            "n_gaussians": 4720561,
+            "gaussian_trajectory": [
+              {
+                "checkpoint": "0005000.pt",
+                "iteration": 5000,
+                "n_gaussians": 2185143
+              },
+              {
+                "checkpoint": "0010000.pt",
+                "iteration": 10000,
+                "n_gaussians": 3913058
+              },
+              {
+                "checkpoint": "0015000.pt",
+                "iteration": 15000,
+                "n_gaussians": 4816295
+              },
+              {
+                "checkpoint": "0020000.pt",
+                "iteration": 20000,
+                "n_gaussians": 4816295
+              },
+              {
+                "checkpoint": "0025000.pt",
+                "iteration": 25000,
+                "n_gaussians": 4816295
+              },
+              {
+                "checkpoint": "final.pt",
+                "iteration": 0,
+                "n_gaussians": 4720561
+              }
+            ]
+          },
+          "basis": {
+            "psnr": 24.730473556518554,
+            "ssim": 0.726914701461792,
+            "lpips": 0.29123724579811094,
+            "n_gaussians": 4587236,
+            "gaussian_trajectory": [
+              {
+                "checkpoint": "0005000.pt",
+                "iteration": 5000,
+                "n_gaussians": 2142598
+              },
+              {
+                "checkpoint": "0010000.pt",
+                "iteration": 10000,
+                "n_gaussians": 3812780
+              },
+              {
+                "checkpoint": "0015000.pt",
+                "iteration": 15000,
+                "n_gaussians": 4679240
+              },
+              {
+                "checkpoint": "0020000.pt",
+                "iteration": 20000,
+                "n_gaussians": 4679240
+              },
+              {
+                "checkpoint": "0025000.pt",
+                "iteration": 25000,
+                "n_gaussians": 4679240
+              },
+              {
+                "checkpoint": "final.pt",
+                "iteration": 0,
+                "n_gaussians": 4587236
+              }
+            ]
+          }
+        },
+        "frozen_C0": {
+          "psnr": 21.6952,
+          "ssim": 0.6766,
+          "lpips": 0.3143
+        }
+      }
+    },
+    "official_split": {
+      "room": {
+        "lanes": {
+          "main": {
+            "psnr": 32.935334572425255,
+            "ssim": 0.9612655104734958,
+            "lpips": 0.08345665935522471
+          },
+          "fused": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null
+          },
+          "basis": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null
+          }
+        }
+      },
+      "garden": {
+        "lanes": {
+          "main": {
+            "psnr": 30.485615332921345,
+            "ssim": 0.9386652360359827,
+            "lpips": 0.04561751591973007
+          },
+          "fused": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null
+          },
+          "basis": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null
+          }
+        }
+      },
+      "bicycle": {
+        "lanes": {
+          "main": {
+            "psnr": 27.805105133056642,
+            "ssim": 0.8755086493492127,
+            "lpips": 0.10364278823137284
+          },
+          "fused": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null
+          },
+          "basis": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null
+          }
+        }
+      }
+    }
+  },
+  "local_reproducibility": {
+    "local_gpu": "NVIDIA GeForce RTX 5070 Laptop (8GB)",
+    "local_torch": "2.13.0+cu130",
+    "local_gsplat": "1.4.0",
+    "faster_gs_fused_buildable_locally": false,
+    "reason": "Faster-GS fused CUDA backend needs A100 toolchain (CUDA 12.8, gcc 11.4, NeRFICG framework) absent locally; gsplat 1.4 CUDA cannot JIT-compile here (no MSVC). Local work limited to pure-PyTorch oracle numerics, marked non-authoritative.",
+    "shared_gpu_numerics_only": true,
+    "performance_evidence_valid_locally": false
+  },
+  "diagnostic_secondary_baselines": {
+    "vanilla_3dgs": "diagnostic only",
+    "clean_gsplat": "C0 frozen backend, diagnostic only"
+  }
+}

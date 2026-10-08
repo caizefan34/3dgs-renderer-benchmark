@@ -1,5 +1,7 @@
 # Intersection → Sorting Research Gap Audit
 
+**2026-09-28 update:** The 2026-09-06 Gap-A recommendation below is historical and no longer an open originality claim. Upstream gsplat AccuTile (PR #927) already performs conservative opacity-aware ellipse/tile enumeration using SnugBox and strip intersection; the source and A100 identity audit is `reports/accutile/accutile-identity-audit.md`. Gap C's characterization of RoofGS as coarse-depth-map occlusion culling was not verified against its source. A separate joint-foreground transmittance certificate is only a current hypothesis (`experiments/training_solver_design/TILE_PREFIX_TRANSMITTANCE_GATE_20260928.md`), not an established improvement.
+
 **Date:** 2026-09-06  
 **Objective:** Identify the most promising research gap for reducing the intersection→sorting bottleneck in 3D Gaussian Splatting rendering, based on A100 experimental evidence and prior-art analysis.
 
@@ -115,16 +117,16 @@ For each paper, I classify its contribution along two axes:
 | Pair reduction | Pre-intersection: YES | Sorting input reduction: INDIRECT |
 | **Relevance to H6** | MEDIUM — addresses N_visible reduction, not N_tiles per Gaussian |
 
-### 3.2. Splatshop (2024)
+### 3.2. Splatshop (2025)
 
 | Aspect | Detail |
 |:-------|:-------|
-| Target | **A, F** — Gaussian compaction + pruning |
-| Mechanism | Merges near-duplicate Gaussians; reduces total Gaussian count at training time |
-| What it solves | Fewer Gaussians → fewer intersections overall |
-| What it does NOT solve | Does not change the intersection MULTIPLICATION factor — surviving Gaussians still cover all tiles |
-| Pair reduction | Pre-training: YES | Runtime sorting: INDIRECT |
-| **Relevance to H6** | LOW — orthogonal to the tile-coverage saturation problem |
+| Target | Interactive 3DGS editing and rendering |
+| Mechanism | Sorts visible splats by depth before creating tile fragments; fragments remain materialized |
+| What it solves | Changes sort order from per-intersection depth keys to visible-splat depth order |
+| What it does NOT solve | Does not eliminate the O(N_intersections) fragment materialization or train-time gradients |
+| Pair reduction | No established reduction in the number of Gaussian–tile fragments |
+| **Relevance to H6** | MEDIUM — sorting architecture is relevant, not evidence of Gaussian merging |
 
 ### 3.3. HiGS (2025)
 
@@ -462,7 +464,7 @@ When a Gaussian covers the entire screen, every tile gets the same Gaussian as a
 
 **Can a single Gaussian's intersection with each tile be decoupled into independent sub-Gaussians, each covering at most a small number of tiles?**
 
-This differs from Splatshop's Gaussian merging (which is about training-time compaction). This is a **runtime decomposition** aimed at limiting the per-Gaussian tile enumeration.
+Splatshop globally depth-sorts visible splats before creating tile fragments for interactive rendering; it is not a training-time Gaussian-merging method. This proposed runtime decomposition is different, but its novelty and cost benefit remain unverified. See the later source audit `reports/phase-c17-c2/c1_prior_art_differentiation.md` §3.
 
 #### 5. Evidence From Our Repo
 

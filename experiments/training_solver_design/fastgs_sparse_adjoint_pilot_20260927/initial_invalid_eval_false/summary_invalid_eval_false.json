@@ -1,0 +1,107 @@
+{
+  "experiment": "FastGS 75% stratified image-adjoint veto pilot",
+  "date": "2026-09-27",
+  "verdict": "INVALID FIRST ATTEMPT: launcher omitted --eval, so all 311 cameras, including the measured 39, were used in training. Metrics are audit-only and not evidence of unseen-view quality.",
+  "quality_results_usable": false,
+  "source": {
+    "remote_host": "EPIC-05",
+    "repository": "/root/codex_fastgs_audit_20260927",
+    "author_commit": "44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f",
+    "author_train_py_sha256": "1fd700c341d109f13f95ff3a3cdf1328445f27909119e7eacadb31913e34c963",
+    "input_checkpoint": "/root/codex_fastgs_audit_20260927/checkpoints/room_big_4099.pth",
+    "input_checkpoint_sha256": "d91ba09a5ab040373cc59a93b6864949cb3cc1b5d5b2dea17c79223fef7e927b"
+  },
+  "protocol": {
+    "start_iteration": 4099,
+    "end_iteration": 10000,
+    "training_resolution": [1600, 1066],
+    "loss": "0.8 * L1 + 0.2 * (1 - fused_ssim), computed on every full-resolution forward",
+    "mask": "Each 16x16 tile omits one random checkerboard parity class, retains 75% of pixels and scales retained image VJP entries by 4/3.",
+    "mask_generator": "Independent CUDA torch.Generator, seed 20260927; p=1 control registers no image-gradient hook.",
+    "matched_author_settings": {
+      "highfeature_lr": 0.02,
+      "grad_abs_thresh": 0.0004,
+      "camera_rng_initialization": "Unmodified author safe_state path in both fresh processes; mask generator is separate from the author RNGs."
+    },
+    "arms": 2,
+    "official_test_views_used": false,
+    "development_views_measured": 39,
+    "training_split": "eval=False; the 39 measured views were included among the 311 training cameras."
+  },
+  "arms": {
+    "p1_control": {
+      "gpu": 3,
+      "mask_probability": 1.0,
+      "training_time_s_author": 60.45152609467488,
+      "process_wall_s": 128.98,
+      "ply_gaussians_4612": 674957,
+      "ply_gaussians_10000": 693955,
+      "post_final_event_gaussians": 694419,
+      "metrics_10000": {
+        "psnr": 31.7041810353597,
+        "ssim": 0.9229275553654401,
+        "lpips": 0.21305444645575988
+      },
+      "remote_output": "/root/codex_fastgs_audit_20260927/output/room_sparse_adj_p1_10k",
+      "artifacts": {
+        "ply_4612_sha256": "29fd0f18951a054612647ddd0b1e3acafcac0fbd92cfe0359c5503f42012b484",
+        "ply_10000_sha256": "f018a316c7c767879ecf87fb0fccd5f504271e26a14f548ca12e366320743ac4",
+        "checkpoint_10000_sha256": "e5f1f8d377c9470bd0ca89035b71f833c60a3d0777e71bdb4fd630635f614738"
+      }
+    },
+    "p75_sparse_adjoint": {
+      "gpu": 4,
+      "mask_probability": 0.75,
+      "training_time_s_author": 65.14237104046364,
+      "process_wall_s": 135.32,
+      "ply_gaussians_4612": 672571,
+      "ply_gaussians_10000": 689582,
+      "post_final_event_gaussians": 690230,
+      "metrics_10000": {
+        "psnr": 31.69348325484838,
+        "ssim": 0.9222791424164405,
+        "lpips": 0.213975387888077
+      },
+      "remote_output": "/root/codex_fastgs_audit_20260927/output/room_sparse_adj_p75_10k",
+      "artifacts": {
+        "ply_4612_sha256": "ec9d71031d86cd068ea6cf40a62fe31fccc8c8840eef1a3bdcbe416ccde91aa9",
+        "ply_10000_sha256": "8ae081485cf27edf1447d609b1e6e97d252d453d78ed8c75656b5ec2d5ffe307",
+        "checkpoint_10000_sha256": "a8ed18a8391f22c4a093430c368c053d2afd7d2bfdfb9f90536b7d00867c9dfe"
+      }
+    }
+  },
+  "paired_development_evaluation": {
+    "dataset": "Mip-NeRF 360 room; 39 previously consulted development-retain views",
+    "resolution": [1600, 1066],
+    "delta_p75_minus_p1": {
+      "psnr": {
+        "mean": -0.010697780511318108,
+        "paired_95pct_t_interval_descriptive": [-0.07145892484406698, 0.050063363821430756],
+        "views_worse": 22
+      },
+      "ssim": {
+        "mean": -0.0006484129489996495,
+        "paired_95pct_t_interval_descriptive": [-0.0009204087863533837, -0.00037641711164591526],
+        "views_worse": 33
+      },
+      "lpips": {
+        "mean": 0.000920941432317098,
+        "paired_95pct_t_interval_descriptive": [0.000411726040189961, 0.001430156824444235],
+        "views_worse": 31
+      }
+    },
+    "limits": "Single scene and one paired run; development views are correlated and already consulted. Paired t intervals are descriptive, not independent-view or generalization evidence."
+  },
+  "timing_interpretation": "p75 was 4.9% slower by complete process wall and 7.8% slower by the author's internal training timer in this run. Python masking does not skip CUDA raster backward work; these timings do not establish algorithmic speedup.",
+  "checkpoint_timing_note": "The author's scene.save(10000) writes the PLY before the final-iteration densification event. The added final Adam checkpoint is written after that event, so terminal checkpoint point counts exceed the evaluated native 10K PLY counts by 464 (p1) and 648 (p75).",
+  "local_raw_files": {
+    "directory": "experiments/training_solver_design/fastgs_sparse_adjoint_pilot_20260927",
+    "metrics_39_json_sha256": "d34ec8634028ad2669f6c2fb5ad53286cc5ddc1b8eb67e3e7a706bd8cfb39a30",
+    "p1_log_sha256": "7fedd69e1c5be4ca9254a44eef294b298cea8efb740ded7d7975a4ada00c9111",
+    "p1_time_sha256": "a748b8da4bf3551d11f760cc45120857d3c44d4a9615b68e872bb850e2391700",
+    "p75_log_sha256": "54447270b2c2d732c345c7996ab7c9571791cd0e4bd2c5a6671525ba50993eba",
+    "p75_time_sha256": "69c5a16a5b9363bd472cb73b07d0653a60e9df83c9674857f14d81e3041596bd",
+    "eval_time_sha256": "25bb393706995dabee8ad53c01c8ca724e802fce9e1a8189afa60b8901fbd708"
+  },
+  "remote_raw_directory": "/root/fastgs_sparse_adjoint_pilot_20260927"
+}

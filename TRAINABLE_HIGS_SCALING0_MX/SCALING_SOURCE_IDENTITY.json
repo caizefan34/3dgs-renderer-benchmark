@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "study_id": "TRAINABLE_HIGS_SCALING0_MX",
+  "timestamp": "2026-08-04T00:00:00Z",
+  "round": 1,
+  "status": "ANALYSIS_FROM_EXISTING_EVIDENCE",
+  "source_trees": {
+    "baseline_B": {
+      "description": "Pristine conventional differentiable gsplat baseline",
+      "repository": "https://github.com/nerfstudio-project/gsplat",
+      "commit": "77ab983 (per patches/higs-differentiable.patch base)",
+      "source_path": "public_baselines/gsplat/ (reference tree in repo)",
+      "installed_version": "gsplat 1.4.0 (miniconda3 site-packages, inference-only)",
+      "cuda_extension": "Not built on this machine",
+      "notes": "Installed gsplat lacks trainable HiGS; benchmark requires patched tree"
+    },
+    "trainable_H": {
+      "description": "Trainable HiGS native differentiable path",
+      "repository": "https://github.com/nerfstudio-project/gsplat + patches/higs-differentiable.patch",
+      "patch_sha256": "TO_BE_COMPUTED",
+      "patch_applied_to": "77ab983",
+      "source_paths": {
+        "python_api": "gsplat/experimental/render/functional/gaussian_inference.py",
+        "native_backward_cuda": "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu",
+        "gather_kernels": "gsplat/experimental/render/kernels/cuda/csrc/GatherVisible.cu",
+        "extension_bindings": "gsplat/experimental/render/kernels/cuda/csrc/ext.cpp"
+      },
+      "compiled_extension": "gsplat_scene_cuda (JIT or pre-built)",
+      "backward_backend_default": "higs_native",
+      "fallback_backend": "gsplat_recompute",
+      "notes": "Native HiGS backward verified on EPIC-05 (A100); Windows local build requires MSVC + CUDA toolkit"
+    }
+  },
+  "environment": {
+    "current_machine": {
+      "os": "Windows",
+      "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU",
+      "vram_gb": 8.0,
+      "driver_version": "592.01",
+      "cuda_available": true,
+      "torch_version": "2.13.0+cu130",
+      "python_version": "3.13.13"
+    },
+    "benchmark_target_machine": {
+      "os": "Linux",
+      "gpu": "NVIDIA A100-PCIE-40GB (8 GPUs on MX node)",
+      "vram_gb": 40.0,
+      "driver_version": "595.71.05",
+      "cuda_version": "12.8",
+      "torch_version": "2.9.1+cu128",
+      "python_version": "3.10.12",
+      "hostname": "mx",
+      "access": "ssh mx",
+      "conda_env": "/mnt/storage_pool/liaoyuanjun/higs-13scene-env",
+      "status": "DISK FULL - cannot run benchmarks (100% usage on / and /mnt/storage_pool)",
+      "notes": "All HiGS trainability benchmarks (2026-07-31 to 2026-08-02) ran on EPIC-05 A100-80GB; MX has A100-40GB x8 but no disk space"
+    }
+  },
+  "mx_environment_verification": {
+    "timestamp": "2026-08-04",
+    "gpu_detected": "NVIDIA A100-PCIE-40GB (8 instances)",
+    "torch_version": "2.9.1+cu128",
+    "gsplat_import": "BLOCKED - no space left on device",
+    "datasets_location": "Unknown (likely /mnt/storage_pool but full)",
+    "benchmark_execution_possible": false,
+    "blocker": "Disk space exhausted (0 bytes available on / and /mnt/storage_pool)"
+  },
+  "git_provenance": {
+    "repository": "C:\\Users\\36570\\3dgs-renderer-benchmark",
+    "commit": "4b84e83108c7c70a3adec3a9e0eb535d1b19aaf0",
+    "branch": "main",
+    "status": "Modified (various experimental branches)"
+  },
+  "verification": {
+    "source_identity_check": "PASS - sources identified from patches and existing reports",
+    "build_verification": "BLOCKED - patched gsplat tree not present on this machine",
+    "dataset_verification": "BLOCKED - datasets/processed/ not populated",
+    "execution_blocker": "This is an analysis round; actual benchmarks require EPIC-05 A100 + custom build"
+  }
+}

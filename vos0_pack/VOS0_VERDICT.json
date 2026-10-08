@@ -1,0 +1,85 @@
+{
+  "schema": "VOS0_VERDICT/v1",
+  "verdict": "VIABLE",
+  "strong": false,
+  "verdict_scope": "VOS0 asks whether invisible (cold, <10% visibility) Gaussians can be updated less frequently (every 2/4/8 iters) without quality loss, and whether the skipped optimizer steps yield >=20% workload reduction.",
+  "gates": {
+    "quality": {
+      "metric": "PSNR loss vs dense arm (held-out eval, GT-free vs clean 30K ref)",
+      "primary": "pooled median loss <= 0.05 dB (48 values = 3 scenes x 16 cams)",
+      "secondary": "per-scene worst median loss <= 0.05 dB (flagged)",
+      "pooled_median_loss_at_recommended_k": -0.013704746283002667,
+      "pooled_mean_loss_at_recommended_k": 0.008047442093819062,
+      "per_scene_worst_median_loss_at_recommended_k": 0.06973435941185857,
+      "pass_pooled": true,
+      "pass_per_scene_worst": false
+    },
+    "economic": {
+      "metric": "geomean optimizer-step reduction across scenes",
+      "gate": ">= 20%",
+      "geomean_at_recommended_k": 0.2508262879158024,
+      "per_scene_at_recommended_k": {
+        "room": 0.2356943684353222,
+        "garden": 0.1942962670083417,
+        "bicycle": 0.3445922376456183
+      },
+      "pass": true
+    }
+  },
+  "recommended_k": 4,
+  "economic_by_k": {
+    "k2": {
+      "geomean": 0.16721752527720168,
+      "pass": false
+    },
+    "k4": {
+      "geomean": 0.2508262879158024,
+      "pass": true
+    },
+    "k8": {
+      "geomean": 0.29263066923510284,
+      "pass": true
+    }
+  },
+  "quality_by_k": {
+    "k2": {
+      "pooled_median_loss": 0.014883021699048204,
+      "pooled_mean_loss": 0.004065254058115871,
+      "per_scene_worst_median_loss": 0.03577355156501061,
+      "pass_pooled": true,
+      "pass_per_scene_worst": true
+    },
+    "k4": {
+      "pooled_median_loss": -0.013704746283002667,
+      "pooled_mean_loss": 0.008047442093819062,
+      "per_scene_worst_median_loss": 0.06973435941185857,
+      "pass_pooled": true,
+      "pass_per_scene_worst": false
+    },
+    "k8": {
+      "pooled_median_loss": 0.006880205191304167,
+      "pooled_mean_loss": 0.023457025623799924,
+      "per_scene_worst_median_loss": 0.07790000861393631,
+      "pass_pooled": true,
+      "pass_per_scene_worst": false
+    }
+  },
+  "per_scene_at_recommended_k": {
+    "room": {
+      "cold_frac": 0.31425915791376297,
+      "median_loss": -0.04871623396300509,
+      "workload_reduction": 0.2356943684353222
+    },
+    "garden": {
+      "cold_frac": 0.2590616893444556,
+      "median_loss": -0.017351185508079237,
+      "workload_reduction": 0.1942962670083417
+    },
+    "bicycle": {
+      "cold_frac": 0.45945631686082444,
+      "median_loss": 0.06973435941185857,
+      "workload_reduction": 0.3445922376456183
+    }
+  },
+  "failure_mode": null
+}

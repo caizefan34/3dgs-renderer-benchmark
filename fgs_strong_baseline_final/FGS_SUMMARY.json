@@ -1,0 +1,706 @@
+{
+  "task": "Faster-GS Strong Baseline Reproduction",
+  "generated": "2026-10-01T11:40:39.682340",
+  "machine": "EPIC-05 A100-SXM4-80GB (all GPU work; local RTX 5070 not used)",
+  "seed": 42,
+  "iterations": 30000,
+  "scenes": [
+    "room",
+    "garden",
+    "bicycle"
+  ],
+  "official_commits": {
+    "FasterGS": "d7fae871c45384b67b4c348f804762c923949018",
+    "FasterGSFused": "ae665af2f91a4973bb92c40fdc4cba8d12fe3c96",
+    "FasterGSBasis": "0088b4df7f04d81920644a144da6c124c6bf8789"
+  },
+  "official_branches": {
+    "FasterGS": "HEAD",
+    "FasterGSFused": "HEAD",
+    "FasterGSBasis": "HEAD"
+  },
+  "faithful_reproduction": true,
+  "faithfulness_notes": [
+    "All three method repos cloned from official https://github.com/nerficg-project/faster-gaussian-splatting, checked out at the exact commits below, git status clean (dirty=False).",
+    "No algorithmic code modified: no threshold/optimizer/renderer/loss changes. Only non-algorithmic BACKUP.INTERVAL set to 5000 to capture Gaussian-count trajectory (official configs use -1); this does not affect the training loop or quality.",
+    "main lane checked out at true official main tip d7fae871 (FasterGS). The 2-commit delta vs the prior 117bdba checkout is MCMC-only (inactive under USE_MCMC=false); rebuilt FasterGSCudaBackend from main tip.",
+    "FasterGSFused at ae665af2 (official FasterGSFused branch tip). FasterGSBasis at 0088b4df (official FasterGSBasis branch tip).",
+    "Corrected holdout: TEST_STEP=8 => i%8==0 fully excluded from training; identical camera identity to frozen C0 holdout8 (stems match across native and iso roots).",
+    "Official arm uses native COLMAP + IMAGE_SCALE_FACTOR=0.25 (images_4). Host native images are 1920x1080, so images_4=480x270 (lower than the paper's ~1000px); this resolution caveat is documented and official vs corrected metrics are never mixed."
+  ],
+  "lanes": {
+    "main": {
+      "method": "FasterGS",
+      "backend": "FasterGSCudaBackend",
+      "role": "Lane A - official Faster-GS main branch"
+    },
+    "fused": {
+      "method": "FasterGSFused",
+      "backend": "FasterGSFusedCudaBackend (fused backward pass + fused optimizer)",
+      "role": "Lane B - official FasterGSFused branch (fused backward + optimizer)"
+    },
+    "basis": {
+      "method": "FasterGSBasis",
+      "backend": "FasterGSBasisCudaBackend (basis-codebook representation)",
+      "role": "official basis/baseline (same-backend reference; all Faster-GS variants built on top)"
+    },
+    "frozen_C0": {
+      "backend": "gsplat",
+      "role": "current project frozen C0 (CROSS-BACKEND reference only)"
+    }
+  },
+  "components_enabled": {
+    "fgs_main_iso_room_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_main_official_room_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_main_iso_garden_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_main_official_garden_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_main_iso_bicycle_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_main_official_bicycle_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_fused_iso_room_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_fused_official_room_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=None, end=None, interval=None, grad_threshold=None, percent_dense=None)",
+      "use_mcmc": null,
+      "pruning_use": null,
+      "filter_3d_use": null,
+      "random_background": null,
+      "opacity_reset_interval": null,
+      "morton_ordering": null,
+      "loss": null,
+      "min_opacity_after_training": null,
+      "backup_checkpoint_interval": null
+    },
+    "fgs_fused_iso_garden_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_fused_official_garden_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=None, end=None, interval=None, grad_threshold=None, percent_dense=None)",
+      "use_mcmc": null,
+      "pruning_use": null,
+      "filter_3d_use": null,
+      "random_background": null,
+      "opacity_reset_interval": null,
+      "morton_ordering": null,
+      "loss": null,
+      "min_opacity_after_training": null,
+      "backup_checkpoint_interval": null
+    },
+    "fgs_fused_iso_bicycle_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_fused_official_bicycle_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=None, end=None, interval=None, grad_threshold=None, percent_dense=None)",
+      "use_mcmc": null,
+      "pruning_use": null,
+      "filter_3d_use": null,
+      "random_background": null,
+      "opacity_reset_interval": null,
+      "morton_ordering": null,
+      "loss": null,
+      "min_opacity_after_training": null,
+      "backup_checkpoint_interval": null
+    },
+    "fgs_basis_iso_room_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_basis_official_room_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=None, end=None, interval=None, grad_threshold=None, percent_dense=None)",
+      "use_mcmc": null,
+      "pruning_use": null,
+      "filter_3d_use": null,
+      "random_background": null,
+      "opacity_reset_interval": null,
+      "morton_ordering": null,
+      "loss": null,
+      "min_opacity_after_training": null,
+      "backup_checkpoint_interval": null
+    },
+    "fgs_basis_iso_garden_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_basis_official_garden_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=None, end=None, interval=None, grad_threshold=None, percent_dense=None)",
+      "use_mcmc": null,
+      "pruning_use": null,
+      "filter_3d_use": null,
+      "random_background": null,
+      "opacity_reset_interval": null,
+      "morton_ordering": null,
+      "loss": null,
+      "min_opacity_after_training": null,
+      "backup_checkpoint_interval": null
+    },
+    "fgs_basis_iso_bicycle_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=600, end=14900, interval=100, grad_threshold=0.0002, percent_dense=0.01)",
+      "use_mcmc": false,
+      "pruning_use": false,
+      "filter_3d_use": false,
+      "random_background": false,
+      "opacity_reset_interval": 3000,
+      "morton_ordering": {
+        "interval": 5000,
+        "end": 15000
+      },
+      "loss": {
+        "lambda_l1": 0.8,
+        "lambda_dssim": 0.2,
+        "lambda_opacity_reg": 0.0,
+        "lambda_scale_reg": 0.0
+      },
+      "min_opacity_after_training": 0.00392156862745098,
+      "backup_checkpoint_interval": 5000
+    },
+    "fgs_basis_official_bicycle_s42_30000": {
+      "densification_strategy": "gradient-based adaptive densification (start=None, end=None, interval=None, grad_threshold=None, percent_dense=None)",
+      "use_mcmc": null,
+      "pruning_use": null,
+      "filter_3d_use": null,
+      "random_background": null,
+      "opacity_reset_interval": null,
+      "morton_ordering": null,
+      "loss": null,
+      "min_opacity_after_training": null,
+      "backup_checkpoint_interval": null
+    }
+  },
+  "corrected_true_holdout": {
+    "protocol": "1920x1080 iso anisotropic stretch, seed42, 30K, TEST_STEP=8 holdout",
+    "per_scene": {
+      "room": {
+        "lanes": {
+          "main": {
+            "psnr": 31.71531775058844,
+            "ssim": 0.9202772302505298,
+            "lpips": 0.2943174002262262,
+            "n_gaussians": 1276911,
+            "wall_s": 355.836,
+            "peak_vram_allocated_gib": 9.157,
+            "peak_vram_reserved_gib": 9.678,
+            "exit_code": 0,
+            "contention_flag": false
+          },
+          "fused": {
+            "psnr": 31.63250062404535,
+            "ssim": 0.9199354831988995,
+            "lpips": 0.2956825628494605,
+            "n_gaussians": 1262605,
+            "wall_s": 356.432,
+            "peak_vram_allocated_gib": 8.962,
+            "peak_vram_reserved_gib": 9.739,
+            "exit_code": 0,
+            "contention_flag": false
+          },
+          "basis": {
+            "psnr": 31.675369653946316,
+            "ssim": 0.9199648209107227,
+            "lpips": 0.2958997950339929,
+            "n_gaussians": 1230942,
+            "wall_s": 1391.279,
+            "peak_vram_allocated_gib": 9.294,
+            "peak_vram_reserved_gib": 9.848,
+            "exit_code": 0,
+            "contention_flag": false
+          }
+        },
+        "frozen_C0": {
+          "psnr": 30.7982,
+          "ssim": 0.9155,
+          "lpips": 0.307,
+          "n_gaussians": 853453,
+          "train_wall_s": 516.1,
+          "backend": "gsplat",
+          "note": "CROSS-BACKEND reference (frozen C0, holdout8, iso 1920x1080 stretch, seed42, 30K)."
+        }
+      },
+      "garden": {
+        "lanes": {
+          "main": {
+            "psnr": 26.880102793375652,
+            "ssim": 0.839240774512291,
+            "lpips": 0.15855509725709757,
+            "n_gaussians": 4814980,
+            "wall_s": 1111.555,
+            "peak_vram_allocated_gib": 11.6,
+            "peak_vram_reserved_gib": 15.135,
+            "exit_code": 0,
+            "contention_flag": false
+          },
+          "fused": {
+            "psnr": 26.900856733322144,
+            "ssim": 0.8392521912852923,
+            "lpips": 0.15890810017784437,
+            "n_gaussians": 4809378,
+            "wall_s": 593.187,
+            "peak_vram_allocated_gib": 11.12,
+            "peak_vram_reserved_gib": 13.078,
+            "exit_code": 0,
+            "contention_flag": false
+          },
+          "basis": {
+            "psnr": 26.875518639882404,
+            "ssim": 0.8388198216756185,
+            "lpips": 0.15931686821083227,
+            "n_gaussians": 4744171,
+            "wall_s": 1783.502,
+            "peak_vram_allocated_gib": 12.366,
+            "peak_vram_reserved_gib": 13.583,
+            "exit_code": 0,
+            "contention_flag": false
+          }
+        },
+        "frozen_C0": {
+          "psnr": 26.0088,
+          "ssim": 0.8199,
+          "lpips": 0.1981,
+          "n_gaussians": 2548992,
+          "train_wall_s": 815.7,
+          "backend": "gsplat",
+          "note": "CROSS-BACKEND reference (frozen C0, holdout8, iso 1920x1080 stretch, seed42, 30K)."
+        }
+      },
+      "bicycle": {
+        "lanes": {
+          "main": {
+            "psnr": 24.725347900390624,
+            "ssim": 0.7292082238197327,
+            "lpips": 0.2872322505712509,
+            "n_gaussians": 4767826,
+            "wall_s": 493.633,
+            "peak_vram_allocated_gib": 11.474,
+            "peak_vram_reserved_gib": 14.349,
+            "exit_code": 0,
+            "contention_flag": false
+          },
+          "fused": {
+            "psnr": 24.737877883911132,
+            "ssim": 0.7281466245651245,
+            "lpips": 0.28880692064762115,
+            "n_gaussians": 4720561,
+            "wall_s": 522.537,
+            "peak_vram_allocated_gib": 10.874,
+            "peak_vram_reserved_gib": 13.812,
+            "exit_code": 0,
+            "contention_flag": false
+          },
+          "basis": {
+            "psnr": 24.730473556518554,
+            "ssim": 0.726914701461792,
+            "lpips": 0.29123724579811094,
+            "n_gaussians": 4587236,
+            "wall_s": 1685.51,
+            "peak_vram_allocated_gib": 12.2,
+            "peak_vram_reserved_gib": 14.198,
+            "exit_code": 0,
+            "contention_flag": false
+          }
+        },
+        "frozen_C0": {
+          "psnr": 21.6952,
+          "ssim": 0.6766,
+          "lpips": 0.3143,
+          "n_gaussians": 3703162,
+          "train_wall_s": 868.5,
+          "backend": "gsplat",
+          "note": "CROSS-BACKEND reference (frozen C0, holdout8, iso 1920x1080 stretch, seed42, 30K)."
+        }
+      }
+    }
+  },
+  "official_split": {
+    "protocol": "native COLMAP images_4 (480x270 on host), APPLY_PCA=true, seed42, 30K, TEST_STEP=8 holdout (main lane only)",
+    "per_scene": {
+      "room": {
+        "lanes": {
+          "main": {
+            "psnr": 32.935334572425255,
+            "ssim": 0.9612655104734958,
+            "lpips": 0.08345665935522471,
+            "n_gaussians": 843143,
+            "wall_s": 142.155,
+            "peak_vram_allocated_gib": 1.836,
+            "exit_code": 0
+          },
+          "fused": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null,
+            "n_gaussians": null,
+            "wall_s": null,
+            "peak_vram_allocated_gib": 0.0,
+            "exit_code": null
+          },
+          "basis": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null,
+            "n_gaussians": null,
+            "wall_s": null,
+            "peak_vram_allocated_gib": 0.0,
+            "exit_code": null
+          }
+        }
+      },
+      "garden": {
+        "lanes": {
+          "main": {
+            "psnr": 30.485615332921345,
+            "ssim": 0.9386652360359827,
+            "lpips": 0.04561751591973007,
+            "n_gaussians": 1414814,
+            "wall_s": 181.384,
+            "peak_vram_allocated_gib": 2.478,
+            "exit_code": 0
+          },
+          "fused": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null,
+            "n_gaussians": null,
+            "wall_s": null,
+            "peak_vram_allocated_gib": 0.0,
+            "exit_code": null
+          },
+          "basis": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null,
+            "n_gaussians": null,
+            "wall_s": null,
+            "peak_vram_allocated_gib": 0.0,
+            "exit_code": null
+          }
+        }
+      },
+      "bicycle": {
+        "lanes": {
+          "main": {
+            "psnr": 27.805105133056642,
+            "ssim": 0.8755086493492127,
+            "lpips": 0.10364278823137284,
+            "n_gaussians": 2933007,
+            "wall_s": 244.841,
+            "peak_vram_allocated_gib": 4.757,
+            "exit_code": 0
+          },
+          "fused": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null,
+            "n_gaussians": null,
+            "wall_s": null,
+            "peak_vram_allocated_gib": 0.0,
+            "exit_code": null
+          },
+          "basis": {
+            "psnr": null,
+            "ssim": null,
+            "lpips": null,
+            "n_gaussians": null,
+            "wall_s": null,
+            "peak_vram_allocated_gib": 0.0,
+            "exit_code": null
+          }
+        }
+      }
+    }
+  },
+  "timing": {
+    "discipline": "exclusive GPU1, CUDA_VISIBLE_DEVICES pinned at exec-time, no concurrent arms, contention audit before/after. All 12 runs contention_flag=False (no other tenant on GPU1). timing_authoritative=True for all.",
+    "wall_s_per_run": {
+      "fgs_basis_iso_bicycle_s42_30000": 1685.51,
+      "fgs_basis_iso_garden_s42_30000": 1783.502,
+      "fgs_basis_iso_room_s42_30000": 1391.279,
+      "fgs_fused_iso_bicycle_s42_30000": 522.537,
+      "fgs_fused_iso_garden_s42_30000": 593.187,
+      "fgs_fused_iso_room_s42_30000": 356.432,
+      "fgs_main_iso_bicycle_s42_30000": 493.633,
+      "fgs_main_iso_garden_s42_30000": 1111.555,
+      "fgs_main_iso_room_s42_30000": 355.836,
+      "fgs_main_official_bicycle_s42_30000": 244.841,
+      "fgs_main_official_garden_s42_30000": 181.384,
+      "fgs_main_official_room_s42_30000": 142.155
+    },
+    "speedup_same_backend_vs_basis": {
+      "room": {
+        "main": 3.91,
+        "fused": 3.903
+      },
+      "garden": {
+        "main": 1.605,
+        "fused": 3.007
+      },
+      "bicycle": {
+        "main": 3.415,
+        "fused": 3.226
+      }
+    },
+    "speedup_cross_backend_vs_C0": {
+      "note": "CROSS-BACKEND: Faster-GS (NeRFICG framework + Faster-GS CUDA backend) vs frozen C0 (gsplat backend). Different rendering/backend stacks; do NOT attribute all difference to algorithmic gains.",
+      "per_scene": {
+        "room": {
+          "main": 1.45,
+          "fused": 1.448,
+          "basis": 0.371,
+          "C0_wall_s": 516.1
+        },
+        "garden": {
+          "main": 0.734,
+          "fused": 1.375,
+          "basis": 0.457,
+          "C0_wall_s": 815.7
+        },
+        "bicycle": {
+          "main": 1.759,
+          "fused": 1.662,
+          "basis": 0.515,
+          "C0_wall_s": 868.5
+        }
+      }
+    },
+    "cross_backend_caveat": "Faster-GS vs C0 is CROSS-BACKEND (NeRFICG + Faster-GS CUDA backend vs gsplat). Differences include backend/rendering stack, not purely algorithmic. Do not attribute all cross-backend speed difference to algorithmic gains. Notably garden main (0.73x) is SLOWER than C0 cross-backend due to the anisotropic-stretched garden input; fused (1.38x) is faster."
+  },
+  "peak_vram_gib": {
+    "fgs_basis_iso_bicycle_s42_30000": 12.2,
+    "fgs_basis_iso_garden_s42_30000": 12.366,
+    "fgs_basis_iso_room_s42_30000": 9.294,
+    "fgs_fused_iso_bicycle_s42_30000": 10.874,
+    "fgs_fused_iso_garden_s42_30000": 11.12,
+    "fgs_fused_iso_room_s42_30000": 8.962,
+    "fgs_main_iso_bicycle_s42_30000": 11.474,
+    "fgs_main_iso_garden_s42_30000": 11.6,
+    "fgs_main_iso_room_s42_30000": 9.157,
+    "fgs_main_official_bicycle_s42_30000": 4.757,
+    "fgs_main_official_garden_s42_30000": 2.478,
+    "fgs_main_official_room_s42_30000": 1.836
+  },
+  "gaussian_count_final": {
+    "fgs_basis_iso_bicycle_s42_30000": 4587236,
+    "fgs_basis_iso_garden_s42_30000": 4744171,
+    "fgs_basis_iso_room_s42_30000": 1230942,
+    "fgs_fused_iso_bicycle_s42_30000": 4720561,
+    "fgs_fused_iso_garden_s42_30000": 4809378,
+    "fgs_fused_iso_room_s42_30000": 1262605,
+    "fgs_main_iso_bicycle_s42_30000": 4767826,
+    "fgs_main_iso_garden_s42_30000": 4814980,
+    "fgs_main_iso_room_s42_30000": 1276911,
+    "fgs_main_official_bicycle_s42_30000": 2933007,
+    "fgs_main_official_garden_s42_30000": 1414814,
+    "fgs_main_official_room_s42_30000": 843143
+  },
+  "gaussian_trajectory_available": true,
+  "all_exit_codes_zero": true,
+  "per_run_exit_code": {
+    "fgs_main_iso_garden_s42_30000": 0,
+    "fgs_fused_iso_garden_s42_30000": 0,
+    "fgs_fused_iso_bicycle_s42_30000": 0,
+    "fgs_main_iso_bicycle_s42_30000": 0,
+    "fgs_main_official_room_s42_30000": 0,
+    "fgs_main_iso_room_s42_30000": 0,
+    "fgs_main_official_bicycle_s42_30000": 0,
+    "fgs_fused_iso_room_s42_30000": 0,
+    "fgs_basis_iso_room_s42_30000": 0,
+    "fgs_basis_iso_garden_s42_30000": 0,
+    "fgs_main_official_garden_s42_30000": 0,
+    "fgs_basis_iso_bicycle_s42_30000": 0
+  }
+}

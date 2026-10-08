@@ -1,0 +1,15 @@
+{
+  "phase": "P13-X",
+  "baseline": "P12_C0_FUSED_STRONG",
+  "primary_scenes": ["room", "bicycle", "garden"],
+  "confirmation_scene_if_pass": "train",
+  "diagnostic_window": {"start_iter": 15000, "end_iter": 30000, "stride": 250},
+  "anchor_cameras": {"count": 8, "selection": "evenly_spaced_sorted_true_training_cameras"},
+  "x1": {"lags": [250, 500, 1000, 2500], "pass_median_jaccard_lag250": 0.95, "drop_median_jaccard_lag250": 0.85},
+  "x2": {"pass_membership_jaccard": 0.95, "pass_order_inversion_max": 0.02, "drop_membership_jaccard": 0.85, "drop_order_inversion": 0.10},
+  "x3": {"relative_tolerances": [0.0, 1e-6, 1e-5, 1e-4], "promising_dirty_intersection_max_at_1e5": 0.30, "drop_dirty_intersection_at_1e5": 0.70, "replay_rel_l2_max": 1e-6},
+  "x4": {"basis": "orthonormal_DCT2_per_channel", "selection": "fixed_low_frequency_zigzag", "K": [4,8,16,32,64,128,256], "sample_iterations_per_scene": 256},
+  "x5": {"candidate_K_max": 32, "drop_K_max": 64, "means_opacity_cosine_min": 0.995, "means_opacity_rel_l2_max": 0.05, "top10_sign_agreement_min": 0.98, "shadow_step_loss_delta_max": 0.005},
+  "x6": {"standalone_e2e_min": 2.0, "composed_conservative_oracle_min": 4.0},
+  "timing_rule": "diagnostics excluded; CUDA events; paired/back-to-back contamination policy inherited from P12"
+}

@@ -1,0 +1,73 @@
+{
+  "schema": "FRONTIER_REASSESS0_EXACT_SKIP_MAP",
+  "date": "2026-10-07",
+  "kernel": "blend_backward_cu",
+  "existing_exact_skips_already_in_production": [
+    {
+      "condition": "!valid_primitive",
+      "line": 291,
+      "reason": "lane beyond tile primitive range",
+      "classification": "EXACT_SKIP",
+      "already_present": true
+    },
+    {
+      "condition": "!valid_pixel (image boundary)",
+      "line": 398,
+      "reason": "pixel outside width/height",
+      "classification": "EXACT_SKIP",
+      "already_present": true
+    },
+    {
+      "condition": "idx<0 || idx>=block_size_blend",
+      "line": 412,
+      "reason": "pixel index outside 256-pixel tile",
+      "classification": "EXACT_SKIP",
+      "already_present": true
+    },
+    {
+      "condition": "tile_primitive_idx >= last_contributor",
+      "line": 412,
+      "reason": "forward early-termination: interaction beyond the last contributor that affected the pixel",
+      "classification": "EXACT_SKIP",
+      "already_present": true
+    },
+    {
+      "condition": "alpha < min_alpha_threshold",
+      "line": 427,
+      "reason": "opacity*G below support cutoff (also catches opacity==0 since G>0)",
+      "classification": "EXACT_SKIP",
+      "already_present": true
+    }
+  ],
+  "candidate_additional_skips_audited": [
+    {
+      "condition": "opacity == 0",
+      "proof": "alpha=opacity*G=0 < threshold -> already skipped by line 427",
+      "classification": "EXISTING",
+      "already_present": true,
+      "fraction": "0 (subsumed by alpha-threshold)"
+    },
+    {
+      "condition": "zero incoming adjoint (grad_color_pixel==0 && grad_alpha_common==0)",
+      "proof": "data-dependent, not structurally guaranteed; would change gradient semantics if mis-classified",
+      "classification": "INVALID",
+      "already_present": false
+    },
+    {
+      "condition": "conic == 0",
+      "proof": "exponent=0, G=exp(0)=1, alpha=opacity; NOT zero contribution -> cannot skip",
+      "classification": "INVALID",
+      "already_present": false
+    },
+    {
+      "condition": "gaussian underflow (exponent very negative)",
+      "proof": "G->0, alpha->0<threshold -> already skipped by line 427",
+      "classification": "EXISTING",
+      "already_present": true,
+      "fraction": "subsumed"
+    }
+  ],
+  "exact_skip_fraction_new": "0 (no additional exact skip beyond production)",
+  "verdict": "NO_EXACT_SKIP",
+  "note": "Production already applies every provable exact skip (validity, boundary, last_contributor early-termination, alpha-threshold support cutoff). No structurally-zero interaction remains that can be removed without changing exact gradient semantics."
+}

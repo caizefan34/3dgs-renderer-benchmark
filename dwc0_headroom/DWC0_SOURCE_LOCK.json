@@ -1,0 +1,75 @@
+{
+  "_timestamp_utc": "2026-10-01T15:40:12Z",
+  "gate": "Phase 0 — freeze projection / covariance / SH / tile-assignment",
+  "canonical_backend": "INRIA diff_gaussian_rasterization @ 54c035f (frozen C0 reference)",
+  "gsplat_default_path": "gsplat ProjectionEWA3DGSFused + SphericalHarmonicsCUDA + IntersectTile + RasterizeToIndices3DGS",
+  "frozen_files": {
+    "inria_forward_cu": {
+      "path": "public_baselines/taming-3dgs-rasterizer/submodules/diff-gaussian-rasterization/cuda_rasterizer/forward.cu",
+      "sha256_16": "167d32654b7ad9b8",
+      "preprocessCUDA_line": 161,
+      "preprocess_is": "1 thread per Gaussian (P threads, grid=(P+255)/256)",
+      "computes_eager_once_per_gaussian": [
+        "projection p_proj via transformPoint4x4 + ndc2Pix (L204-239)",
+        "computeCov3D from scale+rotation (L217)",
+        "computeCov2D screen-space covariance + conic inverse (L222-227)",
+        "eigen radius + getRect tile bbox + tiles_touched (L241-262)",
+        "computeColorFromSH spherical-harmonic color (L249)"
+      ],
+      "writes": [
+        "points_xy_image[]",
+        "conic_opacity[]",
+        "features[]",
+        "depths[]",
+        "radii[]",
+        "tiles_touched[]"
+      ]
+    },
+    "inria_rasterizer_impl_cu": {
+      "path": "public_baselines/taming-3dgs-rasterizer/submodules/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.cu",
+      "sha256_16": "df6d60f966db83b6",
+      "duplicateWithKeys_line": 120,
+      "duplicateWithKeys_is": "1 thread per Gaussian; replicates INDEX into tiles_touched tiles (key=tile<<32|depth). Index-only; NO projection/cov/SH recompute."
+    },
+    "inria_render_forward_cu": {
+      "path": "public_baselines/taming-3dgs-rasterizer/submodules/diff-gaussian-rasterization/cuda_rasterizer/forward.cu",
+      "sha256_16": "167d32654b7ad9b8",
+      "renderCUDA_line": 269,
+      "renderCUDA_is": "1 block per 16x16 tile, 1 thread per pixel; reads precomputed xy/conic/color; recomputes ONLY pixel-dependent weight power/alpha = opacity*exp(-0.5*conic.d^2). d=xy-pixel_center is per-pixel => irreducible."
+    },
+    "gsplat_projection_ewa": {
+      "path": "_mx_h8/pack/h8/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu",
+      "sha256_16": "75efb31a37792391",
+      "is": "1 thread per Gaussian; computes mean2d/cov2d/conic/depth/radius once (persp/ortho/fisheye_proj)."
+    },
+    "gsplat_spherical_harmonics": {
+      "path": "_mx_h8/pack/h8/gsplat/cuda/csrc/SphericalHarmonicsCUDA.cu",
+      "sha256_16": "63748a81115078a1",
+      "is": "1 thread per Gaussian; SH->RGB once."
+    },
+    "gsplat_intersect_tile": {
+      "path": "_mx_h8/pack/h8/gsplat/cuda/csrc/IntersectTile.cu",
+      "sha256_16": "1f331b6dc73cf16f",
+      "is": "pass1: tiles_per_gauss from precomputed mean2d/conic (tile bbox area). Index generation only."
+    },
+    "gsplat_rasterize_to_indices": {
+      "path": "_ags1_sort/remote_src/RasterizeToIndices3DGS.cu",
+      "sha256_16": "13910c63b730d0ac",
+      "is": "per-pixel kernel; reads precomputed means2d[g]/conics[g]/opacities[g]; recomputes only weight alpha=min(0.999,opacity*expf(-sigma))."
+    },
+    "gsplat_from_world_fused": {
+      "path": "public_baselines/gsplat/gsplat/cuda/csrc/RasterizeToPixelsFromWorld3DGS.cuh",
+      "sha256_16": "(alternative fused path, confirmed by read)",
+      "is": "ALTERNATIVE fused world-space path (not the canonical benchmark backend). process_logical_batch_gaussians stages iscl_rot (=R*inv(S), the Gaussian-level covariance analog) and scale ONCE per Gaussian into shared/registers; the per-(pixel,gaussian) loop then does ONLY the ray-splat evaluation gro=iscl_rot*(ray_o[p]-xyz), grd=normalize(iscl_rot*ray_d[p]), grayDist, power=-0.5*grayDist, alpha=opac*__expf(power). Inputs ray_o[p]/ray_d[p] are PER-PIXEL => per-visit work is irreducible and is NOT projection/cov/SH recompute. colors/opacities passed in precomputed (SH done once elsewhere)."
+    }
+  },
+  "classification": {
+    "projection": "EAGER_ONCE_PER_GAUSSIAN",
+    "covariance_3d_2d": "EAGER_ONCE_PER_GAUSSIAN",
+    "spherical_harmonics": "EAGER_ONCE_PER_GAUSSIAN",
+    "tile_assignment": "EAGER_ONCE_PER_GAUSSIAN (index duplication only)",
+    "gaussian_weight_exp": "PER_PIXEL_VISIT (irreducible: function of per-pixel offset d)"
+  },
+  "locked_finding": "Projection, covariance (3D+2D), and SH are ALREADY computed exactly once per Gaussian and reused across all tiles/pixels in BOTH the canonical EWA path (preprocessCUDA) AND the alternative fused from-world path (iscl_rot staged once per Gaussian). The only per-(pixel,gaussian) recompute is the Gaussian weight exp(-sigma) [EWA] / the ray-splat evaluation exp(-0.5*grayDist) [from-world], a pure function of per-pixel ray/offset — not shareable. There is NO duplicated projection/cov/SH compute to eliminate.",
+  "verdict": "LOCKED"
+}

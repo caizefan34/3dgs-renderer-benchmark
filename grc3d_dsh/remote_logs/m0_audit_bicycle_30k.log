@@ -1,0 +1,21 @@
+[m0] boot ok arm=gmain so=8ca8ec1e0c8618f0... fused_so=dd6a4c799b98ff9f...
+  [GTDataset] Loading cameras from /root/3dgs-renderer-benchmark/data/official/mipnerf360/bicycle/cameras.json
+  [GTDataset] 194/194 cameras matched to GT images
+  [GTDataset] Pre-caching GT images (CPU uint8)...
+    Caching image 1/194...
+    Caching image 101/194...
+  [GTDataset] All 194 images cached (CPU, 1535 MB)
+  [check] mapping.checkpoint_fields_equal: PASS {'means==ckpt.xyz': True, 'quats==ckpt.rotation': True, 'log_scales==ckpt.scaling': True, 'opacity_logits==ckpt.opacity': True, 'sh0==ckpt.shs[:, :1]': True, 'shN==ckpt.shs[:, 1:]': True}
+  [check] mapping.activation_semantics: PASS {'exp(log_scales)==get_scaling': True, 'sigmoid(opacity_logits)==get_opacity': True, 'normalize(quats)==get_rotation': True, 'sh0|shN==get_features(full)': True, 'log_scales_stats': {'min': -16.577001571655273, 'max': 1.5548501014709473}, 'opacity_logits_stats': {'min': -6.32228946685791, 'max': 17.057653427124023}, 'n_gaussians': 3706340, 'sh_tensor_shape': ([1, 3], [15, 3])}
+[m0] state N=3,706,340 degree=3 HxW=1080x1920
+  [check] renderer.forward_image: FAIL {'maxabs': 0.002970069646835327, 'meanabs': 2.1491042900834145e-07, 'sum_abs': 1.3369147777557373, 'pass': False}
+  [check] renderer.group_gradients: FAIL {'means': 0.00038084556784864933, 'quats': 0.0013088498742063175, 'log_scales': 0.0004887644568357254, 'opacity_logits': 0.00018972249593845976, 'sh0': 0.00014232684716486156, 'shN': 0.000142326837297321}
+  [check] renderer.absgrad_invariance: FAIL {'means': 5.197269116711781e-07, 'quats': 0.0001356008265768473, 'log_scales': 2.7982711878104758e-05, 'opacity_logits': 3.0226596914663904e-07, 'sh0': 7.442744222858431e-07, 'shN': 7.466662830310479e-07}
+  [check] ssim.scalar_loss: PASS {'fused': 0.04561968892812729, 'package_loss_map': 0.045619696378707886, 'abs_diff': 7.450580596923828e-09, 'pass': True}
+  [check] ssim.image_gradient: PASS {'relative_l2': 6.201626943228833e-06, 'maxabs': 1.5620571502950042e-10, 'reference_norm': 0.001179895810088229, 'maxabs<=1e-5': True}
+  [check] ssim.model_gradients: FAIL {'means': 2.210732957075042e-06, 'quats': 0.00015945399069475905, 'log_scales': 4.092389743951791e-06, 'opacity_logits': 1.498892944386553e-06, 'sh0': 2.2769960118019043e-06, 'shN': 2.2820090553840115e-06}
+  [check] p1_corrector.vs_dense: FAIL {'loss_abs_diff': 0.0}
+  [check] halo.all_block_scalars<=1e-6: PASS {'maxabs': 0.0}
+  [check] halo.gradients<=1e-5: PASS {'n_subset': 20}
+[m0] verdict: FAIL
+[m0] wrote /root/epic05_grc3d/outputs/m0_bicycle_30k.json

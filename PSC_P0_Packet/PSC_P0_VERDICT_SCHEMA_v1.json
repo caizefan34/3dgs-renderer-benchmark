@@ -1,0 +1,32 @@
+{
+  "schema_version": "PSC-P0-v1",
+  "frozen": true,
+  "inputs": {
+    "S_upper_8": null,
+    "R_int_energy_B2": null,
+    "R_int_energy_B4": null,
+    "R_int_energy_B8": null,
+    "P_hold_pos_B8": null,
+    "median_C_hold_B8": null
+  },
+  "rules": {
+    "drop": [
+      "S_upper_8 < 1.30",
+      "R_int_energy_B4 < 0.40",
+      "P_hold_pos_B8 <= 0.55"
+    ],
+    "strong_promote": [
+      "S_upper_8 >= 1.50",
+      "R_int_energy_B8 >= 0.65",
+      "P_hold_pos_B8 >= 0.75",
+      "R_int_energy_B8 >= 0.50 * R_int_energy_B2"
+    ],
+    "precedence": [
+      "DROP",
+      "STRONG_PROMOTE",
+      "INCONCLUSIVE"
+    ]
+  },
+  "verdict": null,
+  "fired_rules": []
+}

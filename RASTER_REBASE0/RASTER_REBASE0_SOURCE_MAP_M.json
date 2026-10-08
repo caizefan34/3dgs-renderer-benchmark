@@ -1,0 +1,25 @@
+{
+  "repo_id": "MM-FasterGS",
+  "baseline": "ACM MM 2026 FasterGS",
+  "variant": "Workload-Balanced Gaussian Splatting",
+  "repo_url": "https://github.com/GoogolplexGoodenough/FasterGS",
+  "branch": "main",
+  "commit": "c9edd47",
+  "cuda_root": "gs_submodules/diff-gaussian-rasterization_faster/csrc",
+  "files": {
+    "preprocess": "cuda_rasterizer/preprocess.cu",
+    "render": "cuda_rasterizer/render.cu",
+    "backward": "cuda_rasterizer/backward.cu",
+    "sort": "cuda_rasterizer/sort.cu",
+    "adam": "cuda_rasterizer/adam.cu",
+    "api": "cuda_rasterizer/rasterizer_imp.cu"
+  },
+  "mechanism": {
+    "projection": "2D covariance via projmatrix (world->clip)",
+    "workload_balancing": "scale-aware: small footprints warp-packed, large footprints decomposed into tile-bounded sub-tasks",
+    "bucket_formation": "fixed-size buckets per tile from depth-ordered lists",
+    "parallel_compositing": "independent bucket render + associative merge (forward & backward)",
+    "sort": "radix sort of (tile,depth) keys"
+  },
+  "key_difference_vs_H": "bucket-based parallel local compositing replaces H's strictly-sequential alpha blend"
+}

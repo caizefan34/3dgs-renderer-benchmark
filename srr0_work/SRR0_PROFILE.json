@@ -1,0 +1,285 @@
+{
+  "schema": "SRR0_PROFILE",
+  "gate": 4,
+  "title": "SRR0-P0 Gate 4 — target compute headroom (FasterGSFused preprocess_backward)",
+  "identity": {
+    "hostname": "dsw-933622-64cc845c7d-lqswc",
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "gpu_count": 8,
+    "cwd": "/root/epic05_p16rb/src/nerficg",
+    "python": "3.10 (conda env p16_fastergs)",
+    "torch": "2.5.1",
+    "cuda": "12.4",
+    "source_git_sha": "e458ac6e41810ad6d9405687c1e698fadd28dac5",
+    "source_git_sha_short": "e458ac6",
+    "remote_guard": "EPIC-05 only; no CUDA on local Windows",
+    "utc": "2026-10-01"
+  },
+  "method": {
+    "description": "Behavior-inert: loads frozen checkpoint, zero-initializes Adam moments (exact training_setup allocation), runs native forward+backward on one real training view, profiles per-kernel CUDA self time with torch.profiler; separately measures async steady-state throughput and CUDA-event GPU-stream time. NO kernel change, NO training-semantics change, NO checkpoint mutation.",
+    "warmup": 4,
+    "profile_iters": 20,
+    "timing_iters_per_view": 8,
+    "views_timed": 6,
+    "config": "copies at /root/srr0_configs with GPU_INDICES:[0]; originals hardcode [2]; CUDA_VISIBLE_DEVICES=5/6/7 remap; 3 scenes parallel on GPUs 5/6/7",
+    "recompute_target": "preprocess_backward_cu — recomputes SH direction/basis, camera projection, variance=exp(2*raw_scale), R=quat->rot, 3D covariance/RSS, EWA Jacobian/2D covariance"
+  },
+  "diagnosis": {
+    "classification": "LAUNCH_BOUND_CPU_BOUND",
+    "evidence": "GPU-stream (event) time 139.7/146.2/145.2 ms vs busy GPU compute 36.6/55.5/50.8 ms => ~74% of GPU stream is idle gaps between kernels (launch latency). async steady-state (130/148/131 ms) ~= sync wall (124/134/124 ms) >> busy compute. The iteration is CPU/launch-bound; the wall-vs-GPU gap is REAL, not a per-iter-sync artifact.",
+    "implication": "preprocess_backward recompute (1.4/6.2/3.6 ms) is hidden under launch overhead. Removing it cannot reduce E2E time unless it was on the critical path, which the launch-bound profile contradicts for the busy-compute-only denominator."
+  },
+  "per_scene": {
+    "room": {
+      "n_gaussians": 1262605,
+      "resolution": "1920x1080",
+      "sh_degree": 3,
+      "checkpoint": "fgs_fused_iso_room_s42_30000_2026-10-01-09-39-46",
+      "recompute_preprocess_backward_ms": 1.4221,
+      "recompute_pct_of_gpu_stream": 1.018,
+      "recompute_pct_of_sync_wall": 1.146,
+      "denominators_ms": {
+        "async_steady_state_ms": 130.517,
+        "gpu_stream_event_ms": 139.734,
+        "sync_wall_ms": 124.042,
+        "busy_gpu_compute_ms_incl_memcpy": 36.548,
+        "busy_gpu_compute_ms_excl_memcpy": 21.072
+      },
+      "e2e_ceiling": {
+        "async_steady_state": 1.01102,
+        "gpu_stream_event": 1.01028,
+        "sync_wall": 1.0116,
+        "busy_gpu_compute_INVALID": 1.04049
+      },
+      "passes_1p04x": {
+        "async_steady_state": false,
+        "gpu_stream_event": false,
+        "sync_wall": false
+      },
+      "kernels_top": [
+        {
+          "name": "aten::copy_",
+          "self_cuda_ms_per_iter": 7.7332,
+          "count": 200
+        },
+        {
+          "name": "Memcpy HtoD (Pageable -> Device)",
+          "self_cuda_ms_per_iter": 7.7332,
+          "count": 60
+        },
+        {
+          "name": "_Rasterize",
+          "self_cuda_ms_per_iter": 5.653,
+          "count": 20
+        },
+        {
+          "name": "_RasterizeBackward",
+          "self_cuda_ms_per_iter": 3.8148,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::forward::create_instances_cu(unsigned int const*, unsigned int const*, ushort4 const*, float2 const*, float4 const*, unsigned short*, unsigned int*, unsigned int, unsigned int)",
+          "self_cuda_ms_per_iter": 2.7766,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::forward::preprocess_cu(float3 const*, float3 const*, float4 const*, float const*, float3 const*, float3 const*, float4 const*, float3 const*, unsigned int*, unsigned int*, unsigned int*, ushort4*, float2*, float4*, float3*, unsigned int*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, float, float, float, float, float, float, float, float)",
+          "self_cuda_ms_per_iter": 2.1239,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::backward::blend_backward_cu(uint2 const*, unsigned int const*, unsigned int const*, float2 const*, float4 const*, float3 const*, float3 const*, float const*, float const*, float const*, unsigned int const*, unsigned int const*, unsigned int const*, float4 const*, float2*, float*, float*, float3*, unsigned int, unsigned int, unsigned int, unsigned int)",
+          "self_cuda_ms_per_iter": 1.5435,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::backward::preprocess_backward_cu(float3*, float3*, float4*, float*, float3*, float3*, float2*, float2*, float2*, float2*, float2*, float2*, float4 const*, float3 const*, unsigned int const*, float2 const*, float const*, float const*, float3 const*, float*, unsigned int, unsigned int, unsigned int, float, float, float, float, float, float, float, float, float)",
+          "self_cuda_ms_per_iter": 1.4221,
+          "count": 20
+        },
+        {
+          "name": "void faster_gs::rasterization::kernels::backward::adam_step_invisible<45u>(unsigned int const*, float*, float2*, int, float, float)",
+          "self_cuda_ms_per_iter": 0.6356,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::forward::blend_cu(uint2 const*, unsigned int const*, unsigned int const*, float2 const*, float4 const*, float3 const*, float3 const*, float*, float*, unsigned int*, unsigned int*, unsigned int*, float4*, unsigned int, unsigned int, unsigned int)",
+          "self_cuda_ms_per_iter": 0.4095,
+          "count": 20
+        }
+      ]
+    },
+    "garden": {
+      "n_gaussians": 4809378,
+      "resolution": "1920x1080",
+      "sh_degree": 3,
+      "checkpoint": "fgs_fused_iso_garden_s42_30000_2026-10-01-09-45-48",
+      "recompute_preprocess_backward_ms": 6.1786,
+      "recompute_pct_of_gpu_stream": 4.225,
+      "recompute_pct_of_sync_wall": 4.616,
+      "denominators_ms": {
+        "async_steady_state_ms": 147.581,
+        "gpu_stream_event_ms": 146.231,
+        "sync_wall_ms": 133.85,
+        "busy_gpu_compute_ms_incl_memcpy": 55.47,
+        "busy_gpu_compute_ms_excl_memcpy": 48.399
+      },
+      "e2e_ceiling": {
+        "async_steady_state": 1.04369,
+        "gpu_stream_event": 1.04412,
+        "sync_wall": 1.04839,
+        "busy_gpu_compute_INVALID": 1.12535
+      },
+      "passes_1p04x": {
+        "async_steady_state": true,
+        "gpu_stream_event": true,
+        "sync_wall": true
+      },
+      "kernels_top": [
+        {
+          "name": "_RasterizeBackward",
+          "self_cuda_ms_per_iter": 18.88,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::backward::blend_backward_cu(uint2 const*, unsigned int const*, unsigned int const*, float2 const*, float4 const*, float3 const*, float3 const*, float const*, float const*, float const*, unsigned int const*, unsigned int const*, unsigned int const*, float4 const*, float2*, float*, float*, float3*, unsigned int, unsigned int, unsigned int, unsigned int)",
+          "self_cuda_ms_per_iter": 8.7904,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::backward::preprocess_backward_cu(float3*, float3*, float4*, float*, float3*, float3*, float2*, float2*, float2*, float2*, float2*, float2*, float4 const*, float3 const*, unsigned int const*, float2 const*, float const*, float const*, float3 const*, float*, unsigned int, unsigned int, unsigned int, float, float, float, float, float, float, float, float, float)",
+          "self_cuda_ms_per_iter": 6.1786,
+          "count": 20
+        },
+        {
+          "name": "_Rasterize",
+          "self_cuda_ms_per_iter": 4.2355,
+          "count": 20
+        },
+        {
+          "name": "aten::copy_",
+          "self_cuda_ms_per_iter": 3.5304,
+          "count": 200
+        },
+        {
+          "name": "Memcpy HtoD (Pageable -> Device)",
+          "self_cuda_ms_per_iter": 3.5304,
+          "count": 60
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::forward::blend_cu(uint2 const*, unsigned int const*, unsigned int const*, float2 const*, float4 const*, float3 const*, float3 const*, float*, float*, unsigned int*, unsigned int*, unsigned int*, float4*, unsigned int, unsigned int, unsigned int)",
+          "self_cuda_ms_per_iter": 2.9246,
+          "count": 20
+        },
+        {
+          "name": "void faster_gs::rasterization::kernels::backward::adam_step_invisible<45u>(unsigned int const*, float*, float2*, int, float, float)",
+          "self_cuda_ms_per_iter": 2.795,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::forward::preprocess_cu(float3 const*, float3 const*, float4 const*, float const*, float3 const*, float3 const*, float4 const*, float3 const*, unsigned int*, unsigned int*, unsigned int*, ushort4*, float2*, float4*, float3*, unsigned int*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, float, float, float, float, float, float, float, float)",
+          "self_cuda_ms_per_iter": 0.6008,
+          "count": 20
+        },
+        {
+          "name": "void faster_gs::rasterization::kernels::backward::adam_step_invisible<3u>(unsigned int const*, float*, float2*, int, float, float)",
+          "self_cuda_ms_per_iter": 0.5364,
+          "count": 60
+        }
+      ]
+    },
+    "bicycle": {
+      "n_gaussians": 4720561,
+      "resolution": "1920x1080",
+      "sh_degree": 3,
+      "checkpoint": "fgs_fused_iso_bicycle_s42_30000_2026-10-01-09-55-47",
+      "recompute_preprocess_backward_ms": 3.5933,
+      "recompute_pct_of_gpu_stream": 2.474,
+      "recompute_pct_of_sync_wall": 2.894,
+      "denominators_ms": {
+        "async_steady_state_ms": 130.875,
+        "gpu_stream_event_ms": 145.23,
+        "sync_wall_ms": 124.151,
+        "busy_gpu_compute_ms_incl_memcpy": 50.828,
+        "busy_gpu_compute_ms_excl_memcpy": 42.014
+      },
+      "e2e_ceiling": {
+        "async_steady_state": 1.02823,
+        "gpu_stream_event": 1.02537,
+        "sync_wall": 1.02981,
+        "busy_gpu_compute_INVALID": 1.07607
+      },
+      "passes_1p04x": {
+        "async_steady_state": false,
+        "gpu_stream_event": false,
+        "sync_wall": false
+      },
+      "kernels_top": [
+        {
+          "name": "_RasterizeBackward",
+          "self_cuda_ms_per_iter": 14.5549,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::backward::blend_backward_cu(uint2 const*, unsigned int const*, unsigned int const*, float2 const*, float4 const*, float3 const*, float3 const*, float const*, float const*, float const*, unsigned int const*, unsigned int const*, unsigned int const*, float4 const*, float2*, float*, float*, float3*, unsigned int, unsigned int, unsigned int, unsigned int)",
+          "self_cuda_ms_per_iter": 6.5659,
+          "count": 20
+        },
+        {
+          "name": "_Rasterize",
+          "self_cuda_ms_per_iter": 5.4242,
+          "count": 20
+        },
+        {
+          "name": "aten::copy_",
+          "self_cuda_ms_per_iter": 4.4023,
+          "count": 200
+        },
+        {
+          "name": "Memcpy HtoD (Pageable -> Device)",
+          "self_cuda_ms_per_iter": 4.4023,
+          "count": 60
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::backward::preprocess_backward_cu(float3*, float3*, float4*, float*, float3*, float3*, float2*, float2*, float2*, float2*, float2*, float2*, float4 const*, float3 const*, unsigned int const*, float2 const*, float const*, float const*, float3 const*, float*, unsigned int, unsigned int, unsigned int, float, float, float, float, float, float, float, float, float)",
+          "self_cuda_ms_per_iter": 3.5933,
+          "count": 20
+        },
+        {
+          "name": "void faster_gs::rasterization::kernels::backward::adam_step_invisible<45u>(unsigned int const*, float*, float2*, int, float, float)",
+          "self_cuda_ms_per_iter": 3.4681,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::forward::blend_cu(uint2 const*, unsigned int const*, unsigned int const*, float2 const*, float4 const*, float3 const*, float3 const*, float*, float*, unsigned int*, unsigned int*, unsigned int*, float4*, unsigned int, unsigned int, unsigned int)",
+          "self_cuda_ms_per_iter": 2.8487,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::forward::create_instances_cu(unsigned int const*, unsigned int const*, ushort4 const*, float2 const*, float4 const*, unsigned short*, unsigned int*, unsigned int, unsigned int)",
+          "self_cuda_ms_per_iter": 1.2736,
+          "count": 20
+        },
+        {
+          "name": "faster_gs::rasterization::kernels::forward::preprocess_cu(float3 const*, float3 const*, float4 const*, float const*, float3 const*, float3 const*, float4 const*, float3 const*, unsigned int*, unsigned int*, unsigned int*, ushort4*, float2*, float4*, float3*, unsigned int*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, float, float, float, float, float, float, float, float)",
+          "self_cuda_ms_per_iter": 0.9529,
+          "count": 20
+        }
+      ]
+    }
+  },
+  "gate4_summary": {
+    "requirement": "affected recomputation cost optimistic E2E ceiling >= 1.04x in >= 2/3 scenes",
+    "scenes_passing_1p04x": {
+      "async": 1,
+      "stream": 1,
+      "wall": 1
+    },
+    "required_scenes": 2,
+    "governing_denominator": "async_steady_state_ms (true steady-state E2E per-iteration cost)",
+    "result": "only garden reaches 1.04x (1.044x async / 1.048x wall); room (1.011x) and bicycle (1.028x) fail under every valid E2E denominator. 1/3 < 2/3.",
+    "verdict": "DROP_NO_COMPUTE_HEADROOM",
+    "note_on_invalid_denominator": "The busy-GPU-compute denominator (36.6/55.5/50.8 ms) yields ceilings 1.04/1.13/1.08 (all pass) but is INVALID: it assumes zero inter-kernel gaps, disproven by the event/async measurement showing the GPU idle ~74% of the stream. E2E ceiling must be measured against actual per-iteration time, not summed kernel busy-time."
+  },
+  "utc": "2026-10-01"
+}

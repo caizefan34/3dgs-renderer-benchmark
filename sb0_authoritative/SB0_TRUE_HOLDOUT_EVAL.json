@@ -1,0 +1,54 @@
+{
+  "task": "SB0-FGS",
+  "deliverable": "SB0_TRUE_HOLDOUT_EVAL",
+  "date": "2026-09-30",
+  "method": "TRUE unseen-view: every-8th camera EXCLUDED from C0 training (matches Faster-GS TEST_STEP=8); final eval ON the excluded cameras. Renderer/loss/densification/optimizer UNCHANGED vs pinned C0 (publication_trainer_p12.py, --loss fused). Only the training camera pool differs.",
+  "trainer_variant": "/root/epic05_p12/publication_trainer_p12_holdout8.py (derived from pinned publication_trainer_p12.py sha256=675b0267; 3-line change: HOLDOUT_STEP=8, viewpoint_stack excludes i%8==0, final_eval on heldout_indices)",
+  "c0_env": "/root/miniforge3/envs/gsplat/bin/python (torch 2.9.1+cu128)",
+  "iso_protocol": "1920x1080 non-uniform stretch (== C0 GTDataset 1080p), 30K iters, seed42, black bg, 0.8*L1+0.2*(1-SSIM) fused",
+  "verification": "camera_sequence.npy: unique_trained == train_pool (n - n_heldout), heldout_leaked_into_training == [] for all scenes",
+  "results": {
+    "room": {
+      "n_cameras": 311,
+      "n_heldout": 39,
+      "n_train_pool": 272,
+      "unique_trained": 272,
+      "heldout_leaked": [],
+      "true_holdout_psnr": 30.7982,
+      "true_holdout_ssim": 0.9155,
+      "true_holdout_lpips": 0.307,
+      "n_eval_cameras": 39,
+      "n_gaussians": 853453,
+      "tag": "final_holdout",
+      "train_wall_s": 516.1
+    },
+    "garden": {
+      "n_cameras": 185,
+      "n_heldout": 24,
+      "n_train_pool": 161,
+      "unique_trained": 161,
+      "heldout_leaked": [],
+      "true_holdout_psnr": 26.0088,
+      "true_holdout_ssim": 0.8199,
+      "true_holdout_lpips": 0.1981,
+      "n_eval_cameras": 24,
+      "n_gaussians": 2548992,
+      "tag": "final_holdout",
+      "train_wall_s": 815.7
+    },
+    "bicycle": {
+      "n_cameras": 194,
+      "n_heldout": 25,
+      "n_train_pool": 169,
+      "unique_trained": 169,
+      "heldout_leaked": [],
+      "true_holdout_psnr": 21.6952,
+      "true_holdout_ssim": 0.6766,
+      "true_holdout_lpips": 0.3143,
+      "n_eval_cameras": 25,
+      "n_gaussians": 3703162,
+      "tag": "final_holdout",
+      "train_wall_s": 868.5
+    }
+  }
+}

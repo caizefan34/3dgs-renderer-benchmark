@@ -1,0 +1,60 @@
+{
+  "label": "CONCLUSION — VOS-GS final verdict after the full post-PROMOTE protocol (Phases 8-11). All performance numbers MEASURED on EPIC-05 (8x A100-SXM4-80GB, torch 2.9.1+cu128, seed 42); quality numbers MEASURED at 30K final eval (all cameras); exactness per the Phase-5 oracle (in-process, bitwise) and the per-run startup kernel gate.",
+  "verdict": "KEEP",
+  "verdict_scope": "SH-only VOS active in iterations 15001-30000 (post-densify region), frozen C0 otherwise untouched.",
+  "performance": {
+    "optimizer_stage_speedup_15k_30k": {
+      "room": 1.66, "bicycle": 2.45, "garden": 1.98,
+      "gate_ge_1.5x_on_2_of_3": "PASS 3/3",
+      "note": "Order-B pairs (VOS-first, GPU-exclusive). Order-A pairs under 3-way co-tenant CPU load deflated the same numbers (room 1.43x) — contention affects the VOS stage's per-iteration host sync, conservative direction."
+    },
+    "e2e_wall_reduction_full_30k_run": {
+      "room": 0.0251, "bicycle": 0.1071, "garden": 0.0786,
+      "gate_ge_5pct_on_2_of_3_strict": "PASS 2/3 (bicycle, garden)",
+      "gate_ge_5pct_region_share_on_2_of_3": "PASS 3/3 (room 7.3%, bicycle 22.3%, garden 14.0%)"
+    },
+    "amdahl_consistency": "MEASURED wall gains track the optimizer stage's share of iteration time exactly as the Phase-7 model predicted: room (17% share) +2.5%, garden (27%) +7.9%, bicycle (36%) +10.7%."
+  },
+  "exactness": {
+    "vs_single_tensor_adam_A_s": "BITWISE — Phase-5 oracle 7/7 runs (incl. realistic 30K states on all 3 scenes, post-opacity-reset state, 136M+ transitions) + startup kernel gate at every training run (max|dtheta|=0.0, exercised at t~5000 where bc2<1 in f32).",
+    "vs_foreach_adam_A_f": "IMPOSSIBLE IN PRINCIPLE — torch's foreach and single-tensor paths differ by <=1 ulp/step on some states (O5b2); confirmed in-training by the A_s attribution run.",
+    "cross_run_trajectories": "NOT bitwise reproducible even C0-vs-C0 (backward atomic accumulation order; twin-tested: theta_max_abs ~0.009/0.55 at t=599, final-PSNR spread 0.024-0.092 dB at 30K). Trajectory-level claims therefore rest on quality parity, not bitwise equality."
+  },
+  "quality_30k": {
+    "psnr_delta_vos_minus_c0": {
+      "room": [-0.105, -0.347],
+      "bicycle": [-0.089, -0.015],
+      "garden": [-0.091, 0.008]
+    },
+    "c0_twin_psnr_spread": {"room": 0.024, "bicycle": 0.092, "garden": 0.055},
+    "ssim_lpips_gates": "PASS 3/3 scenes (all |dSSIM| <= 0.003, |dLPIPS| <= 0.005)",
+    "as_attribution": {
+      "label": "MEASURED — pure torch Adam foreach=False (A_s), NO VOS, room 30K",
+      "as_psnr": 31.988,
+      "c0_foreach_psnr": [32.181, 32.205],
+      "vos_psnr": [32.076, 31.858],
+      "conclusion": "The room PSNR cost is the torch-internal A_f-vs-A_s envelope (<=1 ulp/step, chaotically amplified over 15K iterations), NOT a VOS defect: pure A_s lands inside the VOS spread, 0.2 dB below the foreach default. Any exact single-tensor or custom-kernel Adam pays the same cost. Bicycle/garden show no significant cost (VOS inside C0 twin noise on both)."
+    }
+  },
+  "gates_summary": {
+    "C1_optimizer_stage_ge_1.5x": "PASS 3/3",
+    "C2_strict_wall_ge_5pct": "PASS 2/3",
+    "C2_region_share_ge_5pct": "PASS 3/3",
+    "C3_overhead_within_20pct_of_saving": "PASS (fences+tau+nonzero amortized ~0.1 ms/iter vs 0.9-6.1 ms/iter saved)",
+    "C4_exact_replay": "PASS (oracle 7/7 bitwise + per-run kernel gate)",
+    "quality": "SSIM/LPIPS 3/3; PSNR 2/3 scenes inside twin noise, room attributed to the A_s envelope with a pure-torch control run"
+  },
+  "caveats": [
+    "Room (smallest optimizer share, 17%) gains only +2.5% wall and shows the A_s-envelope quality cost (-0.2 dB mean vs foreach C0); on room the trade is marginal.",
+    "The VOS stage carries a per-iteration host sync (torch.nonzero) and is CPU-contention-sensitive; under 3-way co-tenancy the measured stage speedup deflated 1.66x -> 1.43x. A production integration would replace nonzero with a device-side compaction to remove this sensitivity.",
+    "n=2 pairs per scene (order A contended, order B GPU-exclusive); no multi-seed replication (protocol seed 42 frozen). The A_s-class arms show wider run-to-run quality spread (VOS twins 0.02-0.22 dB) than C0 twins (0.02-0.09 dB).",
+    "Scope is shs-only, 15001-30000; opacity virtualization (Phase-10) not attempted."
+  ],
+  "deliverables": [
+    "VOS_PRIOR_ART.md", "VOS_DEPENDENCY_GRAPH.json", "VOS_VISIBILITY_GAPS.json",
+    "VOS_TRAFFIC_ORACLE.json", "VOS_REPLAY_CORRECTNESS.json",
+    "VOS_MICROBENCH.json", "VOS_AMDAHL.json", "VOS_GATE.json",
+    "VOS_EXACTNESS_MODEL.md", "VOS_IMPLEMENTATION.md",
+    "VOS_5K.json", "VOS_30K.json", "VOS_QUALITY.json", "VOS_VERDICT.json"
+  ]
+}

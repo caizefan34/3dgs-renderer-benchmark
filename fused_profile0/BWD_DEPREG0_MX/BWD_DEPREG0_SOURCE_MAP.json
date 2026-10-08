@@ -1,0 +1,48 @@
+{
+  "schema": "BWD_DEPREG0_SOURCE_MAP",
+  "date": "2026-10-07",
+  "file": "rasterization/include/kernels_backward.cuh",
+  "kernel": "blend_backward_cu",
+  "line_range": [
+    253,
+    482
+  ],
+  "launch": "grid=n_buckets, block=32 (one warp = 32 lanes per bucket; up to 32 Gaussians/bucket)",
+  "loop": "#pragma unroll for i in [0, block_size_blend+31) (block_size_blend=256); idx=i-lane walks the 256-pixel tile",
+  "per_thread_state": {
+    "valid_primitive": "L2/L5 guard",
+    "mean2d": "L2",
+    "conic": "L7",
+    "opacity": "L8",
+    "color/color_grad_factor": "L6",
+    "dL_dmean2d_accum": "L3",
+    "dL_dconic_accum": "L3",
+    "dL_dopacity_accum": "L3",
+    "dL_dcolor_accum": "L3",
+    "last_contributor": "L1 (recurrence)",
+    "color_pixel_after": "L1 (recurrence)",
+    "transmittance": "L1 (recurrence)",
+    "grad_color_pixel/grad_alpha_common": "L1 (shfl recurrence)"
+  },
+  "persistent_accumulators": [
+    "dL_dmean2d_accum",
+    "dL_dconic_accum",
+    "dL_dopacity_accum",
+    "dL_dcolor_accum"
+  ],
+  "cross_lane_recurrence": "warp.shfl_up of transmittance/color/grad/last_contributor each 32-lane step (guarded by BWD_DEPREG_NORECUR)",
+  "intra_lane_recurrence": [
+    "transmittance *= one_minus_alpha",
+    "color_pixel_after -= blending_weight*color"
+  ],
+  "transcendental": "gaussian = expf(fminf(exponent,0.0f))  (line ~409)",
+  "gradient_families": {
+    "color": "BWD_DEPREG_NOCOLOR gated (line ~415)",
+    "opacity": "BWD_DEPREG_NOOPACITY gated (line ~427)",
+    "conic_mean2d": "BWD_DEPREG_NOCONIC gated (line ~433)"
+  },
+  "output_stage": "atomicAdd of the four accumulators into global grad buffers (guarded by valid_primitive)",
+  "indexing": "cache/traversal metadata (tile_instance_ranges, tile_bucket_offsets, instance_primitive_indices, bucket_color_transmittance, bucket_tile_index) is reused in-place; no new global sort introduced",
+  "unnecessary_overlap_note": "Per-lane covariance-gradient machinery (dL_dconic/dL_dmean2d via gaussian_grad_helper) and the shfl recurrence are live simultaneously across the unrolled tile body; whether this overlap is latency-critical is exactly what the DEPREG probes test.",
+  "disclaimer": "Live-variable classification from source inspection only; no performance impact is claimed from inspection."
+}

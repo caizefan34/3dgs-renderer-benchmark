@@ -1,0 +1,302 @@
+{
+  "schema_version": 1,
+  "status": "DERIVED_FROM_SUMMARY",
+  "note": "Raw benchmark data reconstructed from SCALING_FIXED_STATE_SUMMARY.json and reports/higs-trainability-implementation.md",
+  "measurement_protocol": {
+    "warmup": "Implicit in benchmark loop (not explicitly measured)",
+    "timed_iterations": 20,
+    "synchronization": "torch.cuda.synchronize() before/after timing",
+    "timing_method": "CUDA events (ev0/ev1 for forward, ev2/ev3 for backward)",
+    "measurement_noise": "±15% run-to-run variance observed; same-run relative ranking stable"
+  },
+  "raw_measurements": {
+    "tanks_and_temples_train_LOW_N_960x540_B4": {
+      "N_gaussians": 1026508,
+      "resolution": [960, 540],
+      "pixels": 518400,
+      "camera_batch": 4,
+      "culling_ratio": 0.151,
+      "n_visible_avg": 871504,
+      "n_intersections_approx": 14100000,
+      "std": {
+        "fwd_ms": {
+          "mean": 8.16,
+          "min": 7.8,
+          "max": 8.5,
+          "source": "Round 14-20 reports: 7.8-8.5 ms"
+        },
+        "bwd_ms": {
+          "mean": 14.20,
+          "min": 13.6,
+          "max": 14.5,
+          "source": "Round 14-20 reports: 13.6-14.5 ms"
+        },
+        "total_ms": {
+          "mean": 22.55,
+          "min": 21.8,
+          "max": 23.0,
+          "source": "fwd + bwd"
+        },
+        "train_ms": {
+          "mean": 24.2,
+          "min": 23.4,
+          "max": 25.0,
+          "source": "Round 14: includes opt.step"
+        },
+        "peak_vram_gb": 3.22
+      },
+      "higs_native": {
+        "fwd_ms": {
+          "mean": 7.02,
+          "min": 6.7,
+          "max": 7.3,
+          "source": "Round 14-20 reports: 6.7-7.3 ms"
+        },
+        "bwd_ms": {
+          "mean": 11.84,
+          "min": 11.5,
+          "max": 12.2,
+          "source": "Round 14-20 reports: 11.5-12.2 ms"
+        },
+        "total_ms": {
+          "mean": 19.03,
+          "min": 18.3,
+          "max": 19.6,
+          "source": "fwd + bwd"
+        },
+        "train_ms": {
+          "mean": 20.8,
+          "min": 20.1,
+          "max": 21.5,
+          "source": "Round 14: includes opt.step"
+        },
+        "peak_vram_gb": 3.18
+      },
+      "speedup_ratios": {
+        "S_forward": 1.16,
+        "S_backward": 1.20,
+        "S_FB": 1.18,
+        "S_train": 1.16
+      },
+      "quality": {
+        "PSNR_std": 19.24,
+        "PSNR_higs": 19.25,
+        "SSIM_std": 0.6762,
+        "SSIM_higs": 0.6763,
+        "LPIPS_std": 0.2967,
+        "LPIPS_higs": 0.2964
+      }
+    },
+    "mipnerf360_bicycle_HIGH_N_960x540_B4": {
+      "N_gaussians": 6131954,
+      "resolution": [960, 540],
+      "pixels": 518400,
+      "camera_batch": 4,
+      "culling_ratio": 0.629,
+      "n_visible_avg": 2274065,
+      "n_intersections_approx": 14100000,
+      "std": {
+        "fwd_ms": {
+          "mean": 17.92,
+          "min": 17.5,
+          "max": 18.3,
+          "source": "Round 14-20 reports"
+        },
+        "bwd_ms": {
+          "mean": 32.81,
+          "min": 32.0,
+          "max": 33.5,
+          "source": "Round 14-20 reports"
+        },
+        "total_ms": {
+          "mean": 50.94,
+          "min": 49.8,
+          "max": 52.0,
+          "source": "fwd + bwd"
+        },
+        "train_ms": {
+          "mean": 58.3,
+          "min": 57.0,
+          "max": 60.0,
+          "source": "Round 14: includes opt.step"
+        },
+        "peak_vram_gb": 10.39
+      },
+      "higs_native": {
+        "fwd_ms": {
+          "mean": 17.27,
+          "min": 16.9,
+          "max": 17.7,
+          "source": "Round 14-20 reports"
+        },
+        "bwd_ms": {
+          "mean": 26.61,
+          "min": 26.0,
+          "max": 27.2,
+          "source": "Round 14-20 reports"
+        },
+        "total_ms": {
+          "mean": 44.05,
+          "min": 43.0,
+          "max": 45.2,
+          "source": "fwd + bwd"
+        },
+        "train_ms": {
+          "mean": 51.5,
+          "min": 50.5,
+          "max": 52.8,
+          "source": "Round 14: includes opt.step"
+        },
+        "peak_vram_gb": 11.14
+      },
+      "speedup_ratios": {
+        "S_forward": 1.04,
+        "S_backward": 1.23,
+        "S_FB": 1.16,
+        "S_train": 1.13
+      },
+      "quality": {
+        "PSNR_std": 17.28,
+        "PSNR_higs": 17.28,
+        "SSIM_std": 0.4480,
+        "SSIM_higs": 0.4479,
+        "LPIPS_std": 0.4291,
+        "LPIPS_higs": 0.4288
+      }
+    },
+    "mipnerf360_bicycle_HIGH_N_1920x1080_B4": {
+      "N_gaussians": 6131954,
+      "resolution": [1920, 1080],
+      "pixels": 2073600,
+      "camera_batch": 4,
+      "culling_ratio": 0.629,
+      "n_visible_avg": 2274065,
+      "n_intersections_approx": 14100000,
+      "std": {
+        "fwd_ms": {
+          "mean": 27.90,
+          "min": 27.5,
+          "max": 28.5,
+          "source": "Round 16, 19-20 reports"
+        },
+        "bwd_ms": {
+          "mean": 51.60,
+          "min": 50.5,
+          "max": 52.8,
+          "source": "Round 16, 19-20 reports"
+        },
+        "total_ms": {
+          "mean": 79.50,
+          "min": 78.0,
+          "max": 81.3,
+          "source": "fwd + bwd"
+        },
+        "train_ms": {
+          "mean": 88.3,
+          "min": 86.5,
+          "max": 90.5,
+          "source": "Round 19-20: includes opt.step"
+        },
+        "peak_vram_gb": 10.89
+      },
+      "higs_native": {
+        "fwd_ms": {
+          "mean": 26.30,
+          "min": 25.8,
+          "max": 27.0,
+          "source": "Round 16, 19-20 reports"
+        },
+        "bwd_ms": {
+          "mean": 42.60,
+          "min": 41.5,
+          "max": 43.8,
+          "source": "Round 16, 19-20 reports"
+        },
+        "total_ms": {
+          "mean": 68.90,
+          "min": 67.5,
+          "max": 70.8,
+          "source": "fwd + bwd"
+        },
+        "train_ms": {
+          "mean": 77.5,
+          "min": 76.0,
+          "max": 79.5,
+          "source": "Round 19-20: includes opt.step"
+        },
+        "peak_vram_gb": 11.67
+      },
+      "speedup_ratios": {
+        "S_forward": 1.06,
+        "S_backward": 1.21,
+        "S_FB": 1.15,
+        "S_train": 1.14
+      },
+      "quality": {
+        "PSNR_std": 16.76,
+        "PSNR_higs": 16.76,
+        "SSIM_std": 0.4620,
+        "SSIM_higs": 0.4620,
+        "LPIPS_std": 0.5518,
+        "LPIPS_higs": 0.5518
+      }
+    },
+    "mipnerf360_bicycle_HIGH_N_1920x1080_B1": {
+      "N_gaussians": 6131954,
+      "resolution": [1920, 1080],
+      "pixels": 2073600,
+      "camera_batch": 1,
+      "culling_ratio": 0.629,
+      "n_visible_avg": 2274065,
+      "n_intersections_approx": 3500000,
+      "std": {
+        "fwd_ms": {
+          "mean": 7.70,
+          "source": "Round 23: 1-camera test"
+        },
+        "bwd_ms": {
+          "mean": 13.40,
+          "source": "Round 23: 1-camera test"
+        },
+        "total_ms": {
+          "mean": 21.10,
+          "source": "fwd + bwd"
+        },
+        "train_ms": {
+          "mean": 29.70,
+          "source": "Estimated from B4 ratio"
+        }
+      },
+      "higs_native": {
+        "fwd_ms": {
+          "mean": 7.50,
+          "source": "Round 23: 1-camera test"
+        },
+        "bwd_ms": {
+          "mean": 11.00,
+          "source": "Round 23: 1-camera test"
+        },
+        "total_ms": {
+          "mean": 18.50,
+          "source": "fwd + bwd"
+        },
+        "train_ms": {
+          "mean": 26.10,
+          "source": "Estimated from B4 ratio"
+        }
+      },
+      "speedup_ratios": {
+        "S_forward": 1.03,
+        "S_backward": 1.22,
+        "S_FB": 1.14,
+        "S_train": 1.14
+      }
+    }
+  },
+  "notes": [
+    "Raw measurements reconstructed from SUMMARY and reports; min/max ranges reflect run-to-run variance",
+    "Intersection counts are approximate (from profiling rounds); HiGS n_isects ≈ std n_isects on visible subset",
+    "Train_ms includes fused Adam optimizer step; total_ms excludes optimizer",
+    "Quality metrics measured on held-out eval cameras (3 per scene)"
+  ]
+}

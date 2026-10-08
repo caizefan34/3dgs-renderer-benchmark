@@ -1,0 +1,123 @@
+{
+  "task": "SB0-FGS",
+  "deliverable": "SB0_OPPORTUNITY_ORACLES",
+  "date": "2026-09-30",
+  "method": "perfect-removal upper bound = optimizer_ms (separate AdamCUDA launch eliminated by C7 fusion); realistic O_net discounts fusion overhead.",
+  "c0_stage_ms": {
+    "room": {
+      "mean_iter_ms": 29.441,
+      "forward_ms": 3.671,
+      "loss_ms": 7.323,
+      "backward_ms": 15.088,
+      "optimizer_ms": 2.513,
+      "bwd_plus_opt_pct": 59.8,
+      "opt_alone_pct": 8.5
+    },
+    "bicycle": {
+      "mean_iter_ms": 41.058,
+      "forward_ms": 5.13,
+      "loss_ms": 7.323,
+      "backward_ms": 18.97,
+      "optimizer_ms": 8.422,
+      "bwd_plus_opt_pct": 66.7,
+      "opt_alone_pct": 20.5
+    },
+    "garden": {
+      "mean_iter_ms": 37.867,
+      "forward_ms": 5.217,
+      "loss_ms": 7.272,
+      "backward_ms": 18.055,
+      "optimizer_ms": 6.539,
+      "bwd_plus_opt_pct": 64.9,
+      "opt_alone_pct": 17.3
+    }
+  },
+  "components": [
+    {
+      "id": "C1",
+      "name": "two-stage sorting",
+      "verdict": "DROP",
+      "rationale": "exact but perfect upper bound <3% E2E; C0 sort not bottleneck"
+    },
+    {
+      "id": "C3",
+      "name": "opacity-aware 3D filter",
+      "verdict": "DROP",
+      "rationale": "prohibited: changes rendering/quality; not exact systems gain"
+    },
+    {
+      "id": "C7",
+      "name": "backward->optimizer fusion",
+      "verdict": "DROP",
+      "rationale": "Oracle upper-bound (optimizer_ms 8.5/20.5/17.3% E2E) assumed fusion eliminates optimizer_ms. EMPIRICALLY FALSIFIED on C0: C0 H8_MR backward (HigsNativeBackward.cu) is MULTI-KERNEL tile-based (blend->projection->sh_vjp) with atomicAdd scatter + data deps; Adam (AdamCUDA.cu, separate core module) must run AFTER all stages => sequential, CANNOT overlap. Fusion only removes kernel LAUNCH overhead.",
+      "perfect_upper_bound_pct_E2E": {
+        "room": 8.5,
+        "bicycle": 20.5,
+        "garden": 17.3
+      },
+      "realistic_O_net_pct_E2E": {
+        "room": "3-6",
+        "bicycle": "8-15",
+        "garden": "6-12"
+      },
+      "decision": "DROP (realistic O_net <0.15% E2E << 2% threshold). Full optimizer_ms elimination requires per-primitive backward restructure = out-of-scope research, not a port.",
+      "empirical_launch_overhead_us": 4.8,
+      "empirical_max_savings_pct_E2E": {
+        "room": 0.081,
+        "bicycle": 0.058,
+        "garden": 0.063
+      }
+    },
+    {
+      "id": "C8",
+      "name": "Morton/Z-order densification",
+      "verdict": "DROP",
+      "rationale": "Measured on pinned C0 .so (no-CUDA microbench, interleaved A/B/A/B inverse-perm restore, gsplat env torch2.9.1, A100). Morton reordering changes raster fwd+bwd by +1.35%/+0.52%/+3.31% (room/garden/bicycle, N=852K/2.57M/3.70M); optimizer step ~0% (layout-invariant). Per-iter E2E = 0.54/0.34/2.08%; full-training E2E (apply-once post-densification) = 0.27/0.17/1.04%. Benefit confined to backward atomicAdd scatter (C0 backward is TILE-SORTED, not global-order => weak coherence vs Faster-GS fused per-primitive backward). Within measurement noise for room/garden (~8% fwd+bwd noise > effect); reorder overhead during densification is net-negative. Realistic O_net << 3% E2E on all scenes => DROP. See SB0_C8_EVALUATION.json.",
+      "evidence": "SB0_C8_EVALUATION.json (c8_microbench3.py)"
+    },
+    {
+      "id": "C9",
+      "name": "frontend allocation/densification mem",
+      "verdict": "DROP",
+      "rationale": "memory handling; not an E2E wall-clock lever on C0"
+    }
+  ],
+  "summary": "All DISTINCT_AND_EXACT components DROP on authoritative C0: C1 (two-stage sort, perfect UB<3%), C7 (backward->optimizer fusion, empirically falsified <0.15% E2E), C8 (morton densification, measured 0.17-1.04% full-train E2E <3% bar), C9 (frontend alloc, not an E2E lever). C2/C4/C5/C6 ALREADY_IN_C0; C3 DISTINCT_BUT_APPROXIMATE (prohibited). NO component clears the >=3% E2E implementation gate => no C0 production CUDA modification is warranted.",
+  "c7_re_evaluation": {
+    "date": "2026-09-30",
+    "verdict": "DROP",
+    "evidence": [
+      "HigsNativeBackward.cu: higs_blend_bwd_kernel + higs_projection_bwd_kernel + higs_sh_vjp_grid_kernel (3+ separate __global__ launches, atomicAdd to v_means/v_conic/v_opacities/v_sh).",
+      "AdamCUDA.cu: separate adam_kernel launch (gsplat.csrc core module), reads param_grad from global memory.",
+      "SelectiveAdam.step() calls adam() per param group (5 groups) AFTER loss.backward().",
+      "Empirical: CUDA launch overhead = 4.80us (noop kernel microbench, A100). x5 groups = 24us/iter = <0.15% E2E.",
+      "optimizer_ms (2.513/8.422/6.539) is memory-bound compute, NOT launch overhead; cannot be eliminated without overlap."
+    ],
+    "conclusion": "C7 does NOT translate Faster-GS speedup to C0. DROP."
+  },
+  "c8_re_evaluation": {
+    "date": "2026-09-30",
+    "verdict": "DROP",
+    "method": "no-CUDA microbench on pinned C0 .so, interleaved A/B/A/B, gsplat env (torch 2.9.1), A100",
+    "raster_fwd_bwd_speedup_pct": {
+      "room": 1.35,
+      "garden": 0.52,
+      "bicycle": 3.31
+    },
+    "e2e_per_iter_pct": {
+      "room": 0.54,
+      "garden": 0.34,
+      "bicycle": 2.08
+    },
+    "e2e_full_train_pct": {
+      "room": 0.27,
+      "garden": 0.17,
+      "bicycle": 1.04
+    },
+    "reorder_overhead_ms": {
+      "room": 191,
+      "garden": 634,
+      "bicycle": 981
+    }
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "task": "MSB0-P0",
+  "description": "Source lock for the FasterGSFused per-Gaussian backward state. Formulas transcribed from locked CUDA source; no CUDA built or executed locally.",
+  "git": {
+    "faster-gaussian-splatting": {
+      "role": "strong backend (FasterGSFused) per-Gaussian backward kernels",
+      "commit": "ae665af2f91a4973bb92c40fdc4cba8d12fe3c96",
+      "date": "2026-09-19",
+      "subject": "Fix build on CUDA 13",
+      "remote": "github.com/nerficg-project/faster-gaussian-splatting",
+      "nested_path": "src/nerficg/src/Methods/FasterGSFused (nested git repo inside ngs)"
+    },
+    "nerficg": {
+      "role": "framework host (NerFACTory GS)",
+      "commit": "e458ac6e41810ad6d9405687c1e698fadd28dac5",
+      "date": "2026-09-06",
+      "remote": "github.com/nerficg-project/nerficg"
+    }
+  },
+  "source_files": {
+    "rasterization_config_h": "rasterization/include/rasterization_config.h",
+    "kernels_forward_cuh": "rasterization/include/kernels_forward.cuh",
+    "kernels_backward_cuh": "rasterization/include/kernels_backward.cuh",
+    "buffer_utils_h": "rasterization/include/buffer_utils.h",
+    "sh_utils_cuh": "rasterization/include/sh_utils.cuh"
+  },
+  "config_constants": {
+    "tile_width": 16,
+    "tile_height": 16,
+    "block_size_blend": 256,
+    "min_alpha_threshold": "1.0/255.0",
+    "transmittance_threshold": 0.0001,
+    "one_minus_alpha_eps": 1e-06,
+    "dilation": 0.3,
+    "min_cov2d_det": 1e-06,
+    "bucket_size": 32,
+    "sh_degree": 3,
+    "active_bases": 16
+  },
+  "forward_blend_cu": {
+    "file": "kernels_forward.cuh",
+    "signature_line": 355,
+    "compositing": "front-to-back, per pixel",
+    "recurrence": {
+      "T_0": "1.0",
+      "C_0": "(0,0,0)",
+      "alpha_j": "opacity_j * exp(-0.5*(conic.x*dx^2 + conic.z*dy^2) - conic.y*dx*dy), clamped >= min_alpha_threshold",
+      "C_next": "C_j + T_j * alpha_j * color_j",
+      "T_next": "T_j * (1 - alpha_j)"
+    },
+    "bucket_save": {
+      "lines": [
+        414,
+        416
+      ],
+      "condition": "j % 32 == 0",
+      "buffer_write": "bucket_color_transmittance[bucket_offset*block_size_blend + thread_rank] = float4(color_pixel, transmittance)",
+      "semantics": "at each 32-Gaussian boundary, store the PREFIX state (C_b, T_b) = accumulated color and entering transmittance for that bucket"
+    },
+    "final_state": {
+      "lines": [
+        455,
+        456
+      ],
+      "buffer_writes": [
+        "tile_final_transmittances[pixel_idx] = transmittance (T_N)",
+        "tile_n_processed[pixel_idx] = n_processed_and_used"
+      ]
+    }
+  },
+  "backward_blend_backward_cu": {
+    "file": "kernels_backward.cuh",
+    "signature_line": 252,
+    "launch": "one block per bucket; buckets processed independently in parallel (line 332: bucket_color_transmittance += bucket_idx*block_size_blend)",
+    "seed": [
+      {
+        "line": 343,
+        "load": "float4 color_transmittance = bucket_color_transmittance[local_idx] -> (C_b, T_b)"
+      },
+      {
+        "line": 360,
+        "load": "final_transmittance = tile_final_transmittances[pixel_idx] (T_N)"
+      },
+      {
+        "line": 369,
+        "load": "last_contributor = tile_n_processed[pixel_idx]"
+      }
+    ],
+    "seed_derivation": {
+      "color_pixel_after": "C_final_after_bg - T_N*bg - C_b",
+      "transmittance": "T_b",
+      "grad_alpha_common": "T_N * (-dot(grad_color_pixel, bg))"
+    },
+    "reverse_walk_within_bucket": {
+      "blending_weight": "transmittance * alpha",
+      "dL_dcolor": "blending_weight * grad_color_pixel * color_grad_factor",
+      "dL_dalpha_from_color": "dot(transmittance*color - color_pixel_after*oma_rcp, grad_color_pixel)",
+      "dL_dalpha_from_alpha": "grad_alpha_common * oma_rcp",
+      "dL_dopacity": "gaussian * dL_dalpha",
+      "gaussian_grad_helper": "-alpha * dL_dalpha",
+      "dL_dconic": "0.5 * ggh * (dx^2, dx*dy, dy^2)  [0.5x on ALL incl. cross-term = kernel convention]",
+      "dL_dmean2d": "ggh * (conic.x*dx + conic.y*dy, conic.y*dx + conic.z*dy)"
+    }
+  },
+  "saved_checkpoint_tensors": {
+    "model_state_dict_keys": [
+      "gaussians._means",
+      "gaussians._sh_coefficients_0",
+      "gaussians._sh_coefficients_rest",
+      "gaussians._scales",
+      "gaussians._rotations",
+      "gaussians._opacities"
+    ],
+    "load": "torch.load(..., weights_only=False); ckpt = sd['model_state_dict']",
+    "dtypes": "float32 (CUDA); promoted to float64 in the P0 oracle",
+    "checkpoint_counts": {
+      "room": 1230942,
+      "garden": 4809378,
+      "bicycle": 4720561
+    },
+    "ckpt_paths": {
+      "room": "/root/epic05_p16rb/src/nerficg/output/FasterGSFused/fgs_fused_iso_room_s42_30000_*/checkpoints/final.pt",
+      "garden": "/root/epic05_p16rb/src/nerficg/output/FasterGSFused/fgs_fused_iso_garden_s42_30000_2026-10-01-09-45-48/checkpoints/final.pt",
+      "bicycle": "/root/epic05_p16rb/src/nerficg/output/FasterGSFused/fgs_fused_iso_bicycle_s42_30000_2026-10-01-09-55-47/checkpoints/final.pt"
+    },
+    "colmap_sparse": {
+      "room": "/root/epic05_p16rb/common_data/mipnerf360/room/sparse/0",
+      "garden": "/root/epic05_p16rb/common_data/mipnerf360/garden/sparse/0",
+      "bicycle": "/root/epic05_p16rb/common_data/mipnerf360/bicycle/sparse/0"
+    }
+  },
+  "sh_coefficients": {
+    "C0": 0.28209479177387814,
+    "C1": 0.48860251190291987,
+    "C2a": 1.0925484305920792,
+    "C2b": 0.94617469575756,
+    "C2c": 0.31539156525252,
+    "C2d": 0.5462742152960396,
+    "C3a": 0.5900435899266435,
+    "C3b": 1.7701307697799304,
+    "C3c": 2.890611442640554,
+    "C3d": 0.4570457994644657,
+    "C3e": 2.2852289973223288,
+    "C3f": 1.865881662950577,
+    "C3g": 1.1195289973203462,
+    "C3h": 1.445305721320277
+  },
+  "buffer_layout_bytes": {
+    "BucketBuffers.color_transmittance": "n_buckets_total * 256 * 16 B (float4 per bucket-pixel)",
+    "TileBuffers.final_transmittances": "n_pixels * 4 B (float per pixel)",
+    "TileBuffers.n_processed": "n_pixels * 4 B (uint per pixel)"
+  },
+  "conic_convention_note": "Kernel exponent = -0.5*(conic.x*dx^2 + conic.z*dy^2) - conic.y*dx*dy, i.e. conic is the full inverse-covariance 2x2 [[conic.x,conic.y],[conic.y,conic.z]] with quadratic form -0.5*delta^T conic delta. The backward dL_dconic applies 0.5*ggh to ALL three components including the cross-term (0.5x on conic.y), HALF the analytic gradient of the exponent w.r.t. conic.y. The P0 oracle reproduces the kernel exactly (M0 matches autograd on color/alpha/mean2d; conic differs only by this documented 0.5x cross-term convention). Orthogonal to MSB0 (compositing color/alpha/opacity gradients are exact)."
+}

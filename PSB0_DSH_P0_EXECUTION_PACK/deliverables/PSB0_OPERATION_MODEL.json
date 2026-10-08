@@ -1,0 +1,77 @@
+{
+  "_timestamp_utc": "2026-10-01T11:25:00Z",
+  "gate": "Gate 4 — operation model (state-recovery work)",
+  "frozen_native_model": {
+    "kernel": "nerficg@e458ac6e FasterGSFused backward.cu::blend_backward_cu",
+    "tile_pixels": 256,
+    "bucket_size": 32,
+    "checkpoint": "float4[nbuckets*256] (color.rgb + T) written in forward blend_cu, read in backward",
+    "state_recovery": "replay 32-splat compositing recurrence within each bucket from checkpoint"
+  },
+  "cost_model_per_valid_visit": {
+    "native_replay_flop": 10,
+    "native_replay_exp": 1,
+    "native_replay_min": 1,
+    "native_note": "alpha=opacity*gaussian(1exp+1min), bw=T*alpha, color_after-=bw*color(3mul+3sub), oma=1-alpha(1sub), T*=oma(1mul)",
+    "scan_compose_flop": 14,
+    "scan_compose_note": "Blelloch work-efficient inclusive prefix scan: 2 composes/visit * 7 flop (A1+B1*A2=3mul+3add, B1*B2=1mul)",
+    "scan_cafter_flop": 3,
+    "scan_build_flop": 4,
+    "scan_build_exp": 0,
+    "scan_note": "transform M_k=(A_k=a_k*c_k, B_k=1-a_k) pre-built in forward (alpha already computed there); backward scan has 0 exp; gradient needs gaussian=alpha/opacity (1 div) — counted in gradient, not state-recovery"
+  },
+  "real_trace_inputs": {
+    "source": "BARS0_TILE_TRACE.json + APBC0_REACHABILITY_TRACE.json (real FasterGSFused fused-backward tiles, 1920x1080, seed42, iter25000)",
+    "room": {
+      "total_valid_pixel_visits": 14894848,
+      "surviving_buckets": 58472
+    },
+    "garden": {
+      "total_valid_pixel_visits": 35872768,
+      "surviving_buckets": 140684
+    },
+    "bicycle": {
+      "total_valid_pixel_visits": 25459968,
+      "surviving_buckets": 101725
+    }
+  },
+  "reduction_formula": "(exp_cost + native_flop - scan_flop) / (exp_cost + native_flop); native_flop=11 (incl min), scan_flop=17 (compose14+cafter3, exp eliminated)",
+  "breakeven_for_20pct": "exp_cost >= 9.5 FMA-equivalents",
+  "sensitivity": {
+    "exp_cost=4": {
+      "reduction": -0.1333,
+      "scenes_ge_20pct": 0,
+      "pass": false
+    },
+    "exp_cost=8": {
+      "reduction": 0.1053,
+      "scenes_ge_20pct": 0,
+      "pass": false
+    },
+    "exp_cost=10": {
+      "reduction": 0.2105,
+      "scenes_ge_20pct": 3,
+      "pass": true
+    },
+    "exp_cost=12": {
+      "reduction": 0.2609,
+      "scenes_ge_20pct": 3,
+      "pass": true
+    },
+    "exp_cost=16": {
+      "reduction": 0.32,
+      "scenes_ge_20pct": 3,
+      "pass": true
+    }
+  },
+  "structural_findings": {
+    "scene_independence": "reduction ratio is identical across room/garden/bicycle (per-visit cost ratio); scene mix does not change the gate outcome",
+    "scan_compose_exceeds_replay": "Blelloch compose (14 flop/visit) > native replay recurrence (10-11 flop/visit); the general associative compose is strictly more arithmetic than the fixed-32-bucket recurrence",
+    "only_saving_is_exp": "the sole state-recovery saving is eliminating the backward expf recomputation (native recomputes expf per visit; scan reuses forward-stored alpha)",
+    "memory": "scan transform storage (V*4 floats) ~= native checkpoint storage (nbuckets*256*4 floats) since V ~= nbuckets*256; no meaningful memory reduction",
+    "sync_depth": "native replay depth=32 (sequential within bucket via shfl_up); scan depth=log2(splats/pixel)~8; scan better on depth but depth is not throughput-bound on A100"
+  },
+  "verdict": "FAIL_BORDERLINE",
+  "verdict_rationale": "Gate 4 requires >=20% state-recovery work reduction in >=2/3 scenes. The model predicts a scene-independent reduction of (exp-6)/(exp+8), which crosses 20% only when precise expf costs >=~9.5 FMA-equiv. Precise expf on A100 is estimated 8-16 FMA-equiv (multi-instruction: range-reduction + polynomial + 1 SFU op), placing the reduction at 12-37% — straddling the threshold. At fast-exp (__expf~4) the scan is 13% WORSE. Because the reduction is not robustly >=20% across the realistic expf cost range and P0 forbids measuring the actual expf cost (no CUDA profiling), Gate 4 is not confidently passed. The associative scan trades cheap structured replay recurrence for more expensive general compose; it does not reduce state-recovery work.",
+  "gate4_pass": false
+}

@@ -1,0 +1,262 @@
+{
+ "gate": "G2_continuous_domain_certificate_DENSE_COVERAGE_MULTI_SCENE",
+ "method": "Deterministic dense sub-pixel grid coverage per tile (sub=4 -> 4096 pts over tile ray extent); fit student on even pixels (as G1), eval teacher vs student max|E,T| on dense grid and on held-out odd pixels.",
+ "value_gate_max_abs": 0.02,
+ "ranks": [
+  4,
+  8,
+  16
+ ],
+ "scope": "EMPIRICAL dense-coverage certificate: max error over a deterministic dense sub-pixel grid. STRICTLY stronger than random held-out (deterministic+densely covers tile extent) but still a SAMPLE, NOT a rigorous interval-arithmetic bound over the continuum (that remains NOT_REACHED).",
+ "honesty": "Dense coverage exposes a hard-tile TAIL that random held-out partly masked: worst-tile max|E,T| reaches 0.09-0.18 (vs gate 0.02). Higher rank does NOT monotonically improve dense coverage (room pass 0.95->0.85->0.75 rank4->16), consistent with G1 Jacobian non-monotonicity. This is NOT the G1 gate (which is work-weighted compressibility and PASSED); it is an add-on continuous-domain probe that TEMPERS any 'student reproduces teacher everywhere' claim.",
+ "per_scene": {
+  "room": {
+   "ckpt": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_15000.pt",
+   "n_tiles": 20,
+   "sub": 4,
+   "n_dense_grid": 4096,
+   "per_rank": {
+    "4": {
+     "n": 20,
+     "heldout_max_abs_median": 0.003706418622194287,
+     "heldout_max_abs_p95": 0.005329332234899309,
+     "dense_max_abs_median": 0.004504058730308532,
+     "dense_max_abs_p95": 0.020955146468430462,
+     "dense_max_abs_max": 0.17541244444181514,
+     "dense_pass_rate": 0.95,
+     "heldout_pass_rate": 1.0,
+     "dense_vs_heldout_ratio_median": 1.889304994068232,
+     "M_median": 52
+    },
+    "8": {
+     "n": 20,
+     "heldout_max_abs_median": 0.004504058731779008,
+     "heldout_max_abs_p95": 0.010700428275183752,
+     "dense_max_abs_median": 0.005630062274910145,
+     "dense_max_abs_p95": 0.035145741875619155,
+     "dense_max_abs_max": 0.0457545557827263,
+     "dense_pass_rate": 0.85,
+     "heldout_pass_rate": 0.95,
+     "dense_vs_heldout_ratio_median": 1.1861593131922175,
+     "M_median": 52
+    },
+    "16": {
+     "n": 20,
+     "heldout_max_abs_median": 0.004504058733197919,
+     "heldout_max_abs_p95": 0.030846603428871973,
+     "dense_max_abs_median": 0.005230569847291931,
+     "dense_max_abs_p95": 0.052342359424997285,
+     "dense_max_abs_max": 0.08157091123185278,
+     "dense_pass_rate": 0.75,
+     "heldout_pass_rate": 0.85,
+     "dense_vs_heldout_ratio_median": 1.20451267254497,
+     "M_median": 52
+    }
+   }
+  },
+  "garden": {
+   "ckpt": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_garden_30k/checkpoints/iter_30000.pt",
+   "n_tiles": 20,
+   "sub": 4,
+   "n_dense_grid": 4096,
+   "per_rank": {
+    "4": {
+     "n": 20,
+     "heldout_max_abs_median": 0.0005893662261002707,
+     "heldout_max_abs_p95": 0.0073917493548591945,
+     "dense_max_abs_median": 0.0010970080545786298,
+     "dense_max_abs_p95": 0.007788384950123785,
+     "dense_max_abs_max": 0.035488608383504316,
+     "dense_pass_rate": 0.95,
+     "heldout_pass_rate": 0.95,
+     "dense_vs_heldout_ratio_median": 1.2264336209404523,
+     "M_median": 227
+    },
+    "8": {
+     "n": 20,
+     "heldout_max_abs_median": 0.0011323555958377418,
+     "heldout_max_abs_p95": 0.02398450247121782,
+     "dense_max_abs_median": 0.0017564564891488499,
+     "dense_max_abs_p95": 0.02496668067749586,
+     "dense_max_abs_max": 0.035076960122320165,
+     "dense_pass_rate": 0.9,
+     "heldout_pass_rate": 0.9,
+     "dense_vs_heldout_ratio_median": 1.2378782422343508,
+     "M_median": 227
+    },
+    "16": {
+     "n": 20,
+     "heldout_max_abs_median": 0.001985167811088373,
+     "heldout_max_abs_p95": 0.011380938708457678,
+     "dense_max_abs_median": 0.0023659897106435013,
+     "dense_max_abs_p95": 0.022046848883562495,
+     "dense_max_abs_max": 0.060057022444565344,
+     "dense_pass_rate": 0.9,
+     "heldout_pass_rate": 0.95,
+     "dense_vs_heldout_ratio_median": 1.0126868553853259,
+     "M_median": 227
+    }
+   }
+  },
+  "bicycle": {
+   "ckpt": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_bicycle_30k/checkpoints/iter_30000.pt",
+   "n_tiles": 20,
+   "sub": 4,
+   "n_dense_grid": 4096,
+   "per_rank": {
+    "4": {
+     "n": 20,
+     "heldout_max_abs_median": 0.0007530534514569864,
+     "heldout_max_abs_p95": 0.0030233709587112927,
+     "dense_max_abs_median": 0.001071628430347249,
+     "dense_max_abs_p95": 0.006195567820115368,
+     "dense_max_abs_max": 0.018859861803761493,
+     "dense_pass_rate": 1.0,
+     "heldout_pass_rate": 1.0,
+     "dense_vs_heldout_ratio_median": 1.1080641726134235,
+     "M_median": 288
+    },
+    "8": {
+     "n": 20,
+     "heldout_max_abs_median": 0.0013889208080293813,
+     "heldout_max_abs_p95": 0.007515825108324832,
+     "dense_max_abs_median": 0.0017564564891488499,
+     "dense_max_abs_p95": 0.03144371444812896,
+     "dense_max_abs_max": 0.038478870583612323,
+     "dense_pass_rate": 0.9,
+     "heldout_pass_rate": 1.0,
+     "dense_vs_heldout_ratio_median": 1.3251585333041307,
+     "M_median": 288
+    },
+    "16": {
+     "n": 20,
+     "heldout_max_abs_median": 0.0015588154334417181,
+     "heldout_max_abs_p95": 0.009272158036258395,
+     "dense_max_abs_median": 0.0018831073659636433,
+     "dense_max_abs_p95": 0.029379478684360142,
+     "dense_max_abs_max": 0.09060188520329926,
+     "dense_pass_rate": 0.9,
+     "heldout_pass_rate": 0.95,
+     "dense_vs_heldout_ratio_median": 1.0106870240808876,
+     "M_median": 288
+    }
+   }
+  }
+ },
+ "pooled_all_scenes": {
+  "4": {
+   "n": 60,
+   "dense_max_abs_median": 0.0018671958069859662,
+   "dense_max_abs_p95": 0.013127517336527648,
+   "dense_max_abs_max": 0.17541244444181514,
+   "dense_pass_rate": 0.9666666666666667,
+   "heldout_pass_rate": 0.9833333333333333,
+   "dense_vs_heldout_ratio_median": 1.2744132991066257,
+   "M_median": 194
+  },
+  "8": {
+   "n": 60,
+   "dense_max_abs_median": 0.0027359664361821055,
+   "dense_max_abs_p95": 0.03461186209259884,
+   "dense_max_abs_max": 0.0457545557827263,
+   "dense_pass_rate": 0.8833333333333333,
+   "heldout_pass_rate": 0.95,
+   "dense_vs_heldout_ratio_median": 1.2882678405716725,
+   "M_median": 194
+  },
+  "16": {
+   "n": 60,
+   "dense_max_abs_median": 0.0031538386208196665,
+   "dense_max_abs_p95": 0.051266664985632864,
+   "dense_max_abs_max": 0.09060188520329926,
+   "dense_pass_rate": 0.85,
+   "heldout_pass_rate": 0.9166666666666666,
+   "dense_vs_heldout_ratio_median": 1.015362213045679,
+   "M_median": 194
+  }
+ },
+ "monotonicity": {
+  "room": {
+   "dense_pass_rate_by_rank": [
+    0.95,
+    0.85,
+    0.75
+   ],
+   "non_monotonic": false
+  },
+  "garden": {
+   "dense_pass_rate_by_rank": [
+    0.95,
+    0.9,
+    0.9
+   ],
+   "non_monotonic": false
+  },
+  "bicycle": {
+   "dense_pass_rate_by_rank": [
+    1.0,
+    0.9,
+    0.9
+   ],
+   "non_monotonic": false
+  }
+ },
+ "worst_tiles": [
+  {
+   "scene": "room",
+   "rank": 4,
+   "tile_idx": 8,
+   "M": 310,
+   "dense_max_abs": 0.17541244444181514
+  },
+  {
+   "scene": "bicycle",
+   "rank": 16,
+   "tile_idx": 0,
+   "M": 46,
+   "dense_max_abs": 0.09060188520329926
+  },
+  {
+   "scene": "room",
+   "rank": 16,
+   "tile_idx": 13,
+   "M": 25,
+   "dense_max_abs": 0.08157091123185278
+  },
+  {
+   "scene": "garden",
+   "rank": 16,
+   "tile_idx": 12,
+   "M": 123,
+   "dense_max_abs": 0.060057022444565344
+  },
+  {
+   "scene": "room",
+   "rank": 8,
+   "tile_idx": 9,
+   "M": 357,
+   "dense_max_abs": 0.0457545557827263
+  },
+  {
+   "scene": "bicycle",
+   "rank": 8,
+   "tile_idx": 2,
+   "M": 157,
+   "dense_max_abs": 0.038478870583612323
+  },
+  {
+   "scene": "garden",
+   "rank": 4,
+   "tile_idx": 11,
+   "M": 103,
+   "dense_max_abs": 0.035488608383504316
+  },
+  {
+   "scene": "garden",
+   "rank": 8,
+   "tile_idx": 13,
+   "M": 129,
+   "dense_max_abs": 0.035076960122320165
+  }
+ ]
+}

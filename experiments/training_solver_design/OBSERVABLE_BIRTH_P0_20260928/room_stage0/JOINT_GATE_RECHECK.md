@@ -1,0 +1,11 @@
+# Room correlated-direction birth geometry gate: independent recheck
+
+2026-09-28. This is a bounded **NO-GO** for the current room@1500 twelve-training-view geometry screen, not a proof that no spectral birth layout can ever work.
+
+The authoritative raw matrix file is `stage0_geometry_raw.npz` (SHA256 `c80555be312e7fc0075476d9325cfd49e2802dde406d52fa5cd0d0e67857e9f8`). Luna's report is `stage0_geometry_report.json` (SHA256 `e4fb01b25849f3eb01ea86c26b4bf2aad2edc0c541490047036f349a966cb3fb`). Room uses the healed P16 data, SAD original loss, full effective 1920×1080 resolution, event 1500, and twelve training views. No formal held-out GT was loaded. The geometry calculation omits the image-frequency tensor and historical observation trajectory.
+
+The broad A-only proxy suggested 42.55% fewer children, but parents visible in just one camera inherit a trivial projection null direction. The prespecified support gate, at least three of six interleaved A cameras and two of six interleaved B cameras active, retained only 233 of 34,495 native three-axis split families. They have 3,338 of 497,246 historical three-axis children (0.671%). On this coverage subset, the geometry-only child-count proxy fell just 5.85%.
+
+`analyze_joint_gate.py` independently recomputes the sum-of-A geometry matrix's weakest eigenvector for each of the 233 parents, then checks its discarded response `qᵀ G_v q / tr(G_v) <= 0.01` on **every active one of the twelve views**. Only **7 parents / 130 historical children** pass. That is 0.02614% of the native three-axis children and 0.01308% of all 993,750 native children born in this event. This is still a geometric proxy, not accepted-hit, quality, or wall-time evidence. It is far below the material scene-wide opportunity needed before building a new layout.
+
+The frozen version stops here. Do not tune the 1% or camera-coverage thresholds, add garden to rescue this result, claim the 42.55% A-only proxy, or launch layout CUDA/short continuation. The twelve-view sampling and strict source opacity/transmittance activity filters limit the conclusion to this screen; they do not turn its failure into a positive opportunity. The broader originality and multi-scene quality-speed goal remain open.

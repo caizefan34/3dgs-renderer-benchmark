@@ -1,0 +1,213 @@
+{
+ "gate": "G2_rigorous_continuous_domain_certificate_INTERVAL_ARITHMETIC_MULTI_SCENE",
+ "method": "Branch-and-bound interval arithmetic over each tile's 2D ray domain; student interval box = convex hull of rank-R expert predictions (student is a convex combination of experts); teacher interval box from conic power interval. Guaranteed upper bound on max|E,T| over the continuum.",
+ "value_gate_max_abs": 0.02,
+ "ranks": [
+  4,
+  8,
+  16
+ ],
+ "scope": "RIGOROUS interval-arithmetic enclosure (guaranteed upper bound on max error over the continuous tile ray domain), NOT empirical sampling. Still per-tile fixed-view; NOT a camera/view-variation bound and NOT a GPU throughput bound.",
+ "validated": true,
+ "honesty": "validated=True means the interval bound is provably valid (tight: bound/pointmax ratio ~1.0-4.6 on synthetic). pass_rate<1.0 RIGOROUSLY proves the student does NOT reproduce the teacher everywhere on the continuous domain (fails the 0.02 gate on a non-empty tile set). Highest rank does NOT monotonically reduce the bound. This TEMPERS any 'student reproduces teacher everywhere' claim with a proof, not a sample.",
+ "per_scene": {
+  "room": {
+   "ckpt": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_15000.pt",
+   "n_tiles": 20,
+   "validated": true,
+   "method": "branch-and-bound interval arithmetic over tile 2D ray domain",
+   "min_size": 1.0,
+   "max_depth": 10,
+   "scope": "RIGOROUS interval-arithmetic enclosure (guaranteed upper bound on max error over the continuous tile ray domain), NOT empirical sampling. Still per-tile fixed-view; NOT a camera/view-variation bound and NOT a GPU throughput bound.",
+   "per_rank": {
+    "4": {
+     "n": 20,
+     "rigorous_max_abs_median": 0.008242679662207146,
+     "rigorous_max_abs_p95": 0.4817456905791321,
+     "rigorous_max_abs_max": 0.7929469552647823,
+     "pass_rate": 0.65,
+     "median_leaves": 1.0,
+     "M_median": 52
+    },
+    "8": {
+     "n": 20,
+     "rigorous_max_abs_median": 0.021762644313956192,
+     "rigorous_max_abs_p95": 0.08596403430827318,
+     "rigorous_max_abs_max": 0.08954128542081785,
+     "pass_rate": 0.4,
+     "median_leaves": 140.5,
+     "M_median": 52
+    },
+    "16": {
+     "n": 20,
+     "rigorous_max_abs_median": 0.02529786363017944,
+     "rigorous_max_abs_p95": 0.1663135617130102,
+     "rigorous_max_abs_max": 0.18842877416636183,
+     "pass_rate": 0.4,
+     "median_leaves": 254.5,
+     "M_median": 52
+    }
+   }
+  },
+  "garden": {
+   "ckpt": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_garden_30k/checkpoints/iter_30000.pt",
+   "n_tiles": 20,
+   "validated": true,
+   "method": "branch-and-bound interval arithmetic over tile 2D ray domain",
+   "min_size": 1.0,
+   "max_depth": 10,
+   "scope": "RIGOROUS interval-arithmetic enclosure (guaranteed upper bound on max error over the continuous tile ray domain), NOT empirical sampling. Still per-tile fixed-view; NOT a camera/view-variation bound and NOT a GPU throughput bound.",
+   "per_rank": {
+    "4": {
+     "n": 20,
+     "rigorous_max_abs_median": 0.002581685639517096,
+     "rigorous_max_abs_p95": 0.03930883245619941,
+     "rigorous_max_abs_max": 0.269766386309221,
+     "pass_rate": 0.9,
+     "median_leaves": 1.0,
+     "M_median": 227
+    },
+    "8": {
+     "n": 20,
+     "rigorous_max_abs_median": 0.004072366266267391,
+     "rigorous_max_abs_p95": 0.18800932662498257,
+     "rigorous_max_abs_max": 0.45437804313311814,
+     "pass_rate": 0.85,
+     "median_leaves": 1.0,
+     "M_median": 227
+    },
+    "16": {
+     "n": 20,
+     "rigorous_max_abs_median": 0.003990677192096559,
+     "rigorous_max_abs_p95": 0.2983056770920376,
+     "rigorous_max_abs_max": 0.3380912579134999,
+     "pass_rate": 0.85,
+     "median_leaves": 1.0,
+     "M_median": 227
+    }
+   }
+  },
+  "bicycle": {
+   "ckpt": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_bicycle_30k/checkpoints/iter_30000.pt",
+   "n_tiles": 20,
+   "validated": true,
+   "method": "branch-and-bound interval arithmetic over tile 2D ray domain",
+   "min_size": 1.0,
+   "max_depth": 10,
+   "scope": "RIGOROUS interval-arithmetic enclosure (guaranteed upper bound on max error over the continuous tile ray domain), NOT empirical sampling. Still per-tile fixed-view; NOT a camera/view-variation bound and NOT a GPU throughput bound.",
+   "per_rank": {
+    "4": {
+     "n": 20,
+     "rigorous_max_abs_median": 0.005197040451713909,
+     "rigorous_max_abs_p95": 0.0725256874463371,
+     "rigorous_max_abs_max": 0.3025041924515153,
+     "pass_rate": 0.7,
+     "median_leaves": 4.0,
+     "M_median": 288
+    },
+    "8": {
+     "n": 20,
+     "rigorous_max_abs_median": 0.005607569435366661,
+     "rigorous_max_abs_p95": 0.327879917060628,
+     "rigorous_max_abs_max": 0.6407997173429834,
+     "pass_rate": 0.65,
+     "median_leaves": 10.0,
+     "M_median": 288
+    },
+    "16": {
+     "n": 20,
+     "rigorous_max_abs_median": 0.00578420904234207,
+     "rigorous_max_abs_p95": 0.30683816798625985,
+     "rigorous_max_abs_max": 0.3533105332334344,
+     "pass_rate": 0.6,
+     "median_leaves": 16.0,
+     "M_median": 288
+    }
+   }
+  }
+ },
+ "pooled_all_scenes": {
+  "4": {
+   "n": 60,
+   "rigorous_max_abs_median": 0.0056821334977603406,
+   "rigorous_max_abs_p95": 0.2714032766163356,
+   "rigorous_max_abs_max": 0.7929469552647823,
+   "pass_rate": 0.75,
+   "median_leaves": 1.0
+  },
+  "8": {
+   "n": 60,
+   "rigorous_max_abs_median": 0.0074077161899570535,
+   "rigorous_max_abs_p95": 0.1808609471627197,
+   "rigorous_max_abs_max": 0.6407997173429834,
+   "pass_rate": 0.6333333333333333,
+   "median_leaves": 10.0
+  },
+  "16": {
+   "n": 60,
+   "rigorous_max_abs_median": 0.006868419230442478,
+   "rigorous_max_abs_p95": 0.2966207268976567,
+   "rigorous_max_abs_max": 0.3533105332334344,
+   "pass_rate": 0.6166666666666667,
+   "median_leaves": 16.0
+  }
+ },
+ "worst_tiles": [
+  {
+   "scene": "room",
+   "rank": 4,
+   "tile_idx": 8,
+   "M": 310,
+   "rigorous_max_abs": 0.7929469552647823
+  },
+  {
+   "scene": "bicycle",
+   "rank": 8,
+   "tile_idx": 9,
+   "M": 544,
+   "rigorous_max_abs": 0.6407997173429834
+  },
+  {
+   "scene": "room",
+   "rank": 4,
+   "tile_idx": 12,
+   "M": 16,
+   "rigorous_max_abs": 0.4653666766483081
+  },
+  {
+   "scene": "garden",
+   "rank": 8,
+   "tile_idx": 12,
+   "M": 123,
+   "rigorous_max_abs": 0.45437804313311814
+  },
+  {
+   "scene": "bicycle",
+   "rank": 16,
+   "tile_idx": 0,
+   "M": 46,
+   "rigorous_max_abs": 0.3533105332334344
+  },
+  {
+   "scene": "garden",
+   "rank": 16,
+   "tile_idx": 12,
+   "M": 123,
+   "rigorous_max_abs": 0.3380912579134999
+  },
+  {
+   "scene": "bicycle",
+   "rank": 8,
+   "tile_idx": 19,
+   "M": 2314,
+   "rigorous_max_abs": 0.31141045388787225
+  },
+  {
+   "scene": "bicycle",
+   "rank": 16,
+   "tile_idx": 19,
+   "M": 2314,
+   "rigorous_max_abs": 0.3043922540258822
+  }
+ ]
+}

@@ -1,0 +1,226 @@
+{
+ "artifact": "P8_C0_SOURCE_IDENTITY",
+ "schema": "p8_c0_source_identity/v1",
+ "date": "2026-09-26",
+ "role": "Cryptographic identity of the historical P8 C0 renderer source and binary that P12 C0_FUSED (and A0_FUSED/A1_FUSED) must reproduce.",
+ "historical_p8_c0": {
+  "host": "mx / bms-39468022-001 (user liaoyuanjun) - frozen publication environment",
+  "repository_root": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_worktree",
+  "git": {
+   "gitdir_gitfile": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/.git/worktrees/f9-1-trainable-worktree",
+   "base_commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+   "base_commit_subject": "[NV] uint64 pixel mask, sparse-bwd robustness fixes, CUDA 12.8 build, ortho camera (#1023)",
+   "base_commit_date": "2026-07-09 20:37:05 +0200",
+   "porcelain_entries": 25,
+   "dirty_status": "DIRTY by construction: the HiGS experimental renderer sources are staged/uncommitted on top of the base commit. Renderer identity is pinned by the source manifest, not by any commit.",
+   "note": "The git gitfile works on mx only; the EPIC frozen copy retains the same gitfile pointing at the mx gitdir and is therefore not a usable git repo on EPIC (hence the dedicated clean P12 snapshot repo below)."
+  },
+  "renderer_source_manifest": {
+   "path": "/root/epic05_p12_support/certification/P8_C0_FROZEN_SOURCE_MANIFEST.json",
+   "sha256": "4baf54c0f7e220436f6d54ed8488fb4e671ca757f5710fced41cad5886543170",
+   "n_files": 574
+  },
+  "renderer_tree_digest": {
+   "sha256": "b483a2c0e40d4434a1471354419bde0e453c27ade9ac1a121dc135b8b143c98a",
+   "n_files": 2174,
+   "rule": "sha256 over lexicographically sorted lines '<sha256>  <size_bytes>  <relative_path>' of the full non-transient tree index (P8_C0_FROZEN_SOURCE_TREE_INDEX.json)"
+  },
+  "binary": {
+   "ext_so_sha256": "9baf8655f859f3e0f456e99a2d8e5b3ddfe414fe17a1a3e9d8072e0afed95b91",
+   "ext_so_path": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_cache/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so",
+   "ext_so_mtime": "2026-09-23 12:03:14 +0800",
+   "core_so_sha256": "361b216bcc11609a0ebb8fb44ad2e0c6170948112b6294e85123df45541c8c98",
+   "core_so_path_used_by_trainers": "/tmp/h1_b2_authoritative/gsplat_cuda/gsplat_cuda.so"
+  },
+  "patch_identity": {
+   "stage_1_patch_script": {
+    "path": "scripts/final30k/absgrad_compat_patch.py",
+    "sha256": "5f123f80deccf0d314fa161a4051739c8ce84519b0e4daf599bfa83b30eff574",
+    "edits": 21,
+    "src_worktree": "/mnt/storage_pool/liaoyuanjun/higs_c0_worktree",
+    "src_all_four_files_match": true
+   },
+   "stage_2_fix_script": {
+    "path": "scripts/final30k/fix_bg_kernel_arg.py",
+    "sha256": "7b506d48db933a269110d0f21a8d7724915fd928ba208efb353925eb8724fcd6",
+    "purpose": "revert the over-matched 5th launcher_macro_args injection: the compact background kernel keeps its original 5-argument signature; the 4 LAUNCH_BLEND_BWD macro branches retain the absgrad argument"
+   },
+   "patch_report": {
+    "path": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_patch_report.json",
+    "sha256": "e3a60700c993c11592cd914e86665d1c60bd033bd68f7cb70162fae39d10dcca",
+    "note": "records the stage-1 state; HigsNativeBackward.cu stage-1 dst bfbf02305980acb0d776f46c8a881ce66920a111569450775692cadea14b3a3c was superseded by the stage-2 fix"
+   },
+   "final_file_hashes": {
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu": "6efb9d258b4f40539bcb2a7a0fb50130ca01d828e4739b46d8d84dd68dd3bdae",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h": "47414ac3c98acfade328e6865c60a6cf3e588bb52bb9ffa4972d652418e03d78",
+    "gsplat/cuda/csrc/RasterizeToPixels3DGSDevice.cuh": "603d203a8ad675eb55e16f393a3b7bfbad81b953d74e02442a7296d459736008",
+    "gsplat/experimental/render/functional/gaussian_inference.py": "d599aae3c1864993934d65646bfcb33e07e6046e389f028230752200df0c3a8a"
+   },
+   "timeline_evidence": [
+    "2026-09-23 11:44:47 stage-1 patch writes all four files (report regenerated at this state)",
+    "2026-09-23 12:02:47 stage-2 fix edits HigsNativeBackward.cu (bfbf0230 -> 6efb9d25)",
+    "2026-09-23 12:03:14 the certified .so is built, i.e. compiled from the post-fix tree"
+   ],
+   "unexplained_renderer_differences": []
+  },
+  "build_metadata": {
+   "build_script": {
+    "path": "scripts/final30k/absgrad_compat_build.py",
+    "sha256": "a5833f5ce2a0034c7638a37ae0b13e65949de37f3980d64125d1d3f7b78dfbde"
+   },
+   "build_identity": {
+    "path": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_build_identity.json",
+    "sha256": "ceeaf7a4bdfee91437984f8205d96b050fbea3523e4d3e2a450fda6a58b67218"
+   },
+   "torch": "2.9.1+cu128",
+   "nvcc": "Build cuda_12.8.r12.8/compiler.35583870_0 (12.8.93)",
+   "cuda_home": "/mnt/storage_pool/liaoyuanjun/higs-13scene-env",
+   "gpu_arch_detected": "NVIDIA A100-PCIE-40GB (sm_80)",
+   "env": {
+    "CUDA_VISIBLE_DEVICES": "3",
+    "TORCH_CUDA_ARCH_LIST": null,
+    "MAX_JOBS": null
+   },
+   "cflags": ["-std=c++20", "-O3", "-DNDEBUG", "-Wno-attributes", "-Wno-unknown-pragmas", "-DAT_PARALLEL_OPENMP", "-fopenmp"],
+   "cuda_cflags": ["--forward-unknown-opts", "-use_fast_math", "-diag-suppress", "20012,186", "--expt-relaxed-constexpr", "-std=c++20", "-O3", "-DNDEBUG", "-Wno-attributes", "-Wno-unknown-pragmas", "-DAT_PARALLEL_OPENMP", "-fopenmp"],
+   "ldflags": ["-s"],
+   "sources": [
+    "gsplat/experimental/render/kernels/cuda/ext.cpp",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GaussianRenderInferenceScene.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherVisible.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/GatherlessProjectedProducer.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/IntersectCommon.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/IntersectMTFused.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileIntersect.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/MacroTileRasterize.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/Projection.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/SegmentedSort.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/SHCompression.cu",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/SphericalHarmonics.cu"
+   ],
+   "extra_include_paths": [
+    "gsplat/cuda/include",
+    "gsplat/cuda/csrc",
+    "gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference",
+    "gsplat/cuda/csrc/third_party/glm",
+    "/mnt/storage_pool/liaoyuanjun/higs-13scene-env/targets/x86_64-linux/include"
+   ],
+   "build_ninja_sha256": {
+    "c0_ext": "d24c0f009b051f62edcabbed323d6713d4f9e3178e90a01360ad9e96a0ad6c78",
+    "core": "b4b5cb01d0f4145abdbd36e921c8dd5cd791d89f5fb2c7c6c0e86d39f2043ece"
+   }
+  },
+  "trainer_identity": {
+   "c0_final30k_trainer": {
+    "sha256": "58e6cc2cb62db78c26a9fe5560beacc4bdb159a56ac6f9d07ffa149404d33139",
+    "usage": "all 13 c0_s42_* final30k runs",
+    "bindings": {
+     "C0_WT": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_worktree",
+     "C0_SO": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_cache/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so",
+     "CORE_SO": "/tmp/h1_b2_authoritative/gsplat_cuda/gsplat_cuda.so"
+    }
+   },
+   "publication_trainer": {
+    "sha256": "8b8e073448a3f210b2a1e7c97e0793d57dfed692c04f9bf10a7d415bc63c3883",
+    "usage": "all 13 a0_* and a1_* Stage-A runs (publication_scheduler.py waves)",
+    "bindings": {
+     "C0_WT": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_worktree",
+     "C0_SO": "/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_cache/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so",
+     "CORE_SO": "/tmp/h1_b2_authoritative/gsplat_cuda/gsplat_cuda.so"
+    }
+   },
+   "frozen_refs_on_epic": {
+    "path": "/root/epic05_frozen/mx_build_refs/trainers/",
+    "identical_to_mx": true
+   }
+  },
+  "submodules": {
+   "gsplat/cuda/csrc/third_party/glm": {
+    "commit": "2d4c4b4dd31fde06cfffad7915c2b3006402322f",
+    "url": "https://github.com/g-truc/glm.git",
+    "state": "declared in .gitmodules; content present in-tree and pinned file-by-file in the certified manifest (279 glm headers)"
+   },
+   "third_party/googletest": {
+    "commit": "d72f9c8aea6817cdf1ca0ac10887f328de7f3da2",
+    "url": "https://github.com/google/googletest.git",
+    "state": "declared in .gitmodules; not populated; not a renderer build input"
+   }
+  },
+  "arm_runs_evidence": {
+   "scenes": 13,
+   "c0_final30k_runs": {
+    "dir": "/mnt/storage_pool/liaoyuanjun/final30k_runs/c0_*",
+    "n": 13,
+    "results_json_sha256_room": "575144b6c75013863d79890b7c71ff6b00c27b4fff4c4b50c12702c77251eeec"
+   },
+   "a0_stage_a_runs": {
+    "dir": "/mnt/storage_pool/liaoyuanjun/pub_runs/a0_*",
+    "n": 13,
+    "results_json_sha256_room": "e62eced694212676e7ad61d4b10c614a29cc86a5e9e3a1bb50052a6c03fee2cd"
+   },
+   "a1_stage_a_runs": {
+    "dir": "/mnt/storage_pool/liaoyuanjun/pub_runs/a1_*",
+    "n": 13,
+    "results_json_sha256_room": "eac5668f9c39f6f27af2f9b1d6e4e143c9962781d4a7ee659ecc4856cc4fbf20"
+   },
+   "binary_consistent_across_all_39_records": true
+  }
+ },
+ "p12_c0_planned": {
+  "frozen_copy_on_epic": {
+   "path": "/root/epic05_frozen/higs_c0_final30k_worktree",
+   "verification": "P12_C0_VS_P8_C0_RENDERER_DIFF.json: 574/574 normative and 2174/2174 full-index files identical, tree digests equal"
+  },
+  "canonical_p12_renderer_repo": {
+   "path": "/root/epic05_p12_support/P12_C0_RENDERER_REPO",
+   "commit": "2c6d9685b0eca852f6749ff4d64dc5a3ef942237",
+   "git_tree": "7fef029e2d98549712c31e4efe1e32de5957cfb1",
+   "branch": "main",
+   "n_tracked_files": 2174,
+   "clean_untracked_all": true,
+   "commit_recipe": "rsync of the certified tree (excluding .git/__pycache__/build and transient suffixes), git init -b main, git add -A, commit with pinned author/committer name/email/date (P12 Support <p12-support@epic05.local>, 2026-09-26T00:00:00+0000) - deterministic"
+  },
+  "binary_on_epic": {
+   "ext_so_sha256": "9baf8655f859f3e0f456e99a2d8e5b3ddfe414fe17a1a3e9d8072e0afed95b91",
+   "ext_so_path": "/root/epic05_frozen/mx_prebuilt_so/c0_ext_mx.so",
+   "core_so_sha256": "361b216bcc11609a0ebb8fb44ad2e0c6170948112b6294e85123df45541c8c98",
+   "core_so_path": "/root/epic05_frozen/mx_prebuilt_so/gsplat_cuda_mx.so"
+  }
+ },
+ "codex_expected_values": {
+  "expected_renderer_source_sha256": "4baf54c0f7e220436f6d54ed8488fb4e671ca757f5710fced41cad5886543170",
+  "renderer_source_manifest": "/root/epic05_p12_support/certification/P8_C0_FROZEN_SOURCE_MANIFEST.json",
+  "expected_renderer_commit": "2c6d9685b0eca852f6749ff4d64dc5a3ef942237",
+  "renderer_repo": "/root/epic05_p12_support/P12_C0_RENDERER_REPO",
+  "diff_guard_dirs": {
+   "p8_c0": "/root/epic05_frozen/higs_c0_final30k_worktree",
+   "p12_c0": "/root/epic05_p12_support/P12_C0_RENDERER_REPO",
+   "a0": "same tree as p12_c0",
+   "a1": "same tree as p12_c0",
+   "f9_allowlist": "{} (empty; A0/A1 source trees are identical and F9 is controlled solely by a runtime switch in the same frozen binary)"
+  }
+ },
+ "integration_items": [
+  {
+   "id": "C0_SO_BINDING",
+   "severity": "blocking-for-launch",
+   "issue": "publication_trainer_p12.py on EPIC currently binds C0_SO to /root/epic05_build_cache/c0_ext/... = d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11 (the EPIC-local rebuild used by the EPIC P8 campaign), not the certified historical binary.",
+   "required_change": "bind C0_SO=/root/epic05_frozen/mx_prebuilt_so/c0_ext_mx.so (9baf8655...) and the core gsplat .so to /root/epic05_frozen/mx_prebuilt_so/gsplat_cuda_mx.so (361b216b...), matching p12_run_guard.py C0_SO",
+   "note": "The EPIC rebuild is the same source lineage but a different binary; P12's frozen C0 identity is the mx build."
+  },
+  {
+   "id": "RENDERER_REPO_FOR_RUN_GUARD",
+   "severity": "blocking-for-launch",
+   "issue": "p12_run_guard.py requires renderer_repo to be a git repo with clean status (--untracked-files=all). The historical worktree is dirty by construction and the EPIC frozen copy's gitfile is not usable on EPIC.",
+   "resolution": "Use /root/epic05_p12_support/P12_C0_RENDERER_REPO (commit 2c6d9685..., clean) as renderer_repo; expected_renderer_commit = 2c6d9685b0eca852f6749ff4d64dc5a3ef942237; expected_renderer_source_sha256 = 4baf54c0f7e220436f6d54ed8488fb4e671ca757f5710fced41cad5886543170; renderer_source_manifest = /root/epic05_p12_support/certification/P8_C0_FROZEN_SOURCE_MANIFEST.json",
+   "caveat": "Run the guard before any renderer import so no __pycache__ appears in the repo; the repo is read-only for the campaign."
+  },
+  {
+   "id": "EPIC_P8_REBUILD_DISAMBIGUATION",
+   "severity": "informational",
+   "issue": "The EPIC 3dgs-publication-epic05 campaign recorded ext d26ccc.../core 935ea6... (EPIC rebuild); the frozen baseline per BASELINE_FREEZE and the Codex guards is the mx build 9baf8655.../361b216b... .",
+   "resolution": "This certification pins the mx lineage; do not mix the EPIC rebuild into P12 C0-family arms."
+  }
+ ]
+}

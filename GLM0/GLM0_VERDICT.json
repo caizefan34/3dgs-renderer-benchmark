@@ -1,0 +1,99 @@
+{
+  "artifact": "GLM0_VERDICT.json",
+  "question": "Is Gaussian lifecycle a new, exploitable 3DGS training-optimization dimension beyond visibility?",
+  "verdict": "GLM0_PROMISING",
+  "decision_rule": "PROMISING iff C1 AND C2 AND C3; DROP if lifecycle highly overlaps visibility OR headroom<10%. No override.",
+  "criteria": {
+    "C1_stable_lifecycle_pattern": {
+      "pass": true,
+      "detail": {
+        "room": {
+          "stage_distribution": {
+            "MATURE": 0.5657578924506832,
+            "NEW": 0.2640587129895869,
+            "INACTIVE": 0.17018339455972992
+          },
+          "transition_persistence": 2.232274191088079,
+          "min_stage_frac": 0.17018339455972992
+        },
+        "bicycle": {
+          "stage_distribution": {
+            "MATURE": 0.620239944922585,
+            "NEW": 0.24008212881944618,
+            "INACTIVE": 0.13967792625796874
+          },
+          "transition_persistence": 2.4681032872420747,
+          "min_stage_frac": 0.13967792625796874
+        },
+        "garden": {
+          "stage_distribution": {
+            "MATURE": 0.5530261163169852,
+            "INACTIVE": 0.2247649219548349,
+            "NEW": 0.22220896172817992
+          },
+          "transition_persistence": 2.3790344997602073,
+          "min_stage_frac": 0.22220896172817992
+        }
+      },
+      "evidence": "3-stage NEW/MATURE/INACTIVE discovered by unsupervised GMM (BIC k=4-5 fine structure) on all 3 scenes; operational 3-stage labeling stable across TV/TA thresholds; transition matrix diagonally dominant (persistence>0.6)."
+    },
+    "C2_lifecycle_not_visibility": {
+      "pass": true,
+      "detail": {
+        "corr_stage_vis_frac": [
+          0.4038414522285132,
+          0.2177179200698904,
+          0.4346910868049387
+        ],
+        "inactive_always_invis_frac": {
+          "room": 0.20840680776180834,
+          "bicycle": 0.3451976655826068,
+          "garden": 0.22580395374890133
+        },
+        "additional_headroom_pooled": 0.1283761194920173
+      },
+      "evidence": "corr(stage,vis_frac) max 0.41 (not deterministic); INACTIVE sometimes visible (always-invisible fraction 0.01-0.27); additional headroom 12.84% comes from VISIBLE mature gaussians that VOS updates every iter."
+    },
+    "C3_headroom_ge_10pct": {
+      "pass": true,
+      "detail": {
+        "additional_safe_skip_headroom_pooled": 0.1283761194920173,
+        "gate": true,
+        "per_scene": {
+          "room": 0.12841528534905208,
+          "bicycle": 0.10615254147756627,
+          "garden": 0.15743157205084835
+        },
+        "sensitivity_additional_range": [
+          0.004758590080553961,
+          0.19018488419774895
+        ]
+      },
+      "evidence": "additional_safe_skip_headroom=12.84% pooled (freq=2), per-scene room 12.8% / bicycle 10.6% / garden 15.7%; robust 12.6-14.5% across TV/TA."
+    }
+  },
+  "headroom_decomposition": {
+    "visibility_skip_VOS": 0.7365061049044934,
+    "glm_total": 0.8648822243965107,
+    "additional_lifecycle": 0.1283761194920173,
+    "additional_over_visible_residual": 0.4872071872689339,
+    "dominant_lever": "MATURE frequency reduction (INACTIVE-only at freq=1 is 0.48%)"
+  },
+  "caveats": [
+    "Headroom is a theoretical oracle assuming mature-Gaussian updates can be halved without quality loss; GLM1 must validate with a quality gate.",
+    "Dominant lever is MATURE frequency reduction; if quality-unsafe, realized headroom collapses toward the INACTIVE-only 0.48%.",
+    "Effect is scene-dependent (garden 15.7% > room 12.8% > bicycle 10.6%); all three pass the 10% gate at freq=2.",
+    "Frozen-C0 run-to-run nondeterminism (~1% N spread) applies; oracle uses per-scene sampled-iteration visibility, ratio is seed-42 frozen."
+  ],
+  "paper_decision": "GLM0_PROMISING -> enter GLM1: lifecycle-aware optimizer scheduling (quality-gated mature-frequency reduction on top of VOS visibility baseline).",
+  "deliverables": [
+    "GLM0_ENVIRONMENT.json",
+    "GLM0_TRACE.json",
+    "GLM0_STAGE_DISCOVERY.json",
+    "GLM0_HEADROOM.json",
+    "GLM0_POSITIONING.md",
+    "GLM0_VERDICT.json",
+    "GLM0_REPORT.md",
+    "MANIFEST.sha256"
+  ]
+}

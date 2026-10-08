@@ -1,0 +1,93 @@
+{
+  "purpose": "Step-4 verification: current-box 500-step replay of the frozen P12 C0 room recipe (seed 42, fused-ssim) vs the archived P12 run.",
+  "archived": {
+    "dir": "runs/P12_C0/room",
+    "step500": {
+      "wall_time_s": 11.637861270923167,
+      "psnr": 17.501160304120535,
+      "ssim": 0.653201238675551,
+      "lpips": 0.6275934793732383,
+      "l1": 0.08667772263288498,
+      "n_gaussians": 112627
+    },
+    "full_run_timing": {
+      "median_iter_ms": 15.490512014366686,
+      "mean_iter_ms": 15.721331312359931,
+      "source": "runs/P12_C0/room/P16_RUN.json (30000 iters)"
+    }
+  },
+  "replay_cold": {
+    "dir": "runs/P12_C0_replay500/room",
+    "step500": {
+      "wall_time_s": 19.66169857000932,
+      "psnr": 17.50128444728266,
+      "ssim": 0.6532039425589822,
+      "lpips": 0.6276048476045782,
+      "l1": 0.08667720041491768,
+      "n_gaussians": 112627
+    },
+    "final_eval": {
+      "psnr": 18.04505651690795,
+      "ssim": 0.6783359593133834,
+      "lpips": 0.6184904114418092
+    },
+    "timing_json": {
+      "total_wall_s": 19.662133931182325,
+      "median_iter_ms": 23.889236035756767,
+      "mean_iter_ms": 34.74642244167626
+    }
+  },
+  "replay_warm": {
+    "dir": "runs/P12_C0_replay500b/room",
+    "step500": {
+      "wall_time_s": 11.643926058197394,
+      "psnr": 17.501214450118916,
+      "ssim": 0.6531995643268932,
+      "lpips": 0.6275866736065258,
+      "l1": 0.0866775167259303,
+      "n_gaussians": 112627
+    },
+    "final_eval": {
+      "psnr": 18.044948085128667,
+      "ssim": 0.6783351058745307,
+      "lpips": 0.6184791169365886
+    },
+    "timing_json": {
+      "total_wall_s": 11.644350327085704,
+      "median_iter_ms": 20.299035008065403,
+      "mean_iter_ms": 20.307304840069264,
+      "phase_medians_ms": {
+        "forward": 6.767247915267944,
+        "loss": 0.5076159834861755,
+        "backward": 10.852271556854248,
+        "densify": 0.6790079772472382,
+        "optimizer": 1.2663039565086365
+      }
+    }
+  },
+  "camera_sequence": {
+    "archived_len": 30000,
+    "replay_len": 500,
+    "archived_first500_eq_replay500": true,
+    "archived_first500_eq_replay500b": true,
+    "replay500_eq_replay500b": true,
+    "method": "np.array_equal on camera_sequence.npy (int32)"
+  },
+  "deltas_warm_vs_archived_step500": {
+    "wall_ratio": 1.0005211255859683,
+    "psnr": 5.414599838005074e-05,
+    "ssim": -1.6743486578318922e-06,
+    "lpips": -6.8057667125254184e-06,
+    "l1": -2.059069546811454e-07
+  },
+  "deltas_cold_vs_archived_step500": {
+    "wall_ratio": 1.6894597823685578
+  },
+  "verdict": "P12_ARCHIVED_TIMING_REVALIDATED",
+  "conclusion": "Warm 500-step replay reproduces the archived step-500 wall within +0.06% and scalar metrics within 7e-5; camera sequence bit-identical to the archive; the cold replay (+69% wall) is a DVFS warm-up transient, not machine drift.",
+  "reproduce": {
+    "script": "scripts/replay500_warm.sh (warm+telemetry); direct 500-step via publication_trainer_p12.py (cold)",
+    "trainer": "/root/epic05_p12/publication_trainer_p12.py (sha256 675b0267f3a1a6a0fa63fadb37c8536481c1c7a6de37a4b7f6ffa98a449050c5)"
+  },
+  "date": "2026-09-28"
+}

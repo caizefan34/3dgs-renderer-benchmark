@@ -1,0 +1,66 @@
+{
+  "phase": "P13-Y Sec.4 capture neutrality",
+  "date": "2026-09-27",
+  "runs": {
+    "off1": {
+      "dir": "runs/y_neutral_s_room_off1",
+      "iters": 400,
+      "final_N": 112627,
+      "camera_sequence_sha256": "105236565ab64427e68f67c7c35d3bd5131ddc87a8d3014fbe7a4dcadc5bbf17",
+      "final_model_param_sha256": "2a15dd5aca7d95b963c4665f247ab1d3b8269fedc13a2e5870f2db9610437d73"
+    },
+    "on": {
+      "dir": "runs/y_neutral_s_room_on",
+      "iters": 400,
+      "final_N": 112627,
+      "camera_sequence_sha256": "105236565ab64427e68f67c7c35d3bd5131ddc87a8d3014fbe7a4dcadc5bbf17",
+      "final_model_param_sha256": "f22ca04cfdda7c1ec6b40baf25aacb2d4be46810b4ee046696469f7384af354f"
+    },
+    "off2": {
+      "dir": "runs/y_neutral_s_room_off2",
+      "iters": 400,
+      "final_N": 112627,
+      "camera_sequence_sha256": "105236565ab64427e68f67c7c35d3bd5131ddc87a8d3014fbe7a4dcadc5bbf17",
+      "final_model_param_sha256": "df697f354c8423bfbc68f0c63d7ea23224174be0ada58472de67f3447192dc49"
+    }
+  },
+  "camera_sequence_identical_all_three": true,
+  "final_params_identical_off1_off2": false,
+  "final_params_identical_on_off1": false,
+  "noise_floor_off1_vs_off2": {
+    "n_common": 400,
+    "n_loss_exact_equal": 79,
+    "n_loss_differing": 321,
+    "max_abs_loss_diff": 1.7687678337097168e-05,
+    "first_differing_iter": 14,
+    "first_differing_iter_ge10": 14,
+    "final_n_gs_equal": true
+  },
+  "capture_effect_on_vs_off1": {
+    "n_common": 400,
+    "n_loss_exact_equal": 83,
+    "n_loss_differing": 317,
+    "max_abs_loss_diff": 0.0007626563310623169,
+    "first_differing_iter": 23,
+    "first_differing_iter_ge10": 23,
+    "final_n_gs_equal": true
+  },
+  "capture_effect_on_vs_off2": {
+    "n_common": 400,
+    "n_loss_exact_equal": 72,
+    "n_loss_differing": 328,
+    "max_abs_loss_diff": 0.0007623881101608276,
+    "first_differing_iter": 14,
+    "first_differing_iter_ge10": 14,
+    "final_n_gs_equal": true
+  },
+  "criterion": {
+    "rule": "capture effect (ON vs OFF1) must not exceed the intrinsic cross-process noise floor (OFF1 vs OFF2) per metric",
+    "checks": {
+      "n_loss_differing": true,
+      "max_abs_loss_diff": false,
+      "first_differing_iter": false
+    },
+    "pass": false
+  }
+}

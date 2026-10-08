@@ -1,0 +1,154 @@
+{
+  "status": "complete_validated",
+  "scene": "room",
+  "source": {
+    "head": "029814fb5ed773e4a794cec5115951a64f610ab8",
+    "git_status_after": "",
+    "git_archive_sha256": "6f67c7928b20e7eecab2f7102c318fad999ac923e56b00ec6d335a7d9ec9efde"
+  },
+  "data_tree_sha256": "3616f0ba74a1d14600c148c5e9c9025e2638427a3214c80000f147bf053475b8",
+  "split_manifest_sha256": "971e5f9d5075520ea7290e9efe52fb9d8b08b7fad4633b14a0889a813c51591a",
+  "resolution_px": [
+    1920,
+    1080
+  ],
+  "loss": {
+    "lambda_l2": 0.0,
+    "lambda_dssim": 0.2,
+    "identity": "0.8*L1 + 0.2*(1-SSIM)"
+  },
+  "seed": 0,
+  "device_uuid": "GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72",
+  "phases": [
+    {
+      "name": "train",
+      "command": [
+        "/root/miniforge3/envs/sadgs_baseline_clone_20260927/bin/python",
+        "train.py",
+        "-s",
+        "/root/epic05_p16rb/common_data/mipnerf360/room",
+        "-i",
+        "images",
+        "--eval",
+        "-r",
+        "1",
+        "--scale_rotation_scheduler",
+        "--adam_eps_order",
+        "10",
+        "--freq_transmittance_threshold",
+        "0.8",
+        "--freq_opacity_threshold",
+        "0.5",
+        "--batch_size",
+        "2",
+        "--optimizer_type",
+        "hybrid",
+        "--sample_bbox_faces",
+        "--warmup_densification",
+        "--mult",
+        "0.25",
+        "--iterations",
+        "3000",
+        "--position_lr_max_steps",
+        "3000",
+        "--opacity_reset_interval",
+        "1200",
+        "--densification_interval",
+        "500",
+        "--densify_until_iter",
+        "1900",
+        "--densify_from_iter",
+        "100",
+        "--prune_iterations",
+        "1900",
+        "--lambda_l2",
+        "0.0",
+        "--save_iterations",
+        "3000",
+        "--model_path",
+        "/root/sadgs_same_loss_p16_20260928/room/model"
+      ],
+      "cwd": "/root/codex_sadgs_baseline_20260927",
+      "status": "passed",
+      "return_code": 0,
+      "wall_seconds": 137.203747,
+      "timing_source": "log file creation-to-final-modification timestamps (driver did not flush JSON)",
+      "author_cuda_event_training_seconds": 87.06336865267166,
+      "log": "/root/sadgs_same_loss_p16_20260928/room/train.log"
+    },
+    {
+      "name": "render",
+      "command": [
+        "/root/miniforge3/envs/sadgs_baseline_clone_20260927/bin/python",
+        "render.py",
+        "-m",
+        "/root/sadgs_same_loss_p16_20260928/room/model",
+        "--skip_train",
+        "--iteration",
+        "3000"
+      ],
+      "cwd": "/root/codex_sadgs_baseline_20260927",
+      "status": "passed",
+      "return_code": 0,
+      "wall_seconds": 110.753603,
+      "timing_source": "log file creation-to-final-modification timestamps (driver did not flush JSON)",
+      "log": "/root/sadgs_same_loss_p16_20260928/room/render.log"
+    },
+    {
+      "name": "name_map",
+      "status": "passed",
+      "return_code": 0,
+      "wall_seconds": 8.969049,
+      "log": "/root/sadgs_same_loss_p16_20260928/room/name_map.log"
+    },
+    {
+      "name": "common_metrics",
+      "command": [
+        "/root/miniforge3/envs/gsplat/bin/python",
+        "/root/epic05_p16rb/scripts/p16_common_metrics.py",
+        "--method",
+        "SADGS_same_loss",
+        "--scene",
+        "room",
+        "--rgb-dir",
+        "/root/sadgs_same_loss_p16_20260928/room/model/test/ours_3000/renders",
+        "--out",
+        "/root/sadgs_same_loss_p16_20260928/room/metrics_common.json",
+        "--gt-dir",
+        "/root/epic05_p16rb/common_data/mipnerf360/room/images",
+        "--expected-names",
+        "/root/epic05_p16rb/artifacts/expected_names_room.json",
+        "--name-map",
+        "/root/sadgs_same_loss_p16_20260928/room/name_map.json"
+      ],
+      "status": "passed",
+      "return_code": 0,
+      "wall_seconds": 12.062066,
+      "log": "/root/sadgs_same_loss_p16_20260928/room/metrics.log"
+    }
+  ],
+  "total_train_render_metric_wall_s": 268.988465,
+  "metrics": {
+    "psnr": 31.137256737054607,
+    "ssim": 0.9237417425864782,
+    "lpips": 0.275954633187025
+  },
+  "metric_status": "SUCCESS",
+  "n_expected": 39,
+  "n_evaluated": 39,
+  "resolution_seen": [
+    [
+      1920,
+      1080
+    ]
+  ],
+  "name_map_status": "PASS",
+  "name_map_bijection_count": 39,
+  "final_gaussian_count": 1924977,
+  "final_ply_sha256": "1ccbd3d2cd981364a8961b505da759a758704f7a4ba44d0848844fbd305220dd",
+  "sampled_peak_gpu_mib": 38325,
+  "gpu_samples": 232,
+  "gpu_after": "3, GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72, 4, 0",
+  "render_test_count": 39,
+  "ended_utc": "2026-09-28T01:44:14.422799+00:00"
+}

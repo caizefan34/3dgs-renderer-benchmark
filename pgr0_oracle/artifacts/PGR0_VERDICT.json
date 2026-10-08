@@ -1,0 +1,78 @@
+{
+  "verdict": "DROP_REDUNDANCY_CONFIRMED_NOT_EXPLOITABLE",
+  "reason": "redundancy confirmed (R1-R4 cos=1.0) and reuse is gradient-safe, but the memory-aware analytical model shows saving the discarded intermediates costs more than the recompute it removes (memory-bound); not exploitable for end-to-end speedup without a CUDA microbench",
+  "generated_utc": "2026-10-01T14:42:47Z",
+  "config": {
+    "sim_threshold": 0.999,
+    "rel_l2_threshold": 0.0001,
+    "min_redundancy_rate": 0.9,
+    "min_amdahl_ub": 1.05
+  },
+  "cells_total": 24,
+  "cells_redundant": 24,
+  "redundancy_rate": 1.0,
+  "max_rel_l2": 2.383238418180894e-05,
+  "min_cos": 0.9999999997360919,
+  "gates": {
+    "G0_provenance": {
+      "pass": true,
+      "note": "CPU-only; no CUDA; config frozen in config/pgr0_oracle.yaml"
+    },
+    "G1_semantics": {
+      "pass": true,
+      "note": "single image, packed=False, pinhole, eps2d=0.3, near=0.01, far=1e10 (EPIC-05)"
+    },
+    "G2_numeric": {
+      "pass": true,
+      "note": "max_rel_l2=2.383e-05, min_cos=1.000000000, no NaN/Inf"
+    },
+    "G3_R1_mean_redundancy": {
+      "pass": true,
+      "min_cos": 0.9999999999999988
+    },
+    "G4_R2_covariance_redundancy": {
+      "pass": true,
+      "min_cos": 0.9999999999999972
+    },
+    "G5_R3_jacobian_redundancy": {
+      "pass": true,
+      "min_cos": 0.9999999999999963
+    },
+    "G6_R4_gradient_equivalence": {
+      "pass": true,
+      "min_cos": 0.9999999998385667
+    },
+    "G7_reference_validity": {
+      "pass": true,
+      "note": "analytic recompute path matches autograd (validates the reference itself)"
+    },
+    "G8_opportunity_compute_ub": {
+      "pass": true,
+      "amdahl_ub": 1.7493036211699164,
+      "note": "compute-only upper bound; ignores save memory"
+    },
+    "G9_opportunity_memory_aware": {
+      "pass": false,
+      "net_speedup_proxy": 0.21214244331636128,
+      "memory_to_compute_ratio": 9.670167787620946,
+      "note": "analytical; saving intermediates costs memory traffic"
+    }
+  },
+  "all_gates_pass": false,
+  "opportunity_model": {
+    "recompute_flops": 269,
+    "vjp_flops": 359,
+    "total_flops": 628,
+    "compute_only_amdahl_ub": 1.7493036211699164,
+    "memory_aware": {
+      "save_floats": 34,
+      "save_bytes": 136,
+      "recompute_flops": 269,
+      "t_compute_ns": 0.013794871794871795,
+      "t_memory_ns": 0.13339872486512996,
+      "memory_to_compute_ratio": 9.670167787620946,
+      "net_speedup_proxy": 0.21214244331636128
+    },
+    "caveat": "P0 runs no CUDA; these are analytical op-count/byte models, not timings"
+  }
+}

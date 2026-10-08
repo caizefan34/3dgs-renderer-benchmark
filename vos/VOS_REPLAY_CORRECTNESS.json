@@ -1,0 +1,558 @@
+{
+  "protocol": {
+    "arms": [
+      "A_f (torch Adam default/foreach path)",
+      "A_s (torch Adam foreach=False, fused=False)",
+      "B (VOS: dense control xyz/scaling/rotation + virtualized shs/opacity with per-row tau and exact per-step replay)"
+    ],
+    "gradients": "identical per-iteration tensors for all arms: visible rows deterministic pseudo-random, invisible rows +0.0 (matches C0 backward zero-fill semantics)",
+    "bitwise_expectation": "B mirrors A_s op-for-op on gathered rows; gather/scatter copies are exact; elementwise ops are position-independent",
+    "ckpt_pairing_note": "T30/T5/T15 checkpoints pair only with their own in-process traces (independent runs diverge via CUDA-atomic nondeterminism; observed N delta 470 rows at iter 5000)",
+    "fence_placement_note": "oracle fences sit after optimizer step t (real trainer densification sits between backward and step); semantically a no-op materialization path exercise"
+  },
+  "runs": [
+    {
+      "tag": "bicycle_ckpt30k",
+      "config": {
+        "it_lo": 29001,
+        "it_hi": 30000,
+        "init_mode": "ckpt",
+        "ckpt": "/root/vos_traces/bicycle_T30/ckpt_30000.pt",
+        "seed": 7,
+        "zero_opacity_mv": false,
+        "row_subset": {
+          "count": 100000,
+          "first5": [
+            93,
+            107,
+            168,
+            171,
+            195
+          ],
+          "last5": [
+            3655085,
+            3655099,
+            3655126,
+            3655131,
+            3655194
+          ]
+        },
+        "fence_points": [
+          700
+        ],
+        "obs_points": [
+          50,
+          137,
+          299,
+          500,
+          700,
+          777,
+          999
+        ]
+      },
+      "N": 100000,
+      "N_full": 3655232,
+      "rows": 100000,
+      "T": 1000,
+      "opt_step0": 29856,
+      "replay_stats": {
+        "materialize_events": 17754,
+        "rows_replayed": 24065626,
+        "transitions_replayed": 146949806
+      },
+      "worst_vs_A_s": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 1.0,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 50
+      },
+      "worst_vs_A_f": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 1.0,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 50
+      },
+      "A_f_vs_A_s_all_bitwise": true,
+      "A_f_vs_A_s_worst_max_abs": 0.0,
+      "dense_control_all_bitwise": true,
+      "verdict": {
+        "fp32_equivalent_vs_A_s": true,
+        "bitwise_vs_A_s": true,
+        "bitwise_vs_A_f": true,
+        "dense_control_bitwise": true,
+        "note": "bitwise_vs_A_f False with A_f_vs_A_s nonzero = foreach-vs-single kernel arithmetic envelope, not a VOS defect"
+      }
+    },
+    {
+      "tag": "garden_ckpt30k",
+      "config": {
+        "it_lo": 29001,
+        "it_hi": 30000,
+        "init_mode": "ckpt",
+        "ckpt": "/root/vos_traces/garden_T30/ckpt_30000.pt",
+        "seed": 7,
+        "zero_opacity_mv": false,
+        "row_subset": {
+          "count": 100000,
+          "first5": [
+            18,
+            47,
+            58,
+            150,
+            154
+          ],
+          "last5": [
+            2558803,
+            2558843,
+            2558847,
+            2558907,
+            2558914
+          ]
+        },
+        "fence_points": [
+          700
+        ],
+        "obs_points": [
+          50,
+          137,
+          299,
+          500,
+          700,
+          777,
+          999
+        ]
+      },
+      "N": 100000,
+      "N_full": 2558915,
+      "rows": 100000,
+      "T": 1000,
+      "opt_step0": 29856,
+      "replay_stats": {
+        "materialize_events": 14426,
+        "rows_replayed": 27903262,
+        "transitions_replayed": 126308288
+      },
+      "worst_vs_A_s": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 0.9999999999999999,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 50
+      },
+      "worst_vs_A_f": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 0.9999999999999999,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 50
+      },
+      "A_f_vs_A_s_all_bitwise": true,
+      "A_f_vs_A_s_worst_max_abs": 0.0,
+      "dense_control_all_bitwise": true,
+      "verdict": {
+        "fp32_equivalent_vs_A_s": true,
+        "bitwise_vs_A_s": true,
+        "bitwise_vs_A_f": true,
+        "dense_control_bitwise": true,
+        "note": "bitwise_vs_A_f False with A_f_vs_A_s nonzero = foreach-vs-single kernel arithmetic envelope, not a VOS defect"
+      }
+    },
+    {
+      "tag": "room_T15100_postreset",
+      "config": {
+        "it_lo": 15001,
+        "it_hi": 15100,
+        "init_mode": "ckpt",
+        "ckpt": "/root/vos_traces/room_T15100/ckpt_15100.pt",
+        "seed": 7,
+        "zero_opacity_mv": false,
+        "row_subset": {
+          "count": 100000,
+          "first5": [
+            6,
+            29,
+            56,
+            76,
+            79
+          ],
+          "last5": [
+            851712,
+            851717,
+            851730,
+            851737,
+            851740
+          ]
+        },
+        "fence_points": [
+          50
+        ],
+        "obs_points": [
+          10,
+          37,
+          99
+        ]
+      },
+      "N": 100000,
+      "N_full": 851745,
+      "rows": 100000,
+      "T": 100,
+      "opt_step0": 14956,
+      "replay_stats": {
+        "materialize_events": 1264,
+        "rows_replayed": 3319150,
+        "transitions_replayed": 11187638
+      },
+      "worst_vs_A_s": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 1.0,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 10
+      },
+      "worst_vs_A_f": {
+        "max_abs": 1.9073486328125e-06,
+        "max_rel": 0.00023070337505428978,
+        "rel_l2": 3.739776067859824e-08,
+        "cosine": 0.9999999999999994,
+        "bitwise": false,
+        "attr": "opacity",
+        "tensor": "theta",
+        "t": 37
+      },
+      "A_f_vs_A_s_all_bitwise": false,
+      "A_f_vs_A_s_worst_max_abs": 1.9073486328125e-06,
+      "dense_control_all_bitwise": true,
+      "verdict": {
+        "fp32_equivalent_vs_A_s": true,
+        "bitwise_vs_A_s": true,
+        "bitwise_vs_A_f": false,
+        "dense_control_bitwise": true,
+        "note": "bitwise_vs_A_f False with A_f_vs_A_s nonzero = foreach-vs-single kernel arithmetic envelope, not a VOS defect"
+      }
+    },
+    {
+      "tag": "room_ckpt30k",
+      "config": {
+        "it_lo": 29001,
+        "it_hi": 30000,
+        "init_mode": "ckpt",
+        "ckpt": "/root/vos_traces/room_T30/ckpt_30000.pt",
+        "seed": 7,
+        "row_subset": {
+          "count": 100000,
+          "first5": [
+            6,
+            29,
+            56,
+            76,
+            79
+          ],
+          "last5": [
+            841791,
+            841792,
+            841795,
+            841798,
+            841802
+          ]
+        },
+        "fence_points": [
+          700
+        ],
+        "obs_points": [
+          50,
+          137,
+          299,
+          500,
+          700,
+          777,
+          999
+        ]
+      },
+      "N": 100000,
+      "N_full": 841806,
+      "rows": 100000,
+      "T": 1000,
+      "opt_step0": 29856,
+      "replay_stats": {
+        "materialize_events": 17396,
+        "rows_replayed": 33471010,
+        "transitions_replayed": 135988064
+      },
+      "worst_vs_A_s": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 0.9999999999999997,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 50
+      },
+      "worst_vs_A_f": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 0.9999999999999997,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 50
+      },
+      "A_f_vs_A_s_all_bitwise": true,
+      "A_f_vs_A_s_worst_max_abs": 0.0,
+      "dense_control_all_bitwise": true,
+      "verdict": {
+        "fp32_equivalent_vs_A_s": true,
+        "bitwise_vs_A_s": true,
+        "bitwise_vs_A_f": true,
+        "dense_control_bitwise": true,
+        "note": "bitwise_vs_A_f False with A_f_vs_A_s nonzero = foreach-vs-single kernel arithmetic envelope, not a VOS defect"
+      }
+    },
+    {
+      "tag": "room_ckpt30k_fullN",
+      "config": {
+        "it_lo": 29501,
+        "it_hi": 30000,
+        "init_mode": "ckpt",
+        "ckpt": "/root/vos_traces/room_T30/ckpt_30000.pt",
+        "seed": 7,
+        "row_subset": null,
+        "fence_points": [
+          300
+        ],
+        "obs_points": [
+          50,
+          137,
+          299,
+          450
+        ]
+      },
+      "N": 841806,
+      "N_full": 841806,
+      "rows": 841806,
+      "T": 500,
+      "opt_step0": 29856,
+      "replay_stats": {
+        "materialize_events": 9842,
+        "rows_replayed": 141606526,
+        "transitions_replayed": 544390538
+      },
+      "worst_vs_A_s": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 0.9999999999999997,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 50
+      },
+      "worst_vs_A_f": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 0.9999999999999997,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 50
+      },
+      "A_f_vs_A_s_all_bitwise": true,
+      "A_f_vs_A_s_worst_max_abs": 0.0,
+      "dense_control_all_bitwise": true,
+      "verdict": {
+        "fp32_equivalent_vs_A_s": true,
+        "bitwise_vs_A_s": true,
+        "bitwise_vs_A_f": true,
+        "dense_control_bitwise": true,
+        "note": "bitwise_vs_A_f False with A_f_vs_A_s nonzero = foreach-vs-single kernel arithmetic envelope, not a VOS defect"
+      }
+    },
+    {
+      "tag": "room_rand_15k",
+      "config": {
+        "it_lo": 15001,
+        "it_hi": 16000,
+        "init_mode": "random",
+        "ckpt": null,
+        "seed": 7,
+        "zero_opacity_mv": false,
+        "row_subset": {
+          "count": 100000,
+          "first5": [
+            6,
+            29,
+            56,
+            76,
+            79
+          ],
+          "last5": [
+            841791,
+            841792,
+            841795,
+            841798,
+            841802
+          ]
+        },
+        "fence_points": [
+          400
+        ],
+        "obs_points": [
+          50,
+          137,
+          299,
+          500,
+          777,
+          999
+        ]
+      },
+      "N": 100000,
+      "N_full": 841806,
+      "rows": 100000,
+      "T": 1000,
+      "opt_step0": 0,
+      "replay_stats": {
+        "materialize_events": 16936,
+        "rows_replayed": 33460348,
+        "transitions_replayed": 134728474
+      },
+      "worst_vs_A_s": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 1.0,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 50
+      },
+      "worst_vs_A_f": {
+        "max_abs": 4.76837158203125e-07,
+        "max_rel": 0.002086611440575703,
+        "rel_l2": 8.479397555904896e-08,
+        "cosine": 0.9999999999999968,
+        "bitwise": false,
+        "attr": "opacity",
+        "tensor": "theta",
+        "t": 999
+      },
+      "A_f_vs_A_s_all_bitwise": false,
+      "A_f_vs_A_s_worst_max_abs": 4.76837158203125e-07,
+      "dense_control_all_bitwise": true,
+      "verdict": {
+        "fp32_equivalent_vs_A_s": true,
+        "bitwise_vs_A_s": true,
+        "bitwise_vs_A_f": false,
+        "dense_control_bitwise": true,
+        "note": "bitwise_vs_A_f False with A_f_vs_A_s nonzero = foreach-vs-single kernel arithmetic envelope, not a VOS defect"
+      }
+    },
+    {
+      "tag": "room_rand_zeroMV",
+      "config": {
+        "it_lo": 15001,
+        "it_hi": 16000,
+        "init_mode": "random",
+        "ckpt": null,
+        "seed": 9,
+        "zero_opacity_mv": true,
+        "row_subset": {
+          "count": 100000,
+          "first5": [
+            5,
+            25,
+            45,
+            57,
+            64
+          ],
+          "last5": [
+            841779,
+            841786,
+            841789,
+            841800,
+            841804
+          ]
+        },
+        "fence_points": [
+          400
+        ],
+        "obs_points": [
+          50,
+          137,
+          299,
+          500,
+          777,
+          999
+        ]
+      },
+      "N": 100000,
+      "N_full": 841806,
+      "rows": 100000,
+      "T": 1000,
+      "opt_step0": 0,
+      "replay_stats": {
+        "materialize_events": 16922,
+        "rows_replayed": 33386246,
+        "transitions_replayed": 134611580
+      },
+      "worst_vs_A_s": {
+        "max_abs": 0.0,
+        "max_rel": 0.0,
+        "rel_l2": 0.0,
+        "cosine": 1.0,
+        "bitwise": true,
+        "attr": "shs",
+        "tensor": "theta",
+        "t": 50
+      },
+      "worst_vs_A_f": {
+        "max_abs": 4.76837158203125e-07,
+        "max_rel": 0.02068186795743201,
+        "rel_l2": 7.990844836407766e-08,
+        "cosine": 0.9999999999999971,
+        "bitwise": false,
+        "attr": "opacity",
+        "tensor": "theta",
+        "t": 777
+      },
+      "A_f_vs_A_s_all_bitwise": false,
+      "A_f_vs_A_s_worst_max_abs": 4.76837158203125e-07,
+      "dense_control_all_bitwise": true,
+      "verdict": {
+        "fp32_equivalent_vs_A_s": true,
+        "bitwise_vs_A_s": true,
+        "bitwise_vs_A_f": false,
+        "dense_control_bitwise": true,
+        "note": "bitwise_vs_A_f False with A_f_vs_A_s nonzero = foreach-vs-single kernel arithmetic envelope, not a VOS defect"
+      }
+    }
+  ],
+  "consolidated": {
+    "runs_total": 7,
+    "all_bitwise_vs_A_s": true,
+    "all_fp32_equivalent_vs_A_s": true,
+    "all_dense_control_bitwise": true,
+    "bitwise_vs_A_f_on_realistic_state_runs": false,
+    "A_f_vs_A_s_envelope_note": "foreach-vs-single envelope is zero (bitwise) on realistic checkpoint states; nonzero only on some random-init states \u2014 a torch-internal property; B tracks A_s bitwise in every run",
+    "total_transitions_replayed": 1234164388,
+    "EXACT_REPLAY_VERDICT": "PASS"
+  }
+}

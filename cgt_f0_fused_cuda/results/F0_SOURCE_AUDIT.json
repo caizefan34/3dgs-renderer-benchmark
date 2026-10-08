@@ -1,0 +1,76 @@
+{
+  "stage": "CGT-F0 Fused CUDA Kill-Shot",
+  "date_utc": "2026-10-04",
+  "host": "MX bms-39468022-001, 8x A100-PCIe-40GB, runtime liaoyuanjun_mx0qual",
+  "question": "If the CGT student + rigorous certificate + fallback is one genuinely fused GPU path, does the real mixed workload reach a meaningful, robust, quality-preserving forward speedup (S_mixed)?",
+  "scope": "forward fast path + rigorous-safe dispatch + canonical fallback + compositing + GPU timing + profiling ONLY. Excludes training/backward/densification/G5/new math/rank-change/threshold-change.",
+  "upstream_reference": {
+    "corrected_teacher": "g1_compressibility.tile_teacher (front-to-back M-Gaussian alpha composite over 16x16). Authoritative corrected path uses BOTH px and py (root-cause bug dx=px-mu ignoring py is fixed).",
+    "student": "g1_compressibility.predict_and_vjp (rank-R CGT Gaussian-transfer mixture, R=4 primary).",
+    "certificate": "g2_rigorous_certificate.certify_tile / certify_box (interval-arithmetic branch-and-bound, pass = rigorous worst-case max-abs <= GATE=0.02).",
+    "reused_verbatim": true,
+    "upstream_math_hashes": {
+      "g1_compressibility.py": "6ab224db112b5996ab6092d29471c15f20040e9f151b1f655ec98bd452a4dd73",
+      "g2_rigorous_certificate.py": "38a9152d142be548c2390355e11631ae7e2b91407f8917d566e75550acca1a4d"
+    },
+    "upstream_frozen_artifacts_not_modified": "G1-G4, G2 rigorous certificate, manifests, reports under /home/liaoyuanjun/cgt_realscene/final/ were read-only inputs; F0 wrote only to the isolated cgt_f0_fused_cuda/ subtree."
+  },
+  "build_env": {
+    "nvcc": "/mnt/storage_pool/liaoyuanjun_mx0qual_cuda118/bin/nvcc (CUDA 11.8.89, matches torch cu118)",
+    "gcc_gpp": "11.4.0",
+    "driver": "595.71.05",
+    "gpu": "NVIDIA A100-PCIE-40GB (sm_80)",
+    "python_torch": "2.7.1+cu118",
+    "gsplat": "1.5.3",
+    "numpy_scipy": "2.2.6 / 1.15.3",
+    "build_flags": "nvcc -std=c++17 -O3 -arch=sm_80 -Xcompiler -fPIC -Xptxas -v --shared"
+  },
+  "workload": {
+    "n_tiles": 150,
+    "scenes": [
+      "room",
+      "garden",
+      "bicycle"
+    ],
+    "tiles_per_scene": 50,
+    "views_per_scene": 5,
+    "selection": "deterministic, work-decile stratified (g1/g2 semantics), fixed seed 20261004, no cherry-picking",
+    "checkpoints": {
+      "room": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_room_multiphase_v2/checkpoints/iter_15000.pt",
+      "garden": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_garden_30k/checkpoints/iter_30000.pt",
+      "bicycle": "/mnt/storage_pool/liaoyuanjun/sota_rebase_v2_runs/B1_bicycle_30k/checkpoints/iter_30000.pt"
+    },
+    "Mt_total_gaussian_intersections": 61052,
+    "M_median": 316,
+    "M_mean": 407.01,
+    "primary_rank": 4,
+    "primary_rank_frozen_rationale": "R4 chosen from upstream evidence (best q_weighted, highest intrinsic gamma median ~26-79x, highest rigorous pass rate); frozen before timing; not tuned per scene.",
+    "safe_fraction": 0.8267,
+    "weighted_fallback_fraction": 0.175,
+    "certificate_pass_rate_pooled_R4": 0.8267,
+    "validate_interval_sampling": true
+  },
+  "coordinate_frame": {
+    "note": "gsplat packed means2d/conics are GLOBAL image coords; the frozen g1/g2 teacher centers px per tile (subtract tile pixel mean). Centered-px and global-px teacher outputs differ by ~10% in T for this scene (gaussians are broad: conics ~1e-7..1e-5), so the teacher is non-degenerate. F0 uses the SAME centered-px + global-means2d semantics as the frozen reference, so the CUDA kernel matches the reference exactly (not a new approximation).",
+    "teacher_non_degenerate": true
+  },
+  "reference_payload_hashes": {
+    "ref_teacher_f64": "5d939210cc0150de21ead09b9e8f40b7324161faa48616d0f85ccfb9d0f915a4",
+    "ref_student_f64": "3b647b1769e2dd71125e07194e127d277089d1ac49c4f770c2a589a2147ca6fd",
+    "safe_labels": "48beaf458eedf27f21745bbf39a0e346fdd76b1be7d70ac21b61e70dfef06193",
+    "rigorous_max_abs": "f504321bf5542a87e985ff9c8becff2c3afa4c01b6a9235c553464da60303829",
+    "coeffs_R4": "5a77dc3cb16465cdd1468b0304e2c472acdb7f00e6ec28f9eaf190b520deb27d"
+  },
+  "source_hashes": {
+    "f0_kernels.cu": "efed6a349aa9b49706624064dc64f571fccc360693ec5fab947272ffaeef775d",
+    "f0_kernels.so": "aff09a102746297f2dfdc520b612f39487e45985ebf9bad63efbab06db39dafe",
+    "f0_prepare.py": "ea98be6664746efb20dd52071af815f4b56f3e4727be1512215f619acb642fd2",
+    "f0_harness.py": "6718824c12ea1d39db08cc884c949f9df5857029988fa34952b3385123dd6e40",
+    "build_f0.sh": "78b07ba4b925c266adac9fd6bd2d6940947d23fd8f3ca866fbb15a7f547cc3d6",
+    "ptxas.log": "f652d7a8f433288bfc139e24f73af0180331d4d7f676845bd7ec19eb33e2fce0",
+    "workload.npz": "dfe18b8bb45db59a56973d51ccdd446683c3ca67b380e9319c57817cd0ffdb12",
+    "workload_summary.json": "9e8320f61715722da1fa5afdc459f55a948336d7467e70ee7974755f7235fc54",
+    "workload_diag.json": "ab7033ece09886ed61fcdc0a464b5fd4943167ed71ee244f7df5446403adc9d8"
+  },
+  "integrity": "fail-closed: correctness gate 2e-5 not relaxed; ranks/thresholds/difficult-tiles not changed; Amdahl/intrinsic-gamma not reported as speedup; buggy-teacher archive unused; no post-hoc gate weakening."
+}

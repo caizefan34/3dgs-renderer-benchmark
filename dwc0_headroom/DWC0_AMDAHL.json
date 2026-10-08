@@ -1,0 +1,26 @@
+{
+  "_timestamp_utc": "2026-10-01T15:40:12Z",
+  "gate": "Gate 3 — Amdahl upper bound on end-to-end speedup",
+  "formula": "speedup = 1 / (1 - f_removed)",
+  "f_removed_real": 0.0,
+  "amdahl_upper_bound_real": 1.0,
+  "raster_only_bound_if_weight_removable": {},
+  "note_real": "f_removed=0: projection/covariance/SH are already computed once per Gaussian (eager) and reused; the sole per-(pixel,gaussian) recompute is the Gaussian weight exp(-sigma), a function of the per-pixel offset that cannot be shared across pixels. No duplicated compute remains to remove => Amdahl bound = 1.0x.",
+  "delusional_upper_bound": {
+    "room": {
+      "f_if_pervisit_fully_removed_raster_only": 0.871526,
+      "amdahl_raster_only": 7.783698,
+      "note": "Even granting the false premise that proj+cov+SH are recomputed per visit AND that raster is the whole pipeline, the bound barely exceeds 1.0x. In reality proj/cov/SH are eager, so this bound does not apply."
+    },
+    "garden": {
+      "f_if_pervisit_fully_removed_raster_only": 0.918485,
+      "amdahl_raster_only": 12.267739,
+      "note": "Even granting the false premise that proj+cov+SH are recomputed per visit AND that raster is the whole pipeline, the bound barely exceeds 1.0x. In reality proj/cov/SH are eager, so this bound does not apply."
+    },
+    "bicycle": {
+      "f_if_pervisit_fully_removed_raster_only": 0.845672,
+      "amdahl_raster_only": 6.479719,
+      "note": "Even granting the false premise that proj+cov+SH are recomputed per visit AND that raster is the whole pipeline, the bound barely exceeds 1.0x. In reality proj/cov/SH are eager, so this bound does not apply."
+    }
+  }
+}

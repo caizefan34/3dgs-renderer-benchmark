@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""DSH-9 CVL0 verdict + summary (Phase A access trace).
+
+Phase A captures the sparse co-access graph (adjacent primitive ids within the
+same sorted tile list, spec-permitted) + visibility frequency. The frozen gates
+C1-C4 require Phase B (co-visibility/Morton/hybrid layout remap) + Phase C
+(replay on real kernels with ncu L2/DRAM profiling) + Phase D (amortization).
+Those are not performed here, so the verdict is INVESTIGATE with the Phase A
+access-trace evidence and the precise Phase B blocker documented. No claim that
+co-visibility layout beats Morton is made without measured L2/DRAM evidence.
+"""
+import json
+import hashlib
+from pathlib import Path
+import platform
+import socket
+
+ART = Path("/root/dsh_20261001/artifacts/DSH9_CVL0")
+
+
+def sha256_file(p):
+    return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+
+def main():
+    cvl = json.loads((ART / "CVL0_ACCESS_TRACE.json").read_text())
+
+    per_scene = {}
+    for s, d in cvl["scenes"].items():
+        per_scene[s] = {
+            "n_records": d["n_records"],
+            "iterations": d["iterations"],
+            "n_coaccess_edges_unique_final": d["final_record"]["n_coaccess_edges_unique"],
+            "primitive_visible_frac_gt0_final": d["final_record"]["primitive_visible_frac_gt0"],
+            "mean_tiles_per_visible_final": d["final_record"]["mean_tiles_per_visible"],
+            "coaccess_edge_weight_p50": d["coaccess_edge_weight_final"]["p50"],
+            "coaccess_edge_weight_p99": d["coaccess_edge_weight_final"]["p99"],
+            "coaccess_edge_weight_max": d["coaccess_edge_weight_final"]["max"],
+        }
+
+    gates = {
+        "C1": {"desc": "vs Morton, L2 or L3 reduces DRAM bytes OR increases L2 hit rate >=10% in 2/3 scenes",
+               "status": "PENDING_PHASE_B_C",
+               "note": "requires layout remap + ncu L2/DRAM profiling"},
+        "C2": {"desc": "fused backward+optimizer wall improves >=8% in 2/3 scenes, no scene regresses >3%",
+               "status": "PENDING_PHASE_C"},
+        "C3": {"desc": "amortized full-iteration saving >=3% in 2/3 scenes",
+               "status": "PENDING_PHASE_D"},
+        "C4": {"desc": "remapping preserves exact rendered order + baseline correctness",
+               "status": "PENDING_PHASE_C",
+               "note": "layout remap must not change per-tile DEPTH order"},
+    }
+
+    verdict = {
+        "p0": "DSH-9 CVL0 Co-Visibility Locality Layout Audit",
+        "decision": "INVESTIGATE",
+        "evidence_level": "L1 (Phase A access trace, EPIC-05 A100)",
+        "phase_reached": "A (access trace)",
+        "coaccess_rule": cvl["coaccess_rule"],
+        "per_scene": per_scene,
+        "structural_observations": [
+            "Co-access edges are concentrated (p99/max edge weight >> p50), so a "
+            "co-visibility graph has non-trivial structure to exploit.",
+            "Only ~44% of Gaussians are ever visible (primitive_visible_frac>0), "
+            "so the visible working set is a minority of stored parameters.",
+            "Co-access is captured via adjacent-in-sorted-tile-list pairs (spec-"
+            "permitted); the spec primary k=16 top-co-occurrence signal is NOT "
+            "captured by the current tracer and would be needed for a faithful "
+            "L2 graph ordering in Phase B.",
+        ],
+        "gates": gates,
+        "claim_scope": ("Phase A access trace recorded at L1. No claim that "
+                        "co-visibility layout beats Morton: C1-C4 require Phase "
+                        "B/C/D (layout remap + ncu L2/DRAM profiling + replay "
+                        "timing + amortization), not performed. INVESTIGATE."),
+        "phase_B_blocker": ("(1) extend tracer to capture k=16 top-co-occurrence "
+                            "neighbors (currently only adjacent-in-list); "
+                            "(2) implement deterministic L2 co-visibility graph "
+                            "ordering + L3 hybrid and remap params/optimizer/IDs; "
+                            "(3) ncu L2/DRAM profiling vs Morton; (4) replay timing."),
+        "provenance": {"gpu": "EPIC-05 A100 (%s)" % socket.gethostname(),
+                       "python": platform.python_version(),
+                       "source_lock": "FasterGSFused ae665af2..., NeRFICG e458ac6..."},
+    }
+    (ART / "CVL0_VERDICT.json").write_text(json.dumps(verdict, indent=2))
+    print("wrote CVL0_VERDICT.json decision=INVESTIGATE")
+
+    summary = {
+        "p0": "DSH-9 CVL0 Co-Visibility Locality Layout Audit",
+        "decision": "INVESTIGATE",
+        "evidence_level": verdict["evidence_level"],
+        "phase_reached": "A (access trace)",
+        "coaccess_rule": cvl["coaccess_rule"],
+        "per_scene": per_scene,
+        "gate_status": {k: v["status"] for k, v in gates.items()},
+        "files_absent": ["CVL0_LAYOUT_DEFINITION.json", "CVL0_PROFILE.json",
+                         "CVL0_AMORTIZATION.json", "CVL0_CORRECTNESS.json"],
+        "absent_reason": "Phase B/C/D (layout remap + ncu profiling + replay) not performed.",
+        "claim_scope": verdict["claim_scope"],
+        "provenance": verdict["provenance"],
+    }
+    (ART / "CVL0_SUMMARY.json").write_text(json.dumps(summary, indent=2))
+    print("wrote CVL0_SUMMARY.json")
+
+
+if __name__ == "__main__":
+    main()

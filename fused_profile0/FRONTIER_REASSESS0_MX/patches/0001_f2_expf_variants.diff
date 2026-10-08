@@ -1,0 +1,89 @@
+--- rasterization/include/kernels_backward.cuh.orig	2026-10-07 10:03:27.720256785 +0800
++++ rasterization/include/kernels_backward.cuh	2026-10-07 10:04:43.760021936 +0800
+@@ -4,6 +4,7 @@
+ #include "kernel_utils.cuh"
+ #include "sh_utils.cuh"
+ #include "buffer_utils.h"
++#include "depreg_probe.h"
+ #include "helper_math.h"
+ #include "utils.h"
+ #include <cstdint>
+@@ -372,6 +373,7 @@
+             }
+ 
+             if (i > 0) {
++#ifndef BWD_DEPREG_NORECUR
+                 last_contributor = warp.shfl_up(last_contributor, 1);
+                 color_pixel_after.x = warp.shfl_up(color_pixel_after.x, 1);
+                 color_pixel_after.y = warp.shfl_up(color_pixel_after.y, 1);
+@@ -381,6 +383,13 @@
+                 grad_color_pixel.y = warp.shfl_up(grad_color_pixel.y, 1);
+                 grad_color_pixel.z = warp.shfl_up(grad_color_pixel.z, 1);
+                 grad_alpha_common = warp.shfl_up(grad_alpha_common, 1);
++#else
++                transmittance = 1.0f;
++                color_pixel_after = make_float3(0.0f);
++                grad_color_pixel = make_float3(0.0f);
++                grad_alpha_common = 0.0f;
++                last_contributor = config::block_size_blend;
++#endif
+             }
+ 
+             // which pixel index should this thread deal with?
+@@ -406,17 +415,28 @@
+             const float2 pixel = make_float2(__uint2float_rn(pixel_coords.x), __uint2float_rn(pixel_coords.y)) + 0.5f;
+             const float2 delta = mean2d - pixel;
+             const float exponent = -0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) - conic.y * delta.x * delta.y;
+-            const float gaussian = expf(fminf(exponent, 0.0f));
++            float gaussian;
++#ifdef FRONTIER_EXPF_FAST
++            gaussian = __expf(fminf(exponent, 0.0f));            // APPROX intrinsic
++#elif defined(FRONTIER_EXPF_EXP2F)
++            gaussian = exp2f(fminf(exponent, 0.0f) * 0.6931471805599453f);  // exp2 identity (exact math, same MUFU)
++#else
++            gaussian = expf(fminf(exponent, 0.0f));             // production exact
++#endif
+             const float alpha = opacity * gaussian;
+             if (alpha < config::min_alpha_threshold) continue;
+ 
+             const float blending_weight = transmittance * alpha;
+ 
+             // color gradient
++#ifndef BWD_DEPREG_NOCOLOR
+             const float3 dL_dcolor = blending_weight * grad_color_pixel * color_grad_factor;
+             dL_dcolor_accum += dL_dcolor;
++#endif
+ 
++#ifndef BWD_DEPREG_NORECUR
+             color_pixel_after -= blending_weight * color;
++#endif
+ 
+             // alpha gradient
+             const float one_minus_alpha = 1.0f - alpha;
+@@ -425,11 +445,14 @@
+             const float dL_dalpha_from_alpha = grad_alpha_common * one_minus_alpha_rcp;
+             const float dL_dalpha = dL_dalpha_from_color + dL_dalpha_from_alpha;
+             // opacity gradient
++#ifndef BWD_DEPREG_NOOPACITY
+             const float dL_dopacity = gaussian * dL_dalpha;
+             dL_dopacity_accum += dL_dopacity;
++#endif
+ 
+             // conic and mean2d gradient
+             const float gaussian_grad_helper = -alpha * dL_dalpha;
++#ifndef BWD_DEPREG_NOCONIC
+             const float3 dL_dconic = 0.5f * gaussian_grad_helper * make_float3(
+                 delta.x * delta.x,
+                 delta.x * delta.y,
+@@ -441,8 +464,11 @@
+                 conic.y * delta.x + conic.z * delta.y
+             );
+             dL_dmean2d_accum += dL_dmean2d;
++#endif
+ 
++#ifndef BWD_DEPREG_NORECUR
+             transmittance *= one_minus_alpha;
++#endif
+         }
+ 
+         // finally add the gradients using atomics

@@ -1,0 +1,7 @@
+{
+  "note": "peak VRAM not separately measured; both fit in 8GB shared laptop. M Buffer preallocates MAX_NUM_RENDERED=2^21 (splat_buffer ~256MB + sort space ~100MB) at import.",
+  "H": "fused single-buffer, grows via resize_function_wrapper",
+  "M": "preallocated Buffer (2^21 instances, 2^16 tiles)",
+  "memory_tradeoff": "M trades higher forward memory/instance-count for parallel backward; no OOM at N<=100k, 256x256",
+  "spill_status": "unknown (no ptxas -v captured per-kernel)"
+}

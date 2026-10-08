@@ -1,0 +1,71 @@
+{
+  "schema": "FRONTIER_REASSESS0_PRIOR_EVIDENCE",
+  "date": "2026-10-07",
+  "note": "Read-only ingestion of prior-lane terminal verdicts. Not reinterpreted, not overwritten.",
+  "best_ARITH0_oracle": {
+    "lane": "BWD_ARITH0",
+    "terminal_verdict": "BWD_ARITHMETIC_FRONTIER_FOUND",
+    "primary_mechanism": "COMPUTE_COUNT_BOUND",
+    "secondary_mechanism": "TRANSCENDENTAL_SFU",
+    "O20_exp_to_linear": -15.65,
+    "O20_S_backward_geomean": 1.1856,
+    "O20_S_renderer_geomean": 1.1116,
+    "O20_per_scene_S_renderer": {
+      "room": 1.1153,
+      "bicycle": 1.1462,
+      "garden": 1.0744
+    },
+    "blend_backward_sass": {
+      "total_inst": 712,
+      "fp32": 275,
+      "integer": 174,
+      "mufu": 13,
+      "warp_shuffle": 36,
+      "registers": 67,
+      "spill": 0,
+      "occupancy": 0.4688
+    },
+    "amdh_ceiling": {
+      "note": "If the full O10 headroom were exactly realizable it would be the renderer ceiling, but it is an oracle upper bound (gradients cannot be removed). The exact actionable subset (candidate 1) ceiling is ~1.11x renderer (O20).",
+      "O10_max_renderer_speedup_geomean": 1.7053,
+      "candidate1_renderer_speedup_geomean": 1.1116
+    }
+  },
+  "ARITH1_cache_result": {
+    "lane": "BWD_ARITH1-RECOMPUTE-GAUSSIAN",
+    "terminal_verdict": "DROP_REUSE_TRAFFIC_OVERHEAD",
+    "S_backward_geomean": 0.7908,
+    "S_renderer_geomean": 0.8319,
+    "physical_bound": "Traffic oracle: cache LOAD alone at peak HBM (1.555 TB/s) = 1.45-1.59x the O20 expf savings on all 3 scenes; store+load = 2.9-3.2x. R1 cannot pass even at idealized bandwidth. L2 (40MB) << cache (0.9-3.0GB).",
+    "summary": "Exact FP32 forward-G caching is correct but SLOWER (traffic-dominated); CLOSED."
+  },
+  "DEPREG_result": {
+    "lane": "BWD_DEPREG0_MX",
+    "terminal_verdict": "NO_ACTIONABLE_DEPREG_FRONTIER",
+    "best_lever_geomean_S_backward": 0.9978,
+    "summary": "Dependency/register/occupancy/spill all non-causal; NO_ACTIONABLE_DEPREG_FRONTIER; next_lane FRONTIER_REASSESS."
+  },
+  "renderer_Amdahl_bounds": {
+    "expf_free_S_renderer_geomean": 1.1116,
+    "expf_free_per_scene": {
+      "room": 1.1153,
+      "bicycle": 1.1462,
+      "garden": 1.0744
+    },
+    "note": "O20 is an APPROXIMATE oracle (expf->linear). It is the expf-removal upper bound, NOT an exactly-realizable target."
+  },
+  "closed_mechanisms": [
+    "full-interaction FP32 Gaussian cache (BWD-ARITH1 DROP_REUSE_TRAFFIC_OVERHEAD)",
+    "register-lifetime tuning (BWD_DEPREG0)",
+    "occupancy tuning (BWD_DEPREG0)",
+    "spill reduction (BWD_DEPREG0: 0 spill baseline)",
+    "generic recurrence/dependency refactor (BWD-DEPREG0)",
+    "blind kernel splitting (BWD_DEPREG0: not performed, no justified split)"
+  ],
+  "still_open_mechanisms": [
+    "F1 EXISTING_STATE_RECONSTRUCTION: recover G from state already stored/loaded without new cache",
+    "F2 EXACT_SFU_REFORMULATION: exact faster expf formulation on SM80",
+    "F3 EXACT_INTERACTION_ELIMINATION: provably-zero interactions removable without changing exact gradient semantics",
+    "F4 APPROX_SPARSE_FRONTIER: approximate/sparse interaction reduction (reference only)"
+  ]
+}

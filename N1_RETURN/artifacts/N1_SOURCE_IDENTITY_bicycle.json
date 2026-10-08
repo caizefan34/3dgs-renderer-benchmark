@@ -1,0 +1,141 @@
+{
+  "campaign": "N1_ReBudgetGS_mechanism_measurement",
+  "stage": "0_source_checkpoint_audit",
+  "frozen_date": "2026-09-28",
+  "p12_trainer": {
+    "path": "/root/epic05_p12/publication_trainer_p12.py",
+    "sha256": "675b0267f3a1a6a0fa63fadb37c8536481c1c7a6de37a4b7f6ffa98a449050c5"
+  },
+  "n1_snapshot_trainer": {
+    "path": "/root/epic05_n1/publication_trainer_p12_n1snap.py",
+    "sha256": "49a79538d5418cdf795b8a8f9919b2e3f9bc5f7550c7f966b030e3ae14d8dbf4",
+    "edit": "save-only --snapshot-iterations flag; training semantics unchanged"
+  },
+  "c0_ext_so": {
+    "path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so",
+    "sha256": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11"
+  },
+  "core_so": {
+    "path": "/root/epic05_build_cache/core/gsplat_cuda/gsplat_cuda.so",
+    "sha256": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e"
+  },
+  "fused_ssim_so": {
+    "path": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim_cuda.cpython-310-x86_64-linux-gnu.so",
+    "sha256": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+    "p11_lock": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+    "lock_ok": true
+  },
+  "higs_env": {
+    "HIGS_PX_RUNTIME": "2",
+    "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+    "HIGS_BWD_H8_MR": "1",
+    "HIGS_BWD_ABSGRAD": "1"
+  },
+  "reference_v1": {
+    "gaussian_model.py": "68731e375013a6f24aa4d81e5986402b1ac50f51cddf20688e358be705b1a60b",
+    "config.py": "ea8e870476a3ba71c0ae9e1123a6fa5b1cf696bad983bdb6535d6fd04b7acc56",
+    "colmap_reader.py": "b30a2a345f7f37cdf3087298750d714d7117e1e93ad742e766075be304729b1b",
+    "phase7_dataset.py": "e6d8bfb1034bee102abc176060a8c7783951d253426ea7b5ea27daa16c258402"
+  },
+  "torch": "2.9.1+cu128",
+  "cuda": "12.8",
+  "gpu": "NVIDIA A100-SXM4-80GB",
+  "eps2d": 0.3,
+  "lambda_dssim": 0.2,
+  "loss": "fused-ssim padding='same' train=True (P12 strong baseline)",
+  "seed": 42,
+  "config": {
+    "scene": "room",
+    "resolution": "1080p",
+    "repo_root": "C:\\Users\\36570\\3dgs-renderer-benchmark",
+    "iterations": 30000,
+    "seed": 42,
+    "position_lr_init": 0.00016,
+    "position_lr_final": 1.6e-06,
+    "position_lr_delay_mult": 0.01,
+    "position_lr_max_steps": 30000,
+    "feature_lr": 0.0025,
+    "opacity_lr": 0.025,
+    "scaling_lr": 0.005,
+    "rotation_lr": 0.001,
+    "densify_from_iter": 500,
+    "densify_until_iter": 15000,
+    "densification_interval": 100,
+    "densify_grad_threshold": 0.0008,
+    "percent_dense": 0.01,
+    "min_opacity": 0.005,
+    "max_screen_size": 20,
+    "opacity_reset_interval": 3000,
+    "sh_degree": 3,
+    "sh_progress_interval": 1000,
+    "lambda_dssim": 0.2,
+    "renderer": "gsplat",
+    "gsplat_version": "1.5.3",
+    "tile_size": 16,
+    "packed": false,
+    "semantic_label": "REFERENCE_V1_ABSGRAD",
+    "eval_iterations": [
+      500,
+      1000,
+      2000,
+      5000,
+      10000,
+      15000,
+      20000,
+      25000,
+      30000
+    ],
+    "instrument_iterations": [
+      500,
+      1000,
+      2000,
+      5000,
+      10000,
+      15000,
+      20000,
+      25000
+    ],
+    "checkpoint_iterations": []
+  },
+  "snapshot_runs": {
+    "bicycle": {
+      "command": null,
+      "binary_identity": {
+        "arm": "c0",
+        "so_sha256": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+        "so_path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so",
+        "core_sha256": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+        "env": {
+          "HIGS_PX_RUNTIME": "2",
+          "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+          "HIGS_BWD_H8_MR": "1",
+          "HIGS_BWD_ABSGRAD": "1"
+        }
+      },
+      "loss_backend": {
+        "name": "fused-ssim",
+        "commit": "a7c48d6dd7ac6dc39a7958c7c4452e0b10418f38",
+        "so_sha256": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+        "padding": "same"
+      },
+      "higs_env_all": {
+        "HIGS_PX_RUNTIME": "2",
+        "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+        "HIGS_BWD_H8_MR": "1",
+        "HIGS_BWD_ABSGRAD": "1"
+      },
+      "iterations": 25000,
+      "seed": 42,
+      "initial_N": 54275,
+      "final_N": 3654566,
+      "timing_grade": "FUNCTIONAL_ONLY"
+    }
+  },
+  "camera_sequence_prefix": {
+    "bicycle": {
+      "n_new": 25000,
+      "n_canonical": 30000,
+      "prefix_identical": true
+    }
+  }
+}

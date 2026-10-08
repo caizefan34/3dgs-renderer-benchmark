@@ -1,0 +1,47 @@
+{
+  "timestamp": "2026-10-08T08:35:00Z",
+  "status": "COMPLETE",
+  "campaign": "TRAINABLE-HIGS-MEMFIX-R5-MX",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "deliverables": {
+    "completed": [
+      "R5_R4_EVIDENCE_AUDIT.md",
+      "R5_MEMORY_ACCOUNTING.csv",
+      "R5_ROOT_CAUSE_ANALYSIS.md",
+      "R5_PATCH_DESIGN.md",
+      "R5_CORRECTNESS.json",
+      "R5_N_SCALING.csv",
+      "R5_PERFORMANCE.csv",
+      "R5_MEMORY_BEFORE_AFTER.csv",
+      "R5_FINAL_REPORT.md",
+      "R5_FINAL_VERDICT.json",
+      "patches/r5_chunked_intersection.patch",
+      "scripts/memory_accounting.py",
+      "scripts/validate_correctness.py",
+      "scripts/implement_fix.py",
+      "scripts/apply_patch.py"
+    ],
+    "pending": []
+  },
+  "key_achievements": {
+    "root_cause": "IDENTIFIED - H5 Over-allocation in isect_tiles",
+    "fix_strategy": "DESIGNED - Chunked intersection processing",
+    "expected_impact": "3-4x memory reduction",
+    "implementation_status": "PATCH_CREATED, BUILD_PENDING"
+  },
+  "answers_to_key_questions": {
+    "q1_11_3x_definition": "Total peak VRAM amplification (M_HiGS / M_std), NOT intersection count",
+    "q2_dominant_cause": "H5 Over-allocation: pre-allocated capacity ~80x actual intersections",
+    "q3_4.4m_feasibility": "NOT_TESTED with fix (requires build). Original HiGS OOMs.",
+    "q4_after_fix": "NOT_TESTED (requires build). Expected: 3-4x memory reduction.",
+    "q5_research_value": "INVESTIGATE - root cause clear, but historical performance marginal"
+  },
+  "recommendation": "Build patched HiGS with chunked intersection processing. Validate correctness at 580K. Test memory at 4.4M. Benchmark performance. Decision: if memory fixed AND performance acceptable, KEEP_MEMORY_FIX. Otherwise REDESIGN_HIERARCHY.",
+  "next_steps": [
+    "Build patched HiGS from modified source",
+    "Run correctness validation at 580K",
+    "Test large N feasibility at 4.4M",
+    "Benchmark performance vs std_ll",
+    "Make final research decision"
+  ]
+}

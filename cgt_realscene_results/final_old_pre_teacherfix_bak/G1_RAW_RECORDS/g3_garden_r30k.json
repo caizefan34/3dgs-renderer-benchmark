@@ -1,0 +1,80 @@
+{
+  "scene": "garden",
+  "n_tiles": 240,
+  "M_median": 267.0,
+  "M_min": 31,
+  "M_max": 2253,
+  "dispatch_overhead_ms": 0.04505600035190582,
+  "per_rank": {
+    "4": {
+      "teacher_ms_median": 0.42188799381256104,
+      "student_ms_median": 0.30873599648475647,
+      "student_fb_ms_median": 1.4673919677734375,
+      "gamma_math_median": 1.3675496723843485,
+      "gamma_math_p90": 1.3766447973071296,
+      "gamma_work_weighted": 1.3730686718013279,
+      "gamma_work_weighted_fwd_bwd": 0.2896398458498017,
+      "h_overhead_per_tile": 0.10679611890525516,
+      "S_measured_zero_idealh": 1.3730686718013279,
+      "S_measured_with_h": 1.1974731228674902
+    },
+    "8": {
+      "teacher_ms_median": 0.42188799381256104,
+      "student_ms_median": 0.3102720081806183,
+      "student_fb_ms_median": 1.4689279794692993,
+      "gamma_math_median": 1.3619128141163093,
+      "gamma_math_p90": 1.3750410700820774,
+      "gamma_work_weighted": 1.397072273174438,
+      "gamma_work_weighted_fwd_bwd": 0.2909960753261944,
+      "h_overhead_per_tile": 0.10679611890525516,
+      "S_measured_zero_idealh": 1.397072273174438,
+      "S_measured_with_h": 1.2156891467909103
+    },
+    "16": {
+      "teacher_ms_median": 0.42188799381256104,
+      "student_ms_median": 0.3092480003833771,
+      "student_fb_ms_median": 1.4684159755706787,
+      "gamma_math_median": 1.3642383888967538,
+      "gamma_math_p90": 1.374425393159916,
+      "gamma_work_weighted": 1.368011912302323,
+      "gamma_work_weighted_fwd_bwd": 0.28620637014516964,
+      "h_overhead_per_tile": 0.10679611890525516,
+      "S_measured_zero_idealh": 1.368011912302323,
+      "S_measured_with_h": 1.1936252215738605
+    }
+  },
+  "batched": {
+    "M_rep": 267,
+    "n_pixels": 65536,
+    "teacher_ms": 3.2573440074920654,
+    "per_rank": {
+      "4": {
+        "student_ms": 0.3112959861755371,
+        "intrinsic_gamma": 10.463816278232631,
+        "teacher_per_gaussian_us": 12.199790290232455,
+        "student_per_component_us": 77.82399654388428
+      },
+      "8": {
+        "student_ms": 0.3123199939727783,
+        "intrinsic_gamma": 10.42950842198074,
+        "teacher_per_gaussian_us": 12.199790290232455,
+        "student_per_component_us": 39.03999924659729
+      },
+      "16": {
+        "student_ms": 0.3102720081806183,
+        "intrinsic_gamma": 10.498349582331228,
+        "teacher_per_gaussian_us": 12.199790290232455,
+        "student_per_component_us": 19.392000511288643
+      }
+    }
+  },
+  "scope_note": "torch reference math on A100; NOT fused CGT kernel, NOT gsplat fused rasterizer; h_overhead is a LOWER BOUND (torch dispatch only, no spatial tree).",
+  "headline": {
+    "intrinsic_gamma_R4": 10.463816278232631,
+    "intrinsic_gamma_R8": 10.42950842198074,
+    "intrinsic_gamma_R16": 10.498349582331228,
+    "per_tile_gamma_R4": 1.3730686718013279,
+    "per_tile_S_with_h_R4": 1.1974731228674902,
+    "note": "intrinsic_gamma = launch-free per-element math ratio (65536 px single call); per_tile_gamma = launch-bound (256 px). A real per-tile renderer is launch-bound, so per_tile_S is the operationally relevant ceiling; intrinsic_gamma is the math lower bound."
+  }
+}

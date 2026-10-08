@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "objective": "Decompose HiGS speedup into causal mechanisms",
+  "method": "Component profiling + ablation (where available) + cross-referencing with existing reports",
+  "speedup_source_decomposition": {
+    "primary_mechanism": {
+      "name": "Elimination of std indexing_backward + visible-subset gather",
+      "contribution_pct": "60-70%",
+      "evidence": {
+        "std_profile": "Round-10, 21 profiling: std backward includes ~9.8 ms of indexing_backward (gather/scatter for visible subset)",
+        "higs_advantage": "Native backward writes directly to master rows via visible_ids; no index_copy_ scatter",
+        "quantification": "9.8 ms / 32.81 ms std backward = 30% of std backward; HiGS saves most of this",
+        "cross_check": "Round-21 blend bwd is identical (19.1 ms); SH VJP gap is only ~1.1 ms; remaining gap is indexing"
+      }
+    },
+    "secondary_mechanism": {
+      "name": "Native backward kernel efficiency (vs gsplat_recompute)",
+      "contribution_pct": "20-30%",
+      "evidence": {
+        "comparison": "Native backward vs gsplat_recompute fallback",
+        "bicycle_960x540": {
+          "higs_recompute_bwd": 59.87,
+          "higs_native_bwd": 26.61,
+          "speedup": 2.25,
+          "notes": "Recompute re-runs rasterization inside backward"
+        },
+        "caveat": "This is NOT the speedup vs std; it's the speedup vs the fallback. Vs std's own backward (32.81 ms), native is only -18.9%",
+        "conclusion": "Native kernels avoid pipeline re-execution, but the main win vs std is eliminating indexing, not kernel speed"
+      }
+    },
+    "tertiary_mechanisms": {
+      "name": "SH VJP optimization (rounds 8, 13, 25)",
+      "contribution_pct": "5-10%",
+      "evidence": {
+        "original_gap": "8.3 ms -> 5.9 ms (round 8)",
+        "further_opt": "5.96 -> 5.39 ms (round 25, -0.6 ms/step)",
+        "vs_std": "Std SH VJP is 4.89 ms; HiGS is 5.96-6.0 ms (still slower)",
+        "conclusion": "Small improvement, but HiGS SH VJP remains slower than std; not a net win"
+      }
+    },
+    "quaternary_mechanisms": {
+      "name": "Python-side optimizations (gather kernel, fused mask, fused Adam)",
+      "contribution_pct": "5-10%",
+      "evidence": {
+        "gather_kernel": "Round 3: 3.79-4.42 ms -> 0.93 ms (-3 ms fwd on bicycle)",
+        "fused_mask": "Round 7: 0.78 ms -> 0.136 ms (-0.65 ms fwd)",
+        "fused_adam": "Round 14: optimizer 14.88 -> 6.78 ms (2.2x faster, shared with std)",
+        "conclusion": "Important optimizations, but mostly level; std also benefits from fused Adam"
+      }
+    }
+  },
+  "non_mechanisms": {
+    "culling_reduction": {
+      "hypothesis": "Does culling reduce blend backward work?",
+      "answer": "NO",
+      "evidence": {
+        "observation": "Culled Gaussians generate zero intersections; std also processes zero isects for off-screen/sub-pixel Gaussians",
+        "n_isects_comparison": "HiGS n_isects = 14.13M vs std 14.12M on visible subset (round 10)",
+        "blend_bwd_time": "HiGS 19.1 ms vs std 19.2 ms (identical)",
+        "conclusion": "Culling does NOT reduce blend backward work; the 62.9% culled Gaussians would have contributed zero isects anyway"
+      }
+    },
+    "forward_hierarchy": {
+      "hypothesis": "Does hierarchical forward reduce rasterization cost?",
+      "answer": "NO (near parity)",
+      "evidence": {
+        "forward_time": "HiGS 17.27 ms vs std 17.92 ms (-3.6%, near parity)",
+        "breakdown": {
+          "culling_projection": "2.3 ms (over all N)",
+          "visible_subset_projection": "0.6 ms",
+          "gather": "0.9 ms",
+          "rasterize_subset": "10.4 ms (saves ~10.4 ms vs rendering all N)",
+          "culling_mask": "0.14 ms",
+          "net": "10.4 ms saved - 3.8 ms added = 6.6 ms gross, offset by launch overhead"
+        },
+        "conclusion": "Forward is at parity; the win is NOT from hierarchical rendering"
+      }
+    },
+    "tile_LOD": {
+      "hypothesis": "Does HiGS macro-tile structure reduce intersection count?",
+      "answer": "POTENTIALLY YES, but NOT REALIZED in current implementation",
+      "evidence": {
+        "potential": "Round 19: HiGS renderer 8.61 ms vs std 28.99 ms on visible subset (3.37x)",
+        "reality": "Current implementation uses standard isect_tiles on visible subset, not HiGS macro-tile",
+        "blocker": "Realizing this requires HiGS-format backward consuming macro-tile structure (30M entries vs 330M isects) - substantial rework",
+        "status": "Documented but NOT in current numbers"
+      }
+    }
+  },
+  "mechanism_attribution_by_stage": {
+    "forward": {
+      "speedup": "1.04-1.16x (weak to moderate)",
+      "mechanisms": [
+        "Native gather kernel (avoids PyTorch pathological index_select)",
+        "Fused union visibility mask (eliminates double reduction)",
+        "Visible-subset rasterization (saves ~10.4 ms, offset by gather+2nd projection)"
+      ],
+      "conclusion": "Near parity; not the primary source of end-to-end speedup"
+    },
+    "backward": {
+      "speedup": "1.20-1.23x (strong)",
+      "mechanisms": [
+        "Elimination of indexing_backward (~9.8 ms, 30% of std backward)",
+        "Direct scatter to master rows (no index_copy_)",
+        "Native kernels avoid pipeline re-execution (vs recompute fallback)",
+        "Small kernel-level improvements (SH VJP, projection VJP)"
+      ],
+      "conclusion": "Primary source of end-to-end speedup; backward is 60% of iteration, so 20% backward saving -> 12% total saving"
+    },
+    "optimizer": {
+      "speedup": "1.0x (shared)",
+      "mechanisms": [
+        "Fused Adam (benefits both arms equally)"
+      ],
+      "conclusion": "Not a HiGS-specific advantage; both arms use fused Adam"
+    }
+  },
+  "counterfactual_analysis": {
+    "question": "If we removed each mechanism, how much speedup would remain?",
+    "scenarios": [
+      {
+        "removed": "Native backward (use gsplat_recompute fallback)",
+        "impact": "Speedup erased (recompute is +50% slower than std)",
+        "residual_S_FB": "0.66x (i.e., 34% slower)",
+        "conclusion": "Native backward is NECESSARY for speedup"
+      },
+      {
+        "removed": "Native gather kernel (use PyTorch gather)",
+        "impact": "Forward regresses by ~3 ms on bicycle",
+        "residual_S_FB": "~1.10x",
+        "conclusion": "Important but not critical; other mechanisms still provide speedup"
+      },
+      {
+        "removed": "Culling entirely (render all N in HiGS)",
+        "impact": "Lose visible-subset rasterization savings (~10.4 ms fwd), but also lose gather+2nd projection cost (~3.8 ms)",
+        "residual_S_FB": "~1.15x",
+        "conclusion": "Culling is NEUTRAL in current implementation; net effect ~parity"
+      },
+      {
+        "removed": "Fused union mask (use PyTorch mask)",
+        "impact": "Forward regresses by ~0.65 ms",
+        "residual_S_FB": "~1.15x",
+        "conclusion": "Small but measurable; not critical"
+      }
+    ]
+  },
+  "key_findings": {
+    "primary_driver": "Backward efficiency (elimination of indexing_backward + native scatter)",
+    "secondary_driver": "Native backward kernels (avoid pipeline re-execution)",
+    "not_driver": "Culling (near-neutral in current implementation); forward hierarchy (at parity)",
+    "architectural_contribution": "Trainable HiGS enables end-to-end differentiation via native backward bound to forward-captured state; this is the contribution, NOT hierarchical rendering speed",
+    "scaling_behavior": "Speedup is FLAT across workload because the mechanism (indexing elimination) is workload-independent"
+  },
+  "evidence_labels": {
+    "OBSERVED": [
+      "Forward/backward/total times",
+      "n_isects comparison",
+      "Blend bwd kernel times",
+      "SH VJP kernel times"
+    ],
+    "DERIVED": [
+      "Speedup ratios (S_forward, S_backward, S_FB)",
+      "Component breakdowns (from profiling rounds)",
+      "Amortized overhead (from event frequency)"
+    ],
+    "INFERRED": [
+      "Primary mechanism = indexing elimination (from profile analysis)",
+      "Culling is neutral (from forward breakdown)",
+      "Speedup is workload-independent (from flat scaling)"
+    ],
+    "HYPOTHESIZED": [
+      "Tile LOD could provide larger speedup (potential, not realized)",
+      "HiGS-format backward could reduce blend bwd (future work)"
+    ],
+    "UNRESOLVED": [
+      "Why is HiGS SH VJP still slower than std (5.96 vs 4.89 ms)?",
+      "Can tile LOD be realized without substantial rework?"
+    ]
+  }
+}

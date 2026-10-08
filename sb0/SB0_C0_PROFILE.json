@@ -1,0 +1,123 @@
+{
+  "task": "SB0-FGS",
+  "deliverable": "SB0_C0_PROFILE",
+  "title": "Frozen C0 profiling basis for the Opportunity Oracle",
+  "audit_date": "2026-09-29",
+  "source": "artifacts/final-30k/C0_V3_FINAL30K/<scene>/timing.json (corroborated by artifacts/final-30k/phase_timing.json c0 arm)",
+  "provenance": {
+    "worktree": "higs_c0_final30k_worktree (remote /mnt/storage_pool/liaoyuanjun/...; task path /root/epic05_frozen/...)",
+    "gpu": "NVIDIA A100-PCIE-40GB",
+    "torch": "2.9.1+cu128",
+    "cuda_home_nvcc": "12.8",
+    "env": {
+      "HIGS_PX_RUNTIME": "2",
+      "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+      "HIGS_BWD_H8_MR": "1",
+      "HIGS_BWD_ABSGRAD": "1"
+    },
+    "flags": {
+      "f9": true,
+      "scalar_adjoint": true,
+      "h8_mr": true,
+      "px_runtime": 2
+    },
+    "timing_grade": "PUBLICATION",
+    "contaminated": false,
+    "trainer": "scripts/final30k/final30k_trainer.py (unified reference_v1 recipe)",
+    "sha256_match_task_pinned": false,
+    "sha256_note": "Local .so/core hashes differ from task-pinned hashes (build-path/toolchain embedding suspected). Stage TIMINGS are the authoritative PUBLICATION-grade C0 numbers; binary-hash reconciliation is a pre-implementation gap."
+  },
+  "evidence_class": "OBSERVED",
+  "per_scene": {
+    "room": {
+      "mean_iter_ms": 32.2838,
+      "median_iter_ms": 31.7079,
+      "iters_per_s": 28.8334,
+      "total_wall_s": 1040.46,
+      "stage_mean_ms": {
+        "forward": 3.6789,
+        "loss": 6.9081,
+        "backward": 17.663,
+        "densify": 0.9734,
+        "optimizer": 2.8729
+      },
+      "stage_pct_of_e2e": {
+        "forward": 11.395,
+        "loss": 21.398,
+        "backward": 54.712,
+        "densify": 3.015,
+        "optimizer": 8.899
+      },
+      "stage_sum_check_ms": 32.0962,
+      "python_launch_overhead_ms": 0.1876
+    },
+    "bicycle": {
+      "mean_iter_ms": 45.9042,
+      "median_iter_ms": 47.4234,
+      "iters_per_s": 20.6393,
+      "total_wall_s": 1453.54,
+      "stage_mean_ms": {
+        "forward": 5.4174,
+        "loss": 6.8819,
+        "backward": 21.9934,
+        "densify": 1.2122,
+        "optimizer": 10.224
+      },
+      "stage_pct_of_e2e": {
+        "forward": 11.801,
+        "loss": 14.992,
+        "backward": 47.911,
+        "densify": 2.641,
+        "optimizer": 22.272
+      },
+      "stage_sum_check_ms": 45.7288,
+      "python_launch_overhead_ms": 0.1754
+    },
+    "garden": {
+      "mean_iter_ms": 42.3859,
+      "median_iter_ms": 42.1401,
+      "iters_per_s": 22.3543,
+      "total_wall_s": 1342.02,
+      "stage_mean_ms": {
+        "forward": 5.4622,
+        "loss": 6.8617,
+        "backward": 21.0108,
+        "densify": 0.7514,
+        "optimizer": 8.1185
+      },
+      "stage_pct_of_e2e": {
+        "forward": 12.887,
+        "loss": 16.189,
+        "backward": 49.57,
+        "densify": 1.773,
+        "optimizer": 19.154
+      },
+      "stage_sum_check_ms": 42.2046,
+      "python_launch_overhead_ms": 0.1812
+    }
+  },
+  "sub_stage_micro_ms": {
+    "note": "F1/F2/F3 = forward sub-stages (projection/sort/blend), F9 = gatherless producer. Single-camera cam0 microbench; sub-ms granularity.",
+    "room": {
+      "F1": 0.0681,
+      "F2": 0.0995,
+      "F3": 0.3471,
+      "F1_F2_F3": 0.4884,
+      "F9": 0.0653
+    },
+    "bicycle": {
+      "F1": 0.1444,
+      "F2": 0.0997,
+      "F3": 0.349,
+      "F1_F2_F3": 0.4819,
+      "F9": 0.1116
+    },
+    "garden": {
+      "F1": 0.057,
+      "F2": 0.0973,
+      "F3": 0.3471,
+      "F1_F2_F3": 0.4831,
+      "F9": 0.0604
+    }
+  }
+}

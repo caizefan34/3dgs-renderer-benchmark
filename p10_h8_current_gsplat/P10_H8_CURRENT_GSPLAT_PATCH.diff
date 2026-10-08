@@ -1,0 +1,392 @@
+diff --git a/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu b/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu
+index 942041d..3f6baad 100644
+--- a/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu
++++ b/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu
+@@ -373,7 +373,7 @@ void launch_projection_ewa_3dgs_fused_fwd_kernels(
+     merge_streams();
+ }
+ 
+-template<typename scalar_t>
++template<typename scalar_t, bool H8_MR = false>
+ __global__ void projection_ewa_3dgs_fused_bwd_kernel(
+     const int64_t gaussian_offset,
+     const int64_t gaussian_count,
+@@ -396,9 +396,9 @@ __global__ void projection_ewa_3dgs_fused_bwd_kernel(
+     const scalar_t *__restrict__ conics,        // [B, C, N, 3]
+     const scalar_t *__restrict__ compensations, // [B, C, N] optional
+     // grad outputs
+-    const scalar_t *__restrict__ v_means2d,       // [B, C, N, 2]
++    scalar_t *__restrict__ v_means2d,             // [B, C, N, 2]  (H8-MR: moments on entry)
+     const scalar_t *__restrict__ v_depths,        // [B, C, N]
+-    const scalar_t *__restrict__ v_conics,        // [B, C, N, 3]
++    const scalar_t *__restrict__ v_conics,        // [B, C, N, 3]  (H8-MR: moments on entry)
+     const scalar_t *__restrict__ v_compensations, // [B, C, N] optional
+     // grad inputs
+     scalar_t *__restrict__ v_means,   // [B, N, 3]
+@@ -435,9 +435,39 @@ __global__ void projection_ewa_3dgs_fused_bwd_kernel(
+     v_depths  += global_idx;
+     v_conics  += global_idx * 3;
+ 
++    // H8-MR: the rasterizer scattered opacity-absorbed moments instead of the
++    // real geometry adjoint. Rebuild the real adjoint once per Gaussian here,
++    // using only the forward conic (A, B, C) already loaded below. The sums are
++    // over this Gaussian's contributing intersections p:
++    //   A*Sx + B*Sy = sum v_sigma_p*(A*dx_p + B*dy_p)  (no 1/2 on the cross term)
++    //   0.5*Sxx = sum 0.5*v_sigma_p*dx_p^2,  Sxy = sum v_sigma_p*dx_p*dy_p,
++    //   0.5*Syy = sum 0.5*v_sigma_p*dy_p^2
++    // v_opacity needs no rebuild: R0 == sum vis_p*v_alpha_p already.
++    float v_conic_x, v_conic_y, v_conic_z;
++    vec2 v_means2d_val;
++    if constexpr(H8_MR)
++    {
++        v_means2d_val = vec2(conics[0] * v_means2d[0] + conics[1] * v_means2d[1],
++                             conics[1] * v_means2d[0] + conics[2] * v_means2d[1]);
++        v_conic_x     = 0.5f * v_conics[0];
++        v_conic_y     = v_conics[1];
++        v_conic_z     = 0.5f * v_conics[2];
++        // Publish the rebuilt adjoint so it is also the value returned to
++        // autograd for the rasterizer's means2d input.
++        v_means2d[0] = v_means2d_val.x;
++        v_means2d[1] = v_means2d_val.y;
++    }
++    else
++    {
++        v_means2d_val = glm::make_vec2(v_means2d);
++        v_conic_x     = v_conics[0];
++        v_conic_y     = v_conics[1];
++        v_conic_z     = v_conics[2];
++    }
++
+     // vjp: compute the inverse of the 2d covariance
+     mat2 covar2d_inv   = mat2(conics[0], conics[1], conics[1], conics[2]);
+-    mat2 v_covar2d_inv = mat2(v_conics[0], v_conics[1] * .5f, v_conics[1] * .5f, v_conics[2]);
++    mat2 v_covar2d_inv = mat2(v_conic_x, v_conic_y * .5f, v_conic_y * .5f, v_conic_z);
+     mat2 v_covar2d(0.f);
+     inverse_vjp(covar2d_inv, v_covar2d_inv, v_covar2d);
+ 
+@@ -511,7 +541,7 @@ __global__ void projection_ewa_3dgs_fused_bwd_kernel(
+             image_width,
+             image_height,
+             v_covar2d,
+-            glm::make_vec2(v_means2d),
++            v_means2d_val,
+             v_mean_c,
+             v_covar_c
+         );
+@@ -527,7 +557,7 @@ __global__ void projection_ewa_3dgs_fused_bwd_kernel(
+             image_width,
+             image_height,
+             v_covar2d,
+-            glm::make_vec2(v_means2d),
++            v_means2d_val,
+             v_mean_c,
+             v_covar_c
+         );
+@@ -543,7 +573,7 @@ __global__ void projection_ewa_3dgs_fused_bwd_kernel(
+             image_width,
+             image_height,
+             v_covar2d,
+-            glm::make_vec2(v_means2d),
++            v_means2d_val,
+             v_mean_c,
+             v_covar_c
+         );
+@@ -683,41 +713,53 @@ void launch_projection_ewa_3dgs_fused_bwd_kernel(
+     }
+ 
+     auto stream = at::cuda::getCurrentCUDAStream();
++    const bool h8_mr = h8_mr_enabled();
+     AT_DISPATCH_FLOATING_TYPES(
+         means.scalar_type(),
+         "projection_ewa_3dgs_fused_bwd_kernel",
+         [&]()
+         {
+-            projection_ewa_3dgs_fused_bwd_kernel<scalar_t><<<blocks, threads, 0, stream>>>(
+-                0,
+-                N,
+-                B,
+-                C,
+-                N,
+-                means.const_data_ptr<scalar_t>(),
+-                covars.has_value() ? covars.value().const_data_ptr<scalar_t>() : nullptr,
+-                covars.has_value() ? nullptr : quats.value().const_data_ptr<scalar_t>(),
+-                covars.has_value() ? nullptr : scales.value().const_data_ptr<scalar_t>(),
+-                viewmats.const_data_ptr<scalar_t>(),
+-                Ks.const_data_ptr<scalar_t>(),
+-                image_width,
+-                image_height,
+-                eps2d,
+-                camera_model,
+-                radii.const_data_ptr<int32_t>(),
+-                conics.const_data_ptr<scalar_t>(),
+-                compensations.has_value() ? compensations.value().const_data_ptr<scalar_t>() : nullptr,
+-                v_means2d.const_data_ptr<scalar_t>(),
+-                v_depths.const_data_ptr<scalar_t>(),
+-                v_conics.const_data_ptr<scalar_t>(),
+-                v_compensations.has_value() ? v_compensations.value().const_data_ptr<scalar_t>() : nullptr,
+-                v_means.data_ptr<scalar_t>(),
+-                covars.has_value() ? v_covars.data_ptr<scalar_t>() : nullptr,
+-                covars.has_value() ? nullptr : v_quats.data_ptr<scalar_t>(),
+-                covars.has_value() ? nullptr : v_scales.data_ptr<scalar_t>(),
+-                viewmats_requires_grad ? v_viewmats.data_ptr<scalar_t>() : nullptr
+-            );
+-            C10_CUDA_KERNEL_LAUNCH_CHECK();
++            auto launch = [&]<bool H8>()
++            {
++                projection_ewa_3dgs_fused_bwd_kernel<scalar_t, H8><<<blocks, threads, 0, stream>>>(
++                    0,
++                    N,
++                    B,
++                    C,
++                    N,
++                    means.const_data_ptr<scalar_t>(),
++                    covars.has_value() ? covars.value().const_data_ptr<scalar_t>() : nullptr,
++                    covars.has_value() ? nullptr : quats.value().const_data_ptr<scalar_t>(),
++                    covars.has_value() ? nullptr : scales.value().const_data_ptr<scalar_t>(),
++                    viewmats.const_data_ptr<scalar_t>(),
++                    Ks.const_data_ptr<scalar_t>(),
++                    image_width,
++                    image_height,
++                    eps2d,
++                    camera_model,
++                    radii.const_data_ptr<int32_t>(),
++                    conics.const_data_ptr<scalar_t>(),
++                    compensations.has_value() ? compensations.value().const_data_ptr<scalar_t>() : nullptr,
++                    v_means2d.data_ptr<scalar_t>(),
++                    v_depths.const_data_ptr<scalar_t>(),
++                    v_conics.const_data_ptr<scalar_t>(),
++                    v_compensations.has_value() ? v_compensations.value().const_data_ptr<scalar_t>() : nullptr,
++                    v_means.data_ptr<scalar_t>(),
++                    covars.has_value() ? v_covars.data_ptr<scalar_t>() : nullptr,
++                    covars.has_value() ? nullptr : v_quats.data_ptr<scalar_t>(),
++                    covars.has_value() ? nullptr : v_scales.data_ptr<scalar_t>(),
++                    viewmats_requires_grad ? v_viewmats.data_ptr<scalar_t>() : nullptr
++                );
++                C10_CUDA_KERNEL_LAUNCH_CHECK();
++            };
++            if(h8_mr)
++            {
++                launch.template operator()<true>();
++            }
++            else
++            {
++                launch.template operator()<false>();
++            }
+         }
+     );
+ }
+@@ -799,7 +841,7 @@ void launch_projection_ewa_3dgs_fused_bwd_kernels(
+                         radii.const_data_ptr<int32_t>(),
+                         conics.const_data_ptr<scalar_t>(),
+                         compensations.has_value() ? compensations.value().const_data_ptr<scalar_t>() : nullptr,
+-                        v_means2d.const_data_ptr<scalar_t>(),
++                        v_means2d.data_ptr<scalar_t>(),
+                         v_depths.const_data_ptr<scalar_t>(),
+                         v_conics.const_data_ptr<scalar_t>(),
+                         v_compensations.has_value() ? v_compensations.value().const_data_ptr<scalar_t>() : nullptr,
+diff --git a/gsplat/cuda/csrc/RasterizeToPixels3DGSSerialBatchBwd.cu b/gsplat/cuda/csrc/RasterizeToPixels3DGSSerialBatchBwd.cu
+index 090da9a..7ed10ef 100644
+--- a/gsplat/cuda/csrc/RasterizeToPixels3DGSSerialBatchBwd.cu
++++ b/gsplat/cuda/csrc/RasterizeToPixels3DGSSerialBatchBwd.cu
+@@ -38,7 +38,7 @@ using SupportedChannels = dispatch::IntParam<GSPLAT_NUM_CHANNELS>;
+ 
+ namespace cg = cooperative_groups;
+ 
+-template<uint32_t CDIM, typename scalar_t>
++template<uint32_t CDIM, typename scalar_t, bool H8_MR = false>
+ __global__ void rasterize_to_pixels_3dgs_bwd_kernel(
+     const uint32_t I,
+     const uint32_t N,
+@@ -262,18 +262,47 @@ __global__ void rasterize_to_pixels_3dgs_bwd_kernel(
+                 if(opac * vis <= MAX_ALPHA)
+                 {
+                     const float v_sigma = -opac * vis * v_alpha;
+-                    v_conic_local
+-                        = {0.5f * v_sigma * delta.x * delta.x,
+-                           v_sigma * delta.x * delta.y,
+-                           0.5f * v_sigma * delta.y * delta.y};
+-                    v_xy_local
+-                        = {v_sigma * (conic.x * delta.x + conic.y * delta.y),
+-                           v_sigma * (conic.y * delta.x + conic.z * delta.y)};
++                    if constexpr(H8_MR)
++                    {
++                        // H8-MR: opacity is already absorbed into v_sigma, so
++                        // only the forward conic (A, B, C) is needed to rebuild
++                        // the real adjoint per Gaussian. The conic-diagonal 0.5
++                        // factors and the conic.delta products move to that
++                        // reconstruction, which leaves these five accumulated
++                        // values as the sufficient statistics:
++                        //   v_xy    = (Sx, Sy)    = (sum v_sigma*dx, sum v_sigma*dy)
++                        //   v_conic = (Sxx, Sxy, Syy)
++                        //   v_opacity = R0        = sum vis*v_alpha
++                        v_xy_local      = {v_sigma * delta.x, v_sigma * delta.y};
++                        v_conic_local
++                            = {v_sigma * delta.x * delta.x,
++                               v_sigma * delta.x * delta.y,
++                               v_sigma * delta.y * delta.y};
++                        v_opacity_local = vis * v_alpha;
++                    }
++                    else
++                    {
++                        v_conic_local
++                            = {0.5f * v_sigma * delta.x * delta.x,
++                               v_sigma * delta.x * delta.y,
++                               0.5f * v_sigma * delta.y * delta.y};
++                        v_xy_local
++                            = {v_sigma * (conic.x * delta.x + conic.y * delta.y),
++                               v_sigma * (conic.y * delta.x + conic.z * delta.y)};
++                        v_opacity_local = vis * v_alpha;
++                    }
+                     if(v_means2d_abs != nullptr)
+                     {
+-                        v_xy_abs_local = {abs(v_xy_local.x), abs(v_xy_local.y)};
++                        // absgrad cannot be rebuilt from signed moments
++                        // (|A*Sx + B*Sy| != sum |A*v_sigma*dx + B*v_sigma*dy|),
++                        // so it always uses this intersection's real adjoint.
++                        v_xy_abs_local = H8_MR
++                                             ? vec2{
++                                                   abs(v_sigma * (conic.x * delta.x + conic.y * delta.y)),
++                                                   abs(v_sigma * (conic.y * delta.x + conic.z * delta.y))
++                                               }
++                                             : vec2{abs(v_xy_local.x), abs(v_xy_local.y)};
+                     }
+-                    v_opacity_local = vis * v_alpha;
+                 }
+ 
+ #    pragma unroll
+@@ -380,6 +409,8 @@ void launch_rasterize_to_pixels_3dgs_bwd_kernel(
+         "in -DGSPLAT_NUM_CHANNELS=... (see gsplat/cuda/csrc/Config.h)."
+     );
+ 
++    const bool h8_mr = h8_mr_enabled();
++
+     auto launch_kernel = [&]<typename ChannelsT>()
+     {
+         constexpr uint32_t CDIM = ChannelsT::value;
+@@ -387,47 +418,61 @@ void launch_rasterize_to_pixels_3dgs_bwd_kernel(
+         int64_t shmem_size
+             = tile_size * tile_size * (sizeof(int32_t) + sizeof(vec3) + sizeof(vec3) + sizeof(float) * CDIM);
+ 
+-        if(cudaFuncSetAttribute(
+-               rasterize_to_pixels_3dgs_bwd_kernel<CDIM, float>, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size
+-           )
+-           != cudaSuccess)
++        auto launch = [&]<bool H8>()
+         {
+-            AT_ERROR(
+-                "Failed to set maximum shared memory size (requested ", shmem_size, " bytes), try lowering tile_size."
+-            );
+-        }
++            if(cudaFuncSetAttribute(
++                   rasterize_to_pixels_3dgs_bwd_kernel<CDIM, float, H8>,
++                   cudaFuncAttributeMaxDynamicSharedMemorySize,
++                   shmem_size
++               )
++               != cudaSuccess)
++            {
++                AT_ERROR(
++                    "Failed to set maximum shared memory size (requested ", shmem_size, " bytes), try lowering tile_size."
++                );
++            }
+ 
+-        rasterize_to_pixels_3dgs_bwd_kernel<CDIM, float>
+-            <<<grid, threads, shmem_size, at::cuda::getCurrentCUDAStream()>>>(
+-                I,
+-                N,
+-                n_isects,
+-                packed,
+-                reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),
+-                reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),
+-                colors.const_data_ptr<float>(),
+-                opacities.const_data_ptr<float>(),
+-                backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,
+-                masks.has_value() ? masks.value().const_data_ptr<bool>() : nullptr,
+-                image_width,
+-                image_height,
+-                tile_size,
+-                tile_width,
+-                tile_height,
+-                0,
+-                tile_offsets.const_data_ptr<int64_t>(),
+-                flatten_ids.const_data_ptr<int32_t>(),
+-                render_alphas.const_data_ptr<float>(),
+-                last_ids.const_data_ptr<int32_t>(),
+-                v_render_colors.const_data_ptr<float>(),
+-                v_render_alphas.const_data_ptr<float>(),
+-                v_means2d_abs.has_value() ? reinterpret_cast<vec2 *>(v_means2d_abs.value().data_ptr<float>()) : nullptr,
+-                reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),
+-                reinterpret_cast<vec3 *>(v_conics.data_ptr<float>()),
+-                v_colors.data_ptr<float>(),
+-                v_opacities.data_ptr<float>()
+-            );
+-        C10_CUDA_KERNEL_LAUNCH_CHECK();
++            rasterize_to_pixels_3dgs_bwd_kernel<CDIM, float, H8>
++                <<<grid, threads, shmem_size, at::cuda::getCurrentCUDAStream()>>>(
++                    I,
++                    N,
++                    n_isects,
++                    packed,
++                    reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),
++                    reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),
++                    colors.const_data_ptr<float>(),
++                    opacities.const_data_ptr<float>(),
++                    backgrounds.has_value() ? backgrounds.value().const_data_ptr<float>() : nullptr,
++                    masks.has_value() ? masks.value().const_data_ptr<bool>() : nullptr,
++                    image_width,
++                    image_height,
++                    tile_size,
++                    tile_width,
++                    tile_height,
++                    0,
++                    tile_offsets.const_data_ptr<int64_t>(),
++                    flatten_ids.const_data_ptr<int32_t>(),
++                    render_alphas.const_data_ptr<float>(),
++                    last_ids.const_data_ptr<int32_t>(),
++                    v_render_colors.const_data_ptr<float>(),
++                    v_render_alphas.const_data_ptr<float>(),
++                    v_means2d_abs.has_value() ? reinterpret_cast<vec2 *>(v_means2d_abs.value().data_ptr<float>())
++                                              : nullptr,
++                    reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),
++                    reinterpret_cast<vec3 *>(v_conics.data_ptr<float>()),
++                    v_colors.data_ptr<float>(),
++                    v_opacities.data_ptr<float>()
++                );
++            C10_CUDA_KERNEL_LAUNCH_CHECK();
++        };
++        if(h8_mr)
++        {
++            launch.template operator()<true>();
++        }
++        else
++        {
++            launch.template operator()<false>();
++        }
+     };
+     const bool dispatched = dispatch::dispatch(SupportedChannels{channels}, std::move(launch_kernel));
+     TORCH_CHECK(dispatched, "dispatch failed: no matching compile-time instantiation for runtime parameters");
+diff --git a/gsplat/cuda/include/Common.h b/gsplat/cuda/include/Common.h
+index 09504d6..bf43309 100644
+--- a/gsplat/cuda/include/Common.h
++++ b/gsplat/cuda/include/Common.h
+@@ -21,6 +21,7 @@
+ #include <ATen/DeviceGuard.h>
+ #include <algorithm>
+ #include <cstdint>
++#include <cstdlib>
+ #include <glm/gtc/type_ptr.hpp>
+ #include <glm/glm.hpp>
+ 
+@@ -112,4 +113,13 @@ constexpr uint32_t kMaxCudaGridDimY = 65535;
+ // Floor for (1 - alpha) when computing 1/(1-alpha) in backward rasterization.
+ // Prevents gradient explosion when alpha approaches 1.0.
+ #define MIN_ONE_MINUS_ALPHA 1e-6f
++
++// Runtime switch for the H8-MR opacity-absorbed moment-space geometry adjoint.
++// Default OFF; read on every launch so one binary serves both arms and a single
++// process can toggle arms between passes.
++inline bool h8_mr_enabled()
++{
++    const char *v = std::getenv("GSPLAT_H8_MR");
++    return v != nullptr && v[0] == '1' && v[1] == '\0';
++}
+ } // namespace gsplat

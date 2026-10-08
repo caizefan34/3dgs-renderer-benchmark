@@ -1,0 +1,1 @@
+cd /home/liaoyuanjun/cgt_realscene && rm -f /tmp/cgt_final.tar.gz && tar czf /tmp/cgt_final.tar.gz final && stat -c %s /tmp/cgt_final.tar.gz

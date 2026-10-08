@@ -1,0 +1,39 @@
+{
+  "schema": "FRONTIER_REASSESS0_RECONSTRUCTION_EXACTNESS",
+  "date": "2026-10-07",
+  "candidates": [
+    {
+      "candidate": "G = alpha / opacity",
+      "classification": "INVALID",
+      "reason": "alpha not stored per-interaction; requires new cache (=ARITH1). Not zero-extra-traffic."
+    },
+    {
+      "candidate": "G from transmittance ratio alpha=1-T_after/T_before",
+      "classification": "INVALID",
+      "reason": "requires per-interaction transmittance T; only 32-boundary snapshots stored. Not zero-extra-traffic."
+    },
+    {
+      "candidate": "G recomputed via expf (production)",
+      "classification": "EXACT_IN_REAL_ARITHMETIC",
+      "reason": "current production path; exact but recomputes expf (the cost under investigation)."
+    },
+    {
+      "candidate": "G from bucket_color_transmittance snapshot",
+      "classification": "INVALID",
+      "reason": "snapshot is at 32-Gaussian boundaries of the RUNNING transmittance/color, not per-interaction G; cannot algebraically isolate a single interaction's G."
+    }
+  ],
+  "pathological_case_audit": {
+    "opacity==0": "alpha=0<threshold -> already skipped in production (line 427); no G needed",
+    "very_small_opacity": "alpha<threshold skip; G irrelevant",
+    "alpha_saturation": "alpha~1 -> transmittance->0; forward early-terminates; backward respects last_contributor",
+    "clamping_thresholding": "min_alpha_threshold applied in both fwd/bwd; consistent",
+    "early_termination": "transmittance_threshold in forward; last_contributor propagated to backward",
+    "branch_dependent_semantics": "skip conditions identical fwd/bwd",
+    "floating_point_underflow": "exponent clamped fminf(exponent,0); G in (0,1]",
+    "support_cutoff": "alpha<threshold is the support cutoff"
+  },
+  "surviving_exact_candidates": [],
+  "verdict": "NO_EXACT_RECONSTRUCTION",
+  "note": "Only the production expf recompute is exact; it is the cost under investigation, not a reconstruction. No zero-extra-traffic exact G-reconstruction exists."
+}

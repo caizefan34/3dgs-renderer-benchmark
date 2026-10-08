@@ -1,0 +1,51 @@
+waiting for GPU 0 free, then launching...
+GPU0 free at 4 MiB; launching
+=== Stage 0: identity ===
+=== A0-P10 Stage 0 identity -> /root/A0_P10/out/A0_SOURCE_IDENTITY.json
+  [OK ] core_so gsplat_cuda (frozen C0 lineage): 935ea6c0dd04f34e2640.. MATCH
+  [OK ] c0_ext_so (P12 publication lineage): d26cccf46c7932bfb5fd.. MATCH
+  [OK ] fused_ssim_cuda.so (P11-locked loss backend): dd6a4c799b98ff9fa82b.. MATCH
+  [OK ] fused_ssim/__init__.py: 7b3784de48096f3b5d1e.. RECORDED (no frozen sha asserted)
+  [OK ] P12 trainer publication_trainer_p12.py: 675b0267f3a1a6a0fa63.. MATCH
+  [OK ] gaussian_model.py: 68731e375013a6f24aa4.. MATCH
+  [OK ] config.py: ea8e870476a3ba71c0ae.. MATCH
+  [OK ] colmap_reader.py: b30a2a345f7f37cdf308.. MATCH
+  [OK ] phase7 dataset.py: e6d8bfb1034bee102abc.. MATCH
+  [OK ] C0 renderer gaussian_inference.py (C0 worktree): d599aae3c1864993934d.. MATCH
+  [OK ] HigsNativeBackward.cu byte-identity: 6efb9d258b4f40539bcb.. BYTE-IDENTICAL
+  [OK ] RasterizeToPixels3DGSDevice.cuh byte-identity: 603d203a8ad675eb55e1.. BYTE-IDENTICAL
+  [OK ] checkpoint room/25000: b31e5a6b0e733911b736.. MATCH
+  [OK ] frozen camera index 19 img_name == DSCF4819: DSCF4819.. MATCH
+  torch=2.9.1+cu128 cuda=12.8 gpu=NVIDIA A100-SXM4-80GB
+  PASS=True
+C0 bootstrap: ext d26cccf46c7932bf.. core 935ea6c0dd04f34e..
+  [GTDataset] Loading cameras from /root/3dgs-renderer-benchmark/data/official/mipnerf360/room/cameras.json
+  [GTDataset] 311/311 cameras matched to GT images
+  [GTDataset] Pre-caching GT images (CPU uint8)...
+    Caching image 1/311...
+    Caching image 101/311...
+    Caching image 201/311...
+    Caching image 301/311...
+  [GTDataset] All 311 images cached (CPU, 2460 MB)
+loaded room@25000: N=841781 sha=b31e5a6b0e733911.. cam=DSCF4819 active_sh_degree=3
+=== Stage 2: native graph + raw-frame adjoint (preflight sanity) ===
+Traceback (most recent call last):
+  File "/root/A0_P10/A0_P10_PREFLIGHT_KIT/a0preflight/a0p10_run.py", line 365, in <module>
+    main()
+  File "/root/A0_P10/A0_P10_PREFLIGHT_KIT/a0preflight/a0p10_run.py", line 135, in main
+    out_raw, frame_raw, info, _ = c0_render(with_grad=True)
+  File "/root/A0_P10/A0_P10_PREFLIGHT_KIT/a0preflight/a0p10_run.py", line 122, in c0_render
+    out = rasterize_gaussian_higs_dynamic(
+  File "/root/epic05_frozen/higs_c0_final30k_worktree/gsplat/experimental/render/functional/gaussian_inference.py", line 3039, in rasterize_gaussian_higs_dynamic
+    return _higs_dynamic_forward(
+  File "/root/epic05_frozen/higs_c0_final30k_worktree/gsplat/experimental/render/functional/gaussian_inference.py", line 2915, in _higs_dynamic_forward
+    frame, alpha = _HigsAutogradFunction.apply(
+  File "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/autograd/function.py", line 581, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/root/epic05_frozen/higs_c0_final30k_worktree/gsplat/experimental/render/functional/gaussian_inference.py", line 1931, in forward
+    _HigsAutogradFunction._native_forward_capture(
+  File "/root/epic05_frozen/higs_c0_final30k_worktree/gsplat/experimental/render/functional/gaussian_inference.py", line 2168, in _native_forward_capture
+    tiles_per_gauss, isect_ids, flatten_ids = torch.ops.gsplat.intersect_tile(
+  File "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/_ops.py", line 1255, in __call__
+    return self._op(*args, **kwargs)
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 45.86 GiB. GPU 0 has a total capacity of 79.25 GiB of which 9.50 GiB is free. Process 4086963 has 69.74 GiB memory in use. Of the allocated memory 69.15 GiB is allocated by PyTorch, and 110.88 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)

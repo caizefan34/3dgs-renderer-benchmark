@@ -1,0 +1,44 @@
+{
+  "stage": "CGT-PAPER13 P4 paper ablations (RUN AFTER P2 frozen, per objective section 22)",
+  "date_utc": "2026-10-04",
+  "host": "MX A100-PCIE-40GB, runtime liaoyuanjun_mx0qual",
+  "ablation_scenes_fixed": [
+    "bicycle",
+    "truck",
+    "drjohnson"
+  ],
+  "ablation_A_rank": {
+    "status": "MEASURED_R4_ONLY_KERNEL_LIMITATION",
+    "frozen_rank": 4,
+    "finding": "The frozen F0 fused CUDA kernel (f0_kernels.so) correctly supports ONLY R=4. Running the SAME kernel with R=8/R=16 produces catastrophic kernel-correctness failure (fused vs where(safe,student,teacher) reference max_abs ~0.86 >> 2e-5 gate). The kernel's coeffs stride / student-mixture loop is compiled for R=4; passing a larger R mis-reads the coeffs buffer. Therefore the rank ablation CANNOT be validly run with the frozen kernel.",
+    "room_R4": {
+      "S_mixed": 2.9457,
+      "kernel_pass": true,
+      "kernel_max_abs": 3.58e-07
+    },
+    "room_R8": {
+      "S_mixed": 1.0095,
+      "kernel_pass": false,
+      "kernel_max_abs": 0.864,
+      "safe_fraction": 0.46
+    },
+    "room_R16": {
+      "S_mixed": 1.0123,
+      "kernel_pass": false,
+      "kernel_max_abs": 0.867,
+      "safe_fraction": 0.34
+    },
+    "interpretation": "R=4 is the only valid rank for the frozen kernel. Upstream G1 CPU rank evidence (R=4/8/16) does not transfer to the fused CUDA kernel without a kernel rebuild (forbidden in PAPER13).",
+    "decision": "Do NOT replace frozen rank. R=4 remains the only production-valid rank."
+  },
+  "ablation_B_cert_fallback": {
+    "status": "CHARACTERIZED_FROM_P2_NOT_FULL_RUNTIME",
+    "finding": "Certified mixed path is necessary: safe tiles (mean 61.7%) use the student fast path; unsafe tiles (mean weighted fallback 45.1%) REQUIRE teacher fallback for correctness. A no-fallback student-only variant would render unsafe tiles incorrectly (student approx error up to cert GATE=0.02, unbounded on hard tiles). Full runtime no-fallback ablation NOT_REACHED (E2E failure in P3 makes production ablation moot).",
+    "safe_fraction_mean": 0.6169230769230769,
+    "weighted_fallback_mean": 0.45060263479978
+  },
+  "ablation_C_fused_translation": {
+    "status": "NOT_MEASURED",
+    "reason": "Requires a separate unfused CGT implementation (per-stage kernel launches). No unfused reference kernel exists in the frozen F0 tree; building one is new engineering that would also require re-validation. Deferred; not blocking the verdict."
+  }
+}

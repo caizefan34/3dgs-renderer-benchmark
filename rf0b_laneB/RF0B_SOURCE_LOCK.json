@@ -1,0 +1,53 @@
+{
+  "task": "DSH-3 ReproFast0 Lane B",
+  "deliverable": "RF0B_SOURCE_LOCK",
+  "date": "2026-09-30",
+  "lane_a_status": "NOT_FROZEN_AT_START",
+  "lane_a_reconciliation": "Lane A had not published a frozen FastGS commit when Lane B started; Lane B independently froze official fastgs/FastGS. Reconcile identities before any publication claim.",
+  "fastgs": {
+    "repo": "https://github.com/fastgs/FastGS",
+    "remote": "origin https://github.com/fastgs/FastGS (verified)",
+    "commit": "44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f",
+    "commit_short": "44e02a5",
+    "commit_subject": "update fast-pgsr",
+    "detached_head": true,
+    "local_path": "public_baselines/fastgs",
+    "policy_source_files": {
+      "gaussian_model": "scene/gaussian_model.py",
+      "fast_utils": "utils/fast_utils.py",
+      "train": "train.py",
+      "arguments": "arguments/__init__.py"
+    },
+    "policy_functions": {
+      "compute_gaussian_score_fastgs": "utils/fast_utils.py:62",
+      "sampling_cameras": "utils/fast_utils.py:15",
+      "densify_and_prune_fastgs": "scene/gaussian_model.py:468",
+      "densify_and_split_fastgs": "scene/gaussian_model.py:431",
+      "densify_and_clone_fastgs": "scene/gaussian_model.py:455",
+      "final_prune_fastgs": "scene/gaussian_model.py:533",
+      "add_densification_stats": "scene/gaussian_model.py:528",
+      "reset_opacity": "scene/gaussian_model.py:279"
+    },
+    "policy_args": {
+      "iterations": 30000, "densify_from_iter": 500, "densify_until_iter": 15000,
+      "densification_interval": 100, "opacity_reset_interval": 3000,
+      "densify_grad_threshold": 0.0002, "grad_thresh": 0.0002, "grad_abs_thresh": 0.0012,
+      "dense": 0.001, "percent_dense": 0.001, "min_opacity_prune": 0.005,
+      "min_opacity_final_prune": 0.1, "loss_thresh": 0.1, "mult": 0.5,
+      "lambda_dssim": 0.2, "sh_degree": 3, "n_score_views": 10
+    }
+  },
+  "c0": {
+    "name": "Frozen C0 (gsplat HIGS dynamic)",
+    "trainer": "/root/epic05_p12/publication_trainer_p12_holdout8.py",
+    "trainer_sha256": "17d4034bd2b20b75d1e95f9d61d57edca681130f07ceb2eaf03f89d2dbbfe761",
+    "renderer_entry": "gsplat.experimental.rasterize_gaussian_higs_dynamic",
+    "ext_so_sha256": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+    "core_so_sha256": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+    "repo": "/root/3dgs-renderer-benchmark",
+    "repo_head": "abfa6c3e4b23caf5a927bf3722a65cba37b6fab3"
+  },
+  "faster_gs_distinct": {
+    "note": "public_baselines/faster-gs (nerficg) is a DIFFERENT method and is NOT the FastGS policy source. Lane B ports ONLY fastgs/FastGS @ 44e02a5."
+  }
+}

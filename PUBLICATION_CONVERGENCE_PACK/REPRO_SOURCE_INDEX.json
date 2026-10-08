@@ -1,0 +1,148 @@
+{
+  "artifact": "REPRO_SOURCE_INDEX",
+  "schema": "repro-source-index/v1",
+  "generated_utc": "2026-10-02T09:05:49Z",
+  "mode": "inventory only; NO algorithm implementation changed",
+  "principle": "Canonical source lives on remote EPIC-05 A100 node; local copies are DIAGNOSTIC. Hashes from authoritative *_SOURCE_LOCK.json.",
+  "canonical_source_files": [
+    {
+      "method": "TFC",
+      "role": "CANONICAL",
+      "file": "kernel/tfc1_rowwise.cu",
+      "remote_path": "/root/tfc0/kernel/tfc1_rowwise.cu",
+      "sha256": "a44e4ee63c7ba9d713a4489693d189cb3fd6e7ba95764e491027c0639e34e68e",
+      "source": "TFC2_SOURCE_LOCK.json",
+      "note": "TFC1 row-wise ellipse footprint; TFC1 mode0 bit-exact vs gsplat (120 dB)."
+    },
+    {
+      "method": "TFC",
+      "role": "CANONICAL",
+      "file": "kernel/tfc2_ablation.cu",
+      "remote_path": "/root/tfc2/kernel/tfc2_ablation.cu",
+      "sha256": "3c9b2e0a1deda28fa1521f88b054a1b670d843b1b001a12c4b1d8b5fe4e5dd81",
+      "source": "TFC2_SOURCE_LOCK.json",
+      "note": "TFC2 independent ablation kernel; mode1 ellipse-exact = certified candidate. Does NOT import/modify TFC1."
+    },
+    {
+      "method": "DFC",
+      "role": "CANONICAL",
+      "file": "csrc/RasterizeToPixels3DGSFwd.cu",
+      "remote_path": "/root/dfc1r1_20261002/gsplat-dfc1r2adapt/cuda/csrc/RasterizeToPixels3DGSFwd.cu",
+      "sha256": "d4f287449d61f094e04dcaa6d573604c39d99c81f14f67fb9bd1b22f3c0d1590",
+      "source": "DFC0_SOURCE_LOCK.json (dfc1r2adapt)",
+      "note": "DFC1-R2 per-pixel transmittance early-termination forward."
+    },
+    {
+      "method": "DFC",
+      "role": "CANONICAL",
+      "file": "csrc/RasterizeToPixels3DGSBwd.cu",
+      "remote_path": "/root/dfc1r1_20261002/gsplat-dfc1r2adapt/cuda/csrc/RasterizeToPixels3DGSBwd.cu",
+      "sha256": "31c11029fa8309234a83674806a723a5785ee1d387d3181a11062850bde055f3",
+      "source": "DFC0_SOURCE_LOCK.json + DFC_FC0_SOURCE_LOCK.json",
+      "note": "DFC1-R1 saved-T backward fix (uses saved render_T)."
+    },
+    {
+      "method": "DFC",
+      "role": "CANONICAL",
+      "file": "cuda/_tfc1dfc1_harness.py",
+      "remote_path": "/root/dfc1r1_20261002/_tfc1dfc1_harness.py",
+      "sha256": "f681bb6faa5b6fb2058060a81a4545445789ae9648b11cc04289bf509d18fc9b",
+      "source": "DFC_FC0_SOURCE_LOCK.json",
+      "note": "Validated per-step render+grad harness (adds densification schedule for trainer)."
+    },
+    {
+      "method": "K50-B1",
+      "role": "CANONICAL",
+      "file": "gsplat 1.5.3 (6-file B1 sparse-backward patch)",
+      "remote_path": "original 3DGS CUDA rasterizer + B1 sparse-backward mask",
+      "sha256": "see reports/phase-c51-stage4b.md (byte hashes recorded in K50 stage4 packs)",
+      "source": "reports/phase-c51-stage4b.md",
+      "note": "B1 sparse-backward + densification-decoupling mask; importance_mask uint8_t[N]."
+    },
+    {
+      "method": "gsplat",
+      "role": "CANONICAL",
+      "file": "gsplat fork gsplat-b1-clean-v153",
+      "remote_path": "/root/epic05_frozen/gsplat-b1-clean-v153",
+      "sha256": "version 1.5.3 (fork tag)",
+      "source": "TFC2_SOURCE_LOCK.json, PBR0_SOURCE_LOCK.json",
+      "note": "EPIC-05 canonical renderer fork."
+    }
+  ],
+  "diagnostic_source_files": [
+    {
+      "method": "DFC",
+      "role": "DIAGNOSTIC",
+      "file": "_dfc1_src/ (local copy)",
+      "note": "Local diagnostic copy of DFC source; NOT canonical. Canonical = remote gsplat-dfc1r1/gsplat-dfc1r2adapt trees."
+    },
+    {
+      "method": "CGC",
+      "role": "DIAGNOSTIC",
+      "file": "_cgc1_kernel/source_lock/ (local)",
+      "note": "Local CGC source-lock copies; method is DROP."
+    },
+    {
+      "method": "AGS",
+      "role": "DIAGNOSTIC",
+      "file": "_ags1_sort/remote_src/ (local)",
+      "note": "Local AGS source copy; method is DROP."
+    },
+    {
+      "method": "PFC0",
+      "role": "DIAGNOSTIC",
+      "file": "_mx_h8/pack/h8/gsplat/cuda/csrc",
+      "note": "PFC0 preprocess-fusion oracle static-analysis source (DROP_NO_PREPROCESS_HEADROOM)."
+    }
+  ],
+  "superseded_or_historical": [
+    {
+      "method": "TFC",
+      "role": "SUPERSEDED",
+      "file": "_tfc0_oracle/_stale_local_baseline, _superseded_local_circular_baseline, _kbnote_reconstruction_superseded",
+      "note": "Superseded local baselines; must NOT be used. Use EPIC-05 remote canonical."
+    },
+    {
+      "method": "VOS",
+      "role": "SUPERSEDED",
+      "file": "VOS0 SH-only result",
+      "note": "VOS0 KEEP is superseded by VOS1 hardened QUALITY_FAIL."
+    },
+    {
+      "method": "K50-B1",
+      "role": "SUPERSEDED",
+      "file": "C51_STAGE4A_ROOM (5K, config-buggy prune_and_reset)",
+      "note": "Stage4A 5K baseline low PSNR (~29), config-buggy; superseded by Stage4B for headline; must NOT be merged."
+    },
+    {
+      "method": "ALL",
+      "role": "HISTORICAL",
+      "file": "KFC0/AGS0/CGC0/IGF0/DFC0/VOS0/TFC0 gates",
+      "note": "Historical failed/superseded gates; preserved, must NOT be silently dropped or reused as current evidence."
+    }
+  ],
+  "dataset_paths_expected": {
+    "mipnerf360_official": "data/official/mipnerf360/<scene>/point_cloud.ply + cameras.json (room/garden/bicycle/bonsai/counter/kitchen/stump/flowers/treehill/truck/train)",
+    "k50_stage4b": "MipNeRF360 room/garden/bicycle @1080p (311/360/360 cams)",
+    "epic05_host": "8.130.30.251:1024 (remote); data root /root/3dgs-renderer-benchmark/data/official/mipnerf360/",
+    "resolution_note": "DFC1-R2 down=2 (room 1557x1037, garden 2593x1680, bicycle 2473x1643); TFC native tile=16; K50-B1 1080p"
+  },
+  "checkpoint_identities": {
+    "K50-B1": "final GS room 1,505,069 (ratio 0.698); bicycle 7,673,479 (0.694); garden 7,331,782 (0.643); baseline room 2,155,755",
+    "TFC/DFC": "frozen PLY only (renderer-local); no trained trajectory checkpoint",
+    "note": "Renderer-local methods load official point_cloud.ply iteration_30000 PLYs as frozen inputs; they do NOT train."
+  },
+  "camera_selection": {
+    "TFC_PBR0": "8 cameras/scene (room 20,59,98,137,176,215,254,293; garden/bicycle 8 each)",
+    "TFC0_footprint": "room 8 cameras; garden/bicycle per TFC2",
+    "DFC1-R2": "8 eval cameras/scene (24 total)",
+    "K50-B1": "all shuffled cameras, seed=42"
+  },
+  "warnings": [
+    "PBR0 M4 is NOT production training (it is a cross-pack reconciliation + gradient noise-floor audit, measurement only).",
+    "Combined residual-derived optimizer timing is FORBIDDEN (never infer pure optimizer cost from residual subtraction of independent loops).",
+    "DFC padding-thread illegal-read fix: the safe production implementation must be used; the illegal-read variant is a defect, not a result.",
+    "TFC1 vs TFC2 implementation equivalence is ESTABLISHED by PBR0 (TFC2 reuses identical geometry code path; independent kernel).",
+    "Historical cohort mixing is PROHIBITED (stage4a!=stage4b; renderer-frozen-PLY!=full-training; EPIC-05 A100-SXM4-80GB!=A100-PCIE-40GB)."
+  ]
+}

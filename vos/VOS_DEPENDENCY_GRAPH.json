@@ -1,0 +1,180 @@
+{
+  "protocol": "VOS-GS Phase 2 — Parameter Dependency Graph on frozen C0",
+  "status": "FROZEN",
+  "baseline": {
+    "name": "P12/C0 = F9 + SCALAR_ADJOINT + H8-MR",
+    "renderer_env": {
+      "HIGS_PX_RUNTIME": "2",
+      "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+      "HIGS_BWD_H8_MR": "1",
+      "HIGS_BWD_ABSGRAD": "1",
+      "HIGS_DISABLE_F9": "unset (F9 ON)"
+    },
+    "loss": "0.8*L1 + 0.2*(1 - fused_ssim), fused = rahul-goel/fused-ssim a7c48d6 padding=same train=True",
+    "trainer": "publication_trainer_p13x.py (--p13x-diag 0, P12-identical)",
+    "optimizer": "torch.optim.Adam, betas=(0.9, 0.999), eps=1e-15, weight_decay=0, amsgrad=False, DENSE over all rows",
+    "param_tensors": {
+      "xyz": "[N,3] fp32",
+      "shs": "[N,16,3] fp32 (K=16 stored; active prefix (deg+1)^2 consumed)",
+      "opacity": "[N] fp32 (1D, gsplat convention)",
+      "scaling": "[N,3] fp32",
+      "rotation": "[N,4] fp32"
+    },
+    "lrs": {
+      "xyz": "exponential schedule with delay, f(iteration), updated every iter (gaussian_model.py _make_expon_lr_func)",
+      "shs": "feature_lr constant",
+      "opacity": "opacity_lr constant",
+      "scaling": "scaling_lr constant",
+      "rotation": "rotation_lr constant"
+    },
+    "visibility_definition": "visible_ids from full-N culling projection (radii>0); trainer visibility_filter = (radii>0).any(-1) is exactly this set (radii scattered into full-N zeros)"
+  },
+  "source_files": {
+    "gaussian_model": "baseline/reference_v1/gaussian_model.py (local repo; same file the trainer imports via REFERENCE_V1_DIR)",
+    "c0_renderer": "gsplat/experimental/render/functional/gaussian_inference.py @ /root/epic05_frozen/higs_c0_final30k_worktree (local copy vos/sources/c0_gaussian_inference.py, 3057 lines)",
+    "trainer": "vos/sources/publication_trainer.py (mx-path variant; EPIC-05 variant /root/epic05_p13x/publication_trainer_p13x.py, loop byte-identical)"
+  },
+  "per_iteration_consumer_inventory": [
+    {
+      "consumer": "culling projection (_cull_visible_cached -> _cull_gaussians_batched -> fully_fused_projection)",
+      "phase": "forward (before differentiable path)",
+      "scope": "ALL_ROWS",
+      "reads": {"xyz_theta": true, "rotation_theta": true, "scaling_theta": true, "opacity_theta": false, "shs_theta": false},
+      "evidence": "c0_gaussian_inference.py L697-741 (means/quats/scales only passed to fully_fused_projection), L1789-1807 (dynamic path calls it every iteration; cull_refresh_interval default 1, trainer does not override), L3018 (default)",
+      "grad_enabled": false,
+      "vos_note": "Culling is INDEPENDENT of opacity/SH: the visible set C_t is identical under VOS without materializing deferred attrs. This makes EVENT_MATERIALIZABLE sound."
+    },
+    {
+      "consumer": "F9 gatherless producer (higs_gatherless_projected_producer) + SH eval + isect/raster",
+      "phase": "forward",
+      "scope": "VISIBLE_ROWS_ONLY (N = visible_ids.numel(); master rows indexed through visible_ids)",
+      "reads": {"xyz_theta": "visible", "rotation_theta": "visible", "scaling_theta": "visible", "opacity_theta": "visible", "shs_theta": "visible"},
+      "evidence": "c0_gaussian_inference.py L1809-1813 (f9_enabled -> no gather, N_visible = visible_ids.numel()), L2058 (N = visible_ids.numel() if gatherless), L2062-2085 (producer call with visible_ids + master tensors)"
+    },
+    {
+      "consumer": "higs_rasterize_backward (blend bwd px kernel, projection VJP, SH VJP)",
+      "phase": "backward",
+      "scope": "VISIBLE_ROWS_ONLY (master rows resolved through visible_ids)",
+      "reads": {"xyz_theta": "visible", "rotation_theta": "visible", "scaling_theta": "visible", "opacity_theta": "visible (as saved opacities_f)", "shs_theta": "visible (sh_coeffs master)"},
+      "writes": "master grad buffers (5 full-N zeros_like + in-place scatter through visible_ids)",
+      "evidence": "c0_gaussian_inference.py L2378-2435 (5 zeros_like L2382-2386; comment L2408-2409 'F9-1 C++ VJPs resolve compact projected rows through visible_ids and directly load these master parameters'; visible_ids passed L2429)"
+    },
+    {
+      "consumer": "means2d proxy grads (densification statistics)",
+      "phase": "backward",
+      "scope": "VISIBLE_ROWS_ONLY (index_copy of v_means2d_g/abs_g at visible_ids)",
+      "evidence": "c0_gaussian_inference.py L2442-2459 (grad_means2d zeros_like full-N + index_copy_; absgrad under HIGS_BWD_ABSGRAD=1)"
+    },
+    {
+      "consumer": "max_radii2D update + add_densification_stats",
+      "phase": "post-backward (t < 15000 only)",
+      "scope": "VISIBLE_ROWS_ONLY",
+      "evidence": "publication_trainer.py L496-508; gaussian_model.py L261-293 (grad_2d = grad[visibility_filter, :2])"
+    },
+    {
+      "consumer": "torch.optim.Adam step (dense)",
+      "phase": "optimizer",
+      "scope": "ALL_ROWS (this is the stage VOS virtualizes)",
+      "reads": "grad (full-N; invisible rows exactly 0.0 from zeros_like+scatter), m, v, theta of ALL rows",
+      "writes": "m, v, theta of ALL rows",
+      "evidence": "gaussian_model.py L227 (Adam ctor), L561-562 trainer (step + zero_grad set_to_none); grad buffer construction c0_gaussian_inference.py L2382-2386",
+      "vos_note": "Under VOS the deferred transitions ARE the Adam transitions of consumer-less rows; Adam itself is not an external consumer."
+    },
+    {
+      "consumer": "evaluate() renders",
+      "phase": "eval (eval_iterations + final)",
+      "scope": "VISIBLE_ROWS per eval camera, under torch.no_grad",
+      "evidence": "publication_trainer.py L429-454 (render_with_meta under no_grad), L581-582",
+      "vos_note": "FENCE: materialize before eval (VOS treats eval as a materialization event; conservative full materialization)"
+    },
+    {
+      "consumer": "densify_and_prune (every 100 iters, 500 < t < 15000)",
+      "phase": "topology event",
+      "scope": "ALL_ROWS (GLOBAL FENCE)",
+      "reads": {
+        "xyz_gradient_accum/denom": "ALL_ROWS (NaN->0 for never-visible)",
+        "opacity_theta": "ALL_ROWS (prune mask: get_opacity < min_opacity)",
+        "scaling_theta": "ALL_ROWS (percent_dense check in clone/split selection: max(get_scaling,1) <= / > percent_dense*extent)",
+        "max_radii2D": "ALL_ROWS (screen-size prune)",
+        "m/v": "ALL_ROWS via _prune_optimizer valid-mask indexing (survivor values carried forward; mask itself depends on theta values)",
+        "selected_rows_theta": "clone copies theta exactly; split reads xyz/rotation/scaling/opacity/shs of selected rows"
+      },
+      "evidence": "gaussian_model.py L462-447 (clone selection + copy), L490-547 (split selection, child construction, parent prune), L568-610 (densify_and_prune: grads all-rows, opacity/scaling/max_radii2D all-rows), L297-320 (_prune_optimizer reads exp_avg/exp_avg_sq[mask]), L322-370 (cat_tensors_to_optimizer)",
+      "vos_note": "FENCE: full materialization of ALL attributes before the event (mask depends on deferred theta; survivor m/v carried forward must be exact). After the event, new rows have m=v=0, tau=t; survivors keep tau=t (all materialized)."
+    },
+    {
+      "consumer": "reset_opacity (every 3000 iters, t < 15000)",
+      "phase": "topology event",
+      "scope": "ALL_ROWS opacity (GLOBAL FENCE on opacity only)",
+      "reads": "opacity_theta ALL_ROWS (logit(min(sigmoid(opacity), 0.01)))",
+      "writes": "replaces opacity theta tensor; ZEROES opacity m/v for ALL rows",
+      "evidence": "gaussian_model.py L614-625 (reset_opacity), L372-391 (replace_tensor_to_optimizer zeroes exp_avg/exp_avg_sq)",
+      "vos_note": "FENCE on opacity before reset; after reset all opacity rows have fresh m=v=0 so tau resets to t for the whole attribute."
+    },
+    {
+      "consumer": "checkpoint/export (torch.save ckpt)",
+      "phase": "checkpoint",
+      "scope": "ALL_ROWS (GLOBAL FENCE)",
+      "evidence": "publication_trainer.py L654-660 (ckpt = model.capture() + optimizer_state_dict)",
+      "vos_note": "FENCE: materialize all attrs all rows before save (exported state must be the dense-equivalent logical state)."
+    }
+  ],
+  "attribute_classification": {
+    "xyz": {
+      "classification": "EAGER_REQUIRED",
+      "rationale": "theta is consumed EVERY iteration by the full-N culling projection (radii computation). A deferred zero-grad Adam transition still moves theta (m decays by beta1, v by beta2, update = -lr*m_hat/(sqrt(v_hat)+eps) is nonzero in general), so theta at step t is only exact if all transitions up to t-1 are applied. Under the v1 exactness model (per-step replay, no closed form), materializing theta every step requires m/v every step -> full dense traffic. VOS v1 gains nothing here.",
+      "theta_consumer_scope": "ALL_ROWS every iteration (culling) + VISIBLE_ROWS (producer, VJPs)",
+      "mv_consumer_scope": "optimizer only + topology events",
+      "source_evidence": "c0_gaussian_inference.py L697-741, L1789-1807"
+    },
+    "rotation": {
+      "classification": "EAGER_REQUIRED",
+      "rationale": "Same as xyz: culling passes quats to fully_fused_projection for the full-N projected-radius test every iteration.",
+      "theta_consumer_scope": "ALL_ROWS every iteration (culling) + VISIBLE_ROWS (producer, projection VJP)",
+      "mv_consumer_scope": "optimizer only + topology events",
+      "source_evidence": "c0_gaussian_inference.py L684, L724 (quats into fully_fused_projection)"
+    },
+    "scaling": {
+      "classification": "EAGER_REQUIRED",
+      "rationale": "Same as xyz: culling passes scales to fully_fused_projection every iteration.",
+      "theta_consumer_scope": "ALL_ROWS every iteration (culling) + VISIBLE_ROWS (producer, VJPs)",
+      "mv_consumer_scope": "optimizer only + topology events (also read ALL_ROWS by clone/split percent_dense selection)",
+      "source_evidence": "c0_gaussian_inference.py L685, L725 (scales into fully_fused_projection)"
+    },
+    "opacity": {
+      "classification": "EVENT_MATERIALIZABLE_WITH_GLOBAL_FENCES",
+      "rationale": "theta is NOT read by culling. Per-iteration consumers (producer, raster, blend VJP) read only VISIBLE rows. Rows not in visible_ids have NO theta consumer in a normal iteration. Deferred zero-grad transitions can be replayed at the next visibility event (row becomes visible) before the producer reads theta. Topology events are GLOBAL_FENCE: prune mask depends on get_opacity of ALL rows; reset_opacity reads/writes all rows; clone/split copy selected rows.",
+      "theta_consumer_scope": "VISIBLE_ROWS per iteration; ALL_ROWS at densify/reset/ckpt/eval fences",
+      "mv_consumer_scope": "optimizer + _prune_optimizer (fence) + reset (zeroed) + ckpt",
+      "fences": ["densification_event", "opacity_reset", "checkpoint_export", "evaluation_render"],
+      "source_evidence": "culling omits opacities (c0_gaussian_inference.py L721-736); producer visible-only (L2070-2085); densify prune mask (gaussian_model.py L583); reset_opacity (L614-625)"
+    },
+    "shs": {
+      "classification": "EVENT_MATERIALIZABLE_WITH_GLOBAL_FENCES",
+      "rationale": "theta is NOT read by culling. Per-iteration consumers (producer SH eval, SH VJP) read only VISIBLE rows (active SH prefix only). No opacity-reset fence needed (reset touches the opacity attribute only). Largest tensor: 48/59 = 81.4% of Adam elements at degree 3.",
+      "theta_consumer_scope": "VISIBLE_ROWS per iteration (active degree prefix); selected rows at clone/split; ALL_ROWS at ckpt/eval fences",
+      "mv_consumer_scope": "optimizer + _prune_optimizer (fence) + ckpt",
+      "fences": ["densification_event", "checkpoint_export", "evaluation_render"],
+      "source_evidence": "culling omits colors (L721-736); producer visible-only with colors_input (L2074); clone/split copy shs of selected (gaussian_model.py L477, L533)"
+    }
+  },
+  "exactness_model_implications": {
+    "visible_set_invariance": "C_t (visible_ids) is computed from xyz/rotation/scaling theta only, which are EAGER (always physically exact under VOS v1). Therefore C_t is bit-identical between dense baseline and VOS. Materialization of opacity/SH for C_t at the start of iteration t does not change any decision downstream.",
+    "invisible_row_gradient": "In the dense baseline, rows not in C_t receive gradient EXACTLY 0.0 (full-N zeros_like grad buffer + scatter of visible rows only). Their Adam transition is the zero-grad transition: m*=beta1 (via lerp_), v*=beta2 (+addcmul_ of 0), theta -= lr(s)*m_hat/(sqrt(v_hat)+eps) with bias correction at logical step s. Replay of these transitions is exact.",
+    "per_row_independence": "All Adam ops are elementwise; no cross-row coupling in any transition. Replay on a row subset reproduces per-row bit patterns when the same op sequence and scalars are used.",
+    "bias_correction": "torch Adam's step counter is per-PARAMETER-TENSOR and increments once per optimizer.step() (trainer calls step exactly once per iteration, publication_trainer.py L561). Replay of logical step s must use bias_correction with s (host-side double scalars, same values as baseline).",
+    "lr_schedule": "xyz lr = f(s) at logical step s (schedule is a pure function of iteration); other attrs constant. Replay uses lr_attr(s)."
+  },
+  "phase1_region_15k_30k": {
+    "topology": "FROZEN (densify_until_iter=15000; no clone/split/prune, no opacity reset after 15K — trainer gates both on iteration < densify_until_iter)",
+    "active_fences": ["evaluation_render", "final_checkpoint"],
+    "sh_degree": "3 (active_sh_degree=3 from iteration 3000+; oneupSHdegree every 1000, max 3)",
+    "note": "Phase-1 (SH-only virtualization) applies here. Opacity virtualization joins in Phase-2. No densification fence exists in this region, so the event structure is minimal."
+  },
+  "claims_labels": {
+    "consumer_scopes": "OBSERVED (read from source, cited lines)",
+    "classifications": "CONCLUSION (derived from cited source facts under the v1 exactness model: per-step replay, no closed form)",
+    "stage_timings": "MEASURED (prior campaign, reports/higs/training-stage-representativeness.md)",
+    "byte_model": "DERIVED (arithmetic from tensor shapes; D0 used the same 708 B/row theta+m+v convention)"
+  }
+}

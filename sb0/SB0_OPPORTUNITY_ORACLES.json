@@ -1,0 +1,234 @@
+{
+  "task": "SB0-FGS",
+  "deliverable": "SB0_OPPORTUNITY_ORACLES",
+  "title": "Opportunity Oracle for DISTINCT_AND_EXACT components",
+  "audit_date": "2026-09-29",
+  "basis": "SB0_C0_PROFILE.json (OBSERVED A100 PUBLICATION-grade C0_V3_FINAL30K stage timings)",
+  "gate_thresholds": {
+    "perfect_upper_bound_drop_below_pct_e2e": 3.0,
+    "realistic_onet_drop_below_pct_e2e": 2.0,
+    "implement_at_or_above_pct_e2e": 3.0,
+    "combination_credit_at_or_above_pct_e2e": 5.0,
+    "note": "DROP if perfect upper bound <3% E2E OR realistic O_net <2% E2E. Implement only if realistic O_net >=3% E2E or a credible combination of exact components >=5% E2E."
+  },
+  "evidence_class": "OBSERVED (stage times) + HYPOTHESIS (upper-bound fractions, overhead, O_net)",
+  "components": [
+    {
+      "id": "C7_backward_optimizer_fusion",
+      "name": "Backward -> optimizer fusion (fused bwd+Adam)",
+      "stage": "backward+optimizer",
+      "c0_stage_ms": {
+        "room": 20.536,
+        "bicycle": 32.217,
+        "garden": 29.129
+      },
+      "perfect_upper_bound_ms": {
+        "room": 2.873,
+        "bicycle": 10.224,
+        "garden": 8.118
+      },
+      "perfect_upper_bound_pct_e2e": {
+        "room": 8.899,
+        "bicycle": 22.272,
+        "garden": 19.154
+      },
+      "perfect_upper_bound_basis": "Conservative: optimizer kernel time only (eliminates separate Adam launch). Upside not counted: gradient write/read round-trip elimination.",
+      "transformation_overhead": "MEDIUM: inline Adam into H8_MR backward kernel; STRIP n_touched==0 skip (prohibited #1); keep bias-correction status identical to C0 (none); re-validate m/v state parity + zero-gradient row parity (correctness gate).",
+      "realistic_onet_pct_e2e": {
+        "room": [
+          3.0,
+          5.0
+        ],
+        "bicycle": [
+          8.0,
+          15.0
+        ],
+        "garden": [
+          6.0,
+          12.0
+        ]
+      },
+      "realistic_onet_basis": "Optimizer time scaled by fusion efficiency (~0.7-0.85 of optimizer kernel) minus kernel-rewrite risk; gradient-traffic upside on large-N scenes (bicycle/garden) pushes O_net up.",
+      "gate_decision": "IMPLEMENT (priority 1)",
+      "gate_reason": "Realistic O_net >=3% E2E on bicycle (8-15%) and garden (6-12%); room borderline (3-5%) but multi-scene credible. Perfect upper bound (optimizer %) is 8.9/22.3/19.2% E2E, far above the 3% DROP line.",
+      "prohibited_risk": "MUST strip invisible-Gaussian skipping (prohibited #1); MUST NOT change zero-gradient Adam semantics (prohibited #2); MUST NOT add bias correction (would change Adam semantics)."
+    },
+    {
+      "id": "C1_two_stage_sorting",
+      "name": "Two-stage (depth-based instance/bucket) sorting",
+      "stage": "forward",
+      "c0_stage_ms": {
+        "room": 3.679,
+        "bicycle": 5.417,
+        "garden": 5.462
+      },
+      "perfect_upper_bound_ms": {
+        "room": 1.472,
+        "bicycle": 2.167,
+        "garden": 2.185
+      },
+      "perfect_upper_bound_pct_e2e": {
+        "room": 4.558,
+        "bicycle": 4.721,
+        "garden": 5.155
+      },
+      "perfect_upper_bound_basis": "HYPOTHESIS: C0 single-pass tile sort ~= 40% of forward (rasterize_to_indices: count+scan+fill). Perfect-removal = new sort instant.",
+      "transformation_overhead": "VERY HIGH: replace entire rasterizer addressing (instance/bucket buffers) + per-Gaussian backward + blob allocation. Effectively a rasterizer swap; risks changing the research problem.",
+      "realistic_onet_pct_e2e": {
+        "room": [
+          0.5,
+          1.5
+        ],
+        "bicycle": [
+          0.5,
+          1.5
+        ],
+        "garden": [
+          0.5,
+          1.5
+        ]
+      },
+      "realistic_onet_basis": "On A100, C0 single-pass radix sort is already fast; Faster-GS two-stage benefit is mostly VRAM, not speed. After rasterizer-swap overhead, net speed gain is small.",
+      "gate_decision": "DROP",
+      "gate_reason": "Realistic O_net <2% E2E (0.5-1.5%). Perfect upper bound (~4.6-5.1% E2E) is above 3% but is eroded by very-high transformation overhead; not a credible standalone win. Coupled to C9.",
+      "prohibited_risk": "Surgical port impractical; full swap risks changing the research problem."
+    },
+    {
+      "id": "C9_frontend_allocation_densification_memory",
+      "name": "Frontend allocation / densification memory handling",
+      "stage": "per-iter overhead (all)",
+      "c0_stage_ms": {
+        "room": 0.188,
+        "bicycle": 0.175,
+        "garden": 0.181
+      },
+      "perfect_upper_bound_ms": {
+        "room": 0.188,
+        "bicycle": 0.175,
+        "garden": 0.181
+      },
+      "perfect_upper_bound_pct_e2e": {
+        "room": 0.581,
+        "bicycle": 0.382,
+        "garden": 0.428
+      },
+      "perfect_upper_bound_basis": "Per-iteration allocation/launch overhead is small (~0.1-0.3ms); blob allocation mainly helps at resize, not every iter.",
+      "transformation_overhead": "MEDIUM but LOW standalone value: blob buffers are coupled to the instance/bucket structure (C1); without C1 there is little to allocate.",
+      "realistic_onet_pct_e2e": {
+        "room": [
+          0.0,
+          0.5
+        ],
+        "bicycle": [
+          0.0,
+          0.5
+        ],
+        "garden": [
+          0.0,
+          0.5
+        ]
+      },
+      "realistic_onet_basis": "Standalone per-iteration benefit <0.5% E2E; value only realized alongside C1 (which is itself DROP).",
+      "gate_decision": "DROP",
+      "gate_reason": "Perfect upper bound <3% E2E and realistic O_net <2% E2E. Coupled to C1 (DROP).",
+      "prohibited_risk": "None."
+    },
+    {
+      "id": "C8_locality_preserving_zorder_densification",
+      "name": "Morton/Z-order ordering of Gaussians + optimizer states (framework-layer)",
+      "stage": "per-iter overhead + all stages (indirect locality benefit)",
+      "c0_stage_ms": "N/A (framework-layer op; applied ~3x per 30K run: iters 5000/10000/15000)",
+      "perfect_upper_bound_ms": "direct cost ~0.1-0.5% E2E (3 sorts of N~1M: morton_encode O(N)+argsort O(NlogN)+reorder O(N)); upside is INDIRECT locality, not a removable C0 stage",
+      "perfect_upper_bound_pct_e2e": {
+        "room": "<=0.5 (direct)",
+        "bicycle": "<=0.5 (direct)",
+        "garden": "<=0.5 (direct)"
+      },
+      "perfect_upper_bound_basis": "HYPOTHESIS: the op itself costs time; the only upside is better memory locality for subsequent kernels, which is indirect and already partially provided by C0 tile-based sorting.",
+      "transformation_overhead": "LOW-MEDIUM: framework-layer Python/torch change (morton_encode + stable argsort + joint sort of params AND exp_avg/exp_avg_sq). No CUDA rebuild strictly required, but optimizer-state migration must be exact.",
+      "realistic_onet_pct_e2e": {
+        "room": [
+          0.0,
+          1.0
+        ],
+        "bicycle": [
+          0.0,
+          1.5
+        ],
+        "garden": [
+          0.0,
+          1.0
+        ]
+      },
+      "realistic_onet_basis": "HYPOTHESIS: direct cost is a net loss; indirect locality benefit on C0's already-coalesced tile-sorted access is small and uncertain. Fails the >=3% implement gate absent profiling.",
+      "gate_decision": "NOT_SELECTED_THIS_ROUND",
+      "gate_reason": "Realistic O_net <2% E2E (uncertain indirect benefit, direct cost is a net loss). Fails the implement gate. Revisit ONLY if C7 underperforms or as a combination candidate after profiling C0 with/without Morton.",
+      "prohibited_risk": "MUST permute param + exp_avg + exp_avg_sq rows together (pure permutation => no quality change); must not drop/reorder differently across param groups."
+    }
+  ],
+  "dropped_without_oracle": [
+    {
+      "id": "C2_per_gaussian_backward",
+      "classification": "ALREADY_IN_C0",
+      "reason": "C0 H8_MR backward is already per-Gaussian with absgrad."
+    },
+    {
+      "id": "C3_opacity_aware_tighter_bounds",
+      "classification": "DISTINCT_BUT_APPROXIMATE",
+      "reason": "Tighter bounds cull Gaussians -> quality change; prohibited. Default 3.33-sigma mode already C0-equivalent."
+    },
+    {
+      "id": "C4_activation_fusion",
+      "classification": "ALREADY_IN_C0",
+      "reason": "C0 ships ProjectionEWA3DGSFused.cu."
+    },
+    {
+      "id": "C5_sh_buffer_sh_eval_fusion",
+      "classification": "ALREADY_IN_C0",
+      "reason": "C0 already fuses SH eval (sh_coeffs_to_color_fast)."
+    },
+    {
+      "id": "C6_custom_fused_adam",
+      "classification": "ALREADY_IN_C0",
+      "reason": "C0 already has fused Adam; bias-correction delta is a semantics change (prohibited #2)."
+    },
+    {
+      "id": "C8_locality_preserving_zorder_densification",
+      "classification": "DISTINCT_AND_EXACT",
+      "reason": "Oracle run: NOT_SELECTED_THIS_ROUND (O_net<2%, uncertain indirect benefit). See components[]."
+    }
+  ],
+  "combination_analysis": {
+    "credible_combination": "C7 alone passes; C8 (Morton) is a DISTINCT_AND_EXACT but uncertain secondary candidate (hold). C1/C9 DROP. No confident >=5% combination.",
+    "combination_pct_e2e": {
+      "room": "3-5 (C7 only)",
+      "bicycle": "8-15 (C7 only)",
+      "garden": "6-12 (C7 only); C8 hold"
+    },
+    "note": "No credible >=5% E2E combination exists because only C7 passes its individual gate. C7 alone already exceeds 3% on bicycle/garden, satisfying the implementation gate without combination.",
+    "faster_gs_paper_speedup_usable": false,
+    "faster_gs_paper_speedup_note": "Upstream Faster-GS wall-clock speedups are NOT usable as C0 O_net (task prohibition). All O_net here are derived from OBSERVED C0 stage timings."
+  },
+  "final_oracle_verdict": {
+    "implement": [
+      "C7_backward_optimizer_fusion"
+    ],
+    "drop": [
+      "C1_two_stage_sorting",
+      "C9_frontend_allocation_densification_memory",
+      "C2_per_gaussian_backward",
+      "C3_opacity_aware_tighter_bounds",
+      "C4_activation_fusion",
+      "C5_sh_buffer_sh_eval_fusion",
+      "C6_custom_fused_adam"
+    ],
+    "next_gate": "Before any CUDA change: (a) reconcile C0 binary/source sha256 with task-pinned hashes; (b) build independent Faster-GS reference worktree and reproduce Faster-GS on room (success criterion B); (c) then implement C7 in an isolated worktree with its own binary hash and pass the correctness gate (forward/gradient/one-step/m-v/zero-grad/densif parity).",
+    "success_criteria_status": {
+      "A_c0_plus": "PENDING (C7 is the sole candidate; requires implementation + correctness + performance gate)",
+      "B_stronger_external_baseline": "PENDING (requires Faster-GS reference reproduction; source audit shows most components ALREADY_IN_C0, so a large quality/speed gap is not expected from these components alone)"
+    },
+    "hold_uncertain": [
+      "C8_locality_preserving_zorder_densification"
+    ]
+  }
+}

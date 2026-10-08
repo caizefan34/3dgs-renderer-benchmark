@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "stage": "E - Full-Training Validation Gate",
+  "status": "NOT_TRIGGERED",
+  "reason": "Fixed-state scaling does not show workload-dependent speedup; speedup is FLAT across LOW and HIGH N",
+  "gate_criteria": {
+    "requirement": "At least TWO dense/high-workload points with S_FB >= 1.15x AND at least one with S_FB >= 1.20x",
+    "correctness": "PASS (from stage A)",
+    "evaluation": "FAIL",
+    "analysis": {
+      "LOW_N_train_1.03M": {
+        "S_FB": 1.18,
+        "S_train": 1.16
+      },
+      "HIGH_N_bicycle_6.13M": {
+        "S_FB": 1.16,
+        "S_train": 1.13
+      },
+      "HIGH_N_bicycle_1080p": {
+        "S_FB": 1.15,
+        "S_train": 1.13
+      },
+      "count_S_FB_ge_1.15": 3,
+      "count_S_FB_ge_1.20": 0,
+      "verdict": "Meets >=1.15x threshold (3 points), but NO point meets >=1.20x threshold"
+    }
+  },
+  "decision_tree": {
+    "question": "Should Stage E full-training validation be run?",
+    "answer": "NO",
+    "rationale": [
+      "Gate requires at least one point with S_FB >= 1.20x; no such point exists",
+      "Speedup is FLAT across workload (H1 not supported); full training would not show scaling trend",
+      "Existing evidence shows consistent ~13-16% speedup, not the 'dense/high-resolution cohort >=1.15x with clear workload-scaling trend' required by section 19",
+      "Full training (30K steps x 3 scenes x 2 backends) would consume significant GPU time for marginal expected gain"
+    ]
+  },
+  "existing_full_training_evidence": {
+    "source": "reports/higs-trainability-implementation.md",
+    "note": "higs_dynamic was benchmarked with 20 steps (not 30K) but includes densify/prune",
+    "results": {
+      "train_20_steps": {
+        "std_train_ms": 22.55,
+        "higs_dynamic_train_ms": 17.07,
+        "speedup": 1.32,
+        "final_N": 731698,
+        "notes": "Dynamic densify/prune amplifies speedup via N reduction"
+      },
+      "bicycle_20_steps": {
+        "std_train_ms": 58.3,
+        "higs_dynamic_train_ms": 35.86,
+        "speedup": 1.63,
+        "final_N": 4159369,
+        "notes": "Dynamic densify/prune amplifies speedup via N reduction"
+      }
+    },
+    "interpretation": "20-step horizons show larger speedups (1.32-1.63x) due to densify/prune quality gains reducing N; 30K-step convergence would likely converge to fixed-state parity (~1.13-1.16x) as N stabilizes"
+  },
+  "alternative_path_forward": {
+    "observation": "H1 (scaling with workload) is NOT supported; speedup is FLAT",
+    "implication": "Trainable HiGS provides consistent architectural speedup (~13-16%) but NOT workload-dependent scaling",
+    "paper_position": "GO_TRAINABLE_HIGS_DENSE_WORKLOAD_PAPER is NOT justified; consider INVESTIGATE_SCALING_WITH_LIMITATIONS or GO_TRAINABLE_HIGS_PAPER (if overall speedup deemed sufficient)",
+    "recommendation": "Focus on architectural contribution (native backward enabling end-to-end differentiation) rather than scaling claims"
+  }
+}

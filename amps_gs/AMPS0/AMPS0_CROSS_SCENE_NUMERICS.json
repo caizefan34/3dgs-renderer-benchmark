@@ -1,0 +1,56 @@
+{
+  "schema": "AMPS0_CROSS_SCENE_NUMERICS",
+  "generated": "2026-10-05",
+  "purpose": "Cross-scene numerical oracle (objective section 12). Confirms BF16 state-storage error is consistent, not scene-specific.",
+  "scenes": {
+    "room": {
+      "n_iter": 497,
+      "n_gaussians": 400,
+      "cosine_median": 0.9999814629554749,
+      "rel_l2_median": 0.01940751075744629,
+      "rel_l2_p95": 0.037928104400634766,
+      "sign_disagree_median": 0.0,
+      "finite": true,
+      "eligible": false
+    },
+    "garden": {
+      "n_iter": 508,
+      "n_gaussians": 400,
+      "cosine_median": 0.999981164932251,
+      "rel_l2_median": 0.01982814632356167,
+      "rel_l2_p95": 0.03822151571512222,
+      "sign_disagree_median": 0.0,
+      "finite": true,
+      "eligible": false
+    },
+    "bicycle": {
+      "n_iter": 509,
+      "n_gaussians": 400,
+      "cosine_median": 0.999981164932251,
+      "rel_l2_median": 0.019830428063869476,
+      "rel_l2_p95": 0.03894003480672836,
+      "sign_disagree_median": 0.0,
+      "finite": true,
+      "eligible": false
+    }
+  },
+  "consistency": {
+    "scenes_present": [
+      "room",
+      "garden",
+      "bicycle"
+    ],
+    "rel_l2_median_range": [
+      0.01940751075744629,
+      0.019830428063869476
+    ],
+    "cosine_median_range": [
+      0.999981164932251,
+      0.9999814629554749
+    ],
+    "all_scenes_fail_rel_l2_gate": true,
+    "all_scenes_preserve_direction_cosine>=0.9999": true,
+    "conclusion": "BF16 moment storage consistently produces ~2% relative update-magnitude error (exceeds 5e-3 gate) while preserving update direction (cosine>=0.9999, sign disagreement 0%) across all scenes. Numerical failure is consistent, not scene-specific."
+  },
+  "gate": "C1 eligibility per scene (sh_rest group)"
+}

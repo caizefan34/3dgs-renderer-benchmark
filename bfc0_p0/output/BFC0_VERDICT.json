@@ -1,0 +1,60 @@
+{
+  "verdict": "BLOCKED_SEMANTICS",
+  "timestamp": "2026-10-01T12:00:00Z",
+  "task": "BFC0 P0 — Backward Frontier Compaction",
+  "reason": "gsplat 1.5.3 API no longer returns last_ids array; custom compute_last_ids produced invalid results",
+  "gates": {
+    "P0_A_PRIOR_ART": {
+      "status": "PASS",
+      "reason": "No direct collision found in fresh literature/code search"
+    },
+    "P0_B_SEMANTICS": {
+      "status": "PARTIAL",
+      "reason": "Source semantics established from code audit, but runtime last_ids values could not be verified due to API changes"
+    },
+    "P0_C_MECHANISM": {
+      "status": "FAILED",
+      "reason": "Oracle computation failed due to last_ids issue; no fragmentation metrics available"
+    },
+    "P0_D_ECONOMICS": {
+      "status": "NOT_EVALUATED",
+      "reason": "Economics computation skipped due to oracle failure"
+    },
+    "P0_E_STRONG_BASELINE": {
+      "status": "PASS",
+      "reason": "Pareto position plausible: lower extra VRAM than per-Gaussian backward"
+    }
+  },
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU",
+    "cuda": "13.0",
+    "python": "3.13.13",
+    "torch": "2.13.0+cu130",
+    "gsplat": "1.5.3",
+    "scene": "Mip-NeRF360 room",
+    "n_gaussians": 100000,
+    "image_size": "3114x2075",
+    "tile_size": 16
+  },
+  "limitations": [
+    "gsplat 1.5.3 API incompatibility: last_ids no longer returned in meta dict",
+    "Custom compute_last_ids produced all -1 values (coordinate system or initialization issue)",
+    "Random gaussian initialization (no trained checkpoint) produces unrealistic rendering",
+    "Oracle computation failed: all-zero active masks"
+  ],
+  "recommendations": [
+    "Load trained gaussian checkpoint from official Mip-NeRF360 point cloud (.ply)",
+    "Fix last_ids computation or use gsplat 1.4.0 API",
+    "Verify tile-gaussian intersections are meaningful",
+    "Re-run DSH-3 through DSH-8 with corrected data"
+  ],
+  "evidence_files": [
+    "BFC0_ENVIRONMENT.json",
+    "BFC0_SOURCE_AUDIT.json",
+    "BFC0_SOURCE_AUDIT.md",
+    "trace/room_trace.npz",
+    "trace/room_trace_meta.json",
+    "BFC0_ORACLE_METRICS.json",
+    "BFC0_REPORT.md"
+  ]
+}

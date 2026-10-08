@@ -1,0 +1,62 @@
+{
+  "experiment": "EPIC05_P8_VERDICT",
+  "campaign": "P8 Modern Matched Renderer Closure",
+  "host": "EPIC-05 (8x A100-SXM4-80GB)",
+  "primary_lane": "STRICT_MATCHED_RENDERER_0P3",
+  "contamination": {
+    "gmain_runs_dirty": 0,
+    "all_gmain_runs_clean": true,
+    "note": "External co-tenant repeatedly re-occupied host GPUs. bicycle attempt 1 preserved at gmain03_s42_bicycle.contaminated_20260925T212318 (rerun clean on GPU 0). Six wave-2 runs (flowers, garden, kitchen, playroom, room, truck) were co-resident with the co-tenant mid-run; all six preserved at *_s42_<scene>.contaminated_20260925T224815 and rerun on clean same-SKU GPUs 1/2/3 (disclosed pairing deviation, EPIC05_P8A_GPU_PAIRING_DEVIATION.json). n_dirty counts only the FINAL per-scene runs; every run carries a per-window watchdog join in the 13SCENE json"
+  },
+  "answers": {
+    "1_is_c0_faster_than_current_gsplat_main_strict_0p3": "YES",
+    "2_on_how_many_of_13_scenes": "13/13 scenes C0 faster (gmain slower on 13/13)",
+    "3_geometric_mean_ratio": "gmean wall(gmain)/wall(c0) = 1.0979",
+    "4_quality_neutral": "mean dPSNR(gmain-c0) -0.059 dB, mean dSSIM -0.00115, mean dLPIPS +0.00242; gmain PSNR higher on 7/13; QUALITY-NEUTRAL (deltas within seed/trajectory noise); largest per-scene delta is drjohnson -0.89 dB (the known divergent scene under this recipe -- no quality claim is made for it per campaign discipline)",
+    "5_trajectory_final_gaussian_count_effects": "population differences do NOT explain the end-to-end gap: cross-scene corr(wall-ratio, final-N-ratio) = -0.179 (weak), per-scene final_N gmain/c0 spans 0.850-1.060; the fixed-state replay (identical 30K states, 3 scenes) isolates the intrinsic per-iteration gap gmain/C0 = room: 1.307, bicycle: 1.142, garden: 1.243 (3-scene gmean 1.229), which EXCEEDS the end-to-end geomean 1.0979 -- renderer-independent fixed costs (data loading, optimizer, densification bookkeeping, eval) dilute the per-iteration gap in wall time; no trajectory-driven scene reordering occurs (gmain slower on 13/13)",
+    "6_does_current_gsplat_change_the_b1a_headline": "NO -- current gsplat main is farther from C0 than frozen B1A was (gmain/C0 1.0979 vs B1A/C0 1.0669); at fixed state current main is also slower than frozen B1A (intrinsic gmain/B1A = room: 1.057, bicycle: 1.044, garden: 1.080) -- upstream's B200-era optimizations did not transfer to A100 under this protocol; the old headline is not narrowed",
+    "7_strict_vs_disclosure_only": {
+      "STRICT_MATCHED_RENDERER_0P3": [
+        "gsplat_main@512d366b (gmain03_*) vs C0/A0/B1A@0.3 -- all reference_v1 recipe, eps2d=0.3, seed42, 30K, same trainer code (dispatch-only adapter), G2 recipe gate PASS"
+      ],
+      "MATCHED_WITH_DISCLOSURE": [
+        "Taming 3DGS rasterizer@1207926e: 3-scene gate CLEAN_MATCHED_WITH_DISCLOSURE (forward 84-100.7 dB vs b0, gradients within documented semantic deltas); any 13-scene run would carry this label; 13-scene Taming run NOT PERFORMED (optional lane; gate only)"
+      ],
+      "REFERENCE_ONLY": [
+        "graphdeco@54c035f snapshot: OFFICIAL_REFERENCE_WITH_DISCLOSURE (gitlink-verified frozen tree; never 'Original 3DGS (2023)'; never strict)"
+      ],
+      "EXCLUDED": [
+        "SECONDARY_0P1_LANE (gsplat_main@0.1 + B1A@0.1): not run in P8 primary; would require its own protocol pairing"
+      ]
+    }
+  },
+  "geomeans": {
+    "gmain_over_c0": 1.0978573415790212,
+    "gmain_over_a0": 1.0854496285170097,
+    "gmain_over_b1a": 1.029035592599771,
+    "b1a_over_c0": 1.0668798528196464
+  },
+  "gap_decomposition": {
+    "frozen_b1a_vs_c0": 1.0668798528196464,
+    "current_main_vs_c0": 1.0978573415790212,
+    "current_main_vs_frozen_b1a": 1.029035592599771,
+    "intrinsic_fixed_state_gmain_over_b1a_bwd_per_scene": {
+      "room": 1.056663942284985,
+      "bicycle": 1.0443700359058479,
+      "garden": 1.0797303544449652
+    }
+  },
+  "gates": {
+    "G1_build": true,
+    "G2_recipe": true,
+    "G4_contamination_all_clean": true
+  },
+  "claim_discipline": {
+    "no_h8_contribution_claim_from_p8": true,
+    "never_infer_ownership_from_p8_ratios": true,
+    "no_cross_architecture_claims": true,
+    "no_baseline_tuning_after_results": true,
+    "can_promote_base_path_to_paper_contribution": false,
+    "note": "P8 measures the frozen C0 system vs a current pinned upstream baseline under a strict matched protocol; it does not attribute mechanisms and does not revisit the P7b ownership verdict"
+  }
+}

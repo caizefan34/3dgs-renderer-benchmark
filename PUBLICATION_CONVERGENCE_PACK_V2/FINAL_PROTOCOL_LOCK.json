@@ -1,0 +1,125 @@
+{
+  "artifact": "FINAL_PROTOCOL_LOCK",
+  "schema": "final-protocol-lock/v1",
+  "generated_utc": "2026-10-02T09:14:00Z",
+  "authority": "Synthesized from PUB0_TIMING_LEDGER.json, PBR0_VERDICT.json, TFC2_VERDICT.json, PAPER0_HARDENED, DFC2_VERDICT.json, DFC1R1_VERDICT.json",
+  "mode": "CPU / source-audit / artifact-only. NO GPU work. NO new runs.",
+  "purpose": "Single authoritative terminology + metric-definition lock for all future reports and paper tables.",
+  "hard_rules": [
+    "Never call renderer-local timing 'training speedup'.",
+    "Never call decomposed proxy timing 'production full-step'.",
+    "Never infer pure optimizer cost from residual subtraction of independent loops.",
+    "Production training headline MUST use directly measured wall-clock.",
+    "Renderer workload reduction and training-time reduction MUST remain separate metrics.",
+    "Keep all hardware/software cohorts explicit; never merge numbers across cohorts."
+  ],
+  "frozen_terminology": [
+    {
+      "term": "intersection-only timing",
+      "definition": "Wall-clock time of the tile-intersection stage only (isect count + emit + offset, excluding sort/rasterize). Reported as speedup vs stock per-axis-AABB baseline within the SAME renderer cohort.",
+      "canonical_source": "PUB0_TIMING_LEDGER.json bucket1_intersection_only_ms; TFC2_VERDICT.per_scene.prof_isect_speedup; PUB0 AMDAHL isect-only",
+      "must_not_be": "Must NOT be labeled a training-step or full-step speedup."
+    },
+    {
+      "term": "forward rendering pipeline",
+      "definition": "preprocess (projection+covariance+radius) + intersection + sort + rasterize-to-pixels, forward direction only. Excludes backward and optimizer.",
+      "canonical_source": "PUB0_TIMING_LEDGER.json bucket2_forward_pipeline_ms; TFC2_BENCHMARK fwd_*_s",
+      "must_not_be": "Must NOT be labeled forward+backward or training-step."
+    },
+    {
+      "term": "renderer forward+backward",
+      "definition": "Forward rendering pipeline plus the rasterizer/backward kernels, on a FROZEN PLY. No densification, no optimizer step, no 30K trajectory.",
+      "canonical_source": "PUB0_TIMING_LEDGER.json bucket3_forward_backward_ms; TFC2_VERDICT.per_scene.prof_e2e_speedup (footprint-stage fwd+bwd)",
+      "must_not_be": "Must NOT be presented as production full training step (no optimizer, no densification, frozen PLY)."
+    },
+    {
+      "term": "production iteration wall-clock",
+      "definition": "Directly measured wall-clock of ONE full production training iteration = preprocess + intersection + sort + rasterize + backward + densification + optimizer (Adam), on the canonical current pipeline, same-run baseline-vs-policy.",
+      "canonical_source": "PUB0_TIMING_LEDGER.json bucket4_full_training_step_ms (current-cohort TFC_DFC_EPIC05)",
+      "must_not_be": "Must NOT be a residual/subtraction-derived estimate; must be directly measured."
+    },
+    {
+      "term": "total 30K production training wall-clock",
+      "definition": "Directly measured end-to-end wall-clock to complete 30,000 production training iterations (baseline vs method), seed-fixed, same cohort. THE headline production-training metric.",
+      "canonical_source": "PENDING: requires TFC_FC0 / DFC_FC0 / PUB0 total-time fields (not yet measured). No authoritative value exists yet.",
+      "must_not_be": "Must NOT be inferred from per-iteration geomean or Amdahl ceilings. Currently NOT_MEASURED for all methods."
+    }
+  ],
+  "authoritative_metric_definitions": {
+    "intersection_reduction": {
+      "pooled_reduction": "1 - sum(ellipse_intersections over all cameras) / sum(prod_AABB_intersections over all cameras). Scene/cohort-level aggregate.",
+      "mean_per_camera_reduction": "unweighted mean over cameras of (1 - ellipse_i / prodAABB_i). Reports typical per-camera effect; differs from pooled.",
+      "authoritative_values": {
+        "TFC0_room_8cam_pooled": 0.42414788215947763,
+        "TFC0_room_8cam_mean_per_camera": "computed from TFC0_FOOTPRINT_STATS.json per_camera (mean of per-cam reductions)",
+        "TFC2_pooled_11scene": 0.3821339645678883,
+        "PBR0_native": 0.3927,
+        "PBR0_down2": null
+      },
+      "note": "Report pooled and mean-per-camera SEPARATELY; never conflate."
+    },
+    "psnr_ssim_lpips_deltas": {
+      "definition": "method metric MINUS baseline metric on the SAME held-out cameras/eval set. PSNR in dB (positive = better). SSIM/LPIPS absolute deltas.",
+      "sign_convention": "'+' = method better than baseline; '-' = worse.",
+      "quality_neutral_thresholds": "PSNR loss <= 0.05 dB gate (renderer-local); full-convergence gates per pack.",
+      "renderer_local_note": "TFC/DFC renderer-local deltas are quality-neutral by construction (PSNR loss ~1e-7 to 8e-5 dB)."
+    },
+    "gradient_cosine_relL2": {
+      "gradient_cosine": "cosine between method gradient and reference (float64 or stock) gradient, per parameter and per camera; report mean/median and min.",
+      "gradient_relL2": "||g_method - g_ref||_2 / ||g_ref||_2.",
+      "noise_floor": "float32-vs-float64 noise floor; PBR0 gradient_AB_cosine_mean 0.999888; train cam151 aa_cos_median 0.99995 vs ab_cos_median 0.99939 (REAL_DIFF).",
+      "gate": "gradient_cosine >= 0.99999 (self-imposed); document when at noise floor."
+    },
+    "gaussian_count_trajectory": {
+      "definition": "Final Gaussian count and clone/split/prune counts over the 30K densification schedule, baseline vs method. Requires FULL training (not renderer-local).",
+      "availability": "K50-B1 has real 30K populations (gs_ratio room 0.698, bicycle 0.694, garden 0.643). Renderer-local methods (TFC/DFC) have NO trajectory (frozen PLY)."
+    },
+    "integrated_gaussian_population": {
+      "definition": "Time-integral of Gaussian population over the training trajectory (area under the count-vs-iteration curve); a workload/economic quantity.",
+      "availability": "PENDING: no method has a measured integrated population yet; K50-B1 final counts only. Report as PENDING where absent."
+    },
+    "total_training_speedup": {
+      "definition": "baseline_total_30K_wall_clock / method_total_30K_wall_clock, directly measured, seed-fixed, same cohort.",
+      "availability": "NOT_MEASURED for ALL methods. K50-B1 IMPLIES +8.2%/+24.4%/+28.9% per-iter but has no separate total-wall-clock field. Renderer-local speedups MUST NOT populate this.",
+      "must_not_be": [
+        "PBR0 M4 sum-of-stages is a DECOMPOSED microbenchmark (PBR0_H1), NOT a production iteration; use PUB0 bucket4 directly-measured full-step or a real fused wall-clock iteration."
+      ],
+      "tier": "Tier-A (directly measured production wall-clock). PENDING for all methods."
+    },
+    "production_iteration_wall-clock": {
+      "definition": "ONE full production training iteration (preprocess+isect+sort+rasterize+bwd+densify+optimizer), same-run baseline-vs-policy on the canonical current pipeline.",
+      "tier": "Tier-A. PENDING TFC_FC0 / DFC_FC0.",
+      "must_not_be": [
+        "PBR0 M4 sum-of-stages (PBR0_H1: decomposed microbenchmark, NOT a production iteration).",
+        "PUB0 current-cohort bucket4 (1.0317x TFC / 1.0539x DFC): a Tier-C decomposed proxy / same-run timing ledger, NOT an authorized production training speedup.",
+        "Any residual/subtraction-derived estimate; any forward-rendering-pipeline timing."
+      ]
+    },
+    "tier_taxonomy": {
+      "Tier-C decomposed proxy (PBR0-M4 / PUB0)": "Relative or decomposed figures (PBR0 1.1988x native, PUB0 1.0317x/1.0539x current-cohort). MUST NOT be labeled production training speedup or total-training speedup. Superseded for production claims by Tier-A PENDING TFC_FC0/DFC_FC0."
+    }
+  },
+  "cohort_tags_required": [
+    "EPIC05_A100_REMOTE (renderer-frozen-PLY)",
+    "TFC_DFC_EPIC05 (current headline benchmark, torch2.10)",
+    "VOS1_EPIC05 (torch2.8, graphdeco-b0-pub)",
+    "K50B1_HISTORICAL (multi-GPU, NOT per-run comparable)",
+    "C51_STAGE4A_ROOM (config-buggy 5K, do not merge)",
+    "C51_STAGE4B_3SCENE (clean 30K K50-B1)",
+    "FASTERGSFUSED_C0_30K (VOS/IGF optimizer-level)"
+  ],
+  "pbr0_h1_audit": {
+    "artifact": "PBR0_H1_HARNESS_AUDIT",
+    "source": "_pbr0_oracle/PBR0_H1_HARNESS_AUDIT.json, PBR0_H1_REPORT.md",
+    "finding": "PBR0 M4 'full training step' is a DECOMPOSED STAGE-TIMING MICROBENCHMARK (sum of 3 independently-best-timed stages), NOT a faithful production 3DGS iteration.",
+    "key_differences_from_production": [
+      "Optimizer scope: 4 groups / 11 elements-per-gaussian, NO SH colors (production optimizes all params incl SH; combined harness = 5 groups / 59 elements).",
+      "Densification/pruning EXCLUDED (fixed N); production densifies periodically.",
+      "opt.step() timed in isolation between cuda.synchronize; 'full step' = t_fwd + best_bwd + best_step, not one fused wall-clock iteration.",
+      "Absolute '0.5% optimizer' and '41 ms full step' are NOT production-representative (production optimizer ~30-41%)."
+    ],
+    "valid_use": "Relative A-vs-B-vs-C footprint effect is apples-to-apples (identical M4 methodology), so PBR0 1.1988x native / 39.3% intersection-reduction are valid RELATIVE speedups only.",
+    "rule_added": "PBR0-style decomposed timing must NEVER be labeled a production full training step (reinforces hard rule #2/#3)."
+  },
+  "v2_note": "HARDENING_V2: production metrics are Tier-A PENDING; PBR0 1.1988x and PUB0 1.0317x/1.0539x are Tier-C decomposed proxies only."
+}

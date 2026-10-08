@@ -1,0 +1,211 @@
+{
+  "phase": "P18-P0 Stage-0",
+  "source_commit": "C0 frozen (higs_c0_final30k_worktree)",
+  "source_files": [
+    {"file": "p18_p0/c0_source/MacroTileRasterize.cu", "lines": "1-945", "role": "forward rasterize + post-blend"},
+    {"file": "p18_p0/c0_source/RasterizeToPixels3DGSDevice.cuh", "lines": "1-216", "role": "shared fwd/bwd per-pixel math"},
+    {"file": "p18_p0/c0_source/HigsNativeBackward.cu", "lines": "1-1712", "role": "backward pixel-blend + projection VJP"},
+    {"file": "p18_p0/c0_source/Common.h", "lines": "1-115", "role": "shared constants"},
+    {"file": "p18_p0/c0_source/IntersectMTConfig.h", "lines": "1-36", "role": "macro-tile geometry config"},
+    {"file": "p18_p0/c0_source/IntersectCommon.h", "lines": "1-489", "role": "conic decode + tile binning"},
+    {"file": "p18_p0/c0_source/Constants.h (from public_baselines)", "lines": "1-26", "role": "MAX_EXTEND, INV_ALPHA_THRESHOLD"}
+  ],
+
+  "forward_kernel": {
+    "name": "macro_tile_rasterize_kernel<16>",
+    "file": "MacroTileRasterize.cu",
+    "template_instantiation": "TILE_SIZE=16",
+    "cta_size": 320,
+    "warps_per_cta": 10,
+    "gauss_per_warp": 1,
+    "pixels_per_thread": 8,
+    "n_pairs": 4,
+
+    "gaussian_evaluation": {
+      "location": "MacroTileRasterize.cu:287-330 (rasterizeGaussian lambda)",
+      "q_formula": "q(x,y) = u0^2 + u1^2 - log2(opac)",
+      "u0": "l00 * dx + l10 * dy",
+      "u1": "l11 * dy",
+      "dx": "__hsub2(__low2half2(xy_mt_j), offset_x)  // gaussian_mean_x - pixel_x, in half2, 2 pixels per __half2",
+      "dy": "__hsub2(mean_y, offset_y[pp])  // gaussian_mean_y - pixel_y, in half2, 2 pixels per __half2",
+      "conic_source": "smem_conic_raw[idx] — Cholesky factors (l00, l10, l11, l22) scaled by CHOL_SCALE=0.8493*16=13.589, with -log2(opac) fused into the 4th half slot",
+      "conic_scale": "CHOL_SCALE = 0.84932180028 * TILE_SIZE = sqrt(LOG2E/2) * 16",
+      "exp_implementation": "__h2exp2_approx(__hneg2(sigma)) — half2 approximate base-2 exponential (CUDA hardware MUFU.EX2 via half2 intrinsic)",
+      "exp_precision": "approximate (half2 MUFU), NOT expf/__expf/inline-PTX",
+      "sigma_fusion": "sigma = __hfma2(u1,u1, __hfma2(u0,u0, neg_log_opac)) — single FMA chain, no separate multiply",
+      "threshold_in_sigma_domain": "ok_mask = __hlt2_mask(sigma, sigma_thresh) where sigma_thresh = log2(1/ALPHA_THRESHOLD) = log2(255) = 7.9943534f",
+      "note": "The q(x,y) in the spec corresponds to 'sigma' in code: sigma = u0^2 + u1^2 - log2(opac). exp2(-sigma) = opac * exp2(-(u0^2+u1^2)) = full gaussian weight including opacity."
+    },
+
+    "alpha_semantics": {
+      "opacity_gaussian_product": "Fused: exp2(-sigma) where sigma includes -log2(opac). Result = opac * exp2(-(u0^2+u1^2)). No separate multiply.",
+      "alpha_value": "alpha = __h2exp2_approx(__hneg2(sigma)) — this IS opac*vis combined",
+      "alpha_clamp": "NOT explicitly clamped to MAX_ALPHA in forward kernel. The threshold test (sigma < log2(1/AT)) effectively bounds alpha < 1.0. MAX_ALPHA=0.99 clamp is only in RasterizeToPixels3DGSDevice.cuh (shared code, used by backward).",
+      "alpha_threshold": "ALPHA_THRESHOLD = 1/255 ≈ 0.003922. In sigma domain: sigma_thresh = log2(255) = 7.9943534f. Pixels with sigma >= 7.994 are rejected (alpha < 1/255).",
+      "alpha_reject": "ok_mask = __hlt2_mask(sigma, sigma_thresh); alpha_ht = __h2if(ok_mask, alpha, 0.0f) — sub-threshold pixels get alpha=0, contribute nothing",
+      "transmittance_termination": "acc[pp][3] = __hsub2_sat(acc[pp][3], vis) where vis = alpha_ht * T. MIN_TRANSPARENCY = 1e-4f. Per-pair done mask: __hlt2_mask(acc_T, 1e-4). Warp-wide exit: __ballot_sync(~0u, tile_done == DONE_MASK) == ~0u → break.",
+      "min_transparency": "MIN_TRANSPARENCY = 1e-4f (MacroTileRasterize.cu:85)",
+      "max_alpha": "MAX_ALPHA = 0.99f (Common.h:105, used only in backward via RasterizeToPixels3DGSDevice.cuh)"
+    },
+
+    "thread_pixel_mapping": {
+      "tile_size": 16,
+      "mapping_formula": "lane_id → (thread_x = lane_id & 15, thread_y = lane_id >> 4)",
+      "concrete_mapping": {
+        "lane_0":  "(x=0,  y=0)",
+        "lane_1":  "(x=1,  y=0)",
+        "lane_2":  "(x=2,  y=0)",
+        "lane_3":  "(x=3,  y=0)",
+        "lane_4":  "(x=4,  y=0)",
+        "lane_5":  "(x=5,  y=0)",
+        "lane_6":  "(x=6,  y=0)",
+        "lane_7":  "(x=7,  y=0)",
+        "lane_8":  "(x=8,  y=0)",
+        "lane_9":  "(x=9,  y=0)",
+        "lane_10": "(x=10, y=0)",
+        "lane_11": "(x=11, y=0)",
+        "lane_12": "(x=12, y=0)",
+        "lane_13": "(x=13, y=0)",
+        "lane_14": "(x=14, y=0)",
+        "lane_15": "(x=15, y=0)",
+        "lane_16": "(x=0,  y=1)",
+        "lane_17": "(x=1,  y=1)",
+        "lane_18": "(x=2,  y=1)",
+        "lane_19": "(x=3,  y=1)",
+        "lane_20": "(x=4,  y=1)",
+        "lane_21": "(x=5,  y=1)",
+        "lane_22": "(x=6,  y=1)",
+        "lane_23": "(x=7,  y=1)",
+        "lane_24": "(x=8,  y=1)",
+        "lane_25": "(x=9,  y=1)",
+        "lane_26": "(x=10, y=1)",
+        "lane_27": "(x=11, y=1)",
+        "lane_28": "(x=12, y=1)",
+        "lane_29": "(x=13, y=1)",
+        "lane_30": "(x=14, y=1)",
+        "lane_31": "(x=15, y=1)"
+      },
+      "n_pairs": 4,
+      "pixel_pair_0": "rows y+0, y+1 (thread_y and thread_y+1)",
+      "pixel_pair_1": "rows y+2, y+3",
+      "pixel_pair_2": "rows y+4, y+5",
+      "pixel_pair_3": "rows y+6, y+7",
+      "full_coverage": "Each lane covers 8 pixels: (thread_x, thread_y + 0..7). Warp covers 32*8 = 256 = 16x16 tile. ✓",
+      "source_lines": "MacroTileRasterize.cu:269-282 (mapping), 484-491 (offset_y pairs), 490 (ROW_PAIR_STEP = 2 * 1/16 = 1/8 tile)"
+    },
+
+    "raster_loop_structure": {
+      "queue_fill": "Per mini-batch (32 gaussians): each lane checks if its gaussian overlaps this tile (smem_masks[mb*32 + tile_idx] bit lane_id). If yes, computes pos = popc(mask & ((1<<lane)-1)) and writes warp_queue[write_head + pos] = mb*32 + lane_id. write_head += popc(mask). All lanes see the same mask → warp builds a contiguous index list of gaussians overlapping this tile.",
+      "drain_loop": "Drains 32-entry batches from warp_queue. UNROLL_FACTOR=8: loads 8 consecutive queue indices via uint4 batched LDS, calls rasterizeGaussian 8 times. Tail loop handles remaining < 8.",
+      "early_exit": "After each drain batch: per-pair done mask (T < 1e-4). If ALL 8 pixel pairs are done for ALL 32 lanes (ballot == ~0u), break out of the entire raster loop for this tile.",
+      "source_lines": "MacroTileRasterize.cu:523-673 (main while loop), 545-561 (GAUSS_PER_WARP=1 drain), 654-672 (early exit)"
+    }
+  },
+
+  "backward_kernel": {
+    "name": "higs_blend_bwd_px_kernel<3, 2, true, true>",
+    "file": "HigsNativeBackward.cu",
+    "template_params": {"CDIM": 3, "PX": 2, "SCALAR_ADJOINT": true, "H8_MR": true},
+    "px_default": "HIGS_PX_RUNTIME env var, default=2",
+    "cta_size": 128,
+    "warps_per_cta": 4,
+    "warp_mapping": "warp_w covers rows [2w, 2w+1] of the 16x16 tile (PX_ROWS=8, ty ∈ {0..7}, pixels at ty and ty+8)",
+    "lane_mapping": "lane l → column j = tile_x_base + l (one pixel per lane per q-pixel, 2 q-pixels per lane)",
+
+    "gaussian_evaluation": {
+      "recomputed": true,
+      "function": "eval_gaussian_weight(conic, dx, dy, opac) at RasterizeToPixels3DGSDevice.cuh:44-55",
+      "sigma": "0.5 * (conic.x*dx^2 + conic.z*dy^2) + conic.y*dx*dy (FP32, full conic, not Cholesky)",
+      "exp_implementation": "__expf(-sigma) — CUDA fast FP32 exponential (MUFU.EX2 via __expf intrinsic)",
+      "alpha": "min(MAX_ALPHA=0.99, opac * vis)",
+      "valid": "!(sigma < 0 || alpha < ALPHA_THRESHOLD=1/255)",
+      "note": "Backward uses full FP32 conic (A,B,C form), NOT the half2 Cholesky form used by forward. Different numerical path but same mathematical quantity."
+    },
+
+    "lockstep": {
+      "mechanism": "All 256/PX = 128 threads (4 warps) in the CTA iterate the same gaussian at index t (batched via smem). Each thread evaluates the gaussian at its own pixel(s). Warp reduction (cg::reduce warpSum) then atomicAdd scatters to global.",
+      "same_gaussian_across_warp": true,
+      "proof": "HigsNativeBackward.cu:468 (for t loop): conic_batch[t], xy_opacity_batch[t], rgbs_batch[t*CDIM] are indexed by t which is identical for all threads in the CTA. The per-pixel variation is only in px[q], py[q] (thread-specific pixel coords).",
+      "source_lines": "HigsNativeBackward.cu:446-583 (px kernel main loop), 468 (t loop), 485-489 (per-q eval with same conic_batch[t])"
+    },
+
+    "gradient_scatter": {
+      "warp_reduction": "warpSum(v_rgb_local, warp) + warpSum(v_conic_local, warp) + warpSum(v_xy_local, warp) + warpSum(v_opacity_local, warp) via cooperative_groups::reduce",
+      "atomic_scatter": "warp.thread_rank()==0 does atomicAdd to v_colors[g*3+k], v_conics[3g+k], v_means2d[2g+k], v_opacities[g] (lines 558-581)",
+      "scatter_type": "gather (per-pixel) → warp reduce → single atomicAdd per gaussian per warp per iteration",
+      "note": "NOT a per-pixel scatter. The warp reduction collapses 32 pixel contributions into one set of gradient values per gaussian, then a single lane does the atomic."
+    }
+  },
+
+  "shared_memory_gaussian_data": {
+    "forward": {
+      "smem_xy_mt": "__half2 per gaussian [FUSED_GAUSS_BATCH_SIZE=1024] — gaussian position in tile units relative to macro-tile center",
+      "smem_conic_raw": "uint2 per gaussian [1024] — 4x half: {l00, l10, l11, -log2(opac)} scaled by CHOL_SCALE",
+      "smem_color": "ushort4 per gaussian [1024] — 4x fp16: {R, G, B, _} packed from [N,4] half layout",
+      "smem_masks": "uint32 per (mini_batch, tile) [32*32=1024] — per-tile gaussian overlap masks",
+      "total_bytes": "1024*(2+4+4) + 1024*4 + 34*4 + 4 = 12288 + 4096 + 136 + 4 = 16524 bytes",
+      "loading": "Phase 1: lane j loads gaussian j from global (means2d, conics) → smem. Colors: full CTA strided load (threadIdx.x, stride blockDim.x).",
+      "per_gaussian_size_bytes": 10,
+      "can_add_k_exp_dd": {
+        "feasible": true,
+        "analysis": "Add 2 bytes (one half) per gaussian to smem_conic_raw (make it uint3) or add a separate __half[1024] array. Total additional: 2048 bytes. Total smem: 16524+2048 = 18572 bytes. Well within 100KB shared memory limit (sm_80). The k=exp(dd) value is per-gaussian, computed once in Phase 1 (same location where conic and -log2(opac) are already computed), and read once per gaussian in Phase 2 rasterizeGaussian. No additional global memory traffic — dd is already in registers during Phase 1 conic processing.",
+        "additional_global_traffic": 0,
+        "additional_smem_bytes": 2048,
+        "smem_headroom": "18572 bytes << 102400 bytes (sm_80 max per CTA)"
+      }
+    },
+    "backward": {
+      "smem_layout": "id_batch[block_size] + xy_opacity_batch[block_size] + conic_batch[block_size] + rgbs_batch[block_size*CDIM]",
+      "block_size": "128 (for PX=2, tile_size=16: 256/2=128 threads)",
+      "per_gaussian_bytes": "4 (id) + 12 (xy_opacity vec3) + 12 (conic vec3) + 12 (rgb float[3]) = 40",
+      "total_smem_per_batch": "128 * 40 = 5120 bytes",
+      "loading": "Each thread loads 1 gaussian from global (flatten_ids, means2d, conics, opacities, colors) into smem. block.sync() before processing.",
+      "can_add_k_exp_dd": {
+        "feasible": true,
+        "analysis": "Add a float[128] k_batch array (512 bytes) or float[2] per gaussian packed into xy_opacity. dd comes from the depth buffer (or can be computed from conic/means). Additional global traffic: 1 float per gaussian per batch load. smem: +512 bytes (negligible).",
+        "additional_smem_bytes": 512
+      }
+    }
+  },
+
+  "lockstep_analysis": {
+    "forward_tile16": {
+      "GAUSS_PER_WARP": 1,
+      "lockstep_mechanism": "All 32 lanes in a warp read the same b_idx[i] from warp_queue (uniform LDS). rasterizeGaussian is called with identical gaussian index but per-lane pixel coordinates (px, py). No per-lane divergence in gaussian selection.",
+      "f_lockstep_4": 1.0,
+      "f_lockstep_8": 1.0,
+      "f_lockstep_16": 1.0,
+      "proof": "MacroTileRasterize.cu:554-559 — b_idx loaded via uint4 LDS (4x uint16) from warp_queue[base+q]. All 32 lanes execute the same LDG → same b_idx values → same gaussian index. The per-lane variation is ONLY in the pixel coordinates (offset_x, offset_y derived from lane_id). No __shfl, no per-lane branch on gaussian selection.",
+      "divergence_sources": [
+        "Early exit (tile_done == DONE_MASK): when ALL lanes saturate, the warp breaks. Before that, all lanes process the same gaussians. Partial saturation (some pixels done, some not) does NOT cause per-lane divergence in gaussian processing — the done mask only triggers exit when ALL pixels in ALL pairs are done for ALL lanes.",
+        "Alpha threshold (ok_mask): sub-threshold pixels get alpha=0 but still participate in the FMA (contributing 0). No branch divergence."
+      ],
+      "conclusion": "f_lockstep = 1.0 for all W ∈ {4, 8, 16}. Every iteration of the drain loop processes the same gaussian across all 32 lanes."
+    },
+    "backward_px2": {
+      "lockstep_mechanism": "All 128 threads (4 warps) in the CTA iterate the same gaussian at index t. conic_batch[t], xy_opacity_batch[t], rgbs_batch[t*3] are shared (smem), indexed by the same t for all threads. Per-thread variation is only in pixel coordinates (px[q], py[q]).",
+      "f_lockstep_4": 1.0,
+      "f_lockstep_8": 1.0,
+      "f_lockstep_16": 1.0,
+      "proof": "HigsNativeBackward.cu:468 (for t loop) — t is the loop variable, identical for all threads. Lines 485-489: conic_batch[t], xy_opacity_batch[t] are smem loads with uniform index t. Lines 489: eval_gaussian_weight called with same conic/opac but per-pixel delta. No per-lane branch on gaussian index.",
+      "divergence_sources": [
+        "valid[q] per-pixel: some pixels may be invalid (outside image, or gaussian below threshold). But the t loop continues for all threads — invalid pixels just contribute 0 to the warp reduction. No early exit per-lane within the t loop.",
+        "warp.any(valid) check (line 486/546): if ALL lanes in a warp are invalid, the iteration is skipped (continue). But this is warp-uniform — all lanes skip together. No per-lane divergence."
+      ],
+      "conclusion": "f_lockstep = 1.0 for all W ∈ {4, 8, 16}. Every iteration of the t loop processes the same gaussian across all threads in the CTA (and thus all lanes in any warp)."
+    },
+    "forward_backward_mapping_compatibility": {
+      "same_thread_pixel_mapping": false,
+      "explanation": "Forward: lane l → (x=l%16, y=l/16) within a 16x16 tile, each lane covers 8 pixel rows (pairs). Backward PX=2: warp w, lane l → column j=l, rows {2w, 2w+1, 2w+8, 2w+9}. Different mapping. However, this does NOT affect lockstep — both are 'same gaussian across all lanes' patterns.",
+      "qscan_compatibility": "QSCAN can reuse the same subgroup mapping in both forward and backward because the lockstep property (same gaussian index across lanes) is identical. The per-lane pixel coordinate mapping differs, but QSCAN operates on the gaussian-level reduction (k=exp(dd) per gaussian), not the per-pixel coordinate."
+    }
+  },
+
+  "qscan_feasibility": {
+    "forward": "QSCAN4/8/16 all have f_lockstep=1.0. QSCAN can be applied at any subgroup width. The per-gaussian k=exp(dd) can be cooperatively loaded to smem in Phase 1 (alongside conic, xy, color) with zero additional global traffic.",
+    "backward": "QSCAN4/8/16 all have f_lockstep=1.0. Same cooperative load pattern applies in the backward batch load phase.",
+    "max_w": 16,
+    "recommended_w": 16,
+    "reasoning": "Since f_lockstep=1.0 for all widths, the maximum W=16 is feasible. W=16 gives the best amortization of the per-gaussian k load across 16 lanes. The subgroup mapping is compatible between forward and backward."
+  }
+}

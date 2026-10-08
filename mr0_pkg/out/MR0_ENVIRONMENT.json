@@ -1,0 +1,70 @@
+{
+  "no_local_gpu": true,
+  "remote_host": "EPIC-05 (ssh EPIC-05, 8x A100-SXM4-80GB)",
+  "gpus_used": [
+    "0",
+    "1",
+    "2",
+    "6",
+    "7"
+  ],
+  "python": "3.10.21",
+  "torch": "2.9.1+cu128",
+  "phase_frac_of_wall": {
+    "room@10000": {
+      "camera": 0.06618154267640343,
+      "forward": 0.22135111731791846,
+      "l1": 0.012755522699447365,
+      "ssim": 0.01861074996279817,
+      "backward": 0.5340502503392758,
+      "optimizer": 0.1382677067087548
+    },
+    "room@15000": {
+      "camera": 0.06989192462038156,
+      "forward": 0.2122035943033941,
+      "l1": 0.012355409508701313,
+      "ssim": 0.017960844951027254,
+      "backward": 0.5245705110325253,
+      "optimizer": 0.15544610533966524
+    },
+    "bicycle@10000": {
+      "camera": 0.03957419063091352,
+      "forward": 0.18368909595629254,
+      "l1": 0.007454232843505463,
+      "ssim": 0.010861324384045629,
+      "backward": 0.4550580138321035,
+      "optimizer": 0.29926922741358225
+    },
+    "bicycle@15000": {
+      "camera": 0.03407413558229238,
+      "forward": 0.1808949086376059,
+      "l1": 0.00672981800665412,
+      "ssim": 0.009747673522733823,
+      "backward": 0.43719556659742,
+      "optimizer": 0.32766284541327245
+    }
+  },
+  "proxies_and_subsamples": {
+    "n_groups": 512,
+    "K_values": [
+      "4",
+      "8",
+      "16"
+    ],
+    "coverage_levels": [
+      0.25,
+      0.5,
+      0.75
+    ],
+    "n_fit_steps": 6,
+    "n_fit_cameras": 8,
+    "fit_cam_selection": "per-group highest precomputed visibility TRAIN cams (prereg sec.4)",
+    "n_vis_cams_construction": 32,
+    "n_isect_reduction_sample_groups": 128,
+    "n_isect_reduction_cams": 4,
+    "intersection_reduction_units": "tile-gaussian intersection pairs (a0 capture patch); group and macro both tile-based",
+    "response_perturbations": 12,
+    "response_estimator": "forward finite differences in fit; exact autograd for the target",
+    "note": "no local GPU; remote A100 only; no full training; optimization allowed to be expensive per prereg"
+  }
+}

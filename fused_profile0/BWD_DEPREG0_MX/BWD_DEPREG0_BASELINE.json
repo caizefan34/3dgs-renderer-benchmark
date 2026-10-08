@@ -1,0 +1,54 @@
+{
+  "schema": "BWD_DEPREG0_BASELINE",
+  "date": "2026-10-07",
+  "lane": "BWD-DEPREG0-MX",
+  "environment": {
+    "hardware": "MX A100-PCIE-40GB",
+    "gpu_uuid": "84d2099e-9223-fb5f-f807-20e9932d07e0",
+    "compute_capability": "8.0",
+    "python": "/mnt/storage_pool/liaoyuanjun/higs-13scene-env/bin/python3.10",
+    "torch": "2.9.1+cu128",
+    "cuda_runtime": "12.8",
+    "torch_cuda": "12.8",
+    "nvcc_path_used_for_build": "/mnt/storage_pool/liaoyuanjun/higs-13scene-env/bin/nvcc (CUDA 12.8 toolchain)",
+    "nvcc_system_fallback": "V11.5.119 (system nvcc, NOT used for timed .so builds)",
+    "driver": "595.71.05",
+    "module": "_C_depreg0",
+    "scenes": [
+      "room",
+      "bicycle",
+      "garden"
+    ],
+    "view": 0,
+    "warmup": 50,
+    "iters": 100,
+    "timing": "CUDA events; explicit sync outside measured interval"
+  },
+  "baseline_kernel": "blend_backward_cu (faster_gs::rasterization::kernels::backward)",
+  "R0_backward_min_ms": {
+    "room": 2.7914,
+    "bicycle": 11.0356,
+    "garden": 3.8062
+  },
+  "R0_backward_median_ms": {
+    "room": 4.5425,
+    "bicycle": 14.763,
+    "garden": 5.0647
+  },
+  "R0_forward_min_ms": {
+    "room": 2.7802,
+    "bicycle": 7.4783,
+    "garden": 2.7085
+  },
+  "R0_forward_median_ms": {
+    "room": 3.6956,
+    "bicycle": 9.0204,
+    "garden": 3.3597
+  },
+  "N_interactions_view0": {
+    "room": 1027092,
+    "bicycle": 4430283,
+    "garden": 3104845
+  },
+  "note": "bwd_min is the contention-robust floor used for cross-scene ratios; bwd_median is inflated by foreign/root jobs on the shared MX host."
+}

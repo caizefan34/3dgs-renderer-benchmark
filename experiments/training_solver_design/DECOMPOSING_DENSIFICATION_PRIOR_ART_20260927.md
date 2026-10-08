@@ -1,0 +1,9 @@
+# Decomposing Densification: prior-art and protocol screen (2026-09-27)
+
+Primary source: [Huang, Liu, Wong, arXiv:2507.20239v1](https://arxiv.org/html/2507.20239). This is a literature screen, not a reproduction.
+
+The paper already separates early split-driven spatial spread from later clone-driven local refinement, pairs it with energy-guided coarse-to-fine **image-resolution** training, and uses adaptive opacity pruning. Thus early split-only/later clone scheduling plus fewer Gaussian primitives is occupied prior art. Its published speed path explicitly depends in part on downsampled early supervision, outside this project's every-step full-effective-resolution constraint. Its RTX 3090 30K minutes are not directly comparable with our A100 complete-process wall clock.
+
+The paper's Table 4 Mip-NeRF 360 ablation gives `3DGS-accel` 11.18 min / 27.57 PSNR / .8213 SSIM / .2095 LPIPS, `+G2L` 8.46 / 27.47 / .8066 / .2235, and full method 5.33 / 27.79 / .8257 / .2136. G2L alone loses all three quality metrics. The full method is faster with PSNR and SSIM higher, but LPIPS worse by .0041; it fails this project's three-metric noninferiority condition even against that paper's own acceleration baseline. Table 2 similarly shows full LPIPS worse than `3DGS-accel` on all three dataset aggregates. Some hyperparameter rows trade time and LPIPS differently, but they retain coarse-to-fine resolution and are not matched FastGS-Big/ACE-GS protocol results.
+
+Decision: do not present phase-separated split/clone, energy-guided low-resolution stages, or adaptive opacity percentile pruning as a new full-resolution quality-and-cost mechanism, and do not hand Luna a renamed replication arm. This screen does not show that every full-resolution phase policy must fail; it limits what may be claimed original and identifies an observed quality tradeoff. No author code availability or same-hardware result was verified here.

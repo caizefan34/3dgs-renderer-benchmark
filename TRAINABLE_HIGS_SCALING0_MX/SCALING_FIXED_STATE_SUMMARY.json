@@ -1,0 +1,274 @@
+{
+  "schema_version": 1,
+  "status": "DERIVED_FROM_EXISTING_EVIDENCE",
+  "source": "reports/higs-trainability-implementation.md rounds 1-27, benchmark results on EPIC-05 A100",
+  "measurement_config": {
+    "resolution": "960x540 (16:9)",
+    "n_train": 4,
+    "n_eval": 3,
+    "steps": 20,
+    "densify_every": 0,
+    "warmup": "implicit in benchmark loop",
+    "backends": ["std", "higs_native"],
+    "notes": "Frozen topology; measurements are means over 20 steps"
+  },
+  "workload_points": {
+    "tanks_and_temples_train_LOW_N": {
+      "N_gaussians": 1026508,
+      "resolution": "960x540",
+      "pixels": 518400,
+      "camera_batch": 4,
+      "culling_ratio": 0.151,
+      "n_visible_avg": 871504,
+      "std": {
+        "fwd_ms": 8.16,
+        "bwd_ms": 14.20,
+        "total_ms": 22.55,
+        "train_ms": 24.2,
+        "peak_vram_gb": 3.22
+      },
+      "higs_native": {
+        "fwd_ms": 7.02,
+        "bwd_ms": 11.84,
+        "total_ms": 19.03,
+        "train_ms": 20.8,
+        "peak_vram_gb": 3.18
+      },
+      "speedup_ratios": {
+        "S_forward": 1.16,
+        "S_backward": 1.20,
+        "S_FB": 1.18,
+        "S_train": 1.16,
+        "notes": "HiGS faster across all metrics; -15.6% total, -13.9% train"
+      },
+      "quality": {
+        "PSNR_std": 19.24,
+        "PSNR_higs": 19.25,
+        "SSIM_std": 0.6762,
+        "SSIM_higs": 0.6763,
+        "LPIPS_std": 0.2967,
+        "LPIPS_higs": 0.2964,
+        "notes": "Quality parity within noise"
+      }
+    },
+    "mipnerf360_bicycle_HIGH_N": {
+      "N_gaussians": 6131954,
+      "resolution": "960x540",
+      "pixels": 518400,
+      "camera_batch": 4,
+      "culling_ratio": 0.629,
+      "n_visible_avg": 2274065,
+      "std": {
+        "fwd_ms": 17.92,
+        "bwd_ms": 32.81,
+        "total_ms": 50.94,
+        "train_ms": 58.3,
+        "peak_vram_gb": 10.39
+      },
+      "higs_native": {
+        "fwd_ms": 17.27,
+        "bwd_ms": 26.61,
+        "total_ms": 44.05,
+        "train_ms": 51.5,
+        "peak_vram_gb": 11.14
+      },
+      "speedup_ratios": {
+        "S_forward": 1.04,
+        "S_backward": 1.23,
+        "S_FB": 1.16,
+        "S_train": 1.13,
+        "notes": "HiGS faster; -13.5% total, -11.8% train; forward near parity, backward -18.9%"
+      },
+      "quality": {
+        "PSNR_std": 17.28,
+        "PSNR_higs": 17.28,
+        "SSIM_std": 0.4480,
+        "SSIM_higs": 0.4479,
+        "LPIPS_std": 0.4291,
+        "LPIPS_higs": 0.4288,
+        "notes": "Quality parity within noise"
+      },
+      "high_res_1080p": {
+        "resolution": "1920x1080",
+        "std": {
+          "fwd_ms": 27.9,
+          "bwd_ms": 51.6,
+          "total_ms": 79.9,
+          "train_ms": 87.4,
+          "peak_vram_gb": 10.89
+        },
+        "higs_native": {
+          "fwd_ms": 26.3,
+          "bwd_ms": 42.6,
+          "total_ms": 69.4,
+          "train_ms": 77.5,
+          "peak_vram_gb": 11.67
+        },
+        "speedup_ratios": {
+          "S_forward": 1.06,
+          "S_backward": 1.21,
+          "S_FB": 1.15,
+          "S_train": 1.13,
+          "notes": "-13.1% total, -11.3% train at 1080p"
+        }
+      }
+    }
+  },
+  "camera_batch_scaling": {
+    "bicycle_1080p_B1": {
+      "N_gaussians": 6131954,
+      "resolution": "1920x1080",
+      "camera_batch": 1,
+      "std": {
+        "fwd_ms": 7.7,
+        "bwd_ms": 13.4,
+        "total_ms": 21.3,
+        "train_ms": 29.7
+      },
+      "higs_native": {
+        "fwd_ms": 7.5,
+        "bwd_ms": 11.0,
+        "total_ms": 18.6,
+        "train_ms": 26.1
+      },
+      "speedup_ratios": {
+        "S_forward": 1.03,
+        "S_backward": 1.22,
+        "S_FB": 1.15,
+        "S_train": 1.14,
+        "notes": "Speedup holds at B=1; -12.7% total, -12.1% train"
+      }
+    },
+    "bicycle_1080p_B4": {
+      "N_gaussians": 6131954,
+      "resolution": "1920x1080",
+      "camera_batch": 4,
+      "std": {
+        "fwd_ms": 27.7,
+        "bwd_ms": 51.6,
+        "total_ms": 79.7,
+        "train_ms": 88.3
+      },
+      "higs_native": {
+        "fwd_ms": 26.4,
+        "bwd_ms": 42.7,
+        "total_ms": 70.0,
+        "train_ms": 77.5
+      },
+      "speedup_ratios": {
+        "S_forward": 1.05,
+        "S_backward": 1.21,
+        "S_FB": 1.14,
+        "S_train": 1.14,
+        "notes": "Similar speedup at B=4; -12.2% total, -12.2% train"
+      }
+    }
+  },
+  "scaling_analysis": {
+    "vs_gaussian_count": {
+      "LOW_N_1.03M": {
+        "S_FB": 1.18,
+        "S_train": 1.16
+      },
+      "HIGH_N_6.13M": {
+        "S_FB": 1.16,
+        "S_train": 1.13
+      },
+      "trend": "FLAT (slight decrease at higher N; -2% total speedup)",
+      "interpretation": "Speedup does NOT increase with N; consistent across LOW and HIGH"
+    },
+    "vs_resolution": {
+      "res_540p": {
+        "S_FB": 1.16,
+        "S_train": 1.13
+      },
+      "res_1080p": {
+        "S_FB": 1.15,
+        "S_train": 1.13
+      },
+      "trend": "FLAT (slight decrease at higher res; -1% total speedup)",
+      "interpretation": "Speedup does NOT increase with resolution"
+    },
+    "vs_camera_batch": {
+      "B1": {
+        "S_FB": 1.15,
+        "S_train": 1.14
+      },
+      "B4": {
+        "S_FB": 1.14,
+        "S_train": 1.14
+      },
+      "trend": "FLAT",
+      "interpretation": "Speedup consistent across batch sizes"
+    },
+    "vs_culling_ratio": {
+      "LOW_cull_15.1pct": {
+        "S_FB": 1.18,
+        "S_train": 1.16
+      },
+      "HIGH_cull_62.9pct": {
+        "S_FB": 1.16,
+        "S_train": 1.13
+      },
+      "trend": "WEAK_NEGATIVE (speedup slightly lower with higher culling)",
+      "interpretation": "Contradicts H4 (culling-dependent); higher culling does NOT increase speedup"
+    }
+  },
+  "backward_analysis": {
+    "std_backward_components": {
+      "blend_bwd": "19.1-19.2 ms (bicycle, 960x540)",
+      "sh_vjp": "4.89 ms",
+      "projection_vjp": "1.6 ms",
+      "indexing_backward": "~9.8 ms (gather/scatter for visible subset)",
+      "total": "32.81 ms (bicycle)"
+    },
+    "higs_native_backward_components": {
+      "blend_bwd": "19.1 ms (same algorithm, same isects)",
+      "sh_vjp": "5.96-6.0 ms",
+      "projection_vjp": "2.0 ms",
+      "scatter_optimization": "Direct to master rows (no index_copy_)",
+      "total": "26.61 ms (bicycle)"
+    },
+    "speedup_source": {
+      "primary": "Elimination of std's indexing_backward (~9.8 ms) and visible-subset gather costs",
+      "secondary": "Native backward kernels avoid pipeline re-execution (vs gsplat_recompute)",
+      "tertiary": "Small kernel-level improvements (SH VJP, projection VJP optimization rounds 8, 13, 25)",
+      "not_from": "Culling does NOT reduce blend_bwd work (culled Gaussians generate zero isects anyway)"
+    }
+  },
+  "forward_analysis": {
+    "std_forward": {
+      "projection": "fully_fused_projection over all N",
+      "rasterize": "isect_tiles + rasterize_to_pixels_3dgs_blend",
+      "cost": "17.92 ms (bicycle, 960x540)"
+    },
+    "higs_forward": {
+      "culling_projection": "fully_fused_projection over all N (batched, ~2.3 ms)",
+      "visible_subset_projection": "Second projection over visible subset (~0.6 ms)",
+      "gather": "Native gather kernel (~0.9 ms for visible subset)",
+      "rasterize": "isect_tiles + rasterize_to_pixels_3dgs_blend over visible subset",
+      "culling_mask": "Union visibility mask computation (~0.14 ms after fused mask optimization)",
+      "total": "17.27 ms (bicycle, 960x540)"
+    },
+    "speedup_source": {
+      "primary": "Native gather kernel avoids PyTorch's pathological index_select for wide rows",
+      "secondary": "Fused union visibility mask eliminates double reduction",
+      "neutral": "Visible-subset raster saves ~10.4 ms but gather+2nd projection costs ~11.8 ms (net ~parity)",
+      "conclusion": "Forward is near parity; the win is almost entirely from backward"
+    }
+  },
+  "key_findings": {
+    "H1_scaling": "NOT_SUPPORTED - Speedup does not increase with workload (N, resolution, batch)",
+    "H2_backward_dominates": "SUPPORTED - Backward provides the speedup; forward is at parity",
+    "H3_topology_overhead": "NOT_APPLICABLE - This is frozen-topology benchmark",
+    "H4_culling_dependent": "WEAKLY_REFUTED - Higher culling does not increase speedup",
+    "H5_fixed_vs_dynamic": "NOT_TESTED - Requires dynamic-topology benchmark",
+    "H6_protocol_mismatch": "REFUTED - Identical protocol; correctness verified"
+  },
+  "overall_conclusion": {
+    "primary_finding": "Trainable HiGS native provides consistent ~13-16% training speedup (S_FB ~1.16-1.18x) across LOW and HIGH workload, but speedup does NOT increase with scale",
+    "mechanism": "Speedup comes from backward (elimination of indexing_backward + native kernels), not from forward culling or hierarchical rendering",
+    "scaling_behavior": "FLAT - speedup is workload-independent in the tested range (1M-6M Gaussians, 540p-1080p, B1-B4)",
+    "implication": "H1 (increasing benefit with scale) is NOT supported by evidence; HiGS advantage is architectural (backward efficiency) rather than scaling-dependent"
+  }
+}

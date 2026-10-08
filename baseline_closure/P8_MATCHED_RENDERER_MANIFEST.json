@@ -1,0 +1,145 @@
+{
+  "artifact": "P8_MATCHED_RENDERER_MANIFEST",
+  "stage": "P8",
+  "date": "2026-09-25",
+  "status": "PREPARED_NOT_LAUNCHED",
+  "launch_gate": {
+    "blocked_by": "P7 residual attribution closure (other DSH)",
+    "rule": "Do not launch any P8 run, and do not occupy any GPU P7 is using, until P7 is confirmed complete. After that, the clean-GPU scheduler convention (two scans >=120s apart, zero processes, <500 MiB) governs GPU selection, with sticky contamination flags and per-run nvidia-smi snapshots (harness/final30k/capture_provenance.py).",
+    "cohort": "All P8 arms on ONE hardware cohort and the frozen higs-13scene-env (torch 2.9.1+cu128, nvcc 12.8.93, sm_80). Never mix cohorts (docs/hardware.md, SKILL.md section 24)."
+  },
+  "freeze_reference": "baseline_closure/BASELINE_FREEZE.json (2026-09-25)",
+  "dataset": {
+    "scenes": "canonical 13-scene layout via baseline_closure/adapters/dataset_adapter.py (mipnerf360 x9, tanksandtemples x2, deepblending x2)",
+    "split": "official --eval train/test split (data/datasets/official_training_datasets.json)",
+    "final_eval": "FINAL-30K convention: all cameras at iteration 30000",
+    "resolution": "GTDataset resolution='1080p' (target 1920x1080, benchmark_framework.resize_cameras); per-scene effective sizes recorded in provenance"
+  },
+  "matched_protocol_constants": {
+    "iterations": 30000,
+    "seed": 42,
+    "camera_sequence": "frozen per-run camera_sequence.npy (rng = random.Random(42), identical across arms; hash recorded in provenance)",
+    "loss": "0.8*L1 + 0.2*(1-SepSSIM) (window 11, sigma 1.5)",
+    "densification": {
+      "from_until": [500, 15000],
+      "interval": 100,
+      "statistic": "absgrad (per-gaussian absolute 2D position gradient), threshold 0.0008",
+      "percent_dense": 0.01,
+      "min_opacity_prune": 0.005,
+      "max_screen_size": 20,
+      "opacity_reset_interval": 3000,
+      "sh_progress_interval": 1000
+    },
+    "optimizer": "Adam eps=1e-15 (lr=0 groups); xyz expon 1.6e-4 -> 1.6e-6 (delay_mult 0.01, max_steps 30000, scaled by cameras_extent); f_dc 2.5e-3; f_rest 2.5e-3/20; opacity 2.5e-2; scaling 5e-3; rotation 1e-3",
+    "tile_size": 16,
+    "eval_metrics": ["psnr", "ssim", "lpips"],
+    "eval_iterations": [500, 1000, 2000, 5000, 10000, 15000, 20000, 25000, 30000],
+    "source": "baseline/reference_v1/config.py (REFERENCE_V1_ABSGRAD) + scripts/final30k/final30k_trainer.py"
+  },
+  "controls": ["scene_split", "iterations_30k", "image_resolution_1080p", "loss_definition", "camera_sequence", "optimizer", "densification_protocol", "seed_42", "eval_metrics", "eps2d_to_max_technical_extent"],
+  "arms": {
+    "gsplat_main": {
+      "source_commit": "512d366b67073d77ca099ede742683c165dfc23b",
+      "role": "modern library baseline under the matched trainer",
+      "wrapper": "publication_trainer.py new arm wrapping rasterization() (eps2d=0.1, absgrad=True, tile_size=16, packed=False, rasterize_mode='classic')",
+      "eps2d": 0.1,
+      "label_if_gates_pass": "MATCHED_RENDERER",
+      "disclosed_deviations": [],
+      "pre_gates": ["G1_integration_smoke", "G4_build_identity"]
+    },
+    "b1a": {
+      "source_commit": "gsplat v1.5.3 + true AccuTile (frozen source tree /mnt/storage_pool/liaoyuanjun/gsplat-true-accutile-v153)",
+      "binary_sha256": "0471fbd95cae4cfa658bc1e2e3f7abe801c6f58a36a2e681a6d16af84279986b",
+      "role": "FINAL-30K baseline reference arm",
+      "eps2d": 0.1,
+      "label_if_gates_pass": "MATCHED_RENDERER (frozen recipe; eps2d asymmetry vs c0/a0 disclosed per P4)",
+      "disclosed_deviations": ["eps2d=0.1 vs c0/a0 0.3 (P4 MATERIAL_CONFOUND disclosure travels with every table)"],
+      "pre_gates": ["G4_build_identity (verify binary SHA unchanged)"]
+    },
+    "a0": {
+      "source_commit": "HiGS frozen worktree (/mnt/storage_pool/liaoyuanjun/higs_c0_final30k_worktree)",
+      "binary_sha256": "9baf8655f859f3e0f456e99a2d8e5b3ddfe414fe17a1a3e9d8072e0afed95b91",
+      "env_switch": "HIGS_DISABLE_F9=1, scalar-adjoint off, H8-MR off",
+      "role": "internal parent arm (ablation anchor)",
+      "eps2d": 0.3,
+      "label_if_gates_pass": "MATCHED_RENDERER (frozen recipe)",
+      "disclosed_deviations": ["eps2d=0.3 vs b1a 0.1 (P4 disclosure)"],
+      "pre_gates": ["G4_build_identity (verify binary SHA unchanged)"]
+    },
+    "c0": {
+      "source_commit": "HiGS frozen worktree (same binary as a0)",
+      "binary_sha256": "9baf8655f859f3e0f456e99a2d8e5b3ddfe414fe17a1a3e9d8072e0afed95b91",
+      "env_switch": "F9 + SCALAR_ADJOINT + H8-MR on, PX=2, HIGS_BWD_ABSGRAD=1, backward_mode=higs_native",
+      "role": "frozen FINAL method arm",
+      "eps2d": 0.3,
+      "label_if_gates_pass": "MATCHED_RENDERER (frozen recipe)",
+      "disclosed_deviations": ["eps2d=0.3 vs b1a 0.1 (P4 disclosure)"],
+      "pre_gates": ["G4_build_identity (verify binary SHA unchanged)"]
+    },
+    "b0": {
+      "source_commit": "54c035f7834b564019656c3e3fcc3646292f727d (+ submodules per BASELINE_FREEZE)",
+      "role": "original method, external scientific reference",
+      "wrapper": "P1-validated publication_trainer arm (make_publication_trainer.py P1-P20 fixes) + patches/original-3dgs-seed.patch (--seed 42)",
+      "eps2d": "graphdeco-form: hardcoded cov-diag +0.3 (non-parameterizable)",
+      "label_if_gates_pass": "MATCHED_RENDERER_WITH_DISCLOSURE",
+      "disclosed_deviations": [
+        "densification statistic is the ORIGINAL method's (signed-grad L2-norm >= 2e-4), not absgrad 8e-4 - forcing absgrad on B0 would not be B0 (wrapper policy, reports/publication/matched-baselines.md)",
+        "2D filter form: cov-diag +0.3 hardcoded (irreducible API difference vs gsplat-family arms)"
+      ],
+      "pre_gates": ["G3_b0_wrapper_resmoke", "G4_build_identity"]
+    },
+    "taming_rasterizer": {
+      "source_commit": "1207926e75a601c5d5134ae60c988340ea5c23d0 (branch rasterizer)",
+      "role": "Taming 3DGS drop-in exact rasterizer under the matched trainer (densification scheme NOT part of this branch)",
+      "wrapper": "new publication_trainer arm; API adapter for separate dc/sh channels, extra outputs (num_rendered, bucket_sum), sample-state buffers; dense default optimizer ONLY (sparse_adam excluded - not numerically equivalent)",
+      "eps2d": "graphdeco-form: hardcoded cov-diag +0.3 (non-parameterizable)",
+      "label_if_gates_pass": "MATCHED_RENDERER_WITH_DISCLOSURE",
+      "disclosed_deviations": [
+        "2D filter form: cov-diag +0.3 hardcoded",
+        "quaternion normalization removed in forward + dnormvdv commented out in backward (authors claim numerical equivalence; verified by G2, never assumed)"
+      ],
+      "pre_gates": ["G2_exactness_gate", "G1_integration_smoke", "G4_build_identity"]
+    }
+  },
+  "control_matrix": {
+    "comment": "CONTROLLED = identical across arms. DEVIATION(disclosed) = differs, irreducible, disclosure mandatory. An arm with any DEVIATION never carries the strict MATCHED_RENDERER label.",
+    "scene_split": {"gsplat_main": "CONTROLLED", "b1a": "CONTROLLED", "a0": "CONTROLLED", "c0": "CONTROLLED", "b0": "CONTROLLED", "taming_rasterizer": "CONTROLLED"},
+    "iterations_30k": {"gsplat_main": "CONTROLLED", "b1a": "CONTROLLED", "a0": "CONTROLLED", "c0": "CONTROLLED", "b0": "CONTROLLED", "taming_rasterizer": "CONTROLLED"},
+    "image_resolution_1080p": {"gsplat_main": "CONTROLLED", "b1a": "CONTROLLED", "a0": "CONTROLLED", "c0": "CONTROLLED", "b0": "CONTROLLED", "taming_rasterizer": "CONTROLLED"},
+    "loss_definition": {"gsplat_main": "CONTROLLED", "b1a": "CONTROLLED", "a0": "CONTROLLED", "c0": "CONTROLLED", "b0": "CONTROLLED", "taming_rasterizer": "CONTROLLED"},
+    "camera_sequence": {"gsplat_main": "CONTROLLED (frozen npy imposed by trainer)", "b1a": "CONTROLLED", "a0": "CONTROLLED", "c0": "CONTROLLED", "b0": "CONTROLLED (P1 mechanism)", "taming_rasterizer": "CONTROLLED (P1 mechanism)"},
+    "optimizer": {"gsplat_main": "CONTROLLED", "b1a": "CONTROLLED", "a0": "CONTROLLED", "c0": "CONTROLLED", "b0": "CONTROLLED", "taming_rasterizer": "CONTROLLED (dense Adam only; sparse_adam forbidden in this arm)"},
+    "densification_protocol": {"gsplat_main": "CONTROLLED (absgrad 8e-4)", "b1a": "CONTROLLED", "a0": "CONTROLLED", "c0": "CONTROLLED", "b0": "DEVIATION(disclosed): original signed-grad 2e-4 statistic", "taming_rasterizer": "CONTROLLED (absgrad 8e-4)"},
+    "seed_42": {"gsplat_main": "CONTROLLED", "b1a": "CONTROLLED", "a0": "CONTROLLED", "c0": "CONTROLLED", "b0": "CONTROLLED (seed patch)", "taming_rasterizer": "CONTROLLED"},
+    "eval_metrics": {"gsplat_main": "CONTROLLED", "b1a": "CONTROLLED", "a0": "CONTROLLED", "c0": "CONTROLLED", "b0": "CONTROLLED", "taming_rasterizer": "CONTROLLED"},
+    "eps2d_to_max_technical_extent": {"gsplat_main": "0.1 (matched to b1a)", "b1a": "0.1 (frozen)", "a0": "0.3 (frozen)", "c0": "0.3 (frozen)", "b0": "cov-diag +0.3 hardcoded (DEVIATION of form, disclosed)", "taming_rasterizer": "cov-diag +0.3 hardcoded (DEVIATION of form, disclosed)"}
+  },
+  "pre_run_gates": {
+    "G1_integration_smoke": "200-iteration trainer smoke, RC=0, densification active (N grows), per arm wrapper (precedent: P1 integration fixes + smoke)",
+    "G2_exactness_gate": "taming_rasterizer only: forward rel-L2 <= 1e-5 AND backward (all parameter gradients incl. quaternion) rel-L2 <= 1e-3 vs the b0 rasterizer on >=15 randomized configs (H8-MR correctness pattern) + 3-scene 200-iter smoke. FAIL => arm excluded from P8 entirely (reclassify, never force).",
+    "G3_b0_wrapper_resmoke": "b0 wrapper re-smoke only if the binary is rebuilt; otherwise P1 evidence stands",
+    "G4_build_identity": "per-arm build identity JSON: source commit SHA, git describe, .so SHA-256, nvcc/torch versions (convention: b1a_accutile_build_identity.json). Frozen binaries must hash-check UNCHANGED.",
+    "G5_camera_sequence_identity": "camera_sequence.npy SHA-256 identical across all arms of a scene pair"
+  },
+  "run_matrix": {
+    "screening": "6 arms x 13 scenes x seed 42 = 78 runs (1-seed screening per statistical protocol)",
+    "confirmatory": "3-seed (42/43/44) only for pairs that will carry winner claims (per SKILL.md statistical protocol)",
+    "scheduling": "file-driven queue via publication_scheduler.py; clean-GPU dynamic selection; sticky contamination flags",
+    "pairing": "paired same-scene runs scheduled adjacently in time (final30k convention: identical seed-42 camera sequence per pair)"
+  },
+  "validation": "Every run must pass: python baseline_closure/BASELINE_VALIDATION.py --run-dir <dir> --manifest baseline_closure/P8_MATCHED_RENDERER_MANIFEST.json --arm <arm> --scene <scene>. Rejections: wrong source commit / wrong binary / wrong scene / wrong resolution / wrong seed / wrong eps2d / wrong iterations / contamination / NaN-Inf / missing final evaluation.",
+  "reporting_rules": [
+    "Every table carries the per-arm label (MATCHED_RENDERER / MATCHED_RENDERER_WITH_DISCLOSURE) and the per-arm eps2d value.",
+    "Any table containing both b1a (0.1) and c0/a0 (0.3) carries the P4 MATERIAL_CONFOUND disclosure sentence verbatim.",
+    "b0 and taming rows never appear in a strict MATCHED_RENDERER comparison without their deviation disclosures attached; no winner claims across label tiers without the disclosure.",
+    "Wall speedups reported as geomean-of-ratios (section 19); per-scene reduction geomean labeled separately; quality deltas described as within-the-matched-benchmark (section 20).",
+    "Final Gaussian count N reported per arm per scene; N ratios geomean labeled separately from wall geomean."
+  ],
+  "prohibited": [
+    "Modifying the C0/A0/B1A frozen binaries or their build inputs",
+    "Redesigning or re-tuning H8 (P10 is port+correctness only, separate manifest)",
+    "Opening new optimization branches during P8",
+    "Launching any run before P7 completion",
+    "Forcing matched controls onto an arm in a way that changes what the arm IS (e.g. absgrad on b0, sparse_adam on taming)"
+  ]
+}

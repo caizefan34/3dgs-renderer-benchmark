@@ -1,0 +1,103 @@
+# R5 Patch: Chunked Intersection Processing
+# 
+# Problem: isect_tiles CUDA kernel pre-allocates N * MAX_INTERSECTIONS_PER_GAUSSIAN
+# Solution: Process Gaussians in chunks to reduce peak memory
+#
+# Location: gaussian_inference.py line 2094
+
+--- a/gsplat/experimental/render/functional/gaussian_inference.py
++++ b/gsplat/experimental/render/functional/gaussian_inference.py
+@@ -2091,6 +2091,45 @@ def _higs_frozen_forward(
+             ctx.tile_mask = mask.reshape(C, tile_height, tile_width)
+             ctx.sampled_tile_ratio = sampled_ratio
+             
++            # R5: Chunked intersection processing to avoid OOM
++            # Estimate if we need chunking based on N
++            N = means2d.shape[-2]
++            CHUNK_THRESHOLD = 1_500_000  # Chunk if N > 1.5M
++            
++            if N > CHUNK_THRESHOLD:
++                # Process in chunks to reduce peak memory
++                chunk_size = CHUNK_THRESHOLD
++                num_chunks = (N + chunk_size - 1) // chunk_size
++                
++                all_tiles_per_gauss = []
++                all_isect_ids = []
++                all_flatten_ids = []
++                
++                for chunk_idx in range(num_chunks):
++                    start_idx = chunk_idx * chunk_size
++                    end_idx = min((chunk_idx + 1) * chunk_size, N)
++                    
++                    # Extract chunk
++                    means2d_chunk = means2d[..., start_idx:end_idx, :]
++                    radii_chunk = radii[..., start_idx:end_idx, :]
++                    depths_chunk = depths[..., start_idx:end_idx]
++                    conics_chunk = conics[..., start_idx:end_idx, :] if conics is not None else None
++                    opacities_chunk = opacities_bc[..., start_idx:end_idx] if opacities_bc is not None else None
++                    
++                    # Call isect_tiles on chunk
++                    tiles_per_gauss_chunk, isect_ids_chunk, flatten_ids_chunk = isect_tiles(
++                        means2d_chunk,
++                        radii_chunk,
++                        depths_chunk,
++                        tile_size,
++                        tile_width,
++                        tile_height,
++                        packed=False,
++                        n_images=C,
++                        image_ids=None,
++                        gaussian_ids=None,
++                        conics=conics_chunk,
++                        opacities=opacities_chunk,
++                        tile_mask=ctx.tile_mask if sampled_ratio < 1.0 else None,
++                    )
++                    
++                    all_tiles_per_gauss.append(tiles_per_gauss_chunk)
++                    all_isect_ids.append(isect_ids_chunk)
++                    all_flatten_ids.append(flatten_ids_chunk)
++                
++                # Concatenate results
++                tiles_per_gauss = torch.cat(all_tiles_per_gauss, dim=-2)
++                isect_ids = torch.cat(all_isect_ids, dim=0)
++                flatten_ids = torch.cat(all_flatten_ids, dim=0)
++            else:
++                # Original path for small N
+-             # Round 38: pass the mask into isect_tiles so the CUDA op restricts
+-             # the per-Gaussian counts AND the emitted isects to the selected
+-             # tiles and sorts only the compacted list (the full-N radix sort
+-             # and the Python-level mask filtering are both removed from the
+-             # sampled path). The mask is computed before the intersection so
+-             # the op never builds the full isect list.
+-             tiles_per_gauss, isect_ids, flatten_ids = isect_tiles(
+-                 means2d,
+-                 radii,
+-                 depths,
+-                 tile_size,
+-                 tile_width,
+-                 tile_height,
+-                 packed=False,
+-                 n_images=C,
+-                 image_ids=None,
+-                 gaussian_ids=None,
+-                 conics=conics,
+-                 opacities=opacities_bc,
+-                 tile_mask=ctx.tile_mask if sampled_ratio < 1.0 else None,
+-             )
++                 tiles_per_gauss, isect_ids, flatten_ids = isect_tiles(
++                     means2d,
++                     radii,
++                     depths,
++                     tile_size,
++                     tile_width,
++                     tile_height,
++                     packed=False,
++                     n_images=C,
++                     image_ids=None,
++                     gaussian_ids=None,
++                     conics=conics,
++                     opacities=opacities_bc,
++                     tile_mask=ctx.tile_mask if sampled_ratio < 1.0 else None,
++                 )
+             
+             ctx.n_isects_sampled = int(isect_ids.numel())

@@ -1,0 +1,59 @@
+{
+  "schema": "FRONTIER_REASSESS0_SFU_AUDIT",
+  "date": "2026-10-07",
+  "kernel": "blend_backward_cu",
+  "method": "cuobjdump --dump-ptx + --dump-sass (sm_80, CUDA 12.8); PTX shows ex2.approx.ftz.f32, SASS counts MUFU opcodes over the full function body.",
+  "compiled_path": {
+    "expf": "ex2.approx.ftz.f32 (MUFU.EX2) + correction polynomial (FADD/FFMA/FMUL) for full precision",
+    "__expf": "ex2.approx.ftz.f32 (MUFU.EX2) only; reduced-range fast intrinsic (~2 ULP rel error)",
+    "exp2f(x*log2e)": "compiles to the SAME bare-EX2 SASS as __expf (NOT the correction-polynomial path) => NOT bit-exact to expf"
+  },
+  "sass_mufu_and_float_counts": {
+    "expf": {
+      "FADD": 38,
+      "FFMA": 121,
+      "FMNMX": 11,
+      "FMUL": 87,
+      "IADD3": 48,
+      "LD": 13,
+      "LDG": 22,
+      "MUFU.EX2": 4,
+      "MUFU.RCP": 9,
+      "RED.E.ADD": 9,
+      "SHFL.UP": 36
+    },
+    "__expf": {
+      "FADD": 34,
+      "FFMA": 105,
+      "FMNMX": 11,
+      "FMUL": 95,
+      "IADD3": 49,
+      "LD": 13,
+      "LDG": 22,
+      "MUFU.EX2": 4,
+      "MUFU.RCP": 9,
+      "RED.E.ADD": 9,
+      "SHFL.UP": 36
+    },
+    "exp2f": {
+      "FADD": 34,
+      "FFMA": 105,
+      "FMNMX": 11,
+      "FMUL": 95,
+      "IADD3": 49,
+      "LD": 13,
+      "LDG": 22,
+      "MUFU.EX2": 4,
+      "MUFU.RCP": 9,
+      "RED.E.ADD": 9,
+      "SHFL.UP": 36
+    }
+  },
+  "key_findings": {
+    "mufu_ex2_invariant": "MUFU.EX2 count identical (9) across expf/__expf/exp2f => the expf->SFU mapping is fixed; no formulation reduces the SFU instruction count.",
+    "float_op_difference": "expf has ~12 more float ops (FADD 38 vs 34, FFMA 121 vs 105) = the correction polynomial; __expf/exp2f drop it (faster but approximate).",
+    "exp2f_not_exact": "exp2f(x*log2e) produces the same bare-EX2 SASS as __expf => it is APPROXIMATE, not bit-exact to expf. Cannot be classified EXACT_PATH."
+  },
+  "registers_spill": "all three variants: 67 registers, 0 spill (clean build, no --use_fast_math)",
+  "tooling_note": "ncu 2021.3.1 incompatible (error 6); nvprof 11.5 too old. Static SASS/PTX used (decisive for instruction-mix audit)."
+}

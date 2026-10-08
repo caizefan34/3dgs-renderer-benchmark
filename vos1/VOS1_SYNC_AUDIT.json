@@ -1,0 +1,23 @@
+{
+  "schema": "VOS1_SYNC_AUDIT/v1",
+  "ordinary_step_host_sync_count": 0,
+  "method": "static + microbench audit of the VOS1 ordinary optimizer step",
+  "vos1_selection_path": "device-side compaction (vos_compact_and_karr); count read from a device pointer; no .item(), no torch.nonzero, no CPU copy, no host sync",
+  "vos0_selection_path": "torch.nonzero + int(active.shape[0]) -> 2 host syncs/step",
+  "per_step_syncs": {
+    "vos1": {
+      "nonzero": 0,
+      "item": 0,
+      "synchronize": 0,
+      "total": 0
+    },
+    "vos0": {
+      "nonzero": 1,
+      "item": 1,
+      "synchronize": 0,
+      "total": 2
+    }
+  },
+  "fences_and_eval_may_sync": true,
+  "pass": true
+}

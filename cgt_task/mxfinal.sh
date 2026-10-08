@@ -1,0 +1,2 @@
+cd /home/liaoyuanjun/cgt_realscene/src
+/mnt/storage_pool/liaoyuanjun_mx0qual/bin/python analyze_g1.py --inputs "/home/liaoyuanjun/cgt_realscene/logs/g1/g1_*.json" --out /home/liaoyuanjun/cgt_realscene/logs/g1/G1_REAL_SCENE_COMPRESSIBILITY.json 2>&1

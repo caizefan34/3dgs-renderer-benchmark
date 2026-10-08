@@ -1,0 +1,70 @@
+{
+  "_timestamp_utc": "2026-10-01T11:27:00Z",
+  "gate": "Gate 4 input — real bucket-length / n_processed distributions",
+  "provenance": {
+    "source_files": [
+      "/root/dsh_20261001/artifacts/DSH7_BARS0/BARS0_TILE_TRACE.json",
+      "/root/dsh_20261001/artifacts/DSH8_APBC0/APBC0_REACHABILITY_TRACE.json"
+    ],
+    "method": "Real FasterGSFused fused-backward tiles, nerficg harness, 1920x1080, seed 42, iteration 25000",
+    "extraction": "remote python (extract_trace.py); local copy in deliverables/",
+    "n_tiles": 8160,
+    "grid": [
+      120,
+      68
+    ]
+  },
+  "per_scene": {
+    "room": {
+      "total_valid_pixel_visits": 14894848,
+      "surviving_buckets": 58472,
+      "unreachable_pixel_visits": 1542398,
+      "unreachable_fraction_cost_weighted": 0.10355244981351941
+    },
+    "garden": {
+      "total_valid_pixel_visits": 35872768,
+      "surviving_buckets": 140684,
+      "unreachable_pixel_visits": 3378198,
+      "unreachable_fraction_cost_weighted": 0.09417165689583809
+    },
+    "bicycle": {
+      "total_valid_pixel_visits": 25459968,
+      "surviving_buckets": 101725,
+      "unreachable_pixel_visits": 5229725,
+      "unreachable_fraction_cost_weighted": 0.20540972400279528
+    }
+  },
+  "distributions_BARS0_final_record": {
+    "room": {
+      "splat_list_len_mean": 234.69,
+      "splat_list_len_p50": 197,
+      "splat_list_len_p90": 467,
+      "splat_list_len_max": 1298,
+      "n_k32_buckets_mean": 7.81,
+      "mean_replay_len_mean": 29.13
+    },
+    "garden": {
+      "splat_list_len_mean": 580.89,
+      "splat_list_len_p50": 430,
+      "splat_list_len_p90": 1101,
+      "splat_list_len_max": 4471,
+      "n_k32_buckets_mean": 18.64,
+      "mean_replay_len_mean": 30
+    },
+    "bicycle": {
+      "splat_list_len_mean": 399.31,
+      "splat_list_len_p50": 195,
+      "splat_list_len_p90": 1021,
+      "splat_list_len_max": 5592,
+      "n_k32_buckets_mean": 12.96,
+      "mean_replay_len_mean": 29.13
+    }
+  },
+  "notes": [
+    "total_valid_pixel_visits = sum over pixels of n_contrib[pixel] = total backward replay work units (native state-recovery visits)",
+    "surviving_buckets = number of 32-splat buckets that survive the reachability predicate (tile_bucket_idx*32 < tile_max_n_processed)",
+    "mean_replay_len ~29-32 of 32: most buckets are nearly full; backward replay processes ~all 32 lanes per pixel",
+    "unreachable_pixel_visits = (pixel, bucket) slots visited by the 32-wide backward block but not actually contributing (lane skip via last_contributor) — wasted work the scan would also incur"
+  ],
+  "verdict": "CAPTURED"
+}

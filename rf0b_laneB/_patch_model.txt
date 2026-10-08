@@ -1,0 +1,109 @@
+*** Begin Patch
+*** Update File: rf0b_fastgs_model.py
+@@
+ def sample_score_cameras(train_pool, rng, n=10):
+-    """FastGS utils/fast_utils.py:15 sampling_cameras (10 random cams, with replacement)."""
+-    idx = [rng.randint(0, len(train_pool) - 1) for _ in range(n)]
+-    return [train_pool[i] for i in idx]
++    """FastGS utils/fast_utils.py:15 sampling_cameras (10 distinct random cams).
++
++    FastGS pops from a fresh copy of the train stack (without replacement); we
++    mirror that with rng.sample when the pool is large enough, falling back to
++    with-replacement only if the pool is smaller than n.
++    """
++    m = len(train_pool)
++    if m >= n:
++        positions = rng.sample(range(m), n)
++    else:
++        positions = [rng.randint(0, m - 1) for _ in range(n)]
++    return [train_pool[i] for i in positions]
+@@
+-def compute_fastgs_scores(model, cam_pool, cam_pool_cams, dataset, render_fn,
+-                          loss_thresh, n_views, rng, sh_degree):
++def compute_fastgs_scores(model, cam_pool, dataset, render_fn, phot_fn,
++                          loss_thresh, n_views, rng, sh_degree):
+     """FastGS utils/fast_utils.py:62 compute_gaussian_score_fastgs.
+ 
+     For each of n_views sampled training cameras: render (frozen C0 renderer),
+     build the binary high-error map, and flag each Gaussian whose projected
+     center falls on a high-error pixel (accum_metric_counts proxy). Returns
+       importance_score [N] int  = #views flagging the Gaussian (FastGS floors
+                                   mean count; here count is 0/1 per view so the
+                                   mean* n_views == count, threshold semantics
+                                   preserved: >5 of 10 views).
+       pruning_score   [N] float  = min-max normalized sum_v photometric_loss_v *
+                                   flagged_v  (FastGS pruning_score).
+     """
+     n = model.get_xyz.shape[0]
+     counts = torch.zeros(n, device="cuda")
+     score_accum = torch.zeros(n, device="cuda")
+     pool = list(range(len(cam_pool)))
+     chosen = sample_score_cameras(pool, rng, n_views)
+     for ci in chosen:
+         cam, gt = dataset.get_item(cam_pool[ci])
+         with torch.no_grad():
+             img, _, _ = render_fn(model, cam, sh_degree)
+             img = img.clamp(0, 1)
+         gt = gt.to("cuda").clamp(0, 1)
+         metric = _ndc_error_map(img, gt, loss_thresh)          # [H,W]
+         px, py, valid = _project_to_pixel(model, cam, cam.image_width, cam.image_height)
+-        phot = float(torch.abs(img - gt).mean())
++        phot = phot_fn(img, gt)                                # FastGS loss form
+         ix = px.round().long().clamp(0, cam.image_width - 1)
+         iy = py.round().long().clamp(0, cam.image_height - 1)
+         hit = valid & (metric[iy, ix] > 0.5)
+         counts += hit.float()
+         score_accum += phot * hit.float()
+     importance = counts                                       # #views flagging (0..n_views)
+     mn, mx = score_accum.min(), score_accum.max()
+     pruning = (score_accum - mn) / (mx - mn) if float(mx - mn) > 1e-12 \
+         else torch.zeros_like(score_accum)
+     return importance.long(), pruning.float()
+@@
+-  scene/gaussian_model.py:528 add_densification_stats   -> add_densification_stats_fastgs
++  scene/gaussian_model.py:528 add_densification_stats   -> add_densification_stats (override)
+   utils/fast_utils.py:62    compute_gaussian_score_fastgs -> module fn compute_fastgs_scores
+   utils/fast_utils.py:15    sampling_cameras            -> module fn sample_score_cameras
+   scene/gaussian_model.py:468 densify_and_prune_fastgs  -> densify_and_prune_fastgs
+   scene/gaussian_model.py:431 densify_and_split_fastgs  -> densify_and_split_fastgs
+   scene/gaussian_model.py:455 densify_and_clone_fastgs  -> densify_and_clone_fastgs
+   scene/gaussian_model.py:533 final_prune_fastgs        -> final_prune_fastgs
+-  scene/gaussian_model.py:279 reset_opacity             -> reset_opacity_fastgs (0.8 cap)
++  scene/gaussian_model.py:279 reset_opacity             -> reset_opacity (inherited, 0.01 cap)
+@@
+-    def add_densification_stats_fastgs(self, means2d, visibility_filter,
+-                                       width=None, height=None):
++    def add_densification_stats(self, means2d, visibility_filter,
++                                width=None, height=None):
+         """Populate dual accumulators from the C0 absgrad signal.
+ 
+         FastGS L528 reads viewspace_point_tensor.grad[:, :2] (signed) for
+         xyz_gradient_accum and [:, 2:] (abs) for xyz_gradient_accum_abs. The
+         C0 HIGS renderer exposes means2d.absgrad (abs) and a structurally-zero
+         signed .grad under H8_MR (verified: signed nonzero == 0). Both
+         accumulators therefore read absgrad -> forced mismatch #2.
+         """
+@@
+         scores = 1 - pruning_score
+         to_remove = int(torch.sum(prune_mask))
+         remove_budget = int(FGS_REMOVE_BUDGET_FRAC * to_remove)
+-        final_prune = prune_mask
+         if remove_budget:
+             n_init_points = self.get_xyz.shape[0]
+             padded_importance = torch.zeros((n_init_points), dtype=torch.float32, device="cuda")
+             padded_importance[:scores.shape[0]] = 1 / (1e-6 + scores.squeeze())
+             selected_pts_mask = torch.zeros_like(padded_importance, dtype=bool, device="cuda")
+             sampled_indices = torch.multinomial(padded_importance, remove_budget, replacement=False)
+             selected_pts_mask[sampled_indices] = True
+             final_prune = torch.logical_and(prune_mask, selected_pts_mask)
+-        total_pruned = int(final_prune.sum())
+-        if total_pruned:
+-            self.prune_points(final_prune)
++            total_pruned = int(final_prune.sum())
++            self.prune_points(final_prune)
++        else:
++            total_pruned = 0
+ 
+         opacities_new = torch.logit(
+             torch.min(self.get_opacity, torch.ones_like(self.get_opacity) * FGS_OPACITY_CAP))
+*** End Patch

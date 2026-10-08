@@ -1,0 +1,166 @@
+[
+  {
+    "name": "3DGS-LM",
+    "url": "https://arxiv.org/html/2409.12892v2",
+    "retrieved_utc": "2026-09-26T14:00:47.411319+00:00",
+    "raw_html_sha256": "32cc6c52a1613dc4a59d1b927a700efc022f7df733c5582ae1a06bdccc8fbac9",
+    "text_characters": 76016,
+    "excerpts": [
+      {
+        "term": "3.2",
+        "text": "ovic, Marco Pavone, Georgios Pavlakos, et al. Instantsplat: Unbounded sparse-view pose-free gaussian splatting in 40 seconds. arXiv preprint arXiv:2403.20309 , 2024. [14] Guangchi Fang and Bing Wang. Mini-splatting: Representing scenes with a constrained number of gaussians. European conference on computer vision , 2024. [15] Guofeng Feng, Siyan Chen, Rong Fu, Zimu Liao, Yi Wang, Tao Liu, Boni Hu, Linning Xu, Zhilin Pei, Hengjie Li, et al. Flashgs: Efficient 3d gaussian splatting for large-scale and high-resolution rendering. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 26652–26662, 2025. [16] Sara Fridovich-Keil, Alex Yu, Matthew Tancik, Qinhong Chen, Benjamin Recht, and Angjoo Kanazawa. Plenoxels: Radiance fields without neural networks. In Proceedings of"
+      },
+      {
+        "term": "3.2",
+        "text": "J 41.60 71.13 71.13 90 sortX 4.45 15.15 60.30 36 applyJ 10.98 86.32 86.32 80 applyJT_p1 3.93 75.79 75.79 34 applyJT_p2 0.37 18.83 89.69 40 applyJT_p3 3.20 4.75 78.48 48 Table 5 : Profiler analysis of CUDA kernels. We provide results measured on a RTX3090 GPU for building/resorting the gradient cache and running one PCG iteration on the MipNerf360 [ 4 ] “garden” scene with a batch size of one image. We provide additional analysis of the CUDA kernels by running the NVIDIA Nsight Compute profiler.\nWe provide results in Tab. 5 measured on a RTX3090 GPU for building/resorting the gradient cache and running one PCG iteration on the MipNerf360 [ 4 ] “garden” scene with a batch size of one image.\nWe add the suffixes _p1, _p2, _p3 to signal the three kernels that we use to implement the respective ope"
+      },
+      {
+        "term": "3.3",
+        "text": "upplementary Material Appendix A More Details About CUDA Kernel Design We introduce the necessary CUDA kernels to calculate the PCG algorithm in Sec. 3.3 .\nIn this section, we provide additional implementation details. A.1 Parallelization Pattern We implement the per-pixel-per-splat parallelization pattern in our CUDA kernels by reading subsequent entries from the gradient cache in subsequent threads.\nThis makes reading cache values perfectly coalesced and therefore minimizes the overhead caused by the operation.\nThe gradient cache is sorted over Gaussians, which means that subsequent entries refer to different rays (pixels) that saw this projected Gaussian (splat).\nIn general, one thread handles all residuals corresponding to the respective pixel, i.e., many computations are shared across co"
+      },
+      {
+        "term": "3.3",
+        "text": " a bottleneck. Appendix B Derivation Of Image Subsampling Weights We subsample batches of images to decrease the size of the gradient cache (see Sec. 3.3 ).\nTo combine the update vectors from multiple batches, we calculate their weighted mean, as detailed in Eq. 8 .\nThis weighted mean approximates the “true” solution to the normal equations ( Eq. 4 ), that does not rely on any image subsampling (and instead uses all available training images).\nWhen subsampling images, we split the number of total residuals into smaller chunks.\nIn the following, we consider the case of two chunks (labeled as 1 and 2 ), but the same applies to any number of chunks.\nWe re-write the normal equations (without subsampling) using the chunk notation as: [ 𝐉 1 T 𝐉 2 T ] ​ [ 𝐉 1 𝐉 2 ] ​ Δ = [ 𝐉 1 T 𝐉 2 T ] ​ [ 𝐅 1 ​ ( "
+      },
+      {
+        "term": "cache",
+        "text": "s reveals the advantage of our proposed per-pixel-per-splat parallelization pattern.\nBoth compute the identical Jacobian-vector product, but the buildCache kernel relies on the per-pixel parallelization pattern of the original 3DGS rasterizer [ 23 ] .\nHowever, we compute the result 4.8 4.8 x faster using the gradient cache in the applyJT kernel.\nWe also note that the compute and memory throughput as well as the register count of both kernels are roughly similar.\nThis signals that our kernel implementation is equally efficient, i.e., there are no inherent drawbacks using our proposed GPU parallelization scheme. Appendix D Results Per Scene Method Scene MipNeRF-360 [ 4 ] SSIM ↑ \\uparrow PSNR ↑ \\uparrow LPIPS ↓ \\downarrow Time (s) 3DGS [ 23 ] treehill 0.631 22.44 0.330 1130 + Ours treehill 0.633 2"
+      },
+      {
+        "term": "cache",
+        "text": " on the per-pixel parallelization pattern of the original 3DGS rasterizer [ 23 ] .\nHowever, we compute the result 4.8 4.8 x faster using the gradient cache in the applyJT kernel.\nWe also note that the compute and memory throughput as well as the register count of both kernels are roughly similar.\nThis signals that our kernel implementation is equally efficient, i.e., there are no inherent drawbacks using our proposed GPU parallelization scheme. Appendix D Results Per Scene Method Scene MipNeRF-360 [ 4 ] SSIM ↑ \\uparrow PSNR ↑ \\uparrow LPIPS ↓ \\downarrow Time (s) 3DGS [ 23 ] treehill 0.631 22.44 0.330 1130 + Ours treehill 0.633 22.57 0.334 836 3DGS [ 23 ] counter 0.905 28.96 0.202 1178 + Ours counter 0.904 28.89 0.206 927 3DGS [ 23 ] stump 0.769 26.56 0.217 1234 + Ours stump 0.774 26.67 0.218 89"
+      },
+      {
+        "term": "line search",
+        "text": "or updating the Gaussian parameters: min γ ⁡ E ⁡ ( 𝐱 k + γ ​ Δ ) \\displaystyle\\min_{\\gamma}E(\\mathbf{x}_{k}+\\gamma\\Delta) (5) In practice, we run the line search on a 30% subset of all images, which is enough to get a reasonable estimate for γ \\gamma , but requires fewer rendering passes.\nAfterwards, we update the Gaussian parameters as: 𝐱 k + 1 = 𝐱 k + γ ​ Δ \\mathbf{x}_{k+1}{=}\\mathbf{x}_{k}+\\gamma\\Delta .\nSimilar to the implementation of LM in CERES [ 1 ] , we adjust the regularization strength λ reg ∈ ℝ \\lambda_{\\text{reg}}{\\in}\\mathbb{R} after every iteration based on the quality of the update step.\nConcretely, we calculate ρ = ‖ 𝐅 ⁡ ( 𝐱 ) ‖ 2 − ‖ 𝐅 ⁡ ( 𝐱 + γ ​ Δ ) ‖ 2 ‖ 𝐅 ⁡ ( 𝐱 ) ‖ 2 − ‖ 𝐉 ​ γ ​ Δ + 𝐅 ⁡ ( 𝐱 ) ‖ 2 \\displaystyle\\rho=\\frac{||\\mathbf{F}(\\mathbf{x})||^{2}-||\\mathbf{F}(\\mathbf{x}+\\gam"
+      },
+      {
+        "term": "line search",
+        "text": "6 .\nThe runtime is dominated by solving Eq. 4 with PCG and building the cache ( Sec. 3.3 ).\nSorting the cache, rendering the selected images, and the line search ( Eq. 5 ) are comparatively faster.\nDuring PCG, we run the applyJ and applyJT kernels up to 9 times, parallelizing per-pixel-per-splat .\nIn contrast, we run the buildCache kernel once, parallelizing per-pixel , which is only marginally faster.\nThis shows the advantage of our proposed parallelization scheme: the same Jacobian-vector product runs much faster.\nWe also provide a detailed profiling analysis of our kernels in the supplementary material. 4.4 Limitations Method SSIM ↑ \\uparrow PSNR ↑ \\uparrow LPIPS ↓ \\downarrow Time (s) 3DGS [ 23 ] (L1/SSIM) 0.862 27.23 0.108 1573 3DGS + Ours (L1/SSIM) 0.863 27.29 0.110 1175 3DGS [ 23 ] (L2) 0.854 2"
+      },
+      {
+        "term": "eight",
+        "text": "{2}) .\nCalculating these weights requires to materialize and invert K K , which is too costly to fit in memory.\nTo this end, we approximate the true weights w 1 w_{1} and w 2 w_{2} with w ~ 1 = diag ​ ( w 1 ) \\tilde{w}_{1}=\\text{diag}(w_{1}) and w ~ 2 = diag ​ ( w 2 ) \\tilde{w}_{2}=\\text{diag}(w_{2}) .\nThis directly leads to the weighted mean that we employ in Eq. 8 . Appendix C Detailed Runtime Analysis Kernel Runtime (ms) ↓ \\downarrow Compute Throughput (%) ↑ \\uparrow Memory Throughput (%) ↑ \\uparrow Register Count ↓ \\downarrow buildCache_p1 31.32 78.56 78.56 64 buildCache_p2 0.53 17.43 87.94 58 buildCache_p3 4.12 4.54 73.45 74 sortCacheByGaussians 5.04 61.17 61.17 18 diagJTJ 41.60 71.13 71.13 90 sortX 4.45 15.15 60.30 36 applyJ 10.98 86.32 86.32 80 applyJT_p1 3.93 75.79 75.79 34 applyJT_p2 0"
+      },
+      {
+        "term": "eight",
+        "text": "ith w ~ 1 = diag ​ ( w 1 ) \\tilde{w}_{1}=\\text{diag}(w_{1}) and w ~ 2 = diag ​ ( w 2 ) \\tilde{w}_{2}=\\text{diag}(w_{2}) .\nThis directly leads to the weighted mean that we employ in Eq. 8 . Appendix C Detailed Runtime Analysis Kernel Runtime (ms) ↓ \\downarrow Compute Throughput (%) ↑ \\uparrow Memory Throughput (%) ↑ \\uparrow Register Count ↓ \\downarrow buildCache_p1 31.32 78.56 78.56 64 buildCache_p2 0.53 17.43 87.94 58 buildCache_p3 4.12 4.54 73.45 74 sortCacheByGaussians 5.04 61.17 61.17 18 diagJTJ 41.60 71.13 71.13 90 sortX 4.45 15.15 60.30 36 applyJ 10.98 86.32 86.32 80 applyJT_p1 3.93 75.79 75.79 34 applyJT_p2 0.37 18.83 89.69 40 applyJT_p3 3.20 4.75 78.48 48 Table 5 : Profiler analysis of CUDA kernels. We provide results measured on a RTX3090 GPU for building/resorting the gradient cache a"
+      },
+      {
+        "term": "8 iterations",
+        "text": "tains the solution to the least squares problem of Eq. 4 in multiple iterations.\nWe run the algorithm for up to n iters = 8 \\text{n}_{\\text{iters}}{=}8 iterations and implement it with custom CUDA kernels.\nWe summarize it in Algorithm 1 . Algorithm 1 We run the PCG algorithm with custom CUDA kernels (blue) in every LM iteration. Input : Gaussians and cameras 𝒢 \\mathcal{G} , 𝐅 \\mathbf{F} , λ reg \\lambda_{\\text{reg}} Output : Update direction Δ \\Delta 1 𝐛 , 𝒞 = buildCache ​ ( 𝒢 , 𝐅 ) \\mathbf{b},\\mathcal{C}=\\textnormal{{{\\color[rgb]{0,0,1}buildCache}}}(\\mathcal{G},\\mathbf{F}) // 𝐛 = − 𝐉 T ​ 𝐅 \\mathbf{b}{=}-\\mathbf{J}^{T}\\mathbf{F} 2 𝒞 = sortCacheByGaussians ​ ( 𝒞 ) \\mathcal{C}=\\textnormal{{{\\color[rgb]{0,0,1}sortCacheByGaussians}}}(\\mathcal{C}) 3 𝐌 − 1 = 1 / diagJTJ ​ ( 𝒢 , 𝒞 ) \\mathbf{M}^{-1}=1/\\textnor"
+      }
+    ]
+  },
+  {
+    "name": "LM-RS",
+    "url": "https://arxiv.org/html/2504.12905v1",
+    "retrieved_utc": "2026-09-26T14:00:45.983692+00:00",
+    "raw_html_sha256": "dccaf8952e0dd416b0bf66c2faf204838527c67cd5238788045f76199d6b1828",
+    "text_characters": 63155,
+    "excerpts": [
+      {
+        "term": "Jacobian",
+        "text": "ce behavior, but future work could explore re-weighting strategies of residuals to obtain different norms. By leveraging the inherent sparsity of the Jacobian matrix and integrating a GPU-parallelized conjugate gradient solver, our method significantly reduces both memory consumption and computational overhead.\nOur novel view and pixel-wise importance sampling further enhance efficiency, enabling rapid convergence by decreasing the per-step overhead.\nAdditionally, our heuristic for learning rate selection eliminates the need for costly line search procedures, further accelerating training.\nOur approach achieves up to a 6× speedup over Adam, particularly excelling in scenarios with a low number of Gaussians.\nOverall, our results highlight the potential of second-order methods in accelerating optimi"
+      },
+      {
+        "term": "Jacobian",
+        "text": "set the number of pixels sampled per block as multiples of 32 32 , which allows us to do fast warp level reductions when needed. Now, we describe the Jacobian-vector product kernels in detail: J ⊤ v Kernel. This kernel is similar to backward pass of 3DGS, and can be split into two kernel calls. We launch a thread for sampled columns (which corresponds to pixels) of 𝐉 ⊤ \\mathbf{J}^{\\top} , and loop over the Gaussians.\nHowever, when the sample size is small, i.e 32, only 32 threads (or one warp per block) are launched. The limited number of threads does not fully utilize the GPU’s resources, leading to inefficiencies.\nTo mitigate, we launch additional threads along the Gaussian direction.\nEach thread processes part of the Gaussian loop, skipping most calculations except for four dependent variables "
+      },
+      {
+        "term": "sampling",
+        "text": "jugate gradient solver, our method significantly reduces both memory consumption and computational overhead.\nOur novel view and pixel-wise importance sampling further enhance efficiency, enabling rapid convergence by decreasing the per-step overhead.\nAdditionally, our heuristic for learning rate selection eliminates the need for costly line search procedures, further accelerating training.\nOur approach achieves up to a 6× speedup over Adam, particularly excelling in scenarios with a low number of Gaussians.\nOverall, our results highlight the potential of second-order methods in accelerating optimization for 3D Gaussian Splatting.\nWe anticipate that future work will refine these techniques, particularly in handling larger Gaussian counts and incorporating additional perceptual loss terms, further a"
+      },
+      {
+        "term": "sampling",
+        "text": " threads for each pixel.\nOur main difference from 3DGS is that our block size is significantly less than 16 × 16 = 256 16\\times 16=256 , due to pixel sampling.\nWe set the number of pixels sampled per block as multiples of 32 32 , which allows us to do fast warp level reductions when needed. Now, we describe the Jacobian-vector product kernels in detail: J ⊤ v Kernel. This kernel is similar to backward pass of 3DGS, and can be split into two kernel calls. We launch a thread for sampled columns (which corresponds to pixels) of 𝐉 ⊤ \\mathbf{J}^{\\top} , and loop over the Gaussians.\nHowever, when the sample size is small, i.e 32, only 32 threads (or one warp per block) are launched. The limited number of threads does not fully utilize the GPU’s resources, leading to inefficiencies.\nTo mitigate, we launc"
+      },
+      {
+        "term": "memory",
+        "text": "e dot product.\nHowever, it cannot be split into two smaller parts as the 𝐉 ⊤ ​ 𝐯 \\mathbf{J}^{\\top}\\mathbf{v} kernel.\nTherefore, we utilize the shared memory more by bringing additional Gaussian parameters.\nWarp-level reductions are not needed; each thread independently computes and writes its local sum. DiagJ ⊤ J Kernel. Similarly, this kernel cannot be split, so we again leverage shared memory to hold more data. As we compute derivatives, we square and accumulate them using warp-level reductions. For the rest of the conjugate gradient algorithm, we follow the implementation described in [ 52 ] . This version requires fewer kernel calls when compared to a naive implementation and has been successfully applied in other works [ 16 , 20 , 57 ] . For the details, please see the respective papers. Ta"
+      },
+      {
+        "term": "memory",
+        "text": "d; each thread independently computes and writes its local sum. DiagJ ⊤ J Kernel. Similarly, this kernel cannot be split, so we again leverage shared memory to hold more data. As we compute derivatives, we square and accumulate them using warp-level reductions. For the rest of the conjugate gradient algorithm, we follow the implementation described in [ 52 ] . This version requires fewer kernel calls when compared to a naive implementation and has been successfully applied in other works [ 16 , 20 , 57 ] . For the details, please see the respective papers. Table 5: Comparisons on Tanks & \\& Temples scenes. All optimizers use MSE loss. Method Scene LPIPS ↓ \\downarrow SSIM ↑ \\uparrow PSNR ↑ \\uparrow Time (s) 3DGS-Adam Train 0.321 0.670 20.12 130.0 LM-IS (Ours) 0.302 0.694 20.16 145.28 3DGS-Adam Tr"
+      },
+      {
+        "term": "precondition",
+        "text": " the PCG solver as demonstrated in [ 18 ] , our work prioritizes a fully matrix-free implementation that minimizes memory usage. We choose the Jacobi preconditioner in our implementation due to its simplicity and effectiveness.\nMore specifically, we use 1 diag ⁡ ( 𝐉 ⊤ ​ 𝐉 + λ ​ 𝐈 ) ∈ ℝ P \\frac{1}{\\operatorname{diag}(\\mathbf{J^{\\top}J}+\\lambda\\mathbf{I})}\\in\\mathbb{R}^{P} , as the precondition.\nWe provide the implementation of the solver in CUDA, together with efficient Jacobian vector product kernels.\nSee the supplementary material for details about the kernel design.\nThe pseudocode of the optimizer is given in Alg. 1 . Algorithm 1 One step of LM optimizer with matrix-free PCG solver. Input : Gaussians 𝜷 k \\boldsymbol{\\beta}_{k} , cameras 𝒞 \\mathcal{C} Output : Updated Gaussians 𝜷 k + 1 \\boldsymbol{\\b"
+      },
+      {
+        "term": "precondition",
+        "text": "specifically, we use 1 diag ⁡ ( 𝐉 ⊤ ​ 𝐉 + λ ​ 𝐈 ) ∈ ℝ P \\frac{1}{\\operatorname{diag}(\\mathbf{J^{\\top}J}+\\lambda\\mathbf{I})}\\in\\mathbb{R}^{P} , as the precondition.\nWe provide the implementation of the solver in CUDA, together with efficient Jacobian vector product kernels.\nSee the supplementary material for details about the kernel design.\nThe pseudocode of the optimizer is given in Alg. 1 . Algorithm 1 One step of LM optimizer with matrix-free PCG solver. Input : Gaussians 𝜷 k \\boldsymbol{\\beta}_{k} , cameras 𝒞 \\mathcal{C} Output : Updated Gaussians 𝜷 k + 1 \\boldsymbol{\\beta}_{k+1} 1: ℐ , 𝒞 B = getBatch ​ ( 𝒞 ) \\mathcal{I},\\mathcal{C}_{B}=\\text{getBatch}(\\mathcal{C}) ⊳ \\triangleright Sec. 4.3 2: ℐ ^ = splatting ​ ( 𝜷 k , 𝒞 B ) \\hat{\\mathcal{I}}=\\text{splatting}({\\boldsymbol{\\beta}_{k}},\\mathcal{C}_{B"
+      }
+    ]
+  },
+  {
+    "name": "TurboGS",
+    "url": "https://arxiv.org/html/2606.15924v1",
+    "retrieved_utc": "2026-09-26T14:00:46.435890+00:00",
+    "raw_html_sha256": "5241120c34fe81d378c101d8cd5e619cbb199bd8447a0cd48c5da52f139c4b3e",
+    "text_characters": 81519,
+    "excerpts": [
+      {
+        "term": "Hessian",
+        "text": "g and leveraging per-Gaussian statistics corresponding to the sparse pixel errors.\nLast, we optimize TurboGS with a new, hybrid optimizer that blends Hessian-informed updates with Adam moment damping, to achieve stable and fast convergence. Figure 2 : We visualize our intermediate test view rendering results (upper part) and training time-PSNR trajectories of existing methods and ours on the Bicycle scene ( Yu et al., 2024 ) (lower part). Our method converges faster to better results. Extensive experiments on standard benchmarks show that TurboGS delivers high-quality rendering results with fine details (see Fig. 1 (second row)) and converges fast (see Fig. 2 ).\nIn sum, we present the following main contributions: • TurboGS, a novel error-guided training framework for 3DGS that accelerates optimi"
+      },
+      {
+        "term": "Hessian",
+        "text": "les targeted densification of challenging regions and pruning of redundant Gaussians. • A tailored hybrid optimizer that integrates Adam moments with Hessian-informed updates, to enable faster and more stable convergence under challenging conditions of sparse, non-uniform gradients. 2 Related Work Novel View Synthesis (NVS) attracts significant research interest in computer vision and graphics.\nNeural Radiance Fields (NeRF) ( Mildenhall et al., 2020 ) significantly facilitates NVS by implicitly parameterizing scene information via an MLP network, and achieving high-quality image synthesis through volumetric rendering.\nWhile NeRFs suffer from training overheads, follow-up works combine NeRF with explicit or hybrid representations, such as voxels ( Fridovich-Keil et al., 2022 ; Sun et al., 2022 ) ,"
+      },
+      {
+        "term": "Cholesky",
+        "text": "bf{m}_{g}, (14) where the moment 𝐯 g \\mathbf{v}_{g} serves as an diagonal damping to stabilize sparse gradients. Each local formulation is solved via Cholesky decomposition , resulting in a fully parallel and lightweight solver tailored for sparse-pixel training. Figure 8 : Qualitative comparisons with fast 3DGS optimization methods. Results are shown on Mip-NeRF 360 ( Barron et al., 2022 ) ( Room , Stump and Garden in the first three rows), Tanks & Temples ( Knapitsch et al., 2017 ) ( Train in the 4th row), Deep Blending ( Hedman et al., 2018 ) ( Drjohnson in the 5th row), and BungeeNeRF ( Xiangli et al., 2022 ) ( Bilbao in the last row). TurboGS better preserves some fine structures and details while achieving the fastest training speed within 100s among the compared methods. 4 Experiments We ev"
+      },
+      {
+        "term": "Cholesky",
+        "text": "athbf{v} denote Adam first and second moments, and 𝐯 \\mathbf{v} serves as an adaptive diagonal damping term. Each LM system is efficiently solved via Cholesky decomposition. Higher-order spherical harmonic (SH) coefficients are updated separately using Adam to avoid enlarging the LM system size. Ignoring SH cross-parameter correlations is a practical trade-off between accuracy and efficiency, since joint optimization would substantially increase Jacobian size and memory overhead. Empirically, this hybrid strategy improves stability under sparse gradients without noticeable convergence degradation. In practice, LM-based updates and SH optimization are executed in two dedicated CUDA kernels for efficient parallelism. Convergence Stability under Sparse Optimization. TurboGS adopts a structured sparse"
+      },
+      {
+        "term": "hybrid optimizer",
+        "text": "PSNR, TurboGS achieves a favorable trade-off between speed, quality, and model compactness. Unlike 3DGS-LM, which requires over 32 GB GPU memory, our hybrid optimizer incurs substantially lower computational and memory overhead. Table 3 : Quantitative comparisons on the 4K sub-region Rubble ( Turki et al., 2022 ) dataset. Time is reported in seconds. Method 4K Sub-Regions of Rubble ( Turki et al., 2022 ) Time ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow LPIPS ↓ \\downarrow N GS ↓ \\mathrm{N_{GS}}\\downarrow FPS ↑ \\uparrow Taming-3DGS 898 25.45 0.733 0.400 0.94M 51 FastGS 614 26.16 0.788 0.309 2.90M 125 TurboGS (Ours) 360 26.32 0.771 0.284 2.73M 51 Qualitative Results. Fig. 8 presents qualitative comparisons across datasets. Despite the shorter training time, TurboGS preserves some fine structures and local d"
+      },
+      {
+        "term": "hybrid optimizer",
+        "text": "imilar training time. Qualitatively, the Adam-only variant produces less stable high-frequency details (the 4th row in Fig. 11 ), suggesting that our hybrid optimizer improves stability and reconstruction quality under sparse supervision. Table 5 : Optimizer ablation in TurboGS. Results on Mip-NeRF 360 ( Barron et al., 2022 ) , comparing our Moment-LM optimizer against the sparse Adam-only version under identical settings. Optimizer Time ↓ \\downarrow PSNR ↑ \\uparrow SSIM ↑ \\uparrow LPIPS ↓ \\downarrow N GS ↓ \\mathrm{N_{GS}}\\downarrow Sparse Adam (only) 80 27.52 0.793 0.261 0.64M Moment-LM (Ours) 77 27.57 0.794 0.256 0.64M 5 Conclusion In this paper, we have proposed TurboGS, an error-guided sparse optimization framework for accelerating 3DGS.\nTurboGS adaptively reallocates computation from well-reconstruct"
+      },
+      {
+        "term": "100 seconds",
+        "text": "nce under sparse supervision.\nExperiments on standard benchmarks demonstrate that TurboGS can deliver on par or superior rendering quality within 100 100 seconds (up to ∼ \\sim 10 × \\times training speedup over vanilla 3DGS). Keywords: 3D Gaussian Splatting, Sparse Pixel Sampling, Optimization 1 Introduction Novel view synthesis (NVS) is a long-standing and challenging research topic with downstream applications such as VR/AR.\nIn recent years, Neural Radiance Fields (NeRF) ( Mildenhall et al., 2020 ) and their variants demonstrate impressive rendering fidelity, yet require hours to days of per-scene optimization. Despite substantial progress on acceleration ( Muller et al., 2022 ; Hedman et al., 2021 ) , NeRF-style approaches still struggle to simultaneously balance optimization time, memory footprint"
+      },
+      {
+        "term": "100 seconds",
+        "text": "-structured 3d gaussians . IEEE TPAMI . Cited by: §2 . Ren et al. (2026) S. Ren, T. Wen, Y. Fang, and B. Lu FastGS: training 3d gaussian splatting in 100 seconds . In CVPR , Cited by: §2 , Figure 3 , Figure 3 , §3.8 , §4.1 . Rota Bulò et al. (2024) S. Rota Bulò, L. Porzi, and P. Kontschieder Revising densification in gaussian splatting . In ECCV , Cited by: §2 . Schönberger and Frahm (2016) J. L. Schönberger and J. Frahm Structure-from-motion revisited . In CVPR , Cited by: Table 12 , Table 12 . Snavely et al. (2006) N. Snavely, S. M. Seitz, and R. Szeliski Photo tourism: exploring photo collections in 3d . In SIGGRAPH , Cited by: §2 , §3.1 . Sun et al. (2022) C. Sun, M. Sun, and H. Chen Direct voxel grid optimization: super-fast convergence for radiance fields reconstruction . In CVPR , Cited by: §2"
+      }
+    ]
+  },
+  {
+    "name": "Faster-GS",
+    "url": "https://arxiv.org/html/2602.09999v1",
+    "retrieved_utc": "2026-09-26T14:00:46.050520+00:00",
+    "raw_html_sha256": "5e632c7f85d02fb61e4e3c356356644d80b5d45170eaf442c4392d61639d4f6e",
+    "text_characters": 97639,
+    "excerpts": [
+      {
+        "term": "gradient approximation",
+        "text": "h several novel optimizations.\nWe further investigate underexplored aspects of the framework, including numerical stability, Gaussian truncation, and gradient approximation.\nThe resulting system, Faster-GS, provides a rigorously optimized algorithm that we evaluate across a comprehensive suite of benchmarks.\nOur experiments demonstrate that Faster-GS achieves up to 5× faster training while maintaining visual quality, establishing a new cost-effective and resource efficient baseline for 3DGS optimization.\nFurthermore, we demonstrate that optimizations can be applied to 4D Gaussian reconstruction, leading to efficient non-rigid scene optimization. 1 Introduction In their seminal work on 3D Gaussian Splatting (3DGS) [ 37 ] ,\nKerbl et al . introduce a scene representation and novel view synthesis framework\nthat uni"
+      },
+      {
+        "term": "fused",
+        "text": " ] enables fully anti-aliased training and rendering inside our framework.\nNote that we adjusted the official Mip-Splatting implementation to use the fused SSIM implementation from Taming-3DGS [ 56 ] and the updated opacity learning rate for fair comparison ( cf . Sec. 4.1 ).\nWe further validate the effectiveness of the implemented anti-aliasing approach in Tab. 8 and Fig. 3 . C.3 Fast MCMC Densification In their work 3DGS-MCMC, Kheradmand et al . [ 39 ] propose an alternative approach for densification that treats the set of 3D Gaussians as Markov Chain Monte Carlo (MCMC) samples.\nBased on Stochastic Gradient Langevin Dynamics (SGLD) updates, they add noise to the Gaussian means after each training iteration.\nThe splitting, cloning, and pruning steps used in adaptive density control [ 37 ] are"
+      },
+      {
+        "term": "fused",
+        "text": "ation [ 39 ] on the nine scenes from the Mip-NeRF360 dataset [ 2 ] .\nNote that we adjusted the original implementation of 3DGS-MCMC [ 39 ] to use the fused SSIM implementation from Taming-3DGS [ 56 ] for fair comparison. For the sake of reproducibility, we provide the target number of Gaussians for the nine scenes in alphabetical order: 6131954, 1244819, 1222956, 3636448, 5834784, 1852335, 1593376, 4961797, 3783761 (values taken from Steiner et al . [ 74 ] ). Table 9 : Quantitative comparison of our and the original implementation [ 39 ] for MCMC densification on the nine scenes from the Mip-NeRF360 dataset [ 2 ] . While both versions achieve similar quality, our optimized implementation is significantly faster and uses less VRAM during training. PSNR ↑ Train ↓ VRAM ↓ 3DGS-MCMC [ 39 ] 27.83 27m"
+      },
+      {
+        "term": "backward",
+        "text": "3D smoothing filter effectively eliminate any training overhead compared to the original implementation [ 98 ] .\nWe also find that our changes to the backward pass of the 2D Mip filter result in more stable optimization behavior as indicated by the average number of Gaussians that is more similar to the baseline.\nSpecifically, in the original implementation as well as in Faster-GS with only the 2D Mip filter enabled, we find that the optimization sometimes creates additional tiny and elongated, i.e . , degenerate Gaussians, which slightly reduce overall quality of the reconstruction.\nMost importantly, however, we find that our optimized implementation of the two extensions from Yu et al . [ 98 ] enables fully anti-aliased training and rendering inside our framework.\nNote that we adjusted the offic"
+      },
+      {
+        "term": "backward",
+        "text": "e opacity.\nThis then allows for truncation at fewer standard deviations and also addresses an issue w.r.t. how 3DGS computes opacity gradients in the backward pass that was recently brought up by Hahlbohm et al . [ 23 ] :\nThe analytical derivatives of Eqs. 3 and 4 provide a non-zero gradient for the opacity of a Gaussian even when its value is zero.\nIn the original implementation, Kerbl et al . disregard these gradients as they interpret the opacity as part of the Gaussian response.\nWhile this is a reasonable approach that clearly works well in practice, we still think it is worth investigating.\nWe also think that more aggressive truncation that uses, e.g . , 2 σ \\sigma could be an interesting avenue for future work that renders splats as opaque 2D ellipses to avoid the need for depth-ordered alph"
+      }
+    ]
+  }
+]

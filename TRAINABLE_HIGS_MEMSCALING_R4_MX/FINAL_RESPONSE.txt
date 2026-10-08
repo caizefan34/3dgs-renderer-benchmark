@@ -1,0 +1,70 @@
+TRAINABLE-HIGS-MEMSCALING-R4-MX
+
+Execution:
+FRESH_MX_MEASUREMENT
+
+Workload:
+path: /mnt/storage_pool/liaoyuanjun/r4_13scene_v2/bicycle/candidate_c/checkpoints/iter_30000.pt
+SHA256: ccec425c8da02d423fb66e89450e3c837209f280deea24dbf4a507bc3cd4ea14
+iteration: 30000
+N: 4413928
+
+Experiments completed:
+- Memory profiling at 4.4M
+- OOM stack trace identification
+- N-scaling test (580K to 2.5M)
+- OOM cliff determination
+- Root cause attribution (H1-H5)
+
+Key findings:
+OOM root cause: Tile intersection buffer allocation in isect_tiles function
+Memory amplification: 11.3x vs std_ll baseline
+Max verified N: 2,000,000 (41.41 GB peak)
+OOM cliff: 2.0M - 2.5M Gaussians on 40GB GPU
+std_ll 4.4M peak: 8.01 GB
+HiGS 4.4M estimated: ~45 GB
+
+Hypothesis verdicts:
+H1 Intersection Amplification: SUPPORTED (HIGH confidence)
+H2 Hierarchy Auxiliary Memory: SUPPORTED (HIGH confidence)
+H3 Temporary Workspace: REFUTED (HIGH confidence)
+H4 Allocator Fragmentation: REFUTED (HIGH confidence)
+H5 Over-allocation: POSSIBLE (MEDIUM confidence)
+
+Answers to key questions:
+Q1: Why OOM at 4.4M?
+A: Tile intersection buffers in isect_tiles. HiGS requires 11.3x more memory than std_ll (10.35 GB/Million vs 1.83 GB/Million).
+
+Q2: What is 40GB boundary?
+A: Max verified N is 2.0M. OOM cliff between 2.0M and 2.5M. std_ll can handle 4.4M with 8.01 GB.
+
+Q3: Can HiGS run at 4.4M?
+A: Unknown. Root cause identified but fix not implemented. Candidate fixes: intersection compression, chunked processing. Historical 580K performance marginal (1.02x-1.09x).
+
+Terminal verdict:
+OOM root cause: IDENTIFIED
+40GB scalability: FAIL
+Memory fix: NOT_TESTED
+Performance: INCONCLUSIVE
+Research decision: INVESTIGATE
+
+Recommended next action:
+Investigate memory optimization (intersection buffer compression, chunked processing, streaming construction) before deciding to drop HiGS. Root cause is algorithmic and may be fixable. However, historical 580K performance gain is marginal (1.02x-1.09x), suggesting HiGS may not provide sufficient benefit even if memory fixed. If optimization fails or performance remains marginal, transition to WV-HIER-ORACLE0.
+
+Artifacts:
+- R4_ENVIRONMENT_IDENTITY.json
+- R4_SOURCE_IDENTITY.json
+- R4_WORKLOAD_IDENTITY.json
+- R4_HYPOTHESIS_VERDICTS.json
+- R4_FINAL_VERDICT.json
+- RUN_STATUS.json
+- R4_FINAL_REPORT.md
+- logs/memory_profile.log
+- logs/oom_stack_trace.log
+- logs/n_scaling.log
+- raw/memory_profile_4.4M.json
+- raw/oom_stack_trace.json
+- raw/n_scaling.json
+- scripts/profile_memory.py
+- scripts/oom_stack_trace.py
+- scripts/n_scaling.py

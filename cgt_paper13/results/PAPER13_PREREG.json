@@ -1,0 +1,77 @@
+{
+  "lane": "CGT-PAPER13",
+  "title": "13-Scene Renderer Paper Benchmark (paper-evidence lane)",
+  "ts_created": "2026-10-04",
+  "owner": "DSH",
+  "purpose": "Determine whether the frozen CGT rendering method delivers robust, paper-grade rendering acceleration across the standard 13-scene 3DGS benchmark, under a strong canonical baseline and full production rendering scope.",
+  "core_question": "Does the already-frozen CGT mechanism generalize from the original three-scene evidence to the standard 13-scene 3DGS rendering benchmark, while preserving rendering quality and producing a meaningful full-frame speed advantage against a strong canonical baseline after all production costs are honestly accounted for?",
+  "frozen_upstream_verdicts": {
+    "CGT-F0": "PASS_STRONG_GPU_TRANSLATION",
+    "pooled_mixed_forward_approx": 2.9915,
+    "room_approx": 3.01,
+    "garden_approx": 3.28,
+    "bicycle_approx": 1.54,
+    "FP32_max_error_approx": 1.3e-6,
+    "CGT-G5": "DROP_NATIVE_OPTIMIZATION",
+    "CGT-TI0": "DROP_UPDATE_COST"
+  },
+  "does_not_reopen": ["CGT-G5 native training", "CGT-TI0 training integration", "native coefficient optimization", "incremental training rescue"],
+  "method_freeze": {
+    "rule": "Read EXACT production config from authoritative F0/G1/G2/G3 artifacts. Do NOT infer from the prompt. If any scientifically material F0 config is ambiguous, STOP with BLOCKED_F0_METHOD_IDENTITY.",
+    "to_freeze": ["rank", "certificate_threshold", "interval_semantics", "safe_path_semantics", "fallback_semantics", "teacher_canonical_reference_semantics", "fused_cuda_kernel", "precision", "tile_work_unit_definition", "dispatch_logic", "preprocessing_semantics"],
+    "deliverable": "PAPER13_METHOD_FREEZE.json (with exact hashes)"
+  },
+  "no_retuning": {
+    "main_benchmark_forbidden": ["scene_specific_rank", "scene_specific_certificate_threshold", "removing_hard_scenes", "relaxing_correctness", "new_CGT_representation", "changing_fallback", "changing_teacher_formulation", "changing_kernel_after_seen_results"],
+    "rule": "The EXACT SAME production CGT method must run on all 13 scenes. Ablations later, clearly separated."
+  },
+  "scene_suite": {
+    "mipnerf360": ["bicycle", "flowers", "garden", "stump", "treehill", "bonsai", "counter", "kitchen", "room"],
+    "tanks_temples": ["train", "truck"],
+    "deep_blending": ["drjohnson", "playroom"],
+    "deliverable": "PAPER13_SCENE_REGISTRY.json (no scene may silently disappear)"
+  },
+  "baselines": {
+    "A_same_workload_canonical": "exact canonical reference corresponding to F0/CGT work-unit semantics; measures algorithmic/system translation under matched work; reported separately for mechanism analysis.",
+    "B_strong_canonical_renderer": "strong production canonical baseline chosen BEFORE seeing PAPER13 CGT performance; prevents inflated speedup from a weak baseline; MAIN paper headline prioritizes Baseline B for end-to-end rendering claims.",
+    "strong_baseline_selection": "per-scene tile16 vs tile32, chosen by faster canonical runtime using ONLY canonical measurements (no CGT influence); record baseline_tile_selected; also compute a globally frozen canonical tile via 13-scene geomean runtime."
+  },
+  "inference_protocol": {
+    "per_scene": ["official/frozen test cameras", "native resolution", "scene fully loaded before timing", "bake invariant activations/precomputation when canonical legitimately allows", "warmup", "render complete test set repeatedly"],
+    "target_repeats": 100,
+    "rule": "100 complete test-set rendering passes if computationally feasible; else preserve enough reps for stable stats and document deviation. No single-frame best-case as main result."
+  },
+  "build_vs_render": {
+    "T_build": "one-time: coefficient fitting + representation construction + certificate construction + metadata + host/device transfer before inference",
+    "T_frame": "steady-state camera-to-final-image after representation ready",
+    "T_amortized": "(T_build + N*T_frame)/N",
+    "N_break_even": "ceil(T_build/(T_canonical_frame - T_CGT_frame)) when CGT frame faster; else report no break-even",
+    "rule": "Do not hide build time. Primary paper metric = E2E steady-state frame, NOT fused inner kernel alone."
+  },
+  "e2e_frame_scope": "include all per-frame costs: camera-dependent setup, query/tile prep, certificate dispatch if per-frame, CGT fast path, fallback path, composition, synchronization, required memory movement. Explicit timing DAG. Also report F0-equivalent MIXED_FORWARD labeled clearly (not end-to-end).",
+  "correctness": {
+    "per_scene_vs_canonical": ["max_abs", "relL2", "PSNR(CGT,canonical)", "SSIM(CGT,canonical)", "NaN_count", "Inf_count"],
+    "vs_gt_where_available": ["canonical PSNR/SSIM/LPIPS", "CGT PSNR/SSIM/LPIPS", "delta PSNR", "delta SSIM", "delta LPIPS"],
+    "rule": "Do not use GT similarity to conceal canonical mismatch."
+  },
+  "quality_gates": {"delta_PSNR": 0.15, "delta_SSIM": 0.005, "rule": "|delta PSNR|<=0.15 dB and |delta SSIM|<=0.005 vs canonical; LPIPS reported if available; retain F0 correctness tolerance; do not lower gates after results."},
+  "certificate_stats": {"per_scene": ["safe_fraction", "weighted_safe_fraction", "fallback_fraction", "weighted_fallback_fraction", "certificate_eval_cost", "certificate_violation_count", "distribution of selected/valid structured work"], "rule": "No scene-level average may hide a bad scene."},
+  "speedup_tiers": {"le_1.05": "no practical renderer advantage", "1.05-1.20": "modest", "1.20-1.50": "meaningful", "1.50-2.00": "strong", "ge_2.00": "very strong", "rule": "evidence tiers, not excuses to change method. Headline = GEOMETRIC MEAN of per-scene E2E speedups vs strong canonical baseline. Do not use ratio-of-pooled-times as only headline."},
+  "heterogeneity": "analyze scenes where CGT slower/less beneficial; correlate speedup with gaussian count, tile occupancy, safe/fallback fraction, avg intersections/tile, certificate behavior, tile workload distribution, resolution, G1/G3 compressibility. Do not hide bicycle-like cases.",
+  "dataset_aggregates": ["mipnerf360", "tanks_temples", "deep_blending", "all_13"],
+  "ablations": {"only_after": "P2 main benchmark frozen", "scenes": ["bicycle", "truck", "drjohnson"], "reason": "one difficult Mip-NeRF360, one Tanks&Temples, one Deep Blending; not chosen for favorable results", "A_rank": "R=4,8,16 fixed semantics; report E2E frame, mixed-forward, safe/fallback fraction, max_abs, delta PSNR, memory; analysis only", "B_cert_fallback": "A frozen certified mixed CGT / B CGT fast path w/o fallback+certified dispatch where meaningful / C canonical; show why certification/fallback necessary", "C_fused_translation": "reference/unfused CGT vs fused CUDA CGT vs canonical; separate representation advantage from GPU implementation advantage"},
+  "memory_accounting": ["canonical_scene_memory", "CGT_representation_bytes", "certificate_metadata", "fallback_metadata", "temporary_workspace", "peak_VRAM", "build_time_peak_memory"],
+  "hardware_characterization": {"counters": ["DRAM_bytes", "L2_traffic", "occupancy", "achieved_SM_util", "launch_count", "branch_divergence", "register_count", "shared_memory"], "if_unavailable": "NOT_MEASURED"},
+  "related_work": "separate literature table (Faster-GS, TensorGS, TileGS, LocoGS, + fresh prior-art); label PUBLISHED / NOT APPLES-TO-APPLES; never merge cross-hardware into authoritative table.",
+  "same_hw_reproduction": "optional, not blocking; attempt ONE strong external renderer baseline on same A100 cohort if readily reproducible; if blocked, published comparison only.",
+  "claim_discipline": {"forbidden": ["3x end-to-end unless measured", "training acceleration", "native training speed", "universal low rank", "first low-rank Gaussian method", "exact rendering if fallback/approximation do not justify"], "safe_provisional_claim": "CGT exploits certifiable tile-local compressibility in Gaussian rendering and dispatches certified work to a fused structured fast path while retaining canonical fallback for uncertified work."},
+  "training_boundary": "G5/TI0 negatives NOT in main 13-scene table; PAPER13_TRAINING_BOUNDARY.md records native training failed at G5 and canonical-training integration failed at TI0; define CGT as rendering representation not training primitive.",
+  "figures": ["Fig1 method overview", "Fig2 13-scene speedup distribution", "Fig3 safe/fallback vs speedup", "Fig4 rank-quality-speed ablation"],
+  "tables": ["TABLE1_13SCENE_MAIN.csv", "TABLE2_DATASET_AGGREGATE.csv", "TABLE3_ABLATIONS.csv", "TABLE4_MEMORY.csv", "TABLE5_RELATED_WORK.csv"],
+  "phases": {"P0": "method/source/data audit", "P1": "13-scene canonical baseline", "P2": "13-scene frozen CGT main benchmark", "P3": "E2E/build/amortization analysis", "P4": "paper ablations", "P5": "paper tables/figures/report"},
+  "main_benchmark_stop_rules": {"correctness_fail": "do not modify CGT inside PAPER13; record scene failure; continue other scenes only if scientifically valid and preserve the failure", "impl_bug": "bugfix allowed only if root cause documented, no algorithm/gate changed, all affected scene results invalidated and rerun, old outputs archived superseded"},
+  "gpu_allocation": "paper timing on clean/exclusive A100; paired scene authoritative comparison must not share GPU; guarded launch; no foreign-process contamination.",
+  "interim_status_after_P0": "immediately return: how many of 13 have valid checkpoints/data, which missing, which need canonical training, estimated GPU work UNITS (not time), whether frozen F0 CGT can ingest all source schemas, any hard blocker; then continue automatically if no scientific blocker.",
+  "final_classification": ["PAPER_READY_STRONG_RENDERER_EVIDENCE", "PAPER_READY_RENDERER_EVIDENCE", "PROMISING_BUT_BENCHMARK_INCOMPLETE", "DROP_RENDERER_GENERALIZATION", "BLOCKED_SOURCE_INTEGRITY", "BLOCKED_GPU_AVAILABILITY"],
+  "rule": "This is NOT a training verdict. Do not invent a new method. Do not rescue failed scenes. Turn the existing CGT result into paper-grade evidence."
+}

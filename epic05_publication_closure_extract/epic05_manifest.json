@@ -1,0 +1,980 @@
+{
+  "campaign_id": "EPIC05_PUBLICATION_CLOSURE",
+  "host": "EPIC-05",
+  "gpu_expected": "NVIDIA A100-SXM4-80GB",
+  "gpu_count_expected": 8,
+  "runtime_expected": {
+    "os": "Ubuntu 22.04",
+    "python": "3.10",
+    "torch": "2.9.1+cu128",
+    "cuda_wheel": "12.8"
+  },
+  "protocol": {
+    "resolution": "1080p-class / max_side=1920",
+    "iterations": 30000,
+    "loss": "0.8*L1 + 0.2*(1-SepSSIM)",
+    "densify": "500-15000 / interval 100 / absgrad threshold 0.0008",
+    "opacity_reset": 3000,
+    "sh_oneup_every": 1000,
+    "init": "COLMAP SfM",
+    "final_eval": "all cameras",
+    "timing_grade": "PUBLICATION",
+    "pairing_policy": "all jobs in a comparison group must execute sequentially on the same physical GPU"
+  },
+  "identity": {
+    "C0_method": "F9 + SCALAR_ADJOINT + H8-MR, PX=2, ABSGRAD=1",
+    "C0_reference_binary_sha256": "9baf8655f859f3e0f456e99a2d8e5b3ddfe414fe17a1a3e9d8072e0afed95b91",
+    "B1A_reference_binary_sha256": "0471fbd95cae4cfa658bc1e2e3f7abe801c6f58a36a2e681a6d16af84279986b",
+    "H8_patch_sha256": "8fb23acca9841ae4d24035de9b2d0ba7725742186b7db149c44cc656415fe312",
+    "note": "On EPIC-05 rebuilt binaries may have different binary hashes; source/patch identity, build flags, functional gates, and recorded EPIC hashes must be frozen before P1."
+  },
+  "stages": {
+    "P0_PREFLIGHT": {
+      "type": "short",
+      "required": true,
+      "description": "8-GPU identity + thermal/clock snapshot + per-GPU paired 2K room calibration."
+    },
+    "P1_MAIN": {
+      "type": "30K",
+      "required": true,
+      "description": "13 scenes x B1A/C0 x seed42 = 26 runs; cross-system reproduction."
+    },
+    "P2_ABLATION": {
+      "type": "30K",
+      "required": true,
+      "description": "13 scenes x A0/A1/A2 = 39 new runs; C0 reused from P1; reproduce ladder on SXM4."
+    },
+    "P3_EPS2D": {
+      "type": "30K",
+      "required": true,
+      "description": "room/bicycle/garden missing corners only = 6 new runs; base corners reused from P1."
+    },
+    "P4_MULTISEED": {
+      "type": "30K",
+      "required": true,
+      "description": "4 scenes x B1A/C0 x seeds43/44 = 16 new runs; seed42 reused from P1."
+    },
+    "P5_H8_MECHANISM": {
+      "type": "microbench",
+      "required": true,
+      "description": "room/bicycle/garden direct backward H8 off/on; correctness + timing; no new production branch."
+    },
+    "P6_H8_GENERALITY": {
+      "type": "microbench",
+      "required": true,
+      "description": "Port the same sufficient-statistic adjoint to a pristine gsplat backward or isolated drop-in validation path; correctness + 3-scene microbench only. This is validation of generality, not a C0 code change."
+    }
+  },
+  "full_training_new_jobs": 87,
+  "groups": [
+    {
+      "group_id": "scene42_bicycle",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_bicycle",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "bicycle",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_bicycle",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "bicycle",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_bicycle",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "bicycle",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_bicycle",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "bicycle",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_bicycle",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "bicycle",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "b1ae03_s42_bicycle",
+          "stage": "P3_EPS2D",
+          "arm": "b1a",
+          "scene": "bicycle",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0e01_s42_bicycle",
+          "stage": "P3_EPS2D",
+          "arm": "c0",
+          "scene": "bicycle",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_bonsai",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_bonsai",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "bonsai",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_bonsai",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "bonsai",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_bonsai",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "bonsai",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_bonsai",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "bonsai",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_bonsai",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "bonsai",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_counter",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_counter",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "counter",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_counter",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "counter",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_counter",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "counter",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_counter",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "counter",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_counter",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "counter",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_drjohnson",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_drjohnson",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "drjohnson",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_drjohnson",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "drjohnson",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_drjohnson",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "drjohnson",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_drjohnson",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "drjohnson",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_drjohnson",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "drjohnson",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_flowers",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_flowers",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "flowers",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_flowers",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "flowers",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_flowers",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "flowers",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_flowers",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "flowers",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_flowers",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "flowers",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_garden",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_garden",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "garden",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_garden",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "garden",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_garden",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "garden",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_garden",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "garden",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_garden",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "garden",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "b1ae03_s42_garden",
+          "stage": "P3_EPS2D",
+          "arm": "b1a",
+          "scene": "garden",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0e01_s42_garden",
+          "stage": "P3_EPS2D",
+          "arm": "c0",
+          "scene": "garden",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_kitchen",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_kitchen",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "kitchen",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_kitchen",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "kitchen",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_kitchen",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "kitchen",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_kitchen",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "kitchen",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_kitchen",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "kitchen",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_playroom",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_playroom",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "playroom",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_playroom",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "playroom",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_playroom",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "playroom",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_playroom",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "playroom",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_playroom",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "playroom",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_room",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_room",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "room",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_room",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "room",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_room",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "room",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_room",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "room",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_room",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "room",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "b1ae03_s42_room",
+          "stage": "P3_EPS2D",
+          "arm": "b1a",
+          "scene": "room",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0e01_s42_room",
+          "stage": "P3_EPS2D",
+          "arm": "c0",
+          "scene": "room",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_stump",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_stump",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "stump",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_stump",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "stump",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_stump",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "stump",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_stump",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "stump",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_stump",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "stump",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_train",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_train",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "train",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_train",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "train",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_train",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "train",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_train",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "train",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_train",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "train",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_treehill",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_treehill",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "treehill",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_treehill",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "treehill",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_treehill",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "treehill",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_treehill",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "treehill",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_treehill",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "treehill",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "scene42_truck",
+      "purpose": "main+ablation+eps2d_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s42_truck",
+          "stage": "P1_MAIN",
+          "arm": "b1a",
+          "scene": "truck",
+          "seed": 42,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a0_s42_truck",
+          "stage": "P2_ABLATION",
+          "arm": "a0",
+          "scene": "truck",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a1_s42_truck",
+          "stage": "P2_ABLATION",
+          "arm": "a1",
+          "scene": "truck",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "a2_s42_truck",
+          "stage": "P2_ABLATION",
+          "arm": "a2",
+          "scene": "truck",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s42_truck",
+          "stage": "P1_MAIN",
+          "arm": "c0",
+          "scene": "truck",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "p4_s43_drjohnson",
+      "purpose": "multiseed_pair_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s43_drjohnson",
+          "stage": "P4_MULTISEED",
+          "arm": "b1a",
+          "scene": "drjohnson",
+          "seed": 43,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s43_drjohnson",
+          "stage": "P4_MULTISEED",
+          "arm": "c0",
+          "scene": "drjohnson",
+          "seed": 43,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "p4_s43_train",
+      "purpose": "multiseed_pair_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s43_train",
+          "stage": "P4_MULTISEED",
+          "arm": "b1a",
+          "scene": "train",
+          "seed": 43,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s43_train",
+          "stage": "P4_MULTISEED",
+          "arm": "c0",
+          "scene": "train",
+          "seed": 43,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "p4_s43_bicycle",
+      "purpose": "multiseed_pair_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s43_bicycle",
+          "stage": "P4_MULTISEED",
+          "arm": "b1a",
+          "scene": "bicycle",
+          "seed": 43,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s43_bicycle",
+          "stage": "P4_MULTISEED",
+          "arm": "c0",
+          "scene": "bicycle",
+          "seed": 43,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "p4_s43_room",
+      "purpose": "multiseed_pair_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s43_room",
+          "stage": "P4_MULTISEED",
+          "arm": "b1a",
+          "scene": "room",
+          "seed": 43,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s43_room",
+          "stage": "P4_MULTISEED",
+          "arm": "c0",
+          "scene": "room",
+          "seed": 43,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "p4_s44_drjohnson",
+      "purpose": "multiseed_pair_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s44_drjohnson",
+          "stage": "P4_MULTISEED",
+          "arm": "b1a",
+          "scene": "drjohnson",
+          "seed": 44,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s44_drjohnson",
+          "stage": "P4_MULTISEED",
+          "arm": "c0",
+          "scene": "drjohnson",
+          "seed": 44,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "p4_s44_train",
+      "purpose": "multiseed_pair_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s44_train",
+          "stage": "P4_MULTISEED",
+          "arm": "b1a",
+          "scene": "train",
+          "seed": 44,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s44_train",
+          "stage": "P4_MULTISEED",
+          "arm": "c0",
+          "scene": "train",
+          "seed": 44,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "p4_s44_bicycle",
+      "purpose": "multiseed_pair_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s44_bicycle",
+          "stage": "P4_MULTISEED",
+          "arm": "b1a",
+          "scene": "bicycle",
+          "seed": 44,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s44_bicycle",
+          "stage": "P4_MULTISEED",
+          "arm": "c0",
+          "scene": "bicycle",
+          "seed": 44,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    },
+    {
+      "group_id": "p4_s44_room",
+      "purpose": "multiseed_pair_same_gpu",
+      "jobs": [
+        {
+          "run_id": "b1a_s44_room",
+          "stage": "P4_MULTISEED",
+          "arm": "b1a",
+          "scene": "room",
+          "seed": 44,
+          "eps2d": 0.1,
+          "iterations": 30000
+        },
+        {
+          "run_id": "c0_s44_room",
+          "stage": "P4_MULTISEED",
+          "arm": "c0",
+          "scene": "room",
+          "seed": 44,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "artifact": "RF0A_SUMMARY",
+  "generated_utc": "2026-09-30T15:42:40Z",
+  "primary_question": "Does the published fast-training regime reproduce on EPIC-05 under corrected held-out cameras?",
+  "verdict": "REPRODUCED",
+  "verdict_detail": "Official FastGS (train_base.sh per-scene Mip-NeRF360 settings) at 30k iters, seed 42, on A100-SXM4-80GB, under the corrected i%%8==0 true-holdout split, trains in 170-236s wall and reaches holdout PSNR 25.2-32.1 / SSIM 0.74-0.92 / LPIPS 0.11-0.27, consistent with published FastGS/3DGS-quality on Mip-NeRF360. It is 2.6-4.6x faster (wall) and uses ~7-8x fewer Gaussians and less VRAM than the faithful same-backend vanilla 3DGS comparator, at comparable true-holdout quality.",
+  "source": {
+    "repo": "https://github.com/fastgs/FastGS.git",
+    "commit": "44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f",
+    "branch": "main"
+  },
+  "environment": {
+    "host": "dsw-933622-64cc845c7d-lqswc",
+    "python": "3.12.13",
+    "torch": "2.10.0+cu128",
+    "cuda": "12.8",
+    "gpu": "NVIDIA A100-SXM4-80GB, 81920 MiB, 570.133.20"
+  },
+  "seed": 42,
+  "iterations": 30000,
+  "split_rule": "original camera index i (COLMAP image order) with i % 8 == 0 => HOLDOUT (test); all others => train. Holdout cameras are NEVER used for training (train.py samples only getTrainCameras()).",
+  "per_scene": {
+    "room": {
+      "speedup_wall": 2.565,
+      "speedup_internal": 2.563,
+      "gaussian_reduction_factor": 7.759,
+      "fastgs_holdout_psnr": 32.07616253388233,
+      "vanilla_holdout_psnr": 31.20330160092085,
+      "holdout_psnr_delta": 0.8729,
+      "fastgs_holdout_ssim": 0.9232862698726164,
+      "vanilla_holdout_ssim": 0.9260375728973975,
+      "fastgs_holdout_lpips": 0.2121236740778654,
+      "vanilla_holdout_lpips": 0.19310495333793834
+    },
+    "garden": {
+      "speedup_wall": 4.426,
+      "speedup_internal": 4.413,
+      "gaussian_reduction_factor": 7.943,
+      "fastgs_holdout_psnr": 27.399698972702026,
+      "vanilla_holdout_psnr": 27.56301132837931,
+      "holdout_psnr_delta": -0.1633,
+      "fastgs_holdout_ssim": 0.8445002287626266,
+      "vanilla_holdout_ssim": 0.8653098965684572,
+      "fastgs_holdout_lpips": 0.16711717657744884,
+      "vanilla_holdout_lpips": 0.11471312710394461
+    },
+    "bicycle": {
+      "speedup_wall": 4.586,
+      "speedup_internal": 4.572,
+      "gaussian_reduction_factor": 7.33,
+      "fastgs_holdout_psnr": 25.225549697875977,
+      "vanilla_holdout_psnr": 25.384596710205077,
+      "holdout_psnr_delta": -0.159,
+      "fastgs_holdout_ssim": 0.7439305138587952,
+      "vanilla_holdout_ssim": 0.7621564745903016,
+      "fastgs_holdout_lpips": 0.27134815454483036,
+      "vanilla_holdout_lpips": 0.2238860696554184
+    }
+  },
+  "speedup_wall_range": [
+    2.56,
+    4.59
+  ],
+  "gaussian_count_final": {
+    "room": {
+      "fastgs": 196863,
+      "vanilla": 1527522
+    },
+    "garden": {
+      "fastgs": 693503,
+      "vanilla": 5508770
+    },
+    "bicycle": {
+      "fastgs": 808878,
+      "vanilla": 5928890
+    }
+  },
+  "reproduction_mismatches": [
+    "Environment differs from the paper's stated spec (paper: CUDA 11.6 / py3.7 / torch1.12; here: torch2.10.0+cu128 / py3.12 / nvcc12.8). The vendored rasterizer was rebuilt from frozen source (commit 44e02a5) against the available toolchain; source identity pinned by commit + vendored tree SHAs.",
+    "True-holdout PSNR: FastGS is +0.87 dB above vanilla on room but -0.16/-0.16 dB below on garden/bicycle; SSIM slightly lower and LPIPS slightly higher for FastGS on garden/bicycle. With only 24-39 holdout views per scene, per-scene metrics have limited sample size; deltas are small and quality is comparable overall.",
+    "Vanilla comparator uses mult=1.0 (full compact box) vs FastGS mult=0.5; this box difference is part of the method, not a confound. Both arms use the identical diff_gaussian_rasterization_fastgs backend.",
+    "Timing is single-GPU wall clock on one A100 per run; no cross-backend wall is compared as algorithmic speedup."
+  ],
+  "scientific_status": "External baseline reproduction (NOT author novelty). Lane A only; Lane B/C not started."
+}

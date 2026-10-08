@@ -1,0 +1,59 @@
+{
+  "schema": "AMPS0_HEADROOM_PROFILE",
+  "generated": "2026-10-05",
+  "gate": "P0 hard headroom gate (objective section 5)",
+  "gate_rule": "f_opt = T_optimizer / T_iteration (per-scene medians). If f_opt < 0.20 on ALL scenes/stages -> DROP_INSUFFICIENT_OPTIMIZER_HEADROOM. If >=0.30 on >=2 scenes -> continue. If >=0.40 -> STRONG_OPTIMIZER_HEADROOM.",
+  "authoritative_measurements": {
+    "room": {
+      "source": "M0_BASELINE_PROFILE (A100, gsplat baseline, room@15001-15000 post-densification, N=933590, 500-iter window)",
+      "optimizer_fraction": 0.05940907414944611,
+      "optimizer_ms": 3.7037586531639097,
+      "total_ms": 62.34331549835205,
+      "render_ms": 4.502953976154328,
+      "backward_ms": 21.65663948059082,
+      "loss_ms": 25.26423657608032,
+      "note": "full-Adam fraction; loss/SSIM dominates (25ms) because this baseline uses non-fused SSIM"
+    },
+    "garden": {
+      "source": "LAVOS0_HEADROOM (A100)",
+      "sh_adam_wall_fraction": 0.14,
+      "note": "SH-Adam wall fraction (subset of full optimizer); all 3 scenes report 0.14"
+    },
+    "bicycle": {
+      "source": "LAVOS0_HEADROOM (A100)",
+      "sh_adam_wall_fraction": 0.14,
+      "note": "SH-Adam wall fraction; all 3 scenes report 0.14"
+    }
+  },
+  "summary_optimizer_fraction": {
+    "full_adam_room": 0.05940907414944611,
+    "sh_adam_all_scenes": 0.14,
+    "range_observed": [
+      0.0594,
+      0.14
+    ],
+    "all_below_0.20": true
+  },
+  "speed_bound_context": {
+    "source": "M0_SPEED_BOUND (A100)",
+    "best_estimate_speedup_visible_skip": 1.0064013935589056,
+    "optimistic_speedup": 1.027074375208883,
+    "appearance_work_fraction": 0.8135593220338984,
+    "note": "Even a visible-skip optimizer (which removes 100% of invisible-Gaussian optimizer work) only reaches 1.006x best-case. AMPS0 BF16 state compression is strictly weaker than visible-skip (it only shrinks bytes of visible states)."
+  },
+  "local_non_authoritative": {
+    "host": "RTX 5070 Laptop",
+    "note": "Local RTX 5070 pure-PyTorch oracle cannot reproduce authoritative fused-backend component timings (no MSVC for gsplat/Faster-GS CUDA JIT; 8GB VRAM). Local oracle used ONLY for P1 shadow numerics, marked shared_gpu_numerics_only=true / performance_evidence_valid=false. Authoritative f_opt from A100.",
+    "shared_gpu_numerics_only": true,
+    "performance_evidence_valid": false
+  },
+  "gate_evaluation": {
+    "threshold_drop_below": 0.2,
+    "min_observed_f_opt": 0.0594,
+    "max_observed_f_opt": 0.14,
+    "all_scenes_below_0.20": true,
+    "headroom_gate_result": "DROP_INSUFFICIENT_OPTIMIZER_HEADROOM",
+    "reasoning": "Measured optimizer fraction is 5.94% (full-Adam, room post-densification) and 14% (SH-Adam, all scenes). Both are far below the 0.20 floor. Even the most optimistic visible-skip speed bound is 1.006x. AMPS0 (BF16 state compression, strictly weaker than visible-skip) cannot reach the 1.05x traffic gate."
+  },
+  "verdict": "DROP_INSUFFICIENT_OPTIMIZER_HEADROOM"
+}

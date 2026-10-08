@@ -1,0 +1,174 @@
+{
+  "phase": "P11 Gate 0 - identity and strong baseline",
+  "date_utc": "2026-09-26T07:41:57Z",
+  "upstream": {
+    "repository": "nerfstudio-project/gsplat",
+    "commit": "512d366b67073d77ca099ede742683c165dfc23b",
+    "gsplat_version": "1.6.0",
+    "tree": "/root/epic05_p8/gsplat-main-512d366b",
+    "gsplat_python_plus_cuda_source_manifest_sha256": "944f012c9abb300af124432005c56ec2cb251c06df22d5ed7496e39ec462a480  -",
+    "build_identity_file": "/root/epic05_p8/gmain_build_identity.json"
+  },
+  "gsplat_so": {
+    "path": "/root/epic05_p8/build/torchext/gsplat_cuda/gsplat_cuda.so",
+    "sha256": "8ca8ec1e0c8618f058638b93010061a5bafb7f6c92005b54d07dc6c22658c811",
+    "matches_p8_gmain_build": true
+  },
+  "trainer": {
+    "path": "/root/3dgs-publication-epic05/publication_trainer_dsha.py",
+    "sha256": "b838d5df2a1060b0bb11942c923577307d20f94f02bad8263d4b53dd957c5f59",
+    "arm": "gmain",
+    "recipe": "DSH-A publication: eps2d=0.3, absgrad=True (all iters), tile_size=16, packed=False, rasterize_mode=classic, SepSSIM 11x11 sigma=1.5 same-pad, L=0.8*L1+0.2*(1-SSIM), densify 500..15000@100, grow_grad2d=0.0008 absgrad pixel-space, opacity reset 3000, SH progress 1000, Adam eps=1e-15, seed=42",
+    "gaussian_model_sha256": "68731e375013a6f24aa4d81e5986402b1ac50f51cddf20688e358be705b1a60b",
+    "config_sha256": "ea8e870476a3ba71c0ae9e1123a6fa5b1cf696bad983bdb6535d6fd04b7acc56",
+    "dataset_sha256": "e6d8bfb1034bee102abc176060a8c7783951d253426ea7b5ea27daa16c258402"
+  },
+  "fused_ssim": {
+    "repo": "https://github.com/rahul-goel/fused-ssim",
+    "clone_path": "/root/fused-ssim",
+    "commit": "a7c48d6dd7ac6dc39a7958c7c4452e0b10418f38",
+    "commit_subject": "2026-02-02 15:28:22 -0500 3D fused ssim documentation and tests update (#39)",
+    "working_tree_clean": true,
+    "module_file": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim/__init__.py",
+    "so_path": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim_cuda.cpython-310-x86_64-linux-gnu.so",
+    "so_sha256": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+    "build_flags": [
+      "-O3",
+      "--use_fast_math",
+      "--maxrregcount=32",
+      "CUDA_ARCHITECTURES=80"
+    ],
+    "padding_mode_used": "same",
+    "note": "existing public implementation used as strong baseline; NOT a P11 contribution",
+    "window_constant_check": {
+      "fused_cgauss": [
+        0.001028380123898387,
+        0.0075987582094967365,
+        0.036000773310661316,
+        0.10936068743467331,
+        0.21300552785396576,
+        0.26601171493530273,
+        0.21300552785396576,
+        0.10936068743467331,
+        0.036000773310661316,
+        0.0075987582094967365,
+        0.001028380123898387
+      ],
+      "trainer_k1d": [
+        0.0010283803567290306,
+        0.0075987582094967365,
+        0.036000773310661316,
+        0.10936068743467331,
+        0.21300552785396576,
+        0.26601171493530273,
+        0.21300552785396576,
+        0.10936068743467331,
+        0.036000773310661316,
+        0.0075987582094967365,
+        0.0010283803567290306
+      ],
+      "max_abs_diff": 2.3283064365386963e-10,
+      "bitwise_equal": false,
+      "note": "fused-ssim hardcodes the 11-tap sigma=1.5 Gaussian; comparison against the trainer's torch.exp-derived kernel"
+    }
+  },
+  "environment": {
+    "python": "3.10.21",
+    "torch": "2.9.1+cu128",
+    "cuda_runtime": "12.8",
+    "cudnn": 91002,
+    "hostname": "dsw-933622-64cc845c7d-lqswc",
+    "gpus": [
+      "0, NVIDIA A100-SXM4-80GB, GPU-d94b65aa-4a44-3402-7a54-72ef0f3d8ff3, 570.133.20, 81920 MiB",
+      "1, NVIDIA A100-SXM4-80GB, GPU-f2f1e3be-845d-e628-eaae-d5d134e831e4, 570.133.20, 81920 MiB",
+      "2, NVIDIA A100-SXM4-80GB, GPU-bcca92b9-0234-7ec9-a2f0-a63925d52146, 570.133.20, 81920 MiB",
+      "3, NVIDIA A100-SXM4-80GB, GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72, 570.133.20, 81920 MiB",
+      "4, NVIDIA A100-SXM4-80GB, GPU-ff6ab27d-a9ad-36e1-7d59-997da8191fda, 570.133.20, 81920 MiB",
+      "5, NVIDIA A100-SXM4-80GB, GPU-bf5e4714-c12e-2914-78bb-be3ff2607296, 570.133.20, 81920 MiB",
+      "6, NVIDIA A100-SXM4-80GB, GPU-e4fb3361-0a0d-c9ae-6172-38327f8215e6, 570.133.20, 81920 MiB",
+      "7, NVIDIA A100-SXM4-80GB, GPU-75e61ed9-23aa-3757-40df-45bb414d403a, 570.133.20, 81920 MiB"
+    ],
+    "cuda_visible_devices": "0"
+  },
+  "gpu_used": {
+    "gpu_index": 0,
+    "gpu_info": "GPU-d94b65aa-4a44-3402-7a54-72ef0f3d8ff3, NVIDIA A100-SXM4-80GB, 570.133.20",
+    "foreign_processes": []
+  },
+  "scenes": {
+    "room": {
+      "ckpt_30000_path": "/root/3dgs-publication-epic05/full30k/gmain03_s42_room/ckpt_30000.pt",
+      "ckpt_30000_sha256": "95a61d0fa6776ca1f2e481603ef1c84cdba8a61b11507a4823c8c6662d453e8a",
+      "ckpt_30000_size_bytes": 637573621,
+      "camera_sequence_npy_sha256": "a80127c542dc2859c0806b7fbf90b8c475a8e0536133be785ff38010630b98e9",
+      "cameras_json_sha256": "84fcccbd3ae4ea6754bcb7838149a418b3a62275549a67a3e7a7afc5d2f83f45",
+      "campaign_command": "/root/epic05_py_wrapper.sh /root/3dgs-publication-epic05/publication_trainer_p8.py --arm gmain --scene room --iterations 30000 --outdir /root/3dgs-publication-epic05/full30k/gmain03_s42_room --gpu 3 --lpips --final-eval all --checkpoints --timing-grade PUBLICATION --eps2d 0.3",
+      "campaign_launcher_meta": {
+        "run_id": "gmain03_s42_room",
+        "group_gpu_physical": 3,
+        "returncode": 0,
+        "wall_launcher_s": 1081.75896525383,
+        "job": {
+          "run_id": "gmain03_s42_room",
+          "stage": "P8_STRICT_MATCHED_0P3",
+          "arm": "gmain",
+          "scene": "room",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      }
+    },
+    "bicycle": {
+      "ckpt_30000_path": "/root/3dgs-publication-epic05/full30k/gmain03_s42_bicycle/ckpt_30000.pt",
+      "ckpt_30000_sha256": "5e0c06c6cab3ba2b117602a9a9d6cc8cf06fa873c206c3c699561157bbd15f68",
+      "ckpt_30000_size_bytes": 2676052021,
+      "camera_sequence_npy_sha256": "8debe1c2244aca0994e9bd27ddfdd440fcc60f51341351d6c899b3c637c78e2d",
+      "cameras_json_sha256": "5f0ebcb6b33e415061a485ed9961fb277cf7e875586f0d82d88b746d9d9fd502",
+      "campaign_command": "/root/epic05_py_wrapper.sh /root/3dgs-publication-epic05/publication_trainer_p8.py --arm gmain --scene bicycle --iterations 30000 --outdir /root/3dgs-publication-epic05/full30k/gmain03_s42_bicycle --gpu 0 --lpips --final-eval all --checkpoints --timing-grade PUBLICATION --eps2d 0.3",
+      "campaign_launcher_meta": {
+        "run_id": "gmain03_s42_bicycle",
+        "group_gpu_physical": 0,
+        "returncode": 0,
+        "wall_launcher_s": 1480.1695778369904,
+        "job": {
+          "run_id": "gmain03_s42_bicycle",
+          "stage": "P8_STRICT_MATCHED_0P3",
+          "arm": "gmain",
+          "scene": "bicycle",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      }
+    },
+    "garden": {
+      "ckpt_30000_path": "/root/3dgs-publication-epic05/full30k/gmain03_s42_garden/ckpt_30000.pt",
+      "ckpt_30000_sha256": "bc2d76bb8006012cb1a1eb18fc4df77e4789daa8073111490fe9f21d5cd713a4",
+      "ckpt_30000_size_bytes": 1821982837,
+      "camera_sequence_npy_sha256": "63ad2de2256d09056d18d6e0cda4fcedb0935de81fca3dcd5ffa146a9d385cc5",
+      "cameras_json_sha256": "60986440d8fdc73b9e8e2493a9b745016e20bf5275963f1c49ee64f8e616a391",
+      "campaign_command": "/root/epic05_py_wrapper.sh /root/3dgs-publication-epic05/publication_trainer_p8.py --arm gmain --scene garden --iterations 30000 --outdir /root/3dgs-publication-epic05/full30k/gmain03_s42_garden --gpu 1 --lpips --final-eval all --checkpoints --timing-grade PUBLICATION --eps2d 0.3",
+      "campaign_launcher_meta": {
+        "run_id": "gmain03_s42_garden",
+        "group_gpu_physical": 1,
+        "returncode": 0,
+        "wall_launcher_s": 1526.9732298851013,
+        "job": {
+          "run_id": "gmain03_s42_garden",
+          "stage": "P8_STRICT_MATCHED_0P3",
+          "arm": "gmain",
+          "scene": "garden",
+          "seed": 42,
+          "eps2d": 0.3,
+          "iterations": 30000
+        }
+      }
+    }
+  },
+  "frozen_states_policy": {
+    "late_30k": "full30k/gmain03_s42_{scene}/ckpt_30000.pt (DSH-A campaign, P8_STRICT_MATCHED_0P3, seed 42)",
+    "pre15k": "P11 stategen: faithful replay of the same trainer/recipe to iter 14000 saving capture()+optimizer at 2000/5000/10000/14000 (state generation only; NOT a 30K campaign; measurement-only)"
+  },
+  "no_algorithm_change": true
+}

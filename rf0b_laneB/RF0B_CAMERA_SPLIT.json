@@ -1,0 +1,81 @@
+{
+  "task": "DSH-3 ReproFast0 Lane B",
+  "deliverable": "RF0B_CAMERA_SPLIT",
+  "date": "2026-09-30",
+  "method": "Corrected true-holdout: every-8th camera (i%8==0) EXCLUDED from the training pool for BOTH arms. Renderer/loss/densification/optimizer UNCHANGED vs frozen C0; only the training camera pool differs. Matches Faster-GS TEST_STEP=8.",
+  "split_rule": "train_pool = [i for i in range(n_cameras) if i % 8 != 0]; holdout = [i for i in range(n_cameras) if i % 8 == 0]",
+  "arms_identical_split": true,
+  "verification": "Verified in holdout8 runs: unique_trained == n_train_pool AND heldout_leaked_into_training == [] for all scenes. Counts from c0_unseen_eval.py (GTDataset length).",
+  "scenes": {
+    "room": {
+      "n_cameras_total": 311,
+      "holdout_step": 8,
+      "holdout_rule": "camera index i % 8 == 0 is TRUE holdout; never used in training",
+      "n_heldout": 39,
+      "n_train_pool": 272,
+      "n_train_steps": 30000,
+      "unique_trained": 272,
+      "heldout_leaked_into_training": [],
+      "leak_free": true,
+      "final_N": 853453,
+      "true_holdout_quality": {
+        "arm": "c0",
+        "scene": "room",
+        "psnr": 30.798242518302914,
+        "ssim": 0.9154525062976739,
+        "lpips": 0.30695609022409487,
+        "status": "SUCCESS"
+      },
+      "wall_s": 513.6,
+      "peak_vram_gb": 5.863461971282959,
+      "source": "/root/sb0_fgs/holdout8/room"
+    },
+    "garden": {
+      "n_cameras_total": 185,
+      "holdout_step": 8,
+      "holdout_rule": "camera index i % 8 == 0 is TRUE holdout; never used in training",
+      "n_heldout": 24,
+      "n_train_pool": 161,
+      "n_train_steps": 30000,
+      "unique_trained": 161,
+      "heldout_leaked_into_training": [],
+      "leak_free": true,
+      "final_N": 2548992,
+      "true_holdout_quality": {
+        "arm": "c0",
+        "scene": "garden",
+        "psnr": 26.008760821126316,
+        "ssim": 0.8198596239089966,
+        "lpips": 0.1980654839426279,
+        "status": "SUCCESS"
+      },
+      "wall_s": 814.1,
+      "peak_vram_gb": 7.918529510498047,
+      "source": "/root/sb0_fgs/holdout8/garden",
+      "note": "n_cameras_total=185 per c0_unseen_eval.py; camera_sequence.npy max index=183 infers 184 but true dataset length is 185 (index 184 exists but not in training sequence). Holdout verified leak-free."
+    },
+    "bicycle": {
+      "n_cameras_total": 194,
+      "holdout_step": 8,
+      "holdout_rule": "camera index i % 8 == 0 is TRUE holdout; never used in training",
+      "n_heldout": 25,
+      "n_train_pool": 169,
+      "n_train_steps": 30000,
+      "unique_trained": 169,
+      "heldout_leaked_into_training": [],
+      "leak_free": true,
+      "final_N": 3703162,
+      "true_holdout_quality": {
+        "arm": "c0",
+        "scene": "bicycle",
+        "psnr": 21.695221685347075,
+        "ssim": 0.6765865516662598,
+        "lpips": 0.314332959651947,
+        "status": "SUCCESS"
+      },
+      "wall_s": 866.9,
+      "peak_vram_gb": 8.575901985168457,
+      "source": "/root/sb0_fgs/holdout8/bicycle"
+    }
+  }
+}

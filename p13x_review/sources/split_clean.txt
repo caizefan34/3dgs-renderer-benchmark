@@ -1,0 +1,277 @@
+A New Split Algorithm for 3D Gaussian Splatting
+
+3D Gaussian splatting models, as a novel explicit 3D representation, have been applied in many domains recently, such as explicit geometric editing and geometry generation. Progress has been rapid. However, due to their mixed scales and cluttered shapes, 3D Gaussian splatting models can produce a blurred or needle-like effect near the surface. At the same time, 3D Gaussian splatting models tend to flatten large untextured regions, yielding a very sparse point cloud.
+These problems are caused by the non-uniform nature of 3D Gaussian splatting models, so in this paper, we propose a new 3D Gaussian splitting algorithm, which can produce a more uniform and surface-bounded 3D Gaussian splatting model. Our algorithm splits an $N$ -dimensional Gaussian into two $N$ -dimensional Gaussians. It ensures consistency of mathematical characteristics and similarity of appearance, allowing resulting 3D Gaussian splatting models to be more uniform and a better fit to the underlying surface, and thus more suitable for explicit editing, point cloud extraction and other tasks. Meanwhile, our 3D Gaussian splitting approach has a very simple closed-form solution, making it readily applicable to any 3D Gaussian model.
+
+1. introduction
+
+3D representation is a key part of artistic model design, special effects production, and VR/AR applications.
+Some implicit 3D representations like neural radiance fields (NeRFs) ( Mildenhall et al., 2020 ) , have achieved great results in rendering quality, but it is very difficult to edit them and to provide real-time rendering.
+Instead, most games and modeling use explicit representations, especially point clouds and meshes, which have faster rendering speed and are easy to edit.
+3D Gaussian splatting (3D GS) ( Kerbl et al., 2023 ) , as a novel 3D explicit representation, uses a series of 3D positions, opacity, anisotropic covariance, and spherical harmonic (SH) coefficients to represent a 3D scene. Gaussian splatting models can be rapidly rendered using a parallel differentiable rasterization approach.
+This novel 3D representation has been widely used for 3D editing ( Fang et al., 2023 ; Chen et al., 2023a ) , physical simulation ( Xie et al., 2023 ) and 3D geometry generation ( Tang et al., 2023 ) .
+
+While 3D GS has many advantages compared to other implicit 3D representations, it suffers from two issues: (i) scale inhomogeneity : some Gaussians have much greater value in every principal component of covariance than others, and (ii) structural inhomogeneity : some Gaussians have much greater value in some principal components of covariance than other principal components.
+As a consequence, during 3D Gaussian splatting model editing and rendering, this inhomogeneity of 3D Gaussians makes the boundaries of objects appear blurred and untidy,
+as shown in the direct editing and traditional training results in Fig. 1 .
+Accumulated editing operations can lead to the collapse of the whole scene. Furthermore, point clouds extracted from 3D GS can be very sparse for untextured regions due to the scale inhomogeneity. This sparseness can cause difficulties in downstream tasks, such as normal estimation ( Xu et al., 2023 ; Dey et al., 2005 ; Li et al., 2010 ) and point cloud segmentation ( Qi et al., 2017 ; Li et al., 2018 ; Guo et al., 2021 ) .
+
+To solve the problem of scale inhomogeneity and structural inhomogeneity, we should make the inhomogeneous principal components more uniform, yet retain 3D visual consistency where affected.
+We do so by splitting Gaussians with undesirable shapes.
+Inspired by Hall et al. ( 2002 ) , who proposed an algorithm to add and subtract eigenspaces by eigenvalue decomposition and singular value decomposition, we propose an algorithm to decompose the eigenspace into two independent eigenspaces while preserving its mathematical characteristics.
+For a 3D GS model, its mathematical characteristics are the parameters affecting visual effects: opacity, 3D position, and anisotropic covariance.
+Preserving mathematical characteristics during Gaussian splitting can be achieved by conserving zero-, first-, and second-moments.
+Conserving these allows us to model Gaussian splitting via a set of integral tensor equations, which have a concise and efficient closed-form solution.
+This allows our splitting algorithm to be used with any 3D Gaussian model.
+We also propose a metric to measure how accurately the 3D Gaussian fits the underlying scene after splitting.
+
+We show how our algorithm can benefit various applications. For Gaussian-based explicit editing, our method can produce clearer boundaries. For point cloud extraction from 3D Gaussians, our method represents the large flattened, texture-less regions with more uniform Gaussians, thus resulting in a denser point cloud. Our method also benefits 3D Gaussian learning, rendering novel views of higher quality.
+
+In summary, this paper makes the following contributions:
+
+We give a new splitting algorithm for 3D Gaussians, which can be used to produce a more uniform 3D Gaussian splatting model.
+
+We show the proposed Gaussian splitting approach has a closed-form solution, which can be efficient and is thus usable for any 3D Gaussian model.
+
+We demonstrate that our Gaussian splitting can benefit various applications, including explicit editing, point cloud densification, and 3D Gaussian learning.
+
+2. related works
+
+2.1. 3D representations
+
+A 3D representation is a data structure for handling and storing 3D geometry. Depending on the requirements, there are many different kinds of 3D representations; they can be divided into explicit and implicit representations.
+Implicit representations include NeRF ( Mildenhall et al., 2020 ) , NeuS ( Wang et al., 2021 ) , iso-surface ( Zhang et al., 2023 ) , etc.
+Such implicit representations, together with neural networks, can render views of high quality and are more capable of modeling scenes from other modalities such as text, and images ( Poole et al., 2023 ; Wang et al., 2023 ) . However, they are very difficult to edit because of their implicit nature.
+Works committed to solving this problem include the following. Dmtet ( Shen et al., 2021 ) can extract a differentiable iso-surface from a 3D implicit representation. NeRFEditor ( Sun et al., 2022 ) applied StyleGAN ( Karras et al., 2019 ) to edit a NeRF.
+DE-NeRF ( Wu et al., 2023a ) decomposed a NeRF to accomplish editing such as changing lighting, materials, etc. However, these editing methods for implicit representations usually involve very complicated operations and are inefficient.
+
+On the contrary, explicit representations provide a more direct 3D geometric structure, so editing operations are quite intuitive for creators and designers. A 3D mesh can be modified by an as-rigid-as-possible algorithm ( Sorkine and Alexa, 2007 ) , and also can be refined by loop subdivision ( Loop, 1987 ) . Point clouds can be readily simulated ( Chen et al., 2020 ) and segmented ( Qi et al., 2017 ; Guo et al., 2021 ) . However, an explicit representation is very tedious to create, requiring much work by human artists.
+
+2.2. 3D Gaussian Splatting Models and Applications
+
+3D Gaussian splatting ( Kerbl et al., 2023 ) provides a novel explicit 3D representation, which is convenient to obtain from images with deep learning techniques. Its explicit nature also makes it more suitable for real-time rendering than implicit representations.
+
+Therefore, 3D Gaussian splatting has a wide range of applications. Several works have employed it in simultaneous localization and mapping (SLAM) ( Matsuki et al., 2023 ) .
+Huang et al. ( 2023 ) has utilized their fast training speed to achieve better results in monocular vision.
+Some dynamic 3D radiance field tasks have been migrated to 3D Gaussian splatting modeling. For example, Wu et al. ( 2023b ) combined 3D Gaussian splatting with a tri-plane approach ( Chen et al., 2022 ) to achieve better results for 4D scene reconstruction. For AI-based content generation, Chen et al. ( 2023b ) utilized diffusion models ( Ho et al., 2020 ; Song et al., 2021 ; Lu et al., 2022 ) to guide the generation of 3D Gaussian splatting models. Avatar generation with 3D Gaussian splatting ( Zielonka et al., 2023 ) is also a popular research area. Works like ( Chen et al., 2023a ; Tang et al., 2023 ) utilize diffusion to accomplish editing.
+
+But as an explicit representation, how to edit a 3D Gaussian splatting model without extra training is very important. Real-time interactive performance is crucial for editing, but is almost impossible for deep neural network-based editing. In addition, mutual transformation between Gaussian splatting and other explicit representations such as point clouds and meshes, is also important, to make 3D Gaussian splatting models compatible with current geometry processing pipelines aimed at explicit representations.
+
+3. Method
+
+Our goal is to replace the inhomogeneous Gaussians with more uniform Gaussians. We first briefly explain the 3D Gaussian representation in Sec. 3.1 . Then we model the splitting problem in Sec. 3.2 . We introduce some conservation relationships used in the splitting process and explain their physical meaning in Sec. 3.3 . A derivation of and solution to the splitting problem are given in Sec. 3.4 . Finally, we consider implementation details in Sec. 3.5 .
+
+3.1. 3D Gaussian Representation
+
+A 3D Gaussian splatting model represents a 3D target using a set of 3D Gaussians, each of which is characterized by its 3D position $\mathbf{\mu}$ , opacity $\alpha$ , covariance $\Sigma$ , and color, with spherical harmonic (SH) coefficients.
+A 3D point with a coordinate $\mathbf{x}$ covered by a 3D Gaussian $k$ obtains its opacity $\alpha(\mathbf{x})$ from that Gaussian (if not specifically stated, the opacity $\alpha$ in this paper represents the part except for the Gaussian distribution normalization coefficient):
+
+(1) $\displaystyle\alpha(\mathbf{x})$ $\displaystyle=\alpha_{k}\ \textrm{pdf}_{k}(\mathbf{x})$ (2) $\displaystyle\textrm{pdf}_{k}(\mathbf{x})$ $\displaystyle=\frac{1}{(2\pi)^{3/2}|\Sigma_{k}|}\exp(-\frac{1}{2}(\mathbf{x}-\mathbf{\mu}_{k})^{T}\Sigma_{k}^{-1}(\mathbf{x}-\mathbf{\mu}_{k}))$
+
+where $\rm{pdf}_{k}$ denotes the probability density function of Gaussian $k$ . Due to the positive definiteness of covariance $\Sigma$ , it can be decomposed as follows to save storage space:
+
+$\Sigma=RSS^{T}R^{T}$
+
+where $R$ is the rotation matrix and $S$ is the principal direction scale diagonal matrix. $R$ can be stored as a quaternion $q$ . All of these can be converted to their respective matrices and combined, making sure to normalize $q$ to obtain a valid unit quaternion.
+
+The original 3D Gaussian Splatting method directly duplicates a copy of the Gaussian with naive scaling and random translation when it needs to increase the number of Gaussians.
+
+3.2. Problem Definition for Gaussian Splitting
+
+Since the covariance matrix $\Sigma$ is square and symmetric, it can be decomposed as:
+
+$\Sigma=R\Lambda R^{T}$
+
+where $\Lambda$ is a diagonal matrix, whose elements are the principal component’s squared scales,
+and each column vector of $R$ represents a principal component’s direction vector. Since the covariance matrix is a symmetric positive matrix, the three principal component direction vectors are mutually perpendicular unit vectors.
+
+The 3D Gaussian is completely central symmetric and axisymmetric.
+Therefore, if all scales of a Gaussian are significantly larger than other Gaussians’ scales (scale inhomogeneity), huge bulges will be caused when editing and huge voids will arise during point cloud extraction. If the scale of some principal component of a Gaussian is greater than other principal components (structural inhomogeneity), there will be many needle-like objects near the surface, as demonstrated in Fig. 2 .
+
+At the same time, since explicit editing and point cloud extraction are carried out on the trained 3D Gaussian model and must usually be efficient for interaction, a method to eliminate these inhomogeneities should not need further training.
+Moreover, if the visual consistency cannot be guaranteed before and after processing, artifacts will accumulate during editing and extraction.
+If we use a direct copy-based splitting strategy as the original Gaussian Splatting ( Kerbl et al., 2023 ) during the training split process, there will be an unstable loss decline, making the previous training invalid.
+
+Our problem is how to shrink an inhomogeneous 3D Gaussian’s principal components while maintaining its 3D visual consistency.
+Instead of shrinking, our approach is based on splitting, since any complex curved split can be approximately represented by splitting with many planes.
+
+Therefore, the problem above is reduced to how to split a 3D Gaussian using a 3D plane while retaining its 3D visual consistency. A 3D plane can be expressed as:
+
+(3) $\displaystyle P(\mathbf{n},d)=\{\mathbf{x}\in\mathbb{R}^{3}|\hat{P}(\mathbf{n},d)(\mathbf{x})\triangleq\mathbf{n}\cdot\mathbf{x}+d=0\}$
+
+where $\mathbf{n}$ denotes the unit normal of the plane, $d$ is its distance from the origin and $\hat{P}$ means directed distance.
+We then formally define the splitting of a Gaussian $(\alpha_{0},\mathbf{\mu_{0}},\Sigma_{0})$ into two new Gaussians $(\alpha_{l},\mathbf{\mu_{l}},\Sigma_{l})$ and $(\alpha_{r},\mathbf{\mu_{r}},\Sigma_{r})$ at the splitting plane $P$ as:
+
+$\alpha_{l},\alpha_{r},\mu_{l},\mu_{r},\Sigma_{l},\Sigma_{r}=F(\alpha_{0},\mu_{0},\Sigma_{0},P(\mathbf{n},d))$
+
+which aims to minimize the intersection between the two new Gaussians while maximizing the similarity between each new Gaussian and their own part of the original:
+
+(4) $\displaystyle\underset{\alpha_{k},\Sigma_{k},\mu_{k}}{\operatorname{argmin}}\int_{R^{3}\setminus\mathbb{V}_{k}}\alpha_{k}\textrm{pdf}_{k}(\mathbf{v})dV,k\in\{l,r\}$ (5) $\displaystyle\underset{\alpha_{k},\Sigma_{k},\mu_{k}}{\operatorname{argmin}}|\int_{\mathbb{V}_{k}}\alpha_{k}\textrm{pdf}_{k}(\mathbf{v})dV-\int_{\mathbb{V}_{k}}\alpha_{0}\textrm{pdf}_{0}(\mathbf{v})dV|,k\in\{l,r\}$
+
+with:
+
+$\displaystyle\mathbb{V}_{l}$ $\displaystyle=\{\mathbf{x}\in\mathbb{R}^{3}|\hat{P}(\mathbf{n},d)(\mathbf{x})<0\}$ $\displaystyle\mathbb{V}_{r}$ $\displaystyle=\{\mathbf{x}\in\mathbb{R}^{3}|\hat{P}(\mathbf{n},d)(\mathbf{x})\geq 0\}$
+
+The above goals also provide an evaluation metric for Gaussian splitting.
+We simplify the optimization goal to get our splitting error metrics. This metric includes interval error and external excess to evaluate 3D visual consistency and the extent to which blurring and needle-like objects exist beyond the boundary of editing, respectively. Because the two new Gaussians and other Gaussians have unified characteristics, the interval error $E_{i}$ of the whole Gaussian model $\mathbb{G}$ :
+
+(6) $\displaystyle E_{i}=\frac{1}{W}\sum_{g\in\mathbb{G}}{|\int_{\mathbb{V}_{g}}}\alpha_{g}\textrm{pdf}_{g}(\mathbf{v})dV-\int_{\mathbb{V}_{g}}\alpha_{0}\textrm{pdf}_{0}(\mathbf{v})dV|$
+
+where $W$ is the normalization coefficient, defined as the number of all split Gaussians, and $\mathbb{V}_{g}$ is the half-space where the 3D Gaussian $g$ is located.
+To evaluate the cross-border situation of splitting, the external excess $E_{e}$ is defined as:
+
+(7) $\displaystyle E_{e}=\frac{1}{W}\sum_{g\in\mathbb{G}}{\int_{R^{3}\setminus\mathbb{V}_{g}}}\alpha_{g}\textrm{pdf}_{g}(\mathbf{v})dV$
+
+Lower $E_{i}$ and $E_{e}$ lead to more similar visual effects of the new Gaussians to those of the original Gaussian.
+
+3.3. Conservation and Constraints
+
+In order to ensure the consistency of mathematical parameters as illustrated in Fig. 3 ,
+we aim to conserve several quantities during splitting. Local weights of the probability density function are equivalent to opacity. Thus, to ensure that the new Gaussian looks the same as the original one from any perspective, the cumulative distribution of opacity should be conserved, i.e., zero-order moment:
+
+(8) $\displaystyle\int_{\mathbb{R}^{3}}\alpha_{0}\textrm{pdf}_{0}(\mathbf{v})dV=\int_{\mathbb{R}^{3}}\alpha_{l}\textrm{pdf}_{l}(\mathbf{v})dV+\int_{\mathbb{R}^{3}}\alpha_{r}\textrm{pdf}_{r}(\mathbf{v})dV$
+
+Similarly, in order to ensure that the location of the 3D Gaussian center $\mathbf{\mu}$ remains unchanged visually, we should conserve the first-order moment:
+
+(9) $\displaystyle\int_{\mathbb{R}^{3}}\alpha_{0}\mathbf{v}\textrm{pdf}_{0}(\mathbf{v})dV=\int_{\mathbb{R}^{3}}\alpha_{l}\mathbf{v}\textrm{pdf}_{l}(\mathbf{v})dV+\int_{\mathbb{R}^{3}}\alpha_{r}\mathbf{v}\textrm{pdf}_{r}(\mathbf{v})dV$
+
+For each point, to ensure that the distribution is as consistent as possible, we hope that the mean of the outer product matrix will not change either, requiring the conservation of second-order moment:
+
+(10) $\displaystyle\int_{\mathbb{R}^{3}}\alpha_{0}\mathbf{v}\mathbf{v}^{T}\textrm{pdf}_{0}(\mathbf{v})dV=\int_{\mathbb{R}^{3}}\alpha_{l}\mathbf{v}\mathbf{v}^{T}\textrm{pdf}_{l}(\mathbf{v})dV+\int_{\mathbb{R}^{3}}\alpha_{r}\mathbf{v}\mathbf{v}^{T}\textrm{pdf}_{r}(\mathbf{v})dV$
+
+Via these conserved quantities, we can reduce the splitting problem to an optimization problem constrained by this integral tensor equation set (ITEs). This problem is difficult to solve in general, so we look for a special solution.
+
+3.4. Closed Form Solutions for Guassian Splitting
+
+A special solution to the ITEs is the following integral problem. This solution separates the two Gaussians in spatial for a smaller $E_{e}$ and ensures that the visual consistency of the left and right sides separately for smaller $E_{i}$ :
+
+(11) $\displaystyle\int_{\mathbb{V}_{k}}\alpha_{0}\textrm{pdf}_{0}(\mathbf{v})dV$ $\displaystyle=\int_{\mathbb{R}^{3}}\alpha_{k}\textrm{pdf}_{k}(\mathbf{v})dV,k\in\{l,r\}$ (12) $\displaystyle\int_{\mathbb{V}_{k}}\alpha_{0}\mathbf{v}\textrm{pdf}_{0}(\mathbf{v})dV$ $\displaystyle=\int_{\mathbb{R}^{3}}\alpha_{k}\mathbf{v}\textrm{pdf}_{k}(\mathbf{v})dV,k\in\{l,r\}$ (13) $\displaystyle\int_{\mathbb{V}_{k}}\alpha_{0}\mathbf{v}\mathbf{v}^{T}\textrm{pdf}_{0}(\mathbf{v})dV$ $\displaystyle=\int_{\mathbb{R}^{3}}\alpha_{k}\mathbf{v}\mathbf{v}^{T}\textrm{pdf}_{k}(\mathbf{v})dV,k\in\{l,r\}$
+
+Given that any 3D Gaussian $i$ satisfies the following equation concerning its second central moment:
+
+(14) $\displaystyle\Sigma_{i}+\mu_{i}\mu_{i}^{T}=\int_{\mathbb{R}^{3}}\mathbf{v}\mathbf{v}^{T}\textrm{pdf}_{i}(\mathbf{v})dV,$
+
+combining it with Eqs. ( 11 - 13 ), we can derive the closed-form solutions below for the split equations:
+
+(15) $\displaystyle\alpha_{k}$ $\displaystyle=\alpha_{0}C_{k},k\in\{l,r\}$ (16) $\displaystyle\mathbf{\mu}_{l}$ $\displaystyle=\mathbf{\mu}_{0}-\frac{\mathbf{L}_{0}D}{\tau C_{l}}$ (17) $\displaystyle\mathbf{\mu}_{r}$ $\displaystyle=\mathbf{\mu}_{0}+\frac{\mathbf{L}_{0}D}{\tau C_{r}}$ (18) $\displaystyle\mathbf{\Sigma}_{l}$ $\displaystyle=\mathbf{\Sigma}_{0}+\frac{\mathbf{L}_{0}\mathbf{L}_{0}^{T}}{\tau^{2}}(\frac{d_{0}D}{\tau C_{l}}-\frac{D^{2}}{C_{l}^{2}})$ (19) $\displaystyle\mathbf{\Sigma}_{r}$ $\displaystyle=\mathbf{\Sigma}_{0}-\frac{\mathbf{L}_{0}\mathbf{L}_{0}^{T}}{\tau^{2}}(\frac{d_{0}D}{\tau C_{r}}+\frac{D^{2}}{C_{r}^{2}})$
+
+where:
+
+(20) $\displaystyle C_{l}$ $\displaystyle=\frac{1}{2}(1-\textrm{erf}(\frac{d_{0}}{\sqrt{2}\tau}))$ (21) $\displaystyle C_{r}$ $\displaystyle=\frac{1}{2}(1+\textrm{erf}(\frac{d_{0}}{\sqrt{2}\tau}))$ (22) $\displaystyle D$ $\displaystyle=\frac{1}{\sqrt{2\pi}}\exp(-\frac{d_{0}^{2}}{2\tau^{2}})$ (23) $\displaystyle\mathbf{L}_{0}$ $\displaystyle=\mathbf{\Sigma}_{0}\mathbf{n}$ (24) $\displaystyle\tau$ $\displaystyle=\sqrt{\mathbf{n}^{T}\mathbf{\Sigma}_{0}\mathbf{n}}$ (25) $\displaystyle d_{0}$ $\displaystyle=\hat{P}(\mathbf{n},d)(\mathbf{\mu}_{0})$
+
+In the above, erf is the error function from probability theory. $C_{l}$ and $C_{r}$ are the spatial weights of the target Gaussians, $D$ is the update amplitude of the split process, $\mathbf{L}_{0}$ and $\tau$ are the projections of different orders
+and $d_{0}$ is the distance from the Gaussian position to the splitting plane.
+Detailed derivations are given in the Supplementary Material.
+
+3.5. Implementation Details for Splitting
+
+Due to floating point precision issues and the properties of Gaussian distributions, errors will accumulate as splitting continues (e.g. when multiple edits are performed). We use the following approach to compensate for these problems.
+
+Firstly, if the splitting plane ${P}(\mathbf{n},d)$ is too far from the position of the original Gaussian, an almost invalid splitting is to create a Gaussian that is very similar to the original and another Gaussian that is almost invisible because of its very small $\alpha$ .
+And if the splitting is applied to every Gaussian, there will be a huge amount of calculation and thus is inefficient.
+Inspired by the Gaussian filter’s influence range threshold, i.e, $3\times\max(\mathbf{Tri(S)})$ (where $\mathbf{Tri}$ denotes the main diagonal vector), we choose a threshold $\eta$ for $|d_{0}|$ :
+
+(26) $\displaystyle\eta=3\times\max((R\cdot\mathbf{n})\odot\mathbf{Tri}(S))$
+
+If $|d_{0}|<\eta$ , we will split the Gaussian with the plane; otherwise, we just leave the original Gaussian unchanged.
+
+Secondly, the weight denominator $C_{l}$ and $C_{r}$ may be very small, causing floating point accuracy to be compromised. Thus we add an offset $\epsilon=10^{-20}$ to $C_{l},C_{r}$ and $D$ :
+
+(27) $\displaystyle C_{l}$ $\displaystyle=\frac{1}{2}(1-\textrm{erf}(\frac{d_{0}}{\sqrt{2}\tau})+\epsilon)$ (28) $\displaystyle C_{r}$ $\displaystyle=\frac{1}{2}(1+\textrm{erf}(\frac{d_{0}}{\sqrt{2}\tau})+\epsilon)$ (29) $\displaystyle D$ $\displaystyle=\frac{1}{\sqrt{2\pi}}(\exp(-\frac{d_{0}^{2}}{2\tau^{2}})+\epsilon)$
+
+Thirdly, floating point precision issues may cause the eigenvalue matrix to deviate slightly from a real positive definite matrix. In order to ensure a positive definite resulting eigenvalue matrix $\Lambda_{ti}$ , we remove any deviation of negative definite orientation from our eigenvalue matrix $\Lambda_{i}$ :
+
+(30) $\displaystyle\Lambda_{ti}=\textrm{ReLU}(\Lambda_{i}),i\in{\mathbb{G}}$
+
+Fourthly, in computer graphics, right-handed coordinate system is typically used. A rotation matrix $R$ defining a left-handed space cannot be transformed into a right-handed coordinate system by a normalized quaternion (the improper rotation problem). As a 3D Gaussian is completely centrally symmetric, we can turn the left-handed rotation matrix $R_{i}$ into a right-handed rotation matrix $R_{ti}$ :
+
+(31) $\displaystyle R_{ti}=R_{i}\det(R_{i}),i\in{\mathbb{G}}$
+
+In summary, the operations above are aimed at reducing the amount of matrix calculation, eliminating floating point precision errors, and removing logical inconsistencies in data transformation.
+
+4. Experiments
+
+To show the effectiveness of our splitting algorithm, we apply it to explicit Gaussian splatting model editing, 3D Gaussian learning and point cloud extraction from Gaussian splatting models, and compare our method with other solutions.
+
+4.1. Editing by Splitting
+
+During explicit editing, it is common to split some parts of an object or remove some specific components. We consider three editing strategies.
+
+The first one is to split an object by a flat 3D plane, denoted “plane split”. As explained in Sec. 3.4 , using a plane ${P}(\mathbf{n},d)$ , we can split any inhomogeneous 3D Gaussian into more uniform ones and achieve better results as shown in the first three examples of Fig. 4 .
+More results are shown in Fig. 7 .
+Since our algorithm produces a Gaussian model after editing, it can be applied several times to achieve further splits.
+
+The second one removes Gaussians inside a polygonal bounding box, denoted “polygon delete”. We have designed a simple case to remove Gaussians inside a triangular prism to test the effect of our algorithm. We can easily find the outward direction of every plane of a polygonal bounding box. Subproblems include determining whether a line segment or a 3D triangle and a Gaussian intersect. For a line segment, edge projection can be applied to determine whether an intersection exists:
+with a Gaussian position $\mu_{0}$ and a line segment $\{\mathbf{A},\mathbf{B}\}$ , define:
+
+(32) $\displaystyle I=((\mathbf{A}-\mathbf{\mu}_{0})\cdot(\mathbf{A}-\mathbf{B}))((\mathbf{B}-\mathbf{\mu}_{0})\cdot(\mathbf{A}-\mathbf{B}))$
+
+If $I\geq 0$ and the intersection threshold $\eta$ is guaranteed, the line segment and the Gaussian intersect. Obviously, a 3D triangle intersection can be found using the above test three times. The results are shown in the last example in Fig. 4 .
+For a more complex polyhedral bounding box, we can use a combination of the above methods or ray casting algorithm to retain or remove the Gaussians in the bounding box.
+
+The third one is to remove Gaussians inside a 3D closed curved surface $B(x,y,z)=0$ , denoted as “curve delete”. We can compute the tangent normal $\mathbf{n}$ of the closest position on the curve to the Gaussian position as:
+
+(33) $\displaystyle\mathbf{n}=\frac{\nabla B}{||\nabla B||}$
+
+where $\mathbf{n}$ is an outward normal from the inside of the curve according to the definition of a 3D closed curve.
+Example results are show in Fig. 1 . More results are shown in Fig. 9 .
+
+Situation Editing Strategy $E_{i}\downarrow$ $E_{e}\downarrow$ plane split move solution 0.0000 0.5836 plane split remove solution 3.4121 0.0000 plane split ours once 0.5828 0.0009 plane split ours twice 0.5830 0.0006 polygon delete filter solution 0.0000 0.0668 polygon delete ours 3 times 0.3610 0.0005 curve delete filter solution 0.0000 0.0710 curve delete ours 3 times 0.3027 0.0015
+
+We evaluated $E_{i}$ and $E_{e}$ for the above three editing situations for different splitting methods using the chair object from the NeRF synthetic dataset ( Mildenhall et al., 2020 ) and move the two pieces apart. Quantitative results are shown in Table 1 and visual comparisons are presented in Fig. 4 .
+If both $E_{i}$ and $E_{e}$ are smaller, the results are better.
+However, due to the unimodal and symmetric shape of Gaussian distribution, it is impossible for both metrics to be smaller at the same time.
+Although other methods can have a zero value for $E_{i}$ or $E_{e}$ , there will be significant holes when $E_{e}=0$ , and significant blurring and needles when $E_{i}=0$ .
+Our algorithm achieves a small value for both indicators and ensures minimal voids, blurring and needles.
+
+Editing Strategy $E_{i}\downarrow$ $E_{e}\downarrow$ move solution 0.0000 2.3823 remove solution 15.2541 0.0000 ours 2.3819 0.0003
+
+To evaluate the average performance on the whole NeRF synthetic dataset, we conducted an experiment by splitting each object with a plane, which passes through the center of the space with a randomly generated normal $\mathbf{n}=[0.5401,0.8316,0.0963]^{T}$ . The results are shown in Table 2 . Our method can greatly decrease the part beyond the split plane and ensure very small interval changes.
+
+4.2. Integration with 3D Gaussian Learning
+
+The 3D Gaussian splatting model has achieved high-quality rendering results with very fast training and rendering.
+But its results still suffer from blurring and spurs. There exist many needle-like bugles as shown in the first example in Fig. 5 for the original 3D Gaussian splatting model. More results are shown in Fig. 8 . As we have explained in Sec. 3.2 , this is caused by inhomogeneous Gaussians.
+
+Since structural inhomogeneity comes from differences in scale along different principal directions, we can compute the inhomogeneity $\gamma$ of a Gaussian as the ratio between the largest and the second largest scales of the principal directions:
+
+(34) $\displaystyle pd_{m}$ $\displaystyle=\underset{i\in\{0,1,2\}}{\operatorname{\textrm{max}}}(\mathbf{Tri}[i]))$ (35) $\displaystyle pd_{s}$ $\displaystyle=\underset{i\in\{0,1,2\}}{\operatorname{\textrm{second\_max}}}(\mathbf{Tri}[i]))$ (36) $\displaystyle\gamma$ $\displaystyle=\frac{pd_{m}}{pd_{s}}$
+
+We can set a max threshold $\eta_{\gamma}=5$ for $\gamma$ ; if $\gamma$ of a Gaussian exceeds this threshold, the Gaussian needs to be split. During 3D Gaussian learning, the tangent normal is needed. We can assume that the normal direction is parallel to the principal direction of the max eigenvalues:
+
+(37) $\displaystyle\mathbf{n}=R[\underset{i\in\{0,1,2\}}{\operatorname{\textrm{argmax}}}(\mathbf{Tri}[i]))]$
+
+We set the split plane to pass through the center of the Gaussian, so we have a simplified version of our algorithm with $d_{0}=0$ . Furthermore, $C_{l}=C_{r}=0.5$ and $D=1/{\sqrt{2\pi}}$ . The first term of $\Sigma_{l}$ and $\Sigma_{r}$ is $0$ . In this way, we can speed up the basic algorithm by saving calculations.
+
+The training results for the ship object
+are shown in Fig. 5 . Although the three views are the same from a distance, when viewed close up, the original simple 3D Gaussian has lots of needles. By incorporating our algorithm, the needles decrease greatly with a threshold of $\eta_{\gamma}=10$ and hardly any needles result with a threshold of $\eta_{\gamma}=5$ .
+
+We tested the threshold $\eta_{\gamma}$ every 5000 iterations starting from the 9999th iteration and ending at the 24999th iteration to determine whether to split or not. Since our splitting algorithm can be computed in parallel, it hardly increases the training time compared to the original 3D Gaussian splatting.
+We also tested on the whole NeRF synthetic dataset with the same hyper-parameters as for the original 3D Gaussian splatting method. Quantitative results are presented in Table 3 , which gives Peak Signal-to-noise Ratio (PSNR), Structural Similarity (SSIM) ( Wang et al., 2004 ) , and Learned Perceptual Image Patch Similarity (LPIPS) ( Zhang et al., 2018 ) .
+Our algorithm splits the inhomogeneous Gaussians, so that the trained Gaussian results have fewer needles, with better results for all three metrics.
+
+Method PSNR $\uparrow$ SSIM $\uparrow$ LPIPS $\downarrow$ 3D GS ( Kerbl et al., 2023 ) 36.9356 0.9825 0.0236 Ours 37.1908 0.9839 0.0216
+
+4.3. Extracting Point Clouds from 3D Gaussian Splatting Models
+
+A 3D Gaussian Splatting model can be regarded as providing a kind of point cloud, in which each point represents a different shape. This characteristic makes the point cloud extracted from 3D Gaussians splatting models very uneven, with many gaps in large flat untextured regions, leading to severe problems for downstream tasks like normal extraction, point cloud segmentation, etc.
+
+Because our algorithm can provide more homogeneous Gaussians, it can be used to increase the uniformity of extracted point clouds. Assume that the average of each Gaussian’s maximum principal direction scale is $R_{m}$ . We can define the degree of inhomogeneity between the $i$ -th largest and the $j$ -th largest eigenvalue ( $i<j$ ) as:
+
+(38) $\displaystyle\gamma_{ij}=\frac{\mathbf{Tri}[i]}{\mathbf{Tri}[j]+R_{m}},(i,j)\in\{(0,1),(1,2),(0,2)\}$
+
+If any $\gamma_{ij}$ is greater than the inhomogeneity threshold $\eta_{\gamma}=2$ , the Gaussian should be split at principal component $i$ . Splitting at the center of a Gaussian will make the positions of new Gaussians too close. To ensure the new Gaussians’ positions are far away from each other, we select the splitting parameters $d_{0}$ as $2\mathbf{Tri}[i]$ to ensure a proper interval between new Gaussians.
+An experimental result is shown in Fig. 6 and more results are shown in Fig. 10 . Our method produces a more uniform and denser point cloud than the original 3D Gaussian Splatting model and has very few holes.
+
+5. Conclusion and Future Work
+
+In this paper, we model the problem of how to split an $N$ -dimensional Gaussian into two independent $N$ -dimensional Gaussians and present a closed-form solution for this problem. This enables our splitting algorithm to be readily used with any 3D Gaussian model processing and helps to produce more uniformly distributed Gaussian. In this way, blurring and needle-like artifacts can be significantly reduced, benefiting various downstream applications.
+
+In the future, we hope to apply our work to conversions between 3D Gaussian Splatting models and other 3D representations, improvement of rendering quality, Gaussian splatting model editing, and some other geometric applications of Gaussian Splatting models.
+Moreover, there is an inverse to our method, to merge Gaussians, under the conservation constraints:
+
+(39) $\displaystyle\alpha_{0}$ $\displaystyle=\alpha_{l}+\alpha_{r}$ (40) $\displaystyle\mu_{0}$ $\displaystyle=\frac{\alpha_{l}\mu_{l}+\alpha_{r}\mu_{r}}{\alpha_{0}}$ (41) $\displaystyle\Sigma_{0}$ $\displaystyle=\frac{\alpha_{l}\Sigma_{l}+\alpha_{r}\Sigma_{r}}{\alpha_{0}}+\frac{\alpha_{l}\mu_{l}\mu_{l}^{T}+\alpha_{r}\mu_{r}\mu_{r}^{T}}{\alpha_{0}}-\mu_{0}\mu_{0}^{T}$
+
+which can be used to greatly decrease storage requirements.
+
+References

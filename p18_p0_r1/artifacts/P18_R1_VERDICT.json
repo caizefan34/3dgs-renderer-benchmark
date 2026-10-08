@@ -1,0 +1,86 @@
+{
+  "phase": "P18-P0-R1",
+  "artifact": "P18_R1_VERDICT",
+  "created_utc": "2026-09-28T06:10:52Z",
+  "verdict": "P18_P0_HARD_DROP",
+  "closes": "FQ-GS (warp-quotient fused rasterizer oracle) - permanently closed; do not enter P18-P1",
+  "rule_triggered": [
+    "spec item 7: the true (SASS-certified) QSCAN still yields S_eval ~ 1 (medians 0.9831-0.9882, i.e. slightly SLOWER than DIRECT)",
+    "unchanged P18 gate (protocol 16, first clause): all variants median S_eval < 2.5"
+  ],
+  "gate": {
+    "rule": "per-variant median S_eval over the 4 cells {(room,bicycle) x (exp2 forward, exp backward domain)}: >= 4.0 STRONG; < 2.5 HARD_DROP (unchanged from P18-P0)",
+    "per_variant": {"q4": "HARD_DROP", "q8": "HARD_DROP", "q16": "HARD_DROP"},
+    "any_strong": false,
+    "all_below_2_5": true
+  },
+  "S_eval_median_over_cells": {
+    "q4": 0.988211523205021,
+    "q8": 0.9852811923617564,
+    "q16": 0.9831116780261506
+  },
+  "expfree_upper_bound": {
+    "S_eval_noexp_bound_median": 1.0016656374245065,
+    "kernel_audited": "eval_noexp_kernel: identical loads/store to DIRECT, 0 MUFU static, 0 dynamic exp calls (SASS audit check F)",
+    "meaning": "an exp-FREE inner loop times the same as baseline DIRECT: this proxy is memory-bandwidth-bound (~85% of A100 HBM peak) and the per-pixel exp is fully hidden. No exp-elimination technique of any kind can exceed ~1.0x in this proxy; QSCAN's measured 0.98-0.99 is the full cost of its scan/shuffle overhead."
+  },
+  "numeric_validation_raw_no_guard": {
+    "summary": "the legal QSCAN chain (allowed exps only, pure-multiply k^j, multiplicative scan) is numerically unusable on real contiguous rows: NaN on 0.02%-6.8% of items, |error| up to 0.88 on finite items, cull-branch flips up to 4.2% of items, all far from the 1/255 threshold",
+    "room_exp2_forward": {"nan_sub4": 6917, "nan_sub8": 96647, "nan_sub16": 401452, "n_items": 17305088},
+    "room_exp_backward": {"nan_sub4": 29588, "nan_sub8": 197595, "nan_sub16": 634216},
+    "bicycle_exp2_forward": {"nan_sub4": 30300, "nan_sub8": 334017, "nan_sub16": 1307539, "n_items": 29949952},
+    "bicycle_exp_backward": {"nan_sub4": 110489, "nan_sub8": 659681, "nan_sub16": 2025012},
+    "inf_count": 0,
+    "mechanism": "leader-anchored chain: when the 16-px row clips the footprint edge, q(xs) and q(xs+15) can differ by thousands; G0=exp(-q(xs)) underflows to 0 while r0=exp(-d0) overflows to inf inside the same subgroup -> 0*inf = NaN; FTZ of intermediate prefixes yields finite-but-wrong values. Repairing this requires the per-lane direct value = exactly the P18-P0 defect mode (per-lane recompute) that invalidated the original run.",
+    "guard_note": "the original guard (branch mismatch -> fallback) only catches non-finite lanes; the finite-but-wrong lanes pass the guard unless a full per-lane direct recompute (forbidden) is added."
+  },
+  "implementation_validity": {
+    "sass_audit": "P18_R1_SASS_AUDIT.json verdict PASS (checks A-F)",
+    "static_exp_counts": {"direct": 1, "qscan4": 3, "qscan8": 3, "qscan16": 3, "forbidden_control": 4, "noexp_control": 0},
+    "dynamic_exp_per_px": {"direct": 1.0, "qscan4": 0.75, "qscan8": 0.375, "qscan16": 0.1875, "forbidden_control_16": 1.1875, "noexp": 0.0},
+    "position_dependent_mufu_in_qscan16": false,
+    "note": "QSCAN16's only MUFU ops are the 3 leader exps (G0/r0/k, MUFU.EX2 only); k^j is pure FMUL; the scan is SHFL+FMUL only"
+  },
+  "trace": {
+    "primary_source": "real contiguous 16-px row segments from macro_tile_rasterize_kernel phase-2 inner loop (no footprint sampling)",
+    "n_primary_records": {"room": 1081568, "bicycle": 1871872},
+    "requirement": ">= 8192 per scene (spec item 6) - exceeded by 132x / 228x",
+    "record_integrity": "exact_claimed_row_frac = 1.0 both scenes (bit-exact recompute of all 16 masks per record, 0 mismatches)",
+    "npz_sha256": {
+      "room": "54582d8e185ed45a32d74387179ef91ccabf6e74d1fc1dd8e6d8ad211dc84826",
+      "bicycle": "a0f13b70d6e3bf196a0f4069f4efb25aa98ee813f594afda903bace8f68041f1"
+    }
+  },
+  "live_population": {
+    "definition": "popcount of the real trace mask16 per 16-px record (= the QSCAN16 subgroup); no Gaussian-footprint sampling",
+    "room": {"hist17": [380197, 33938, 38731, 39068, 33222, 28896, 25135, 22644, 20880, 18463, 16998, 15571, 14554, 13605, 12957, 12259, 354450], "mean": 7.2836418976892805, "median": 5, "mean_given_nonempty": 11.231935737291677, "frac_pop0": 0.3515238986360543, "frac_pop16": 0.3277186455220569},
+    "bicycle": {"hist17": [929753, 61436, 72010, 70979, 61213, 50419, 41687, 34287, 28768, 24476, 21826, 18960, 16872, 14992, 13537, 12405, 398252], "mean": 5.036511043490153, "median": 1, "mean_given_nonempty": 10.006914200859976, "frac_pop0": 0.49669688953090807, "frac_pop16": 0.21275600041028447},
+    "note": "the partial-population records (edge-clipping rows) are exactly the geometry class where the QSCAN chain breaks numerically; fully-live records (pop16: 32.8%/21.3%) are the only favorable class, and even there no speedup exists (memory-bound)"
+  },
+  "evidence": {
+    "artifacts": {
+      "P18_R1_SASS_AUDIT.json": "17bdc4940d9d59af25c2c6237c0448210eff9ae2c131f453f579494fa3140bbf",
+      "P18_R1_EVAL_MICROBENCH.json": "1fd16f5c76b69b601bd0e7a4751cc523592092480c85e93cbabd2a0a5e986419",
+      "P18_R1_TRACE_MANIFEST.json": "d9d1a604b251c4cc7977aa3742fb52d6931f62f286265cae201ee6cfd7bf08cc"
+    },
+    "code": {
+      "p18_r1_eval.cu_sha1": "adfbdc60989c91ac620dca1760b62f0f11647aa6",
+      "p18_r1_sass_audit.py_sha1": "41ab02b6c01bcfc3468104db4a3ccf9deb30045f",
+      "p18_r1_eval_run.py_sha1": "97c6239ed3a91313ebcf970fce3021f55cb25012",
+      "p18_r1_eval_common.py_sha1": "58725d290f20610da3106a54aa27cb013aa7ed8c",
+      "so_sha256": "8b15a79dae7b9b2313bced5f72d45bc0ec92ab25493302119789984f6483ce49",
+      "build_flags": "-O3 -DNDEBUG -use_fast_math --expt-relaxed-constexpr -gencode=arch=compute_80,code=sm_80 -std=c++20 -diag-suppress 20012,186"
+    },
+    "gpu": "GPU 3 (GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72), A100; all 8 GPUs verified idle before each launch",
+    "run_logs": ["scripts/sass_audit_r3.log", "scripts/eval_run_r2.log"]
+  },
+  "constraints_honored": [
+    "all original P18 gates unchanged (thresholds 4.0/2.5, gamma, cells, method)",
+    "no threshold/gamma/tile/camera/quality change to rescue (protocol 16)",
+    "no git commit (protocol 21)",
+    "no full training (protocol 21)",
+    "no other DSH's GPUs touched",
+    "no auto-entry into P18-P1"
+  ],
+  "next": "none - FQ-GS is permanently closed per spec item 7; no P18-P1"
+}

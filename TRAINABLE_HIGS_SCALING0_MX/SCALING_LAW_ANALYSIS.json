@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "stage": "C - Scaling-Law Analysis",
+  "status": "DERIVED_FROM_EXISTING_EVIDENCE",
+  "method": "Descriptive curve fitting (not grand theoretical claims)",
+  "data_points": {
+    "LOW_N_train": {
+      "N_gaussians": 1026508,
+      "resolution": "960x540",
+      "pixels": 518400,
+      "camera_batch": 4,
+      "n_intersections": 14100000,
+      "culling_ratio": 0.151,
+      "S_forward": 1.16,
+      "S_backward": 1.20,
+      "S_FB": 1.18
+    },
+    "HIGH_N_bicycle_960x540": {
+      "N_gaussians": 6131954,
+      "resolution": "960x540",
+      "pixels": 518400,
+      "camera_batch": 4,
+      "n_intersections": 14100000,
+      "culling_ratio": 0.629,
+      "S_forward": 1.04,
+      "S_backward": 1.23,
+      "S_FB": 1.16
+    },
+    "HIGH_N_bicycle_1080p": {
+      "N_gaussians": 6131954,
+      "resolution": "1920x1080",
+      "pixels": 2073600,
+      "camera_batch": 4,
+      "n_intersections": 14100000,
+      "culling_ratio": 0.629,
+      "S_forward": 1.06,
+      "S_backward": 1.21,
+      "S_FB": 1.15
+    },
+    "HIGH_N_bicycle_B1_1080p": {
+      "N_gaussians": 6131954,
+      "resolution": "1920x1080",
+      "pixels": 2073600,
+      "camera_batch": 1,
+      "n_intersections": 3500000,
+      "culling_ratio": 0.629,
+      "S_forward": 1.03,
+      "S_backward": 1.22,
+      "S_FB": 1.14
+    }
+  },
+  "scaling_relationships": {
+    "speedup_vs_log_N": {
+      "x": "log(N_gaussians)",
+      "y": "S_FB",
+      "data": [
+        {"x": 13.84, "y": 1.18, "label": "train 1.03M"},
+        {"x": 15.63, "y": 1.16, "label": "bicycle 6.13M"}
+      ],
+      "trend": "FLAT to SLIGHTLY NEGATIVE",
+      "slope": "-0.011 per log(N)",
+      "interpretation": "Speedup does NOT increase with N; H1 REFUTED"
+    },
+    "speedup_vs_pixels": {
+      "x": "pixels",
+      "y": "S_FB",
+      "data": [
+        {"x": 518400, "y": 1.16, "label": "bicycle 540p"},
+        {"x": 2073600, "y": 1.15, "label": "bicycle 1080p"}
+      ],
+      "trend": "FLAT",
+      "slope": "negligible",
+      "interpretation": "Speedup does NOT increase with resolution"
+    },
+    "speedup_vs_intersections": {
+      "x": "n_intersections",
+      "y": "S_FB",
+      "data": [
+        {"x": 14100000, "y": 1.16, "label": "B4 14.1M isects"},
+        {"x": 3500000, "y": 1.14, "label": "B1 3.5M isects"}
+      ],
+      "trend": "WEAK POSITIVE",
+      "slope": "+0.0014 per 1M isects",
+      "interpretation": "Slight increase with more isects, but weak"
+    },
+    "speedup_vs_camera_batch": {
+      "x": "camera_batch",
+      "y": "S_FB",
+      "data": [
+        {"x": 1, "y": 1.14, "label": "B1"},
+        {"x": 4, "y": 1.15, "label": "B4"}
+      ],
+      "trend": "FLAT",
+      "slope": "+0.003 per camera",
+      "interpretation": "Speedup consistent across batch sizes"
+    },
+    "speedup_vs_culling_ratio": {
+      "x": "culling_ratio",
+      "y": "S_FB",
+      "data": [
+        {"x": 0.151, "y": 1.18, "label": "train 15.1% cull"},
+        {"x": 0.629, "y": 1.16, "label": "bicycle 62.9% cull"}
+      ],
+      "trend": "SLIGHTLY NEGATIVE",
+      "slope": "-0.03 per unit culling",
+      "interpretation": "Higher culling does NOT increase speedup; H4 WEAKLY REFUTED"
+    }
+  },
+  "fraction_analysis": {
+    "forward_fraction": {
+      "train": "7.02 / 19.03 = 36.9%",
+      "bicycle": "17.27 / 44.05 = 39.2%",
+      "interpretation": "Forward is ~37-39% of iteration"
+    },
+    "backward_fraction": {
+      "train": "11.84 / 19.03 = 62.2%",
+      "bicycle": "26.61 / 44.05 = 60.4%",
+      "interpretation": "Backward is ~60-62% of iteration (dominant)"
+    },
+    "hierarchy_overhead_fraction": {
+      "train": "culling projection 2.3 ms / 19.03 ms = 12.1%",
+      "bicycle": "culling projection 2.3 ms / 44.05 ms = 5.2%",
+      "interpretation": "Hierarchy overhead (culling) is 5-12% of iteration"
+    },
+    "net_advantage": {
+      "backward_saving": "32.81 - 26.61 = 6.20 ms (bicycle)",
+      "forward_cost": "17.27 - 17.92 = -0.65 ms (bicycle, net neutral)",
+      "total_saving": "6.20 - 0.65 = 5.55 ms (bicycle)",
+      "percentage": "5.55 / 50.94 = 10.9% (close to measured 13.5%, difference from optimizer and measurement)"
+    }
+  },
+  "pattern_observations": {
+    "expected_pattern_H1": "LOW-N: parity/slower; MID-N: modest gain; HIGH-N: strong gain (>=1.20x)",
+    "observed_pattern": "LOW-N: 1.18x; HIGH-N: 1.16x; FLAT across all workloads",
+    "verdict": "H1 NOT SUPPORTED - no workload-dependent scaling"
+  },
+  "conclusion": {
+    "primary_finding": "Trainable HiGS provides consistent ~13-18% speedup (S_FB 1.14-1.20x) across workload spectrum",
+    "scaling_behavior": "FLAT - speedup does not increase with N, resolution, batch, or culling ratio",
+    "mechanism": "Backward efficiency (elimination of indexing_backward) is workload-independent",
+    "implication": "HiGS advantage is ARCHITECTURAL (native backward enabling end-to-end differentiation) not SCALING-DEPENDENT",
+    "paper_framing": "Should emphasize architectural contribution, not scaling claims"
+  }
+}

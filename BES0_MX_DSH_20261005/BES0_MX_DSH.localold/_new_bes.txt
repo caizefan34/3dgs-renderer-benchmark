@@ -1,0 +1,195 @@
+# ---- SH color evaluation (gsplat real-SH basis, degree 0..3) --------------
+
+_SH0 = 0.28209479177387814
+
+
+def eval_sh(shs, dirs, active_degree):
+    """Evaluate real spherical harmonics. shs:[N,K,3], dirs:[N,3] normalized.
+    Returns rgb:[N,3]. Matches gsplat CUDA SH basis ordering."""
+    N = shs.shape[0]
+    result = 0.5 + _SH0 * shs[:, 0]
+    if active_degree >= 1:
+        x = dirs[:, 0:1]; y = dirs[:, 1:2]; z = dirs[:, 2:3]
+        result = result + \
+            -0.4886025119029199 * y * shs[:, 1] + \
+            0.4886025119029199 * z * shs[:, 2] + \
+            -0.4886025119029199 * x * shs[:, 3]
+    if active_degree >= 2:
+        x = dirs[:, 0:1]; y = dirs[:, 1:2]; z = dirs[:, 2:3]
+        xx, yy, zz = x*x, y*y, z*z
+        xy, yz, xz = x*y, y*z, x*z
+        result = result + \
+            1.0925484305920792 * xy * shs[:, 4] + \
+            1.0925484305920792 * yz * shs[:, 5] + \
+            0.31539156525252005 * (2.0*zz - xx - yy) * shs[:, 6] + \
+            1.0925484305920792 * xz * shs[:, 7] + \
+            0.5462232306749479 * (xx - yy) * shs[:, 8]
+    if active_degree >= 3:
+        x = dirs[:, 0:1]; y = dirs[:, 1:2]; z = dirs[:, 2:3]
+        xx, yy, zz = x*x, y*y, z*z
+        result = result + \
+            0.5900435899266435 * y * (3.0*xx - yy) * shs[:, 9] + \
+            2.890611442640554 * xy * z * shs[:, 10] + \
+            0.4570457994644658 * y * (4.0*zz - xx - yy) * shs[:, 11] + \
+            0.3731763325901154 * z * (2.0*zz - 3.0*xx - 3.0*yy) * shs[:, 12] + \
+            0.4570457994644658 * x * (4.0*zz - xx - yy) * shs[:, 13] + \
+            1.445305721320277 * xz * y * shs[:, 14] + \
+            0.5900435899266435 * x * (xx - 3.0*yy) * shs[:, 15]
+    return result
+
+
+def _jump(alphas_R, u_Rvals, prefix_t, start, r, P, gen):
+    """Vectorized per-pixel R next-hit jump. alphas_R:[r,P], u_Rvals:[r],
+    prefix_t:[r+1], start:[P] int. Returns H_ridx:[P] (-1=background)."""
+    done = torch.zeros(P, dtype=torch.bool, device=alphas_R.device)
+    H = torch.full((P,), -1, dtype=torch.long, device=alphas_R.device)
+    cur = start.clone()
+    ar = torch.arange(P, device=alphas_R.device)
+    max_it = int(r) + 2
+    for _ in range(max_it):
+        active = ~done
+        if not bool(active.any()):
+            break
+        u1 = torch.rand(P, generator=gen)
+        u1 = torch.clamp(u1, 1e-12, 1.0 - 1e-12)
+        z = prefix_t[cur] - torch.log(u1)
+        cand = torch.searchsorted(prefix_t, z, right=True) - 1
+        bg = cand >= r
+        cand_c = torch.clamp(cand, 0, r - 1)
+        alpha_c = alphas_R[cand_c, ar]
+        u_c = u_Rvals[cand_c]
+        u2 = torch.rand(P, generator=gen)
+        accept = (u2 < alpha_c / u_c) & (~bg) & active
+        H = torch.where(accept, cand_c, H)
+        done = done | accept | bg
+        cur = torch.where(~done, torch.clamp(cand_c + 1, 0, r), cur)
+    return H
+
+
+def _F_from_hit(alphas, is_R, colors, h_depth, bg):
+    """D-prefix composite F_H per pixel. alphas:[g,P], is_R:[g] bool,
+    colors:[g,3], h_depth:[P] depth-index of hit (g=background), bg:[3].
+    Returns F:[P,3]."""
+    g, P = alphas.shape
+    device = alphas.device
+    h_depth = torch.clamp(h_depth, 0, g)
+    is_bg = h_depth >= g
+    h_clamped = torch.clamp(h_depth, 0, g - 1)
+    T = torch.ones(P, device=device)
+    acc = torch.zeros(P, 3, device=device)
+    for j in range(g):
+        before_H = h_depth > j
+        active = before_H & (~is_R[j])
+        alpha_j = alphas[j]
+        c_j = colors[j]
+        w = (active.to(alpha_j.dtype) * T * alpha_j)
+        acc = acc + w.unsqueeze(-1) * c_j.unsqueeze(0)
+        T = T * (1.0 - active.to(alpha_j.dtype) * alpha_j)
+    colors_at_h = colors[h_clamped]              # [P,3]
+    hit_c = torch.where(is_bg.unsqueeze(-1), bg.unsqueeze(0).expand(P, 3), colors_at_h)
+    F = acc + T.unsqueeze(-1) * hit_c
+    return F
+
+
+def bes_sample(scene: Scene, camera: Camera, routing: BoundsAndRouting,
+               stream_spec) -> EventImagesAndCache:
+    """Three independent next-hit queries per pixel (METHOD.md sec.4):
+    path A -> H_A; path B -> H_B then J_B (first R acceptance after H_B).
+    Returns analytic D-composited event images F_A, F_B, F_J ([H,W,3] each).
+    stream_spec: {"seed":int} (Philox counter layout folded into seed here;
+    bit-exact continuous RNG not claimed). A and B use independent streams."""
+    import math as _math
+    seed = int(stream_spec.get("seed", 0)) if isinstance(stream_spec, dict) else int(stream_spec)
+    device = scene.device
+    H, W = camera.height, camera.width
+    bg = scene.background.to(device)
+    ts = routing.meta["tile_size"]
+    gids = routing.gaussian_ids
+    tids = routing.tile_ids
+    lo = routing.alpha_lower
+    hi = routing.alpha_upper
+    is_R = routing.is_R
+    tile_keys = routing.meta["tile_keys"]
+
+    F_A = torch.zeros(H, W, 3, device=device)
+    F_B = torch.zeros(H, W, 3, device=device)
+    F_J = torch.zeros(H, W, 3, device=device)
+
+    # camera center for SH view directions
+    cam_center = camera.cam_from_world[:3, 3]
+    for tindex, (ty, tx) in enumerate(tile_keys):
+        mask = tids == tindex
+        g_t = gids[mask]
+        r_t = is_R[mask]
+        u_t = hi[mask].astype(np.float64)
+        g = int(g_t.shape[0])
+        if g == 0:
+            continue
+        px0 = tx * ts; py0 = ty * ts
+        px1 = min(W, px0 + ts); py1 = min(H, py0 + ts)
+        xs = np.arange(px0, px1); ys = np.arange(py0, py1)
+        grid = np.stack(np.meshgrid(xs, ys, indexing="xy"), axis=-1).reshape(-1, 2)
+        P = grid.shape[0]
+        pix = torch.tensor(grid, dtype=torch.float32, device=device)
+        mu2d = routing.meta["mu2d"][g_t]
+        conic = routing.meta["conic"][g_t]
+        op = routing.meta["opacity"][g_t]
+        alphas = native_alpha(mu2d, conic, op, pix).detach()   # [g,P]
+        # colors via SH (view dir from pixel ray)
+        xyz = scene.xyz[g_t]
+        # pixel ray direction in world (approx via inverse view rotation)
+        Rwc = camera.cam_from_world[:3, :3].T
+        dirs = Rwc @ torch.stack([
+            (pix[:, 0] - camera.cx) / camera.fx,
+            (pix[:, 1] - camera.cy) / camera.fy,
+            torch.ones(P, device=device)], dim=1).T
+        dirs = dirs / dirs.norm(dim=0, keepdim=True)
+        dirs = dirs.T                                          # [P,3]
+        colors = eval_sh(scene.shs[g_t], dirs, scene.active_sh_degree).detach()  # [P? no, g? ]
+        # eval_sh expects [N,K,3] with dirs [N,3]; here N=g, but dirs is [P,3].
+        # Compute per-occurrence color using mean view dir per occurrence is wrong;
+        # instead evaluate color per (occurrence,pixel): loop occurrences.
+        colors_gp = torch.zeros(g, P, 3, device=device)
+        for gg in range(g):
+            colors_gp[gg] = eval_sh(scene.shs[g_t[gg]].unsqueeze(0), dirs, scene.active_sh_degree)[0]
+        # R subset in depth order
+        rpos = np.where(r_t)[0]
+        r = int(rpos.shape[0])
+        if r == 0:
+            # no R: all D, every path -> background with full D composite
+            h_depth = torch.full((P,), g, dtype=torch.long, device=device)
+            F = _F_from_hit(alphas, torch.from_numpy(r_t).to(device), colors_gp, h_depth, bg)
+            F_A[py0:py1, px0:px1] = F.reshape(py1 - py0, px1 - px0, 3)
+            F_B[py0:py1, px0:px1] = F_A[py0:py1, px0:px1]
+            F_J[py0:py1, px0:px1] = F_A[py0:py1, px0:px1]
+            continue
+        alphas_R = alphas[rpos]                                # [r,P]
+        u_Rvals = torch.tensor(u_t[rpos], dtype=torch.float64, device=device)
+        prefix = build_prefix(u_Rvals.tolist())
+        prefix_t = torch.tensor(prefix, dtype=torch.float64, device=device)
+        # path A
+        genA = torch.Generator(device=device).manual_seed(seed + 1000 + tindex)
+        startA = torch.zeros(P, dtype=torch.long, device=device)
+        H_A = _jump(alphas_R, u_Rvals, prefix_t, startA, r, P, genA)   # [P] R-index or -1
+        # path B
+        genB = torch.Generator(device=device).manual_seed(seed + 2000 + tindex)
+        H_B = _jump(alphas_R, u_Rvals, prefix_t, startA, r, P, genB)
+        # J_B: first R after H_B
+        startB = torch.where(H_B >= 0, H_B + 1, torch.full_like(H_B, r))
+        H_J = _jump(alphas_R, u_Rvals, prefix_t, startB, r, P, genB)
+        # map R-index -> depth-index g_t
+        rpos_t = torch.tensor(rpos, dtype=torch.long, device=device)
+        def to_depth(H_ridx):
+            return torch.where(H_ridx >= 0, rpos_t[torch.clamp(H_ridx, 0, r - 1)],
+                               torch.full_like(H_ridx, g))
+        hA = to_depth(H_A); hB = to_depth(H_B); hJ = to_depth(H_J)
+        FA = _F_from_hit(alphas, torch.from_numpy(r_t).to(device), colors_gp, hA, bg)
+        FB = _F_from_hit(alphas, torch.from_numpy(r_t).to(device), colors_gp, hB, bg)
+        FJ = _F_from_hit(alphas, torch.from_numpy(r_t).to(device), colors_gp, hJ, bg)
+        F_A[py0:py1, px0:px1] = FA.reshape(py1 - py0, px1 - px0, 3)
+        F_B[py0:py1, px0:px1] = FB.reshape(py1 - py0, px1 - px0, 3)
+        F_J[py0:py1, px0:px1] = FJ.reshape(py1 - py0, px1 - px0, 3)
+    return EventImagesAndCache(
+        images={"A": F_A, "B": F_B, "J": F_J},
+        meta={"seed": seed, "tile_size": ts, "n_tiles": len(tile_keys)},
+    )

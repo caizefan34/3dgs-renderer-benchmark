@@ -1,0 +1,64 @@
+{
+  "env": {
+    "python": "/root/miniforge3/envs/p16_fastergs/bin/python",
+    "torch": "2.8.0+cu128",
+    "cuda": "available",
+    "device": "NVIDIA A100-SXM4-80GB",
+    "platform": "Linux-5.10.134-013.9.kangaroo.al8.x86_64-x86_64-with-glibc2.35",
+    "graphdeco_repo": "/root/epic05_frozen/graphdeco-b0-pub",
+    "graphdeco_commit": null,
+    "rasterizer_install": "/root/miniforge3/envs/p16_fastergs/lib/python3.11/site-packages/diff_gaussian_rasterization"
+  },
+  "config": {
+    "iterations": 30000,
+    "seed": 42,
+    "sh_degree": 3,
+    "optimizer_type": "sparse_adam",
+    "resolution": -1,
+    "scenes": [
+      "room",
+      "garden",
+      "bicycle"
+    ],
+    "k_values": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "update_rule": "visible(radii>0): age=0, always update; invisible: age+=1, update when age%k==0",
+    "unmodified": [
+      "rasterizer",
+      "gradients",
+      "loss",
+      "densification",
+      "pruning"
+    ]
+  },
+  "files": [
+    {
+      "path": "/root/3dgs-renderer-benchmark/vos1_train.py",
+      "sha256": "83b41f188c7699e2cbd5829f249de1bfc1713f3bccdc8ea22537806510afece7"
+    },
+    {
+      "path": "/root/3dgs-renderer-benchmark/vos1_run.py",
+      "sha256": "f44fc497cba3abaeee5045de2c6947f5ea57fa353b6e19af8353852d4c7d086d"
+    },
+    {
+      "path": "/root/epic05_frozen/graphdeco-b0-pub/train.py",
+      "sha256": "0fc5d65b0c789b250b6e770757925909f5ea94cdc7c5e977eaaec99ddc03e92c"
+    },
+    {
+      "path": "/root/epic05_frozen/graphdeco-b0-pub/scene/gaussian_model.py",
+      "sha256": "546ba41528a879af4d83bd280a3ef3cbcca9a5e9132204185aaa8f8ee9ffa310"
+    },
+    {
+      "path": "/root/epic05_frozen/graphdeco-b0-pub/scene/__init__.py",
+      "sha256": "895d042f4dd2c6ee521dd985aea5c49d9c6f5c7379f76c4d537d8dc5468f18bf"
+    },
+    {
+      "path": "/root/epic05_frozen/graphdeco-b0-pub/gaussian_renderer/__init__.py",
+      "sha256": "a25cf5fdb22cd8757fb2a1e37b75352042d65b16138a9fa6243f8616ca1369b8"
+    }
+  ]
+}

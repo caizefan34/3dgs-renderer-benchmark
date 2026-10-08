@@ -1,0 +1,18 @@
+{
+  "campaign": "MG0_OneView_GS_HotCV",
+  "note": "mechanical operationalizations applied where the prereg leaves an implementation degree of freedom; no threshold was changed",
+  "items": {
+    "row_layout": "xyz(3)|scale(3)|quat(4)|opacity(1)|sh_dc(3)|sh_rest(45), cols 0:3,3:6,6:10,10:11,11:14,14:59",
+    "P_denominator": "sqrt(v_t)+eps computed once per checkpoint elementwise; eps read from the checkpoint optimizer param_groups (1e-15); SH group eps applies to sh_dc and sh_rest",
+    "score": "two full passes in fp64: pass1 mean_v P(g_v); pass2 sum_i (P(g_i)-mean)^2; score_j = (sum over d)/(64); stable descending argsort (ties by row index)",
+    "cbar": "FP32 exact mean of the stored FP16 values (fp64 accumulation then fp32 cast); estimator subtracts exactly the stored FP16 c_i (cast fp32) and adds c_bar",
+    "positive_dot_not_decreased": "global positive-dot fraction (dot(v_i,G)>0) >= raw fraction (dot(g_i,G)>0)",
+    "median_gain_beyond_noise": "median_a(delta_b2 - delta_b1) > max over the noise subset anchors of (max-min) of the three B1 DeltaHeldoutLoss repeats",
+    "no_catastrophic_group_instability": "params finite after every step in all anchors AND for every group the median ||dtheta||_B2 <= 3.0x the median ||dtheta||_B1",
+    "noise_subset": "anchors[0::4] (8 of 32 = 25%)",
+    "anchors_and_eval": "anchors_32 = quantile(64->32) of the frozen camera list (odd positions); internal_eval_16 = quantile (32->16) of the remaining even positions; disjoint; frozen in MG0_CAMERA_SET.json before gradients",
+    "25K_stage": "no new control store at 25K (no 30K consumer exists); the 25K hot ranking is recorded for completeness only",
+    "cost_probe": "isolated op sequence as in prereg \u00a77; control source per checkpoint: 15K->15K, 20K->15K, 25K->20K; normalized vs N1_ACTION_TIMING_{scene}.json '{ckpt}_A1' total_wall_ms.median",
+    "estimator_arithmetic": "v = (g - c_i) + c_bar evaluated left-to-right in fp32 exactly as the isolated ops implement it"
+  }
+}

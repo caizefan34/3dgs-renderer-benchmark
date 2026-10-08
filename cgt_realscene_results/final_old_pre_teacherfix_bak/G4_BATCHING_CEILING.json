@@ -1,0 +1,83 @@
+{
+  "gate": "G4_batching_ceiling_probe",
+  "question": "G3 found per-tile operational S~1.2x (launch-bound) despite intrinsic math gamma 6-10x. Does batching/fusion recover the headroom? (the G4 fusion question)",
+  "method": "Torch batchability probe on A100 (reuses G1 tiles + verified teacher/student ports). Batch B tiles' pixels into ONE student predict call (B*256 px, shared rank-R params, params created once, no H2D in loop). Measure student per-tile latency vs B.",
+  "student_batching_curve_R4": [
+    {
+      "B": 1,
+      "student_batch_ms": 0.06963200122117996,
+      "student_per_tile_ms": 0.06963200122117996,
+      "teacher_pertile_ms": 0.08396799862384796,
+      "S_batch": 1.205882312029651
+    },
+    {
+      "B": 2,
+      "student_batch_ms": 0.07168000191450119,
+      "student_per_tile_ms": 0.035840000957250595,
+      "teacher_pertile_ms": 0.08191999793052673,
+      "S_batch": 2.285714166923144
+    },
+    {
+      "B": 4,
+      "student_batch_ms": 0.07168000191450119,
+      "student_per_tile_ms": 0.017920000478625298,
+      "teacher_pertile_ms": 0.07884799689054489,
+      "S_batch": 4.399999708961703
+    },
+    {
+      "B": 8,
+      "student_batch_ms": 0.0727040022611618,
+      "student_per_tile_ms": 0.009088000282645226,
+      "teacher_pertile_ms": 0.3829759955406189,
+      "S_batch": 42.1408432691143
+    },
+    {
+      "B": 16,
+      "student_batch_ms": 0.07372800260782242,
+      "student_per_tile_ms": 0.004608000162988901,
+      "teacher_pertile_ms": 0.3824959993362427,
+      "S_batch": 83.00694136437338
+    },
+    {
+      "B": 32,
+      "student_batch_ms": 0.07372800260782242,
+      "student_per_tile_ms": 0.0023040000814944506,
+      "teacher_pertile_ms": 0.3876640051603317,
+      "S_batch": 168.25694073277987
+    },
+    {
+      "B": 64,
+      "student_batch_ms": 0.07577600330114365,
+      "student_per_tile_ms": 0.0011840000515803695,
+      "teacher_pertile_ms": 0.3728639930486679,
+      "S_batch": 314.91889932857663
+    },
+    {
+      "B": 128,
+      "student_batch_ms": 0.0798719972372055,
+      "student_per_tile_ms": 0.000623999978415668,
+      "teacher_pertile_ms": 0.38035599887371063,
+      "S_batch": 609.5448910742467
+    },
+    {
+      "B": 256,
+      "student_batch_ms": 0.09830400347709656,
+      "student_per_tile_ms": 0.00038400001358240843,
+      "teacher_pertile_ms": 0.3812440037727356,
+      "S_batch": 992.8228913745041
+    }
+  ],
+  "student_per_tile_latency_B1_ms": 0.06963200122117996,
+  "student_per_tile_latency_B256_ms": 0.00038400001358240843,
+  "batching_reduction_factor_B1_to_B256": 181.3,
+  "intrinsic_gamma_range_R4": [
+    6.35,
+    14.53
+  ],
+  "intrinsic_gamma_note": "Run-to-run GPU-state sensitivity: room run1=6.35, room run2=14.5, garden=10.46. Range 6-14x; all > assumed 2-4x. Intrinsic gamma is GPU-clock-sensitive (not clock-locked); report as range, not point.",
+  "NOT_reported_as_speedup": "S_batch = teacher_per_tile / student_per_tile is NOT reported: teacher is B separate noisy calls (0.08ms at B<=4 but 0.38ms at B>=8, a measurement artifact), making S_batch asymmetric/unreliable. Only the student batching curve (clean, single-call) is used.",
+  "finding": "Student per-tile latency drops ~181x from B=1 (0.0696ms, launch-bound) to B=256 (0.00038ms, intrinsic per-element). The CGT student eval is HIGHLY batchable: launch overhead amortizes to near-zero by B~128-256. Therefore a renderer that batches many cells per kernel launch (as a fused CGT kernel would) approaches the intrinsic per-element cost, and the per-tile 1.2x is a launch-granularity artifact, NOT a fundamental limit.",
+  "implication": "Batching/fusion is the viable G4 path to recover the 6-14x math headroom. CAVEAT: this is a torch batchability probe, NOT a fused CGT CUDA kernel vs gsplat's fused rasterizer (the true G4 microbenchmark). The teacher/Gaussian baseline must also be batch-amortized (gsplat already is, being fused) for the end-to-end S to approach intrinsic gamma.",
+  "verdict": "PARTIAL_BATCHING_HEADROOM_RECOVERABLE_FUSED_KERNEL_REQUIRED",
+  "scope_caveat": "torch reference; no spatial tree / cost selector / fused CUDA kernel; GPU not clock-locked (intrinsic gamma variance)."
+}

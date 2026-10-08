@@ -1,0 +1,87 @@
+{
+  "artifact": "EPIC05_P8A_GPU_PAIRING_DEVIATION",
+  "protocol_requirement": "scene/arm paired to the same physical GPU as the frozen reference arms where possible",
+  "deviation": "Six gmain runs (flowers, garden, kitchen, playroom, room, truck) completed training while an external co-tenant re-occupied their pinned GPUs 4/5/6/7 (watchdog co-residence: 90-280 samples per run window). Those attempts are preserved verbatim under gmain03_s42_<scene>.contaminated_20260925T224815 and were rerun on GPUs 1/2/3, which the watchdog shows free of foreign compute for the full rerun windows.",
+  "justification": [
+    "Pinned GPUs 4/5/6/7 remained persistently occupied by external co-tenant processes (20-30GB each) with no clean window.",
+    "Rerun GPUs 1/2/3 are on the same host, same SKU (A100-SXM4-80GB), same driver, and carried zero foreign compute during the rerun windows (strict-clean policy).",
+    "Cross-GPU same-SKU continuity on this host was bounded at <=4.24% in the P7b fixed-state replay continuity checks; the disclosed deviation applies equally to all rerun scenes.",
+    "The primary comparison (gmain vs frozen c0/a0/b1ae03) keeps identical scene, recipe, seed, iteration count, and eval protocol; only the physical GPU index differs for the six rerun scenes, and each run's actual GPU is recorded in epic05_launcher_meta.json."
+  ],
+  "preserved_contaminated_attempts": [
+    "gmain03_s42_flowers.contaminated_20260925T224815",
+    "gmain03_s42_garden.contaminated_20260925T224815",
+    "gmain03_s42_kitchen.contaminated_20260925T224815",
+    "gmain03_s42_playroom.contaminated_20260925T224815",
+    "gmain03_s42_room.contaminated_20260925T224815",
+    "gmain03_s42_truck.contaminated_20260925T224815"
+  ],
+  "first_bicycle_attempt": "gmain03_s42_bicycle.contaminated_20260925T212318 (GPU 0 foreign bursts mid-run); rerun completed clean on GPU 0 (same pinned GPU, no deviation).",
+  "per_scene": {
+    "bicycle": {
+      "pinned_gpu": 0,
+      "actual_gpu": 0,
+      "rerun_on_alternate_gpu": false
+    },
+    "bonsai": {
+      "pinned_gpu": 1,
+      "actual_gpu": 1,
+      "rerun_on_alternate_gpu": false
+    },
+    "stump": {
+      "pinned_gpu": 1,
+      "actual_gpu": 1,
+      "rerun_on_alternate_gpu": false
+    },
+    "counter": {
+      "pinned_gpu": 2,
+      "actual_gpu": 2,
+      "rerun_on_alternate_gpu": false
+    },
+    "treehill": {
+      "pinned_gpu": 2,
+      "actual_gpu": 2,
+      "rerun_on_alternate_gpu": false
+    },
+    "drjohnson": {
+      "pinned_gpu": 3,
+      "actual_gpu": 3,
+      "rerun_on_alternate_gpu": false
+    },
+    "train": {
+      "pinned_gpu": 3,
+      "actual_gpu": 3,
+      "rerun_on_alternate_gpu": false
+    },
+    "flowers": {
+      "pinned_gpu": 4,
+      "actual_gpu": 1,
+      "rerun_on_alternate_gpu": true
+    },
+    "garden": {
+      "pinned_gpu": 5,
+      "actual_gpu": 1,
+      "rerun_on_alternate_gpu": true
+    },
+    "kitchen": {
+      "pinned_gpu": 6,
+      "actual_gpu": 2,
+      "rerun_on_alternate_gpu": true
+    },
+    "truck": {
+      "pinned_gpu": 6,
+      "actual_gpu": 2,
+      "rerun_on_alternate_gpu": true
+    },
+    "playroom": {
+      "pinned_gpu": 7,
+      "actual_gpu": 3,
+      "rerun_on_alternate_gpu": true
+    },
+    "room": {
+      "pinned_gpu": 7,
+      "actual_gpu": 3,
+      "rerun_on_alternate_gpu": true
+    }
+  }
+}

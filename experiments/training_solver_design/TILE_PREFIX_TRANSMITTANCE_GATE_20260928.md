@@ -1,0 +1,19 @@
+# Certified tile-prefix transmittance culling: frozen opportunity gate
+
+Date: 2026-09-28. This file freezes a **read-only** opportunity screen before any result. It does not authorize production CUDA or full training. The candidate is a pre-sort tile-depth cutoff certified by conservative **joint foreground transmittance**, distinct from AccuTile's single-Gaussian ellipse support.
+
+## State and sample
+
+Use the pinned FastGS-Big author room 30K `eval=True` model from the timed from-zero baseline (author commit `44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f`). Record the exact PLY/source hashes and use its unchanged full-effective-resolution training-camera projection path. Select the sorted 272 **training** cameras at indices `0,39,77,116,155,194,232,271`; do not inspect held-out cameras or GT. In each image's native tile grid, select 16×16 tile coordinates by `floor((k+0.5)*N/16)` independently in x/y (`k=0…15`), deduplicating only if needed. Freeze selected camera/tile IDs before computing any culling statistic.
+
+## Two nested opportunity counts
+
+For each selected tile, use the native projected Gaussian list in the exact native center-depth order, including opacity, conic, alpha clamp, alpha acceptance threshold and early-stop behavior. Let `L` be the full tile entry count. **Ideal oracle:** run native-equation per-pixel alpha/transmittance over this list and find the smallest prefix length after which every valid pixel would be marked done under the native `test_T<1e-4` rule. Count only entries strictly after that prefix. If any pixel never becomes done, ideal removable count is zero. Keep the Gaussian that triggers each pixel's done flag: native forward does not write `test_T` into `T` for that triggering entry. Check CPU/native render parity on at least one sampled tile and record all mismatches.
+
+**Certified mechanism:** for each entry in a completed depth bin, use the maximum conic quadratic form over the four corners of the actual pixel-center rectangle to lower-bound alpha over *every* pixel. Use zero as the lower bound if this falls below native acceptance threshold; apply a conservative FP32 margin. Multiply `(1-alpha_lower)` to upper-bound tile-wide transmittance. Only after a completed bin's bound drops below `1e-4` may entries in strictly deeper bins be counted removable. Never remove the retained prefix or same-bin entries. Bin boundaries must preserve native depth/tie order; use a fixed 64 equal-count consecutive-entry bins per tile for the offline bound, with empty bins omitted. This offline sorting is already given; no pre-sort speed claim follows. Record actual certified removable count and the number of entry/tile corner-bound evaluations plus tile-bin storage needed to build the certificate.
+
+## Frozen decision
+
+Aggregate ratios by summing removable entries and original entries across all sampled tiles, then report each camera separately. Stop after the ideal oracle if pooled ideal removable fraction is **<40%** or fewer than four cameras reach **20%**. If ideal passes, compute the certified bound; stop if pooled certified removable fraction is **<25%** or fewer than four cameras reach **12.5%**. Passing only authorizes a later source/prior-art and native-cost design, not a quality, originality or wall-time claim. In particular, removed entries would already be skipped by later raster early termination; do **not** count them as saved accepted-pixel backward work.
+
+Preserve raw counts, scripts, command lines, hashes, exact camera/tile manifests and any invalid units. If the frozen source lacks a reliable export of native lists or exact forward semantics, report `EXPORT_BLOCKED` rather than substitute approximate lists. No source checkout or model mutation; use an isolated copy if instrumentation is needed. Independent prior-art audit of OccluGaussian/Proxy-GS is required before any production implementation.

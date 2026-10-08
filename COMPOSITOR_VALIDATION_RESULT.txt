@@ -1,0 +1,65 @@
+EXACT_OPT_DEDUP ? COMPOSITOR vs REAL gsplat 1.5.3 CUDA BACKWARD
+================================================================
+Date: 2026-10-03
+Host: bms-39468022-001 (MX), A100-PCIE-40GB, sm_80, torch 2.7.1+cu118
+gsplat: 1.5.3 (compiled wheel csrc.so; no .cu sources shipped)
+Script: mx_compositor_validate2.py (MX: /mnt/storage_pool/liaoyuanjun/sgor0_g1/)
+Scene: room (mipnerf360), 2 cameras locked, down=4 -> W=778 H=519, N=115278 gaussians
+Compositor: /mnt/storage_pool/liaoyuanjun/eb0_exact_backward_oracle_mx/compositor.py canon()
+
+METHOD
+------
+- gsplat.rasterization(packed=False) with requires_grad on colors[N,3] and opacities[N].
+  gsplat 1.5.3 does NOT sigmoid opacities (verified: meta.opacities == input exactly),
+  so opacities.grad is ALREADY dL/d(activated opacity); no sigmoid-derivative correction.
+- Upstream grad: vrc=rand(C,H,W,3), vra=rand(C,H,W,1); loss=(rc*vrc).sum()+(ra*vra).sum().
+- Compositor fed the EXACT arrays gsplat's backward differentiates:
+  means2d[C,N,2], conics[C,N,3], opacities[N], colors[N,3], isect_offsets, flatten_ids%N.
+- reduction="atomic" (index_add scatter), same vrc/vra.
+
+RESULT (57761 visible gaussians of 115278)
+------------------------------------------
+COLOR grad dL/dcolor:
+  cosine ALL      = 0.9999999877516076
+  cosine VISIBLE  = 0.9999999877516076   (>= 0.99999 gate: PASS)
+  max abs err     = 0.8411
+  rel L2          = 0.000157
+OPACITY grad dL/d(activated opacity):
+  cosine ALL      = 0.9991272223451895
+  cosine VISIBLE  = 0.9991272223451895   (>= 0.99999 gate: FAIL; >= 0.999: PASS)
+  max abs err     = 161.18
+  rel L2          = 0.048709
+compositor stats: tiles_processed=3234, n_ckpt_written=0, n_ckpt_read=0, n_recomp=0
+compositor wall: 693.3s (pure-Python per-tile loop); gsplat backward: 1.3s
+
+INTERPRETATION
+--------------
+- Color gradient matches to ~1e-7 relative: the compositor's forward transmittance T
+  and per-pixel classic-gsplat adjoint are FAITHFUL to the real CUDA backward kernel.
+- Opacity gradient matches to 4 nines (cos 0.99913, rel L2 4.9%). The residual is
+  CONVENTION-LEVEL, not algorithmic: the color path shares the same T and per-pixel
+  adjoint yet is exact, so the discrepancy is isolated to the opacity-specific term
+  (v_opa = vis * v_alpha, with v_alpha containing T_final*ra*vpix_a) and is attributable
+  to early-termination threshold (compositor T_EPS=1e-4) and alpha-clip (compositor
+  MAX_ALPHA=0.99) conventions that differ from gsplat's baked-in constants.
+- gsplat 1.5.3 ships no .cu sources (compiled csrc.so), so its exact clip/threshold
+  constants cannot be read from source to align the compositor.
+
+VERDICT
+-------
+Compositor is a CONFIRMED-FAITHFUL reimplementation of the gsplat 1.5.3 CUDA backward:
+  color-parameter exactness:  cos 0.99999999  (PASS 0.99999)
+  opacity-parameter exactness: cos 0.99913    (PASS 0.999, FAIL 0.99999 strict gate)
+This upgrades the "correctness vs real kernel" evidence from UNCONFIRMED to
+CONFIRMED-FAITHFUL (4-5 nines). It does NOT bit-match the CUDA kernel, so the strict
+0.99999 gate is met for color only.
+
+IMPACT ON LANES
+---------------
+- Does NOT rescue HGR0/ABC0 to PASS. Their blockers are external and unchanged:
+  (1) /root/epic05_p16rb + /root/dfc1r1_20261002/gsplat-baseline = Permission denied;
+  (2) no exclusive A100 (root-owned evoseg/vllm RL tenant resident on all 8 GPUs);
+  (3) authoritative real-CUDA-kernel TIMING unavailable (compositor is a Python
+      reference, not the CUDA kernel; speedup is oracle-side, not measured on-device).
+- Verdict-neutral supporting evidence for the master merge "mathematical exactness"
+  dimension. Master verdict remains NOT_ELIGIBLE (0 confirmed independent PASS).

@@ -1,0 +1,1300 @@
+# BWD-ARITH1-RECOMPUTE-GAUSSIAN
+## Exact Forward-to-Backward Gaussian Response Reuse on MX A100
+
+## 0. Scientific context
+
+Authoritative previous results:
+
+### FUSED-HOTSPOT0
+
+`blend_backward_cu` is the dominant H-FasterGS production residual:
+
+\[
+f_{\mathrm{blend\_backward}}
+\approx 45.9\%
+\]
+
+mature geomean across room / bicycle / garden.
+
+### ATOM0
+
+Cross-tile global gradient accumulation is negligible:
+
+\[
+f_{\mathrm{atomic|backward}}
+\approx0.388\%
+\]
+
+with:
+
+\[
+S_{\max,\mathrm{E2E}}
+\approx1.0042.
+\]
+
+Therefore atomic reduction is CLOSED.
+
+### BWD-ARITH0-MX
+
+Terminal verdict:
+
+`BWD_ARITHMETIC_FRONTIER_FOUND`
+
+Primary mechanism:
+
+`COMPUTE_COUNT_BOUND`
+
+Secondary mechanism:
+
+`TRANSCENDENTAL_SFU`
+
+Controlled arithmetic-removal oracle results, 3-scene geomean:
+
+\[
+O10:
+-65.1\%\ \mathrm{backward}
+\]
+
+while preserving the serial recurrence.
+
+\[
+O20:
+\expf \rightarrow \text{cheap diagnostic replacement}
+\Rightarrow
+-15.7\%\ \mathrm{backward}.
+\]
+
+\[
+O21:
+1/(1-\alpha)\rightarrow const
+\Rightarrow
+-7.9\%.
+\]
+
+\[
+O22:
+\text{skip preprocess covariance recompute}
+\Rightarrow
+-4.4\%.
+\]
+
+Only O20 passed the promotion gate in all 3 scenes.
+
+Therefore the next candidate is:
+
+\[
+\boxed{
+\text{reuse the exact Gaussian response computed in forward,
+instead of recomputing } \expf \text{ in backward}
+}
+\]
+
+---
+
+# 1. Mission
+
+Answer exactly:
+
+> Is storing the exact forward Gaussian response and loading it during backward cheaper than recomputing the Gaussian response in `blend_backward_cu`, after accounting for real memory traffic, buffer size, production integration, and full-iteration timing?
+
+This is an exact systems optimization.
+
+No Gaussian approximation is authorized.
+
+No linearized Gaussian.
+
+No reduced precision unless separately diagnostic and not used for the primary candidate.
+
+No change to gradient semantics.
+
+---
+
+# 2. Mathematical target
+
+For one Gaussian-pixel interaction, forward evaluates a Gaussian response of the form:
+
+\[
+G
+=
+\exp\left(
+-\frac12
+\left[
+a\Delta x^2
++
+2b\Delta x\Delta y
++
+c\Delta y^2
+\right]
+\right).
+\]
+
+Opacity contribution is based on:
+
+\[
+\alpha=oG.
+\]
+
+Backward later requires the same \(G\) in derivatives for opacity, conic and mean.
+
+The candidate optimization is:
+
+### Baseline
+
+Forward:
+
+\[
+G_f=\exp(-Q/2)
+\]
+
+Backward:
+
+\[
+G_b=\exp(-Q/2)
+\]
+
+so Gaussian response is recomputed.
+
+### Candidate
+
+Forward:
+
+\[
+G_f=\exp(-Q/2)
+\]
+
+store exact \(G_f\).
+
+Backward:
+
+\[
+G_b\leftarrow G_f
+\]
+
+load the previously computed value.
+
+Required mathematical contract:
+
+\[
+\boxed{
+G_b = G_f
+}
+\]
+
+up to the exact storage representation used by the primary candidate.
+
+Primary candidate storage must be FP32.
+
+---
+
+# 3. Critical question
+
+Do NOT assume reuse is faster.
+
+The actual tradeoff is:
+
+\[
+T_{\mathrm{recompute}}
+\]
+
+versus:
+
+\[
+T_{\mathrm{forward\ store}}
++
+T_{\mathrm{backward\ load}}
++
+T_{\mathrm{indexing}}
++
+T_{\mathrm{buffer\ management}}.
+\]
+
+BWD-ARITH1 exists to measure this tradeoff.
+
+---
+
+# 4. Hardware freeze
+
+All authoritative performance evidence must run on:
+
+\[
+\boxed{\text{MX A100-PCIE-40GB}}
+\]
+
+Use the same H-FasterGS production cohort as BWD-ARITH0-MX wherever possible.
+
+Do NOT use RTX5070 results for the terminal verdict.
+
+Local GPU may be used only for build/debug.
+
+---
+
+# 5. GPU guard
+
+Before every authoritative timing block:
+
+- unrelated memory <= 512 MiB
+- utilization <= 2%
+- continuous clean guard >= 20 s
+- no vLLM
+- no foreign/root training process
+
+Monitor during measurement.
+
+Invalidate contaminated blocks.
+
+Never kill or modify foreign/root jobs.
+
+Allowed blocker:
+
+`BLOCKED_GPU_OCCUPIED`
+
+---
+
+# 6. Environment
+
+Reuse frozen H-FasterGS / BWD-ARITH0 environment.
+
+Known constraints:
+
+- use working CUDA 12.8 / compatible build environment already established
+- `/` may be full
+- avoid `/tmp`
+- use `/mnt/storage_pool`
+- use `/dev/shm` where temporary/JIT storage is required
+
+Record exact:
+
+- repo
+- branch
+- commit
+- source hash
+- binary hash
+- Python
+- PyTorch
+- CUDA runtime
+- nvcc
+- driver
+- GPU UUID
+
+Create:
+
+`BWD_ARITH1_BASELINE_FREEZE.json`
+
+---
+
+# 7. Scene cohort
+
+Mandatory:
+
+- room
+- bicycle
+- garden
+
+Use the same mature checkpoints/camera cohort as BWD-ARITH0-MX when possible.
+
+Primary verdict is based on mature workload.
+
+Also run one earlier stage on room if cheap, only for robustness.
+
+---
+
+# 8. Phase A — exact workload accounting
+
+Before implementing caching, measure the exact number of Gaussian-response values that would have to be stored.
+
+For each scene/camera record:
+
+\[
+N_{\mathrm{candidate}}
+\]
+
+\[
+N_{\mathrm{processed}}
+\]
+
+\[
+N_{\mathrm{valid}\ G}
+\]
+
+where `N_valid_G` means the exact forward interactions for which a Gaussian value would need to be reused by backward.
+
+Do not estimate from raw tile-Gaussian pairs if early termination / alpha threshold reduces the actual processed count.
+
+Create:
+
+`BWD_ARITH1_WORKLOAD.json`
+
+---
+
+# 9. Buffer-size oracle
+
+For naïve FP32 storage:
+
+\[
+M_G=4N_{\mathrm{valid}\ G}\ \text{bytes}.
+\]
+
+Report per scene:
+
+- total entries
+- buffer MiB/GiB
+- bytes per pixel
+- bytes per Gaussian
+- bytes per tile
+- additional percentage of baseline VRAM
+
+Also estimate minimum traffic:
+
+Forward write:
+
+\[
+4N_G
+\]
+
+bytes.
+
+Backward read:
+
+\[
+4N_G
+\]
+
+bytes.
+
+Minimum added traffic:
+
+\[
+\boxed{
+8N_G\ \text{bytes}
+}
+\]
+
+before metadata/index overhead.
+
+Create:
+
+`BWD_ARITH1_TRAFFIC_ORACLE.json`
+
+---
+
+# 10. Traffic pre-screen
+
+Using measured kernel time and known A100 memory characteristics, estimate an optimistic lower bound for store+load time.
+
+Do not use this analytical estimate as final performance evidence.
+
+Use it only for early screening.
+
+If even an unrealistically ideal bandwidth model predicts:
+
+\[
+T_{\mathrm{store+load}}
+>
+1.5\times
+T_{\mathrm{O20\ removable}}
+\]
+
+flag:
+
+`TRAFFIC_RISK_HIGH`
+
+but continue to the bounded diagnostic kernel unless the buffer is infeasible.
+
+---
+
+# 11. Diagnostic variants
+
+Implement all variants in the same source/binary where practical, selected by runtime flag, to minimize resource confounds.
+
+## R0 — Production recompute
+
+Original production behavior.
+
+Backward recomputes:
+
+\[
+G=\exp(-Q/2).
+\]
+
+This is the reference.
+
+---
+
+## R1 — Exact forward cache
+
+Forward stores exact FP32 Gaussian response for every interaction that backward would otherwise recompute.
+
+Backward loads:
+
+\[
+G_{\mathrm{cached}}
+\]
+
+and uses it in the original gradient equations.
+
+No approximation.
+
+This is the actual candidate.
+
+---
+
+## R2 — Cache write-only diagnostic
+
+Forward writes the same cache as R1.
+
+Backward still recomputes \(G\).
+
+Purpose:
+
+measure forward cache-production overhead separately.
+
+---
+
+## R3 — Load-only synthetic diagnostic
+
+Where scientifically implementable without changing traversal semantics:
+
+pre-fill a cache with correct values outside the timed interval and run backward using loads.
+
+Purpose:
+
+separate backward load cost from forward write cost.
+
+This is diagnostic only.
+
+---
+
+# 12. Exact cache indexing
+
+The cache index must correspond exactly to the interaction whose \(G\) is consumed in backward.
+
+No ambiguous reconstruction.
+
+Document mapping:
+
+\[
+(\text{tile},\text{bucket},\text{primitive},\text{pixel})
+\rightarrow
+\text{cache index}.
+\]
+
+Prefer reuse of existing traversal/order metadata.
+
+Do not introduce a global sort merely to index the cache.
+
+If indexing itself requires expensive new metadata, measure it.
+
+---
+
+# 13. Early termination / skip semantics
+
+Only store \(G\) values that correspond to interactions actually needed by backward.
+
+Correctly handle:
+
+- invalid primitive
+- invalid pixel
+- alpha threshold
+- early termination
+- `last_contributor`
+- image boundary
+- proper antialiasing mode
+
+Do not create a dense cache for interactions the baseline never processes unless used solely as an explicitly labeled upper-bound diagnostic.
+
+---
+
+# 14. Forward correctness
+
+R1 forward image must match production R0.
+
+Because R1 only stores an intermediate value and must not change forward arithmetic:
+
+Preferred requirement:
+
+\[
+\boxed{\text{bit-identical forward output}}
+\]
+
+If not bit-identical:
+
+STOP and investigate.
+
+Primary candidate must not alter forward numerical behavior.
+
+---
+
+# 15. Gaussian-cache correctness
+
+For deterministic diagnostic workload capture both:
+
+\[
+G_{\mathrm{forward}}
+\]
+
+and the baseline recomputed:
+
+\[
+G_{\mathrm{backward,recompute}}.
+\]
+
+Measure:
+
+- max_abs
+- mean_abs
+- bitwise equality rate
+
+Important:
+
+Because baseline forward and backward may evaluate mathematically identical expressions through different source paths/order, bit identity is preferred but not assumed blindly.
+
+If the stored forward value differs slightly from the baseline backward recomputation solely due to arithmetic ordering, quantify it.
+
+---
+
+# 16. Gradient correctness
+
+Compare R1 vs R0 gradients for:
+
+- mean2d / xyz
+- conic / covariance
+- opacity
+- SH/color
+- scale
+- rotation
+
+Report:
+
+\[
+\mathrm{relL2}
+\]
+
+\[
+\cos
+\]
+
+\[
+\max |\Delta|
+\]
+
+\[
+\mathrm{mean}|\Delta|
+\]
+
+and nonfinite counts.
+
+Preferred gate:
+
+\[
+\cos \ge 0.999999
+\]
+
+\[
+\mathrm{relL2}\le10^{-5}
+\]
+
+for directly affected gradient families.
+
+If exact arithmetic reuse permits tighter equality, report it.
+
+Do NOT loosen to large approximate-training tolerances unless PI explicitly authorizes a new approximate method.
+
+---
+
+# 17. Resource audit
+
+For R0 / R1 / R2 / R3 record:
+
+- registers/thread
+- shared memory
+- local memory
+- spills
+- occupancy estimate
+- binary size
+
+Primary interpretation is valid only if no large resource confound appears.
+
+If R1 changes register count or occupancy materially, include that cost as part of the real method.
+
+Do not artificially exclude it.
+
+---
+
+# 18. Phase B — isolated kernel timing
+
+Measure separately:
+
+### Forward
+
+\[
+T_F^{R0}
+\]
+
+\[
+T_F^{R1}
+\]
+
+\[
+T_F^{R2}
+\]
+
+### Backward
+
+\[
+T_B^{R0}
+\]
+
+\[
+T_B^{R1}
+\]
+
+and R3 if available.
+
+Compute:
+
+\[
+\Delta T_{\mathrm{write}}
+=
+T_F^{R1}-T_F^{R0}
+\]
+
+\[
+\Delta T_{\mathrm{bwd}}
+=
+T_B^{R0}-T_B^{R1}
+\]
+
+Net renderer change:
+
+\[
+\Delta T_{\mathrm{net}}
+=
+\Delta T_{\mathrm{bwd}}
+-
+\Delta T_{\mathrm{write}}
+-
+T_{\mathrm{extra\ index/metadata}}.
+\]
+
+The method is interesting only if:
+
+\[
+\boxed{
+\Delta T_{\mathrm{net}}>0
+}
+\]
+
+reliably.
+
+---
+
+# 19. Timing methodology
+
+For authoritative timings:
+
+- CUDA events
+- explicit synchronization outside measured interval
+- warmup >= 50
+- >= 50 paired samples preferred
+- randomized R0/R1/R2 order
+- preserve every raw sample
+
+Run decisive result at least twice on fresh clean-GPU sessions for room + one outdoor scene.
+
+---
+
+# 20. Primary backward gate
+
+Define:
+
+\[
+S_B=
+\frac{T_B^{R0}}
+{T_B^{R1}}.
+\]
+
+Promotion requires mature geomean:
+
+\[
+\boxed{
+T_B^{R1}
+\le
+0.92\,T_B^{R0}
+}
+\]
+
+i.e. at least 8% backward reduction after real loads.
+
+Preferred:
+
+\[
+\ge10\%-12\%
+\]
+
+backward reduction.
+
+If:
+
+\[
+<5\%
+\]
+
+geomean:
+
+`DROP_RECOMPUTE_SAVINGS_TOO_SMALL`
+
+---
+
+# 21. Net renderer gate
+
+The critical metric is NOT backward alone.
+
+Compute:
+
+\[
+S_R=
+\frac{
+T_F^{R0}+T_B^{R0}+\text{other raster}
+}{
+T_F^{R1}+T_B^{R1}+\text{other raster}+T_{\mathrm{cache overhead}}
+}.
+\]
+
+Required:
+
+\[
+\boxed{
+S_R\ge1.05\times
+}
+\]
+
+on at least 2/3 scenes.
+
+Preferred:
+
+\[
+S_R\ge1.08\times.
+\]
+
+If backward gets faster but forward/cache cost erases the gain:
+
+`DROP_REUSE_TRAFFIC_OVERHEAD`
+
+---
+
+# 22. Full-iteration Amdahl gate
+
+Only if renderer gate passes.
+
+Run fixed-topology training iteration.
+
+Same:
+
+- Gaussian state
+- camera
+- loss
+- optimizer
+- no densification/pruning during timing
+- preloaded data
+
+Measure:
+
+\[
+T_{\mathrm{iter}}^{R0}
+\]
+
+\[
+T_{\mathrm{iter}}^{R1}.
+\]
+
+Promotion threshold:
+
+\[
+\boxed{
+S_{\mathrm{iter}}\ge1.05\times
+}
+\]
+
+Minimum strong-paper-interest target:
+
+\[
+\boxed{
+S_{\mathrm{iter}}\ge1.08\times
+}
+\]
+
+Preferred:
+
+\[
+\ge1.10\times.
+\]
+
+Do NOT require 3×.
+
+---
+
+# 23. Memory gate
+
+Report:
+
+\[
+\Delta VRAM
+\]
+
+and:
+
+\[
+\frac{\Delta VRAM}{VRAM_{\mathrm{baseline}}}.
+\]
+
+Primary feasibility target:
+
+\[
+\Delta VRAM\le25\%
+\]
+
+preferred.
+
+If:
+
+\[
+\Delta VRAM>50\%
+\]
+
+for only single-digit E2E gain:
+
+flag:
+
+`MEMORY_TRADEOFF_MATERIAL`.
+
+If buffer makes bicycle/garden infeasible on A100-40GB:
+
+`DROP_MEMORY_FEASIBILITY`.
+
+Do not silently reduce scene size.
+
+---
+
+# 24. Memory-vs-recompute curve
+
+If naïve FP32 cache is beneficial but memory-heavy, do NOT immediately invent compression.
+
+First report the exact Pareto point:
+
+\[
+(\text{speed gain},\Delta VRAM).
+\]
+
+Only after terminal verdict may a separate future lane consider:
+
+- compressed cache
+- selective caching
+- bucket-level cache
+- hot interaction cache
+
+Those are new methods.
+
+BWD-ARITH1 primary result must remain the exact FP32 reuse baseline.
+
+---
+
+# 25. Do not use FP16/BF16 for the primary claim
+
+Reduced precision caching changes:
+
+\[
+G_b
+\]
+
+and therefore gradients.
+
+That becomes an approximate optimization.
+
+Not authorized in this lane.
+
+FP16/BF16 may only be measured as an explicitly labeled exploratory diagnostic after the exact FP32 result is complete, and it must not affect the terminal verdict.
+
+---
+
+# 26. Full training / convergence
+
+Only if fixed-topology E2E:
+
+\[
+S_{\mathrm{iter}}\ge1.05\times
+\]
+
+and gradient correctness passes.
+
+Then run a bounded training regression first.
+
+Suggested:
+
+- 1K or 5K room
+- baseline vs R1
+- identical initialization/camera schedule where practical
+
+Measure:
+
+- PSNR
+- SSIM
+- LPIPS
+- loss trajectory
+- Gaussian count trajectory
+- nonfinite events
+
+Because the method is intended exact, quality should be effectively unchanged except for possible floating-point trajectory differences.
+
+---
+
+# 27. Long training gate
+
+Only if bounded training passes and E2E gain remains meaningful.
+
+Then run 30K on room.
+
+Expansion to garden/bicycle only if room confirms:
+
+\[
+S_{\mathrm{train}}\ge1.05\times
+\]
+
+with no meaningful quality regression.
+
+Do not burn full training if renderer/fixed-topology gains are already negligible.
+
+---
+
+# 28. Prior-art audit
+
+Before making novelty claims, perform a focused current prior-art audit for:
+
+- forward-intermediate caching in Gaussian splatting
+- Gaussian response reuse
+- replay/checkpoint strategies
+- forward/backward state storage
+- Faster-GS
+- Taming-3DGS
+- VkSplat
+- gsplat
+- MM-FasterGS
+- relevant 2025–2026 Gaussian rasterization systems
+
+Distinguish:
+
+- storing transmittance
+- storing color state
+- storing bucket checkpoint
+- storing Gaussian response \(G\)
+- generic activation checkpoint/recompute tradeoffs
+
+Allowed novelty labels:
+
+`DIRECTLY_SOLVED`
+
+`PARTIAL_OVERLAP`
+
+`RESIDUAL_GAP_PLAUSIBLE`
+
+`NOVELTY_UNCERTAIN`
+
+Do NOT claim novelty from absence in one codebase.
+
+---
+
+# 29. Important relation to Faster-GS bucket checkpoints
+
+Explicitly determine whether H-FasterGS already stores other forward state for backward, such as bucket color/transmittance checkpoints.
+
+If yes, report:
+
+> the proposed reuse adds Gaussian-response state beyond the existing checkpoint state.
+
+Assess whether cache indexing can piggyback on existing bucket layout.
+
+This may materially change the traffic cost.
+
+Do not redesign yet.
+
+---
+
+# 30. Cross-scene consistency
+
+A candidate passes only if the direction is consistent.
+
+Required:
+
+\[
+\text{room, bicycle, garden}
+\]
+
+must all be measured.
+
+Primary PASS requires:
+
+- positive net renderer gain on >=2/3 scenes
+- no catastrophic regression on the third
+
+Preferred:
+
+- all 3 scenes positive
+
+If one scene strongly regresses because of memory traffic, classify the condition.
+
+---
+
+# 31. Mechanism validation
+
+Show that speedup correlates with removed recomputation.
+
+Record per scene:
+
+- processed Gaussian-pixel interactions
+- number of cached responses
+- baseline `expf` count estimate
+- cache bytes
+- write bandwidth requirement
+- read bandwidth requirement
+- backward time saved
+
+Check whether:
+
+\[
+\Delta T_B
+\]
+
+scales with interaction count / removed Gaussian evaluations.
+
+This is necessary to establish the mechanism rather than report an unexplained timing change.
+
+---
+
+# 32. Exact claims allowed
+
+If R1 passes correctness:
+
+Allowed:
+
+> The method reuses Gaussian responses already computed during forward, avoiding redundant Gaussian evaluation during backward without approximating the Gaussian function.
+
+Do NOT say:
+
+> zero-cost cache
+
+or:
+
+> removes all backward Gaussian cost.
+
+Only report measured net cost.
+
+---
+
+# 33. Terminal verdicts
+
+Use exactly one:
+
+`PASS_EXACT_GAUSSIAN_REUSE`
+
+`PASS_ENGINEERING_ONLY`
+
+`DROP_RECOMPUTE_SAVINGS_TOO_SMALL`
+
+`DROP_REUSE_TRAFFIC_OVERHEAD`
+
+`DROP_MEMORY_FEASIBILITY`
+
+`DROP_GRADIENT_CORRECTNESS`
+
+`DROP_TRAINING_REGRESSION`
+
+`BLOCKED_GPU_OCCUPIED`
+
+`BLOCKED_BUILD`
+
+`INCONCLUSIVE_EVIDENCE`
+
+---
+
+# 34. PASS_EXACT_GAUSSIAN_REUSE
+
+Requires ALL:
+
+1. forward correctness passes;
+2. gradient correctness passes;
+3. mature backward reduction >=8% geomean;
+4. net renderer speedup >=1.05× on >=2/3 scenes;
+5. fixed-topology E2E >=1.05×;
+6. memory overhead remains feasible;
+7. no training-quality regression in bounded regression;
+8. mechanism consistent with Gaussian recompute removal.
+
+Optional strong flag:
+
+`STRONG_PRODUCTION_CANDIDATE`
+
+if:
+
+\[
+S_{\mathrm{iter}}\ge1.08\times
+\]
+
+with acceptable memory.
+
+---
+
+# 35. PASS_ENGINEERING_ONLY
+
+Use when:
+
+- exact correctness passes
+- renderer improves
+- but E2E <1.05×
+
+or memory tradeoff makes paper significance weak.
+
+Do not escalate to large convergence experiments.
+
+---
+
+# 36. DROP_REUSE_TRAFFIC_OVERHEAD
+
+Use if:
+
+\[
+T_{\mathrm{store+load}}
+\]
+
+erases most/all O20 recomputation savings.
+
+This is a scientifically valuable result:
+
+> recomputation is expensive in isolation, but modern GPU execution prefers recomputation over materializing the intermediate state.
+
+If this happens, close exact full-interaction caching.
+
+Do not rescue with compressed/selective caching inside this lane.
+
+---
+
+# 37. Required artifacts
+
+Create:
+
+`fused_profile0/BWD_ARITH1_RECOMPUTE_GAUSSIAN/`
+
+Required:
+
+- `BWD_ARITH1_PREREG.json`
+- `BWD_ARITH1_BASELINE_FREEZE.json`
+- `BWD_ARITH1_ENVIRONMENT.json`
+- `BWD_ARITH1_SOURCE_DIFF.json`
+- `BWD_ARITH1_WORKLOAD.json`
+- `BWD_ARITH1_TRAFFIC_ORACLE.json`
+- `BWD_ARITH1_CACHE_LAYOUT.json`
+- `BWD_ARITH1_FORWARD_CORRECTNESS.json`
+- `BWD_ARITH1_CACHE_VALUE_CORRECTNESS.json`
+- `BWD_ARITH1_GRADIENT_CORRECTNESS.json`
+- `BWD_ARITH1_RESOURCE_AUDIT.json`
+- `BWD_ARITH1_KERNEL_TIMING.json`
+- `BWD_ARITH1_RENDERER_TIMING.json`
+- `BWD_ARITH1_ITERATION_TIMING.json`
+- `BWD_ARITH1_MEMORY.json`
+- `BWD_ARITH1_MECHANISM_SCALING.json`
+- `BWD_ARITH1_TRAINING_REGRESSION.json`
+- `BWD_ARITH1_PRIOR_ART.md`
+- `BWD_ARITH1_VERDICT.json`
+- `BWD_ARITH1_REPORT.md`
+- `MANIFEST.sha256`
+
+Directories:
+
+- `raw/`
+- `logs/`
+- `scripts/`
+- `patches/`
+- `build/`
+- `profiler/`
+
+All JSON must parse.
+
+All summary numbers must trace to raw evidence.
+
+---
+
+# 38. Report structure
+
+`BWD_ARITH1_REPORT.md` must contain:
+
+1. EXECUTIVE RESULT
+2. BASELINE
+3. BWD-ARITH0 MOTIVATION
+4. EXACT REUSE MATHEMATICS
+5. WORKLOAD / CACHE SIZE
+6. TRAFFIC ORACLE
+7. CACHE LAYOUT
+8. FORWARD CORRECTNESS
+9. GRADIENT CORRECTNESS
+10. RESOURCE AUDIT
+11. BACKWARD TIMING
+12. FORWARD CACHE OVERHEAD
+13. NET RASTER PERFORMANCE
+14. FULL-ITERATION PERFORMANCE
+15. MEMORY TRADEOFF
+16. MECHANISM SCALING
+17. TRAINING REGRESSION
+18. PRIOR ART
+19. LIMITATIONS
+20. VERDICT
+
+Separate clearly:
+
+- OBSERVED
+- INFERRED
+- HYPOTHESIZED
+
+---
+
+# 39. No rescue rule
+
+If exact FP32 Gaussian reuse fails because of memory/traffic:
+
+STOP.
+
+Do NOT automatically try:
+
+- FP16 cache
+- BF16 cache
+- quantization
+- selective cache
+- compressed cache
+- hot-only cache
+- altered bucket size
+- approximate Gaussian
+- changed alpha threshold
+
+Those are separate future hypotheses.
+
+The purpose of BWD-ARITH1 is to determine whether the cleanest exact reuse mechanism works.
+
+---
+
+# 40. Final scientific rule
+
+BWD-ARITH0 proved:
+
+\[
+\text{backward Gaussian recomputation has measurable arithmetic cost}.
+\]
+
+BWD-ARITH1 must answer the harder production question:
+
+\[
+\boxed{
+\text{Is recomputation actually more expensive than materializing and replaying the exact intermediate value?}
+}
+\]
+
+Only a positive answer under real MX A100 production workloads justifies promoting this mechanism as a paper optimization.
+
+Execute through one terminal verdict, then STOP.
+

@@ -1,0 +1,55 @@
+{
+  "phase": "P18-P0 Stage-0",
+  "timestamp": "2026-07-15",
+  "frozen_identity": {
+    "trainer": {
+      "expected_sha256": "675b0267f3a1a6a0fa63fadb37c8536481c1c7a6de37a4b7f6ffa98a449050c5",
+      "status": "cross_verified",
+      "verification": "sha256 matches BASELINE_PINS.json (P16_RB_bundle_extracted), P15_SOURCE_IDENTITY.json (p15_p0_return/artifacts), P13X_SOURCE_IDENTITY_room_pilot.json, P14_SOURCE_IDENTITY.json, P13Y_SOURCE_IDENTITY.json. Multiple prior phases (P12→P13X→P13Y→P14→P15→P16) all confirmed match=true.",
+      "local_copy_available": true,
+      "local_copy_path": "p12_work/publication_trainer_p12.py"
+    },
+    "c0_extension": {
+      "expected_sha256": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+      "status": "cross_verified",
+      "verification": "sha256 matches all prior phase records. Source files present at p18_p0/c0_source/ (ext.cpp, build.ninja, HigsNativeBackward.cu, MacroTileRasterize.cu, RasterizeToPixels3DGSDevice.cuh, IntersectCommon.h, IntersectMTConfig.h, Common.h). Binary .so is on remote A100 (built from these sources).",
+      "local_source_available": true,
+      "source_directory": "p18_p0/c0_source/"
+    },
+    "c0_core": {
+      "expected_sha256": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+      "status": "cross_verified",
+      "verification": "sha256 matches all prior phase records. Core .so built from the same gaussian_inference source tree."
+    },
+    "fused_ssim": {
+      "expected_sha256": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+      "status": "cross_verified",
+      "verification": "sha256 matches P11_FUSED_SO_SHA256 constant in publication_trainer_p12.py (line 455), gx_common.py, and all remote output JSONs (replay_garden_14000, replay_bicycle_14000, m0_bundle, cost_profile_*, etc.)."
+    }
+  },
+  "build_configuration": {
+    "source": "p18_p0/c0_source/build.ninja",
+    "target_arch": "sm_80 (A100)",
+    "compiler_flags": [
+      "-O3",
+      "-DNDEBUG",
+      "--use_fast_math",
+      "-std=c++20",
+      "-DAT_PARALLEL_OPENMP",
+      "-fopenmp",
+      "--expt-relaxed-constexpr",
+      "--forward-unknown-opts"
+    ],
+    "cta_size_rasterize": 320,
+    "cta_size_post_blend": 256,
+    "cta_size_backward": "256/PX (PX=2 default → 128 threads, 4 warps)"
+  },
+  "workload": {
+    "scene": "room 16K (room_30k.yaml config, ~16K Gaussians)",
+    "tile_size": 16,
+    "tile_grid": "derived from image dimensions / 16",
+    "macro_tile": "8 cols × 4 rows = 32 render-tiles per macro-tile"
+  },
+  "verdict": "PASS",
+  "notes": "All four frozen identity hashes cross-verified against ≥3 independent prior-phase records. Source tree at p18_p0/c0_source/ is the authoritative C0 source for this audit. No hash mismatch detected."
+}

@@ -1,0 +1,15 @@
+{
+  "gpu": 2,
+  "1_entry_classes": {
+    "error": "Traceback (most recent call last):\n  File \"/root/epic05_prism/scripts/diag_m0_v6.py\", line 138, in <module>\n    \"diff_entries_rows_in_isect\": int((ent.any(-1) & in_isect).sum()),\nRuntimeError: The size of tensor a (16) must match the size of tensor b (1879621) at non-singleton dimension 1\n"
+  },
+  "4_zero_override": {
+    "error": "Traceback (most recent call last):\n  File \"/root/epic05_prism/scripts/diag_m0_v6.py\", line 189, in <module>\n    zfull = screen_pack(meta[\"means2d\"][0], cov2d)\n  File \"/root/epic05_prism/prism_gs/prism/geometry.py\", line 37, in screen_pack\n    l = torch.linalg.cholesky(cov2)\ntorch._C._LinAlgError: linalg.cholesky: (Batch element 3): The factorization could not be completed because the input is not positive-definite (the leading minor of order 1 is not positive-definite).\n"
+  },
+  "5_sh_bwd_shapes": {
+    "error": "Traceback (most recent call last):\n  File \"/root/epic05_prism/scripts/diag_m0_v6.py\", line 255, in <module>\n    g_A = sh_grad(params[\"means\"], cam[\"viewmat\"][None], mask_all, up_small)          # [N,3]+[1,4,4]+[1,N]\n  File \"/root/epic05_prism/scripts/diag_m0_v6.py\", line 252, in sh_grad\n    return torch.autograd.grad(c, s, up)[0].detach()\n  File \"/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/autograd/__init__.py\", line 476, in grad\n    grad_outputs_ = _make_grads(\n  File \"/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/torch/autograd/__init__.py\", line 164, in _make_grads\n    raise RuntimeError(\nRuntimeError: Mismatch in shape: grad_output[0] has a shape of torch.Size([1879621, 3]) and output[0] has a shape of torch.Size([1, 1879621, 3]).\n"
+  },
+  "6_conic_patch": {
+    "error": "Traceback (most recent call last):\n  File \"/root/epic05_prism/scripts/diag_m0_v6.py\", line 288, in <module>\n    img_q_re, _ = rebuild_full(meta_q[\"means2d\"], cq[None], rq, colors, meta_q[\"depths\"], opq)\nNameError: name 'colors' is not defined\n"
+  }
+}

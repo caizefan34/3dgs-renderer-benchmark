@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "plan_id": "TRAINABLE_HIGS_SCALING0_MX_RUN_PLAN",
+  "objective": "Test whether Trainable HiGS exhibits increasing training-time advantage over conventional gsplat as scene density, resolution, and camera workload scale",
+  "hypotheses": {
+    "H1": "Hierarchical rendering provides increasing benefit with workload scale (PRIMARY)",
+    "H2": "Forward hierarchy helps, but native backward dominates and prevents training scaling",
+    "H3": "Hierarchy rebuild / dynamic-topology overhead erases the rendering advantage",
+    "H4": "HiGS benefit is primarily visibility/culling dependent rather than workload-scale dependent",
+    "H5": "HiGS only wins in fixed-state rendering, not real dynamic training",
+    "H6": "Apparent gains come from unmatched semantics/protocol rather than architecture"
+  },
+  "workload_matrix": {
+    "axis_a_gaussian_count": {
+      "LOW_N": {
+        "target_range": "0.5-1.0M",
+        "scene": "tanks_and_temples/train",
+        "actual_N": 1026508,
+        "role": "low workload baseline"
+      },
+      "MED_N": {
+        "target_range": "1-3M",
+        "scene": "Not available in current dataset collection",
+        "actual_N": null,
+        "role": "medium workload",
+        "notes": "Can be synthesized by loading garden (if available) or subsampling bicycle"
+      },
+      "HIGH_N": {
+        "target_range": "5-6M+",
+        "scene": "mipnerf360/bicycle",
+        "actual_N": 6131954,
+        "role": "high workload stress test"
+      }
+    },
+    "axis_b_resolution": {
+      "0.5x": {
+        "multiplier": 0.5,
+        "examples": ["480x270", "540x304"],
+        "role": "low resolution"
+      },
+      "0.75x": {
+        "multiplier": 0.75,
+        "examples": ["720x405", "810x506"],
+        "role": "medium resolution"
+      },
+      "1.0x_native": {
+        "multiplier": 1.0,
+        "examples": ["960x540 (train)", "960x540 (bicycle)"],
+        "role": "native benchmark resolution"
+      },
+      "1.5x_1080p": {
+        "multiplier": 2.0,
+        "examples": ["1920x1080"],
+        "role": "high resolution (if available)"
+      }
+    },
+    "axis_c_camera_batch": {
+      "B1": {
+        "n_train": 1,
+        "n_eval": 3,
+        "role": "single camera (minimal batch)"
+      },
+      "B2": {
+        "n_train": 2,
+        "n_eval": 3,
+        "role": "two cameras"
+      },
+      "B4": {
+        "n_train": 4,
+        "n_eval": 3,
+        "role": "four cameras (default benchmark)"
+      }
+    }
+  },
+  "stages": {
+    "stage_a_correctness": {
+      "status": "COMPLETED (from existing evidence)",
+      "deliverable": "SCALING_CORRECTNESS.json",
+      "result": "PASS - 100 tests, gradient cosine ~1.0, quality parity within noise"
+    },
+    "stage_b_fixed_state_scaling": {
+      "status": "PLANNED (requires EPIC-05 A100 execution)",
+      "description": "Primary clean architectural benchmark",
+      "protocol": {
+        "warmup": 50,
+        "timed_iterations": 100,
+        "backends": ["std", "higs_native"],
+        "resolution": [960, 540],
+        "n_train": [1, 2, 4],
+        "steps": 20,
+        "densify_every": 0,
+        "notes": "Frozen topology (no densify); measure fwd/bwd/total/train VRAM"
+      },
+      "expected_measurements": [
+        "S_forward = T_B_forward / T_H_forward",
+        "S_backward = T_B_backward / T_H_backward",
+        "S_FB = T_B_FB / T_H_FB",
+        "peak_vram_B, peak_vram_H",
+        "n_visible, culling_ratio (H only)"
+      ],
+      "workload_points": [
+        {"scene": "train", "N": 1026508, "res": "960x540", "batch": 1},
+        {"scene": "train", "N": 1026508, "res": "960x540", "batch": 2},
+        {"scene": "train", "N": 1026508, "res": "960x540", "batch": 4},
+        {"scene": "bicycle", "N": 6131954, "res": "960x540", "batch": 1},
+        {"scene": "bicycle", "N": 6131954, "res": "960x540", "batch": 2},
+        {"scene": "bicycle", "N": 6131954, "res": "960x540", "batch": 4},
+        {"scene": "bicycle", "N": 6131954, "res": "1920x1080", "batch": 4}
+      ]
+    },
+    "stage_c_scaling_law_analysis": {
+      "status": "DERIVED (from stage B results)",
+      "description": "Fit descriptive models to workload-speedup relationships",
+      "analyses": [
+        "speedup vs log(N_gaussians)",
+        "speedup vs N_intersections",
+        "speedup vs pixels",
+        "speedup vs camera_batch",
+        "forward_fraction, backward_fraction, hierarchy_overhead_fraction"
+      ]
+    },
+    "stage_d_dynamic_topology_cost": {
+      "status": "PLANNED (requires EPIC-05 A100 execution)",
+      "description": "Measure HiGS-specific training overhead",
+      "protocol": {
+        "backends": ["higs_native", "higs_dynamic"],
+        "scenes": ["train", "bicycle"],
+        "densify_every": 5,
+        "measurements": [
+          "hierarchy_rebuild_time (pack + construct)",
+          "scene_packing_time",
+          "version_management_time",
+          "optimizer_state_migration_time",
+          "mark_dirty_cost",
+          "amortized_ms_per_iteration",
+          "share_of_total_iteration"
+        ]
+      },
+      "reference_data": "Round-10 report: pack 3.2 ms, construct 0.35 ms, amortized ~1.4 ms/step @ 20 steps with densify every 5"
+    },
+    "stage_e_full_training_validation": {
+      "status": "CONDITIONAL (only if stage B shows meaningful gain)",
+      "gate": {
+        "condition": "At least TWO dense/high-workload points with S_FB >= 1.15x AND at least one with S_FB >= 1.20x",
+        "correctness": "PASS (from stage A)"
+      },
+      "protocol": {
+        "scenes": ["room", "bicycle", "garden"],
+        "steps": 30000,
+        "seed": 42,
+        "backends": ["std", "higs_dynamic"],
+        "densify_every": 25,
+        "lr_decay": "exponential to 0.01x final LR",
+        "measurements": [
+          "wall_time_total",
+          "phase_timing (fwd/bwd/opt/topo)",
+          "quality (PSNR, SSIM, LPIPS)",
+          "final_N",
+          "peak_VRAM",
+          "hierarchy_rebuild_overhead"
+        ]
+      },
+      "expected_duration": "30K steps × 4 backends × 3 scenes × 2 arms = ~72 training runs"
+    }
+  },
+  "expected_outcomes": {
+    "if_H1_true": "LOW-N: parity/slower; MID-N: modest gain; HIGH-N: strong gain (>=1.20x)",
+    "if_H2_true": "Forward parity/slower, backward parity/slower (native doesn't help vs std)",
+    "if_H3_true": "Fixed-state shows gain, but dynamic topology erases it",
+    "if_H4_true": "Speedup correlates with culling_ratio, not N/pixels/batch",
+    "if_H5_true": "Frozen native shows gain, dynamic erases it (similar to H3)",
+    "if_H6_true": "Speedup only when protocol differs (B has hidden overhead)"
+  },
+  "execution_requirements": {
+    "hardware": "EPIC-05 A100-SXM4-80GB",
+    "software": "Linux, CUDA 12.8/12.9, torch 2.9.1+cu128, patched gsplat with HiGS",
+    "datasets": "datasets/processed/tanks_and_temples/train, datasets/processed/mipnerf360/bicycle, datasets/processed/mipnerf360/room, datasets/processed/mipnerf360/garden",
+    "estimated_duration": {
+      "stage_b": "~2-4 hours (7 workload points × 2 backends × 20 steps × ~10 sec/step)",
+      "stage_d": "~1 hour (2 scenes × 2 backends × 20 steps with densify)",
+      "stage_e": "~48-72 hours (conditional, only if stage B passes gate)"
+    }
+  },
+  "contamination_policy": {
+    "gpu_exclusivity": "Required before each authoritative benchmark",
+    "checks": [
+      "nvidia-smi to verify no foreign processes",
+      "Record temperature, power, clocks",
+      "Stable power plan (no dynamic scaling)"
+    ],
+    "invalid_runs": "Retain, mark invalid, rerun unchanged"
+  }
+}

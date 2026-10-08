@@ -1,0 +1,23 @@
+{
+  "schema": "BWD_DEPREG0_MECHANISM",
+  "date": "2026-10-07",
+  "primary_mechanism": "NO_ACTIONABLE_DEPREG_FRONTIER",
+  "secondary_mechanism": "MEMORY_LATENCY_BOUND (residual), with TRANSCENDENTAL_SFU (expf) residual from BWD-ARITH0",
+  "confidence": "HIGH",
+  "supporting_evidence": [
+    "dependency oracle (remove entire recurrence) geomean S_backward=0.9978 across room/bicycle/garden (<0.5%) [OBSERVED, intervention]",
+    "R0 = 67 registers, 0 spill bytes [OBSERVED, ptxas]",
+    "gradient-family removal (color -6 reg, conic -8 reg, opacity -3 reg) shows NO register cliff and NO spill, latency ~1.000 [OBSERVED]",
+    "occupancy sweep occ64 (67->64 reg, no spill) geomean S=1.0006 (no help); occ32 forces spill [OBSERVED]",
+    "cross-scene consistency: dep oracle 0.994/1.001/0.998, occ64 1.001/1.001/1.000 [OBSERVED]"
+  ],
+  "contradicting_evidence": [
+    "H1 dependency-bound REJECTED (oracle ~1.0)",
+    "H2 register-bound REJECTED (67 reg not severe; family removal no cliff/no latency)",
+    "H3 spill-bound REJECTED (0 spill at R0 and all non-forced variants)",
+    "H4 occupancy-bound REJECTED (occ64 no help)",
+    "H5 scheduler-bound: cannot be confirmed or denied without ncu (UNAVAILABLE), but no intervention moves latency"
+  ],
+  "cross_scene_consistency": "All three scenes agree: every DEPREG lever S_backward in [0.994,1.001]. Direction consistent.",
+  "H6_mixed_note": "No single DEPREG resource dominates; the residual backward cost sits in the expf/SFU transcendental (BWD-ARITH0 O20 -15.7%%) plus memory latency and issue overhead, none of which are addressable by dependency/register/occupancy levers."
+}

@@ -1,0 +1,160 @@
+{
+ "G1_compressibility": {
+  "status": "PASS",
+  "evidence": "G1_REAL_SCENE_COMPRESSIBILITY.json",
+  "q_weighted_r16_range": [
+   0.9897,
+   0.9984
+  ],
+  "incompressible_work_frac_range": [
+   0.0016,
+   0.0103
+  ],
+  "S_inference_gamma2_range": [
+   14.96,
+   43.67
+  ],
+  "S_inference_gamma4_range": [
+   7.92,
+   23.21
+  ],
+  "note": "S_inference is a ZERO-OVERHEAD Amdahl upper bound, not a speedup claim"
+ },
+ "G1_sub_analysis_occlusion_change_failure_localization": {
+  "status": "DONE",
+  "evidence": "G2_FAILURE_LOCALIZATION.json",
+  "note": "Per plan sec.9 G1 ('test new views and occlusion change'): incompressible work is a diffuse ~9-19% tile-count tail (by work only 0.6%), NOT concentrated in deepest-occlusion deciles; top-N pruning cannot remove it, needs higher rank or finer spatial partitioning (sec.6.1). This is a G1 sub-analysis, not the G2 gate."
+ },
+ "G2_benefit_budget": {
+  "status": "DONE",
+  "evidence": "G2_BENEFIT_BUDGET.json",
+  "formula": "S = 1/(1 - p*f*(1 - 1/r) + h); p*f->q_weighted, r->gamma, h->overhead_fraction",
+  "inputs": "measured G1 compressibility; zero fabricated GPU cost",
+  "optimistic_upper_bound_gamma1_min_over_combos": 26.902,
+  "optimistic_upper_bound_gamma4_min_over_combos": 7.921,
+  "stop_rule_1_25x": "DO_NOT_STOP_OPTIMISTIC_BOUND_ABOVE_TARGET",
+  "stop_rule_3x": "DO_NOT_STOP_OPTIMISTIC_BOUND_ABOVE_TARGET",
+  "binding_constraint": {
+   "h_max_to_clear_3x_at_gamma2_min_over_combos": 0.2665,
+   "h_max_to_clear_3x_at_gamma4_min_over_combos": 0.2071,
+   "h_max_to_clear_3x_at_gamma1_min_over_combos": 0.2962,
+   "note": "Future GPU renderer must keep real end-to-end overhead <= ~26.6% (gamma=2) or ~20.7% (gamma=4) for the 3x target to survive. This is the pass condition G3 measured overhead must fit inside. No speedup is claimed."
+  },
+  "continuous_domain_certificate": {
+   "status": "NOT_REACHED",
+   "reason": "Rigorous continuous-domain error certificate (plan sec.5.5) requires interval arithmetic or dense domain coverage; reference implements only per-tile held-out-pixel fitting. Random held-out tests cannot bound error over the whole ray domain."
+  }
+ },
+ "G3_conservative_e2e_bound": {
+  "status": "SUPERSEDED_BY_G3_GPU_MICROBENCH",
+  "reason": "Replaced by measured G3_gpu_microbenchmark. Prior entry required a full cost model with measured overhead; the microbench now measures per-tile latency directly."
+ },
+ "G4_gpu_microbenchmark": {
+  "status": "PARTIAL_BATCHING_HEADROOM_RECOVERABLE",
+  "evidence": "G4_BATCHING_CEILING.json",
+  "method": "Torch batchability probe on A100: batch B tiles into one student predict call; measure per-tile latency vs B.",
+  "measured": {
+   "student_per_tile_latency_B1_ms": 0.0696,
+   "student_per_tile_latency_B256_ms": 0.000384,
+   "batching_reduction_B1_to_B256": 181.3,
+   "intrinsic_gamma_R4_range": [
+    6.35,
+    14.53
+   ]
+  },
+  "finding": "Student per-tile latency drops 181x from B=1 to B=256 (launch overhead amortizes to near-zero by B~128-256). The CGT student eval is highly batchable; the per-tile 1.2x is a launch-granularity artifact, not a fundamental limit. Batching/fusion recovers the 6-14x math headroom.",
+  "not_reported": "S_batch (teacher/student) NOT used as speedup: teacher is B separate noisy calls (0.08ms B<=4 vs 0.38ms B>=8, artifact). Only the clean student batching curve is used.",
+  "verdict": "PARTIAL: headroom recoverable via batching; TRUE G4 microbenchmark (fused CGT CUDA kernel vs gsplat fused rasterizer) still NOT_REACHED. A fused/batched kernel is the required G4 path.",
+  "scope_caveat": "torch batchability probe, NOT fused CUDA kernel, NOT gsplat fused rasterizer; GPU not clock-locked."
+ },
+ "G5_authoritative_e2e": {
+  "status": "NOT_REACHED",
+  "reason": "Requires native CGT training (route B, plan sec.6.3) + full renderer integration + independent >=3x validation. Not implemented (reference is frozen-teacher per-tile fitting, route A inference compression only)."
+ },
+ "G3_gpu_microbenchmark": {
+  "status": "PARTIAL_MEASURED",
+  "evidence": "G3_GPU_MICROBENCH.json",
+  "method": "torch GPU microbench on A100 reusing G1 gsplat tile extraction; teacher (M-Gauss) vs student (rank-R CGT) per-tile + intrinsic (launch-free) timing, CUDA events.",
+  "measured": {
+   "intrinsic_math_gamma_R4": [
+    6.35,
+    10.46
+   ],
+   "per_tile_gamma_R4": [
+    1.355,
+    1.373
+   ],
+   "S_measured_with_h_R4": [
+    1.18,
+    1.197
+   ],
+   "h_overhead_per_tile": [
+    0.107,
+    0.109
+   ],
+   "M_median_range": [
+    60,
+    267
+   ]
+  },
+  "finding": "Raw-math advantage is real and LARGER than assumed gamma=2-4 (measured 6.3-10.5x, growing with M). But at 256px/tile the GPU is launch-bound, so operational S is only ~1.18-1.20x. Count drops 6-10x but time does not (plan sec.9 G3 stop condition).",
+  "verdict": "DO_NOT_ADVANCE_3X_AT_PER_TILE_GRANULARITY; math headroom real but launch-bound. Critical path = fused/batched CGT CUDA kernel (G4) to amortize launch.",
+  "scenes_pending": [
+   "g3_bicycle_r30k",
+   "g3_room_r5k",
+   "g3_room_r30k"
+  ],
+  "pending_reason": "GPUs 5/6/7 occupied by other users mid-run; idle-only constraint respected.",
+  "scope_caveat": "torch reference math, NOT fused CGT kernel, NOT gsplat fused rasterizer; h_overhead is a lower bound (torch dispatch only, no spatial tree).",
+  "supplementary_runs": {
+   "status": "NOT_RUN_GPUS_RE_OCCUPIED",
+   "intended": "Add bicycle_r30k, room_r5k, room_r30k to strengthen M-dependence (existing: room_r15k, garden_r30k).",
+   "attempted": "2026-10-04 on free GPUs 5/6/7 (were 0 MiB at check).",
+   "aborted_reason": "Two coupled causes: (1) own launch bug - unexpanded $OUT/$REC vars -> output path '/G1_RAW_RECORDS' PermissionError, all jobs died on write; (2) after killing the dead jobs, GPUs 5/6/7 were re-occupied by another user (root VLLM::EngineCor, ~36-39GB each, 100% util).",
+   "constraint_action": "Idle-only constraint respected: did NOT launch on GPUs now owned by another user. Cleaned up all own processes and temp files.",
+   "existing_result_unchanged": true,
+   "note": "G3 remains PARTIAL_MEASURED on room_r15k/garden_r30k. Supplementary is optional and does not change the launch-bound verdict."
+  }
+ },
+ "continuous_domain_certificate": {
+  "status": "PARTIAL_DENSE_COVERAGE",
+  "evidence": "G2_CONTINUOUS_DOMAIN_CERTIFICATE.json (+ per-scene _room_r15k/_garden_r30k/_bicycle_r30k)",
+  "method": "Deterministic dense sub-pixel grid (sub=4 -> 4096 pts) over each tile 2D ray extent; student fit on even pixels (as G1), eval teacher-vs-student max|E,T| on dense grid + held-out odd pixels. 3 scenes x 2 views x ~10 work-decile tiles x ranks 4/8/16 = 60 fits/rank.",
+  "measured_pooled_pass_rate_by_rank": {
+   "4": 0.9666666666666667,
+   "8": 0.8833333333333333,
+   "16": 0.85
+  },
+  "measured_pooled_dense_max_abs_max_by_rank": {
+   "4": 0.17541244444181514,
+   "8": 0.0457545557827263,
+   "16": 0.09060188520329926
+  },
+  "measured_pooled_dense_p95_by_rank": {
+   "4": 0.013127517336527648,
+   "8": 0.03461186209259884,
+   "16": 0.051266664985632864
+  },
+  "value_gate_max_abs": 0.02,
+  "finding": "Dense coverage is a STRICTER test than random held-out: it exposes a hard-tile TAIL that random held-out partly masked. Pooled dense max|E,T| reaches 0.045-0.175 (vs gate 0.02); dense pass rate 0.97/0.88/0.85 at rank 4/8/16. Higher rank does NOT monotonically improve dense coverage (room pass 0.95->0.85->0.75 rank4->16), consistent with G1 Jacobian non-monotonicity. Worst tile: room rank4 M=310 dense_max_abs=0.175.",
+  "scope_caveat": "EMPIRICAL dense-coverage certificate: max error over a deterministic dense sub-pixel grid. NOT a rigorous interval-arithmetic bound over the continuum (that REMAINS NOT_REACHED). This is an ADD-ON continuous-domain probe; it is NOT the G1 gate (G1 = work-weighted compressibility, which PASSED). It TEMPERS any 'student reproduces teacher everywhere' claim by quantifying the incompressible hard-tile tail.",
+  "rigorous_interval_certificate": "NOT_REACHED"
+ },
+ "G2_continuous_domain_certificate": {
+  "status": "DONE_DENSE_COVERAGE_AND_RIGOROUS_INTERVAL_ARITHMETIC",
+  "dense_evidence": "G2_CONTINUOUS_DOMAIN_CERTIFICATE.json",
+  "rigorous_evidence": "G2_RIGOROUS_CERTIFICATE.json",
+  "pooled_dense_pass_rate": {
+   "4": 0.98,
+   "8": 0.9,
+   "16": 0.9
+  },
+  "pooled_rigorous_pass_rate": {
+   "4": 0.75,
+   "8": 0.6333333333333333,
+   "16": 0.6166666666666667
+  },
+  "rigorous_validated": true,
+  "note": "Dense (empirical, 4096 pts/tile) pooled pass 0.98/0.90/0.90; rigorous (interval-arithmetic, validated) pooled pass 0.75/0.63/0.62 PROVES student does not reproduce teacher everywhere on the continuous domain. Both per-tile fixed-view; NOT view-variation or throughput bounds."
+ }
+}

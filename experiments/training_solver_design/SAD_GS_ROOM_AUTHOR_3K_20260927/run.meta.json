@@ -1,0 +1,248 @@
+{
+  "status": "failed",
+  "started_utc": "2026-09-27T09:18:36.126918+00:00",
+  "host": "dsw-933622-64cc845c7d-lqswc",
+  "project_root": "/root/codex_sadgs_baseline_20260927",
+  "dataset": "/root/3dgs-renderer-benchmark/data/datasets/mipnerf360/room",
+  "output": "/root/sadgs_room_author_3k_20260927_attempt2/model",
+  "source_before": {
+    "head": "029814fb5ed773e4a794cec5115951a64f610ab8",
+    "status": "",
+    "archive_sha256": "6f67c7928b20e7eecab2f7102c318fad999ac923e56b00ec6d335a7d9ec9efde"
+  },
+  "gpu": {
+    "index": 3,
+    "uuid": "GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72",
+    "name": "NVIDIA A100-SXM4-80GB",
+    "total_mib": 81920,
+    "preflight_used_mib": 0,
+    "preflight_util_percent": 0,
+    "preflight_compute_pids": [],
+    "memory_gate_mib": 73728,
+    "sample_interval_seconds": 1.0
+  },
+  "allocator_cap": "none",
+  "stage_timeout_seconds": 21600,
+  "commands": {
+    "train": [
+      "/root/miniforge3/envs/sadgs_baseline_clone_20260927/bin/python",
+      "train.py",
+      "-s",
+      "/root/3dgs-renderer-benchmark/data/datasets/mipnerf360/room",
+      "-i",
+      "images",
+      "--eval",
+      "--scale_rotation_scheduler",
+      "--adam_eps_order",
+      "10",
+      "--freq_transmittance_threshold",
+      "0.8",
+      "--freq_opacity_threshold",
+      "0.5",
+      "--batch_size",
+      "2",
+      "--optimizer_type",
+      "hybrid",
+      "--sample_bbox_faces",
+      "--warmup_densification",
+      "--mult",
+      "0.25",
+      "--iterations",
+      "3000",
+      "--position_lr_max_steps",
+      "3000",
+      "--opacity_reset_interval",
+      "1200",
+      "--densification_interval",
+      "500",
+      "--densify_until_iter",
+      "1900",
+      "--densify_from_iter",
+      "100",
+      "--save_iterations",
+      "3000",
+      "--prune_iterations",
+      "1900",
+      "--model_path",
+      "/root/sadgs_room_author_3k_20260927_attempt2/model"
+    ],
+    "render": [
+      "/root/miniforge3/envs/sadgs_baseline_clone_20260927/bin/python",
+      "render.py",
+      "-m",
+      "/root/sadgs_room_author_3k_20260927_attempt2/model",
+      "--skip_train",
+      "--iteration",
+      "3000"
+    ],
+    "metrics": [
+      "/root/miniforge3/envs/sadgs_baseline_clone_20260927/bin/python",
+      "metrics.py",
+      "-m",
+      "/root/sadgs_room_author_3k_20260927_attempt2/model"
+    ]
+  },
+  "environment": {
+    "CUDA_VISIBLE_DEVICES": "3",
+    "PYTHONPATH": "/root/miniforge3/envs/sadgs_baseline_clone_20260927/lib/python3.11/site-packages:/root/miniforge3/envs/codex_nerficg/lib/python3.11/site-packages",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "CUDA_HOME": "/usr/local/cuda-12.8",
+    "TORCH_CUDA_ARCH_LIST": "8.0"
+  },
+  "phases": [
+    {
+      "name": "train",
+      "command": [
+        "/root/miniforge3/envs/sadgs_baseline_clone_20260927/bin/python",
+        "train.py",
+        "-s",
+        "/root/3dgs-renderer-benchmark/data/datasets/mipnerf360/room",
+        "-i",
+        "images",
+        "--eval",
+        "--scale_rotation_scheduler",
+        "--adam_eps_order",
+        "10",
+        "--freq_transmittance_threshold",
+        "0.8",
+        "--freq_opacity_threshold",
+        "0.5",
+        "--batch_size",
+        "2",
+        "--optimizer_type",
+        "hybrid",
+        "--sample_bbox_faces",
+        "--warmup_densification",
+        "--mult",
+        "0.25",
+        "--iterations",
+        "3000",
+        "--position_lr_max_steps",
+        "3000",
+        "--opacity_reset_interval",
+        "1200",
+        "--densification_interval",
+        "500",
+        "--densify_until_iter",
+        "1900",
+        "--densify_from_iter",
+        "100",
+        "--save_iterations",
+        "3000",
+        "--prune_iterations",
+        "1900",
+        "--model_path",
+        "/root/sadgs_room_author_3k_20260927_attempt2/model"
+      ],
+      "started_utc": "2026-09-27T09:18:36.627280+00:00",
+      "status": "passed",
+      "pid": 2620249,
+      "ended_utc": "2026-09-27T09:21:04.245193+00:00",
+      "wall_seconds": 147.618,
+      "return_code": 0,
+      "log": "/root/sadgs_room_author_3k_20260927_attempt2/logs/train.log"
+    },
+    {
+      "name": "render",
+      "command": [
+        "/root/miniforge3/envs/sadgs_baseline_clone_20260927/bin/python",
+        "render.py",
+        "-m",
+        "/root/sadgs_room_author_3k_20260927_attempt2/model",
+        "--skip_train",
+        "--iteration",
+        "3000"
+      ],
+      "started_utc": "2026-09-27T09:21:04.245234+00:00",
+      "status": "passed",
+      "pid": 2650609,
+      "ended_utc": "2026-09-27T09:23:01.179457+00:00",
+      "wall_seconds": 116.934,
+      "return_code": 0,
+      "log": "/root/sadgs_room_author_3k_20260927_attempt2/logs/render.log"
+    },
+    {
+      "name": "metrics",
+      "command": [
+        "/root/miniforge3/envs/sadgs_baseline_clone_20260927/bin/python",
+        "metrics.py",
+        "-m",
+        "/root/sadgs_room_author_3k_20260927_attempt2/model"
+      ],
+      "started_utc": "2026-09-27T09:23:01.179506+00:00",
+      "status": "passed",
+      "pid": 2673528,
+      "ended_utc": "2026-09-27T09:23:50.659362+00:00",
+      "wall_seconds": 49.479,
+      "return_code": 0,
+      "log": "/root/sadgs_room_author_3k_20260927_attempt2/logs/metrics.log"
+    }
+  ],
+  "peak_gpu_used_mib": 31729,
+  "peak_host_process_rss_kib": 24255316,
+  "gpu_samples_file": "gpu_samples.csv",
+  "ended_utc": "2026-09-27T09:23:50.659411+00:00",
+  "total_process_wall_seconds": 314.032,
+  "failure_reason": null,
+  "source_after": {
+    "head": "029814fb5ed773e4a794cec5115951a64f610ab8",
+    "status": "",
+    "archive_sha256": "6f67c7928b20e7eecab2f7102c318fad999ac923e56b00ec6d335a7d9ec9efde"
+  },
+  "dataset_images_unchanged_after": [
+    true,
+    null
+  ],
+  "experiment_status": "complete_validated",
+  "supervisor_status": "failed_posthoc_name_assertion",
+  "supervisor_exit_code": 1,
+  "supervisor_postcheck_original_failure": "rendered/gt split mismatch: renders=39 gt=39 expected=39",
+  "manual_validation": {
+    "status": "passed",
+    "author_render_name_pattern": "five-digit numeric PNG indices",
+    "expected_source_test_names": "split.json test list in sorted COLMAP image_name order, indices divisible by 8",
+    "mapping_file": "/root/sadgs_room_author_3k_20260927_attempt2/render_index_mapping.json",
+    "mapping_sha256": "e2e2e875600318a0b161f898cae39050f22261ec3ecf49f386deb68e4779e23c",
+    "render_count": 39,
+    "ground_truth_count": 39,
+    "mapping_matches_ordered_heldout_split": true,
+    "render_and_gt_filename_sets_match": true,
+    "metric_results_entry_count": 3,
+    "metric_per_view_counts": {
+      "SSIM": 39,
+      "PSNR": 39,
+      "LPIPS": 39
+    },
+    "metrics_json": {
+      "SSIM": 0.9303483366966248,
+      "PSNR": 31.43512725830078,
+      "LPIPS": 0.18130888044834137
+    },
+    "metrics_match_39_heldout_views": true,
+    "render_dimensions_px": [
+      1600,
+      1066
+    ]
+  },
+  "quality_metrics": {
+    "SSIM": 0.9303483366966248,
+    "PSNR": 31.43512725830078,
+    "LPIPS": 0.18130888044834137
+  },
+  "author_cuda_event_training_seconds": 76.75147262287506,
+  "final_loss_from_train_log": 0.01995,
+  "final_gaussian_count": 1725711,
+  "final_ply": {
+    "path": "/root/sadgs_room_author_3k_20260927_attempt2/model/point_cloud/iteration_3000/point_cloud.ply",
+    "size_bytes": 434880729,
+    "sha256": "63b6c0b36e5f19c768778013a641777df4a814a11af603a3dd72988aec1617d6"
+  },
+  "peak_gpu_used_mib_sampled": 31729,
+  "peak_host_process_rss_kib_sampled": 24255316,
+  "source_clean_after": true,
+  "author_stage_exit_codes": {
+    "train": 0,
+    "render": 0,
+    "metrics": 0
+  }
+}

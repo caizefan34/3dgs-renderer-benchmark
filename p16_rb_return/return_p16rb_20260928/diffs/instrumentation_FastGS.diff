@@ -1,0 +1,345 @@
+diff -ruN '--exclude=__pycache__' FastGS/p16_prof.py /root/epic05_p16rb/profile_src/FastGS/p16_prof.py
+--- FastGS/p16_prof.py	1970-01-01 08:00:00.000000000 +0800
++++ /root/epic05_p16rb/profile_src/FastGS/p16_prof.py	2026-09-28 08:23:20.697512674 +0800
+@@ -0,0 +1,227 @@
++"""P16-RB bottleneck census: timing-only profiling runtime (instrumentation payload).
++
++Discipline (prereg step 11):
++  - this module plus small edits are injected into a COPIED source tree; the applied
++    edits are stored as a unified diff next to the raw traces
++  - behavior-inert unless P16_PROF=1: no profiler, no spans, no RNG effect
++  - camera-id + loss CSV logging is active whenever P16_PROF_OUT is set (both the
++    control and the instrumented leg of the A/B neutrality check use the same build)
++  - optional diagnostic seed (P16_PROF_SEED) is applied ONLY to the A/B control pair
++
++Environment:
++  P16_PROF=1|0        enable profiler windows + spans (default 0)
++  P16_PROF_OUT=<dir>  output directory (CSV + trace_*.json + meta.json)
++  P16_PROF_N=<int>    NATIVE iteration count of the replayed recipe (window math)
++  P16_PROF_BASE=0|1   first loop index (nerficg 0, graphdeco 1)
++  P16_PROF_W=<int>    window length in iterations (default 20)
++  P16_PROF_METHOD / P16_PROF_SCENE / P16_PROF_SEED   labels
++"""
++import atexit
++import contextlib
++import csv
++import json
++import os
++import platform
++import socket
++import time
++from pathlib import Path
++
++import torch
++
++_W = int(os.environ.get("P16_PROF_W", "20"))
++_N = int(os.environ.get("P16_PROF_N", "0") or 0)
++_BASE = int(os.environ.get("P16_PROF_BASE", "0") or 0)
++
++
++class _Span:
++    __slots__ = ("ctx",)
++
++    def __init__(self, ctx):
++        self.ctx = ctx
++
++    def __enter__(self):
++        if self.ctx is not None:
++            self.ctx.__enter__()
++        return self
++
++    def __exit__(self, *exc):
++        if self.ctx is not None:
++            self.ctx.__exit__(*exc)
++        return False
++
++
++class P16:
++    enabled = os.environ.get("P16_PROF", "0") == "1"
++    outdir = os.environ.get("P16_PROF_OUT", "")
++    method = os.environ.get("P16_PROF_METHOD", "?")
++    scene = os.environ.get("P16_PROF_SCENE", "?")
++    seed = os.environ.get("P16_PROF_SEED", "")
++    native_n = _N
++    base = _BASE
++    w = _W
++
++    _t0 = None
++    _prof = None
++    _stage = None
++    _windows = {}
++    _counts = {}
++    _csv_f = None
++    _csv_w = None
++    _iter_ctx = None
++    _iter_idx = None
++
++    @classmethod
++    def init(cls):
++        cls._t0 = time.time()
++        atexit.register(cls.close)
++        if cls.seed != "":
++            import random
++
++            import numpy as np
++
++            s = int(cls.seed)
++            random.seed(s)
++            np.random.seed(s)
++            torch.manual_seed(s)
++            torch.cuda.manual_seed_all(s)
++        if cls.outdir:
++            Path(cls.outdir).mkdir(parents=True, exist_ok=True)
++            cls._csv_f = open(Path(cls.outdir) / "iterations.csv", "w", newline="", encoding="utf-8")
++            cls._csv_w = csv.writer(cls._csv_f)
++            cls._csv_w.writerow(["iteration", "cameras", "loss"])
++            cls._csv_f.flush()
++        if not cls.enabled:
++            return
++        n = cls.native_n
++        if n > 2 * cls.w + 5:
++            lo = int(0.6 * n) - cls.w // 2
++            cls._windows = {
++                "mid": (lo, lo + cls.w),
++                "final": (n - 1 - cls.w, n - 1),  # excludes the terminal iteration (save/test may fire there)
++            }
++        cls._counts = {k: 0 for k in cls._windows}
++
++    @classmethod
++    def log_iter(cls, iteration, cameras, loss):
++        if cls._csv_w is None:
++            return
++        try:
++            v = repr(float(loss))
++        except Exception:
++            v = str(loss)
++        cls._csv_w.writerow([iteration, cameras, v])
++        cls._csv_f.flush()
++
++    @classmethod
++    def _close_iter(cls):
++        if cls._iter_ctx is not None:
++            ctx, cls._iter_ctx, cls._iter_idx = cls._iter_ctx, None, None
++            try:
++                ctx.__exit__(None, None, None)
++            except Exception:
++                pass
++
++    @classmethod
++    def iter_begin(cls, iteration):
++        """Call as the first statement of every training-loop body iteration."""
++        if not cls.enabled:
++            return
++        idx = iteration - cls.base
++        cls._close_iter()
++        if cls._prof is not None:
++            _, hi = cls._windows[cls._stage]
++            if idx >= hi:
++                cls._stop_prof()
++        if cls._prof is None:
++            for stage, (lo, hi) in cls._windows.items():
++                if lo <= idx < hi:
++                    cls._start_prof(stage)
++                    break
++        for stage, (lo, hi) in cls._windows.items():
++            if lo <= idx < hi:
++                cls._counts[stage] += 1
++                break
++        if cls._prof is not None:
++            try:
++                cls._iter_ctx = torch.profiler.record_function(f"P16.iter {idx}")
++                cls._iter_ctx.__enter__()
++                cls._iter_idx = idx
++            except Exception:
++                cls._iter_ctx = None
++
++    @classmethod
++    def span(cls, name):
++        if cls._prof is not None:
++            try:
++                return _Span(torch.profiler.record_function("P16." + name))
++            except Exception:
++                return _Span(None)
++        return _Span(None)
++
++    @classmethod
++    def _start_prof(cls, stage):
++        cls._stage = stage
++        try:
++            prof = torch.profiler.profile(
++                activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
++                record_shapes=False,
++                with_stack=False,
++                profile_memory=False,
++            )
++            prof.start()
++        except Exception as e:
++            cls._prof = None
++            cls._stage = None
++            (Path(cls.outdir) / f"trace_{stage}.ERROR.txt").write_text(repr(e), encoding="utf-8")
++            return
++        cls._prof = prof
++
++    @classmethod
++    def _stop_prof(cls):
++        stage = cls._stage
++        cls._close_iter()
++        prof, cls._prof, cls._stage = cls._prof, None, None
++        if prof is None:
++            return
++        try:
++            prof.stop()
++            prof.export_chrome_trace(str(Path(cls.outdir) / f"trace_{stage}.json"))
++        except Exception as e:
++            (Path(cls.outdir) / f"trace_{stage}.ERROR.txt").write_text(repr(e), encoding="utf-8")
++
++    @classmethod
++    def close(cls):
++        cls._close_iter()
++        if cls._prof is not None:
++            cls._stop_prof()
++        if cls._csv_f is not None:
++            cls._csv_f.close()
++            cls._csv_f = None
++            cls._csv_w = None
++        if cls.enabled and cls.outdir:
++            meta = {
++                "method": cls.method,
++                "scene": cls.scene,
++                "enabled": cls.enabled,
++                "native_iterations": cls.native_n,
++                "base": cls.base,
++                "window_len": cls.w,
++                "seed": cls.seed,
++                "windows_idx": {k: list(v) for k, v in cls._windows.items()},
++                "windows_iterations_recorded": dict(cls._counts),
++                "csv": str(Path(cls.outdir) / "iterations.csv"),
++                "hostname": socket.gethostname(),
++                "cwd": os.getcwd(),
++                "python": platform.python_version(),
++                "torch": torch.__version__,
++                "cuda": torch.version.cuda,
++                "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
++                "start_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(cls._t0)) if cls._t0 else None,
++                "end_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
++            }
++            (Path(cls.outdir) / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
++
++
++@contextlib.contextmanager
++def _noop():
++    yield
+diff -ruN '--exclude=__pycache__' FastGS/train.py /root/epic05_p16rb/profile_src/FastGS/train.py
+--- FastGS/train.py	2026-09-27 23:03:06.767504160 +0800
++++ /root/epic05_p16rb/profile_src/FastGS/train.py	2026-09-28 08:23:20.698512680 +0800
+@@ -9,6 +9,7 @@
+ # For inquiries contact  george.drettakis@inria.fr
+ #
+ 
++import p16_prof
+ import torch
+ import numpy as np
+ import os, random, time
+@@ -57,6 +58,7 @@
+     optim_start = torch.cuda.Event(enable_timing=True)
+     optim_end = torch.cuda.Event(enable_timing=True)
+     total_time = 0.0
++    p16_prof.P16.init()
+ 
+     ema_loss_for_log = 0.0
+     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
+@@ -64,6 +66,7 @@
+     bg = torch.rand((3), device="cuda") if opt.random_background else background
+ 
+     for iteration in range(first_iter, opt.iterations + 1):
++        p16_prof.P16.iter_begin(iteration)
+ 
+         if websockets:
+             if network_gui_ws.curr_id >= 0 and network_gui_ws.curr_id < len(scene.getTrainCameras()):
+@@ -81,6 +84,7 @@
+         if iteration % 1000 == 0:
+             gaussians.oneupSHdegree()
+ 
++        _p16a = p16_prof.P16.span('data'); _p16a.__enter__()
+         # Pick a random Camera
+         if not viewpoint_stack:
+             viewpoint_stack = scene.getTrainCameras().copy()
+@@ -88,26 +92,34 @@
+         rand_idx = randint(0, len(viewpoint_indices) - 1)
+         viewpoint_cam = viewpoint_stack.pop(rand_idx)
+         _ = viewpoint_indices.pop(rand_idx)
++        _p16a.__exit__(None, None, None)
+ 
+         # Render
+         if (iteration - 1) == debug_from:
+             pipe.debug = True
+ 
++        _p16f = p16_prof.P16.span('raster_forward'); _p16f.__enter__()
+         render_pkg = render_fastgs(viewpoint_cam, gaussians, pipe, bg, opt.mult)
++        _p16f.__exit__(None, None, None)
+         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+ 
++        _p16l = p16_prof.P16.span('loss'); _p16l.__enter__()
+         # Loss
+         gt_image = viewpoint_cam.original_image.cuda()
+         Ll1 = l1_loss(image, gt_image)
+         ssim_value = fast_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
++        _p16l.__exit__(None, None, None)
++        _p16b = p16_prof.P16.span('backward'); _p16b.__enter__()
+         loss.backward()
++        _p16b.__exit__(None, None, None)
+ 
+         iter_end.record()
+ 
+         with torch.no_grad():
+             # Progress bar
+             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
++            p16_prof.P16.log_iter(iteration, viewpoint_cam.image_name, loss.item())
+             if iteration % 10 == 0:
+                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}"})
+                 progress_bar.update(10)
+@@ -123,6 +135,7 @@
+             
+             optim_start.record()
+             
++            _p16d = p16_prof.P16.span('density'); _p16d.__enter__()
+             # Densification
+             if iteration < opt.densify_until_iter:
+                 # Keep track of max radii in image-space for pruning
+@@ -147,16 +160,20 @@
+                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
+                     gaussians.reset_opacity()
+ 
++            _p16d.__exit__(None, None, None)
+             # The multiview consistent pruning of fastgs. We do it every 3k iterations after 15k
+             # In this stage, the model converge basically. So we can prune more aggressively without degrading rendering quality.
+             # You can check the rendering results of 20K iterations in arxiv version (https://arxiv.org/abs/2511.04283), the rendering quality is already very good.
+             if iteration % 3000 == 0 and iteration > 15_000 and iteration < 30_000:
++                _p16p = p16_prof.P16.span('density'); _p16p.__enter__()
+                 my_viewpoint_stack = scene.getTrainCameras().copy()
+                 camlist = sampling_cameras(my_viewpoint_stack)
+ 
+                 _, pruning_score = compute_gaussian_score_fastgs(camlist, gaussians, pipe, bg, opt)                    
+                 gaussians.final_prune_fastgs(min_opacity = 0.1, pruning_score = pruning_score)
++                _p16p.__exit__(None, None, None)
+         
++            _p16o = p16_prof.P16.span('optimizer'); _p16o.__enter__()
+             # Optimization step
+             if iteration < opt.iterations:
+                 if opt.optimizer_type == "default":
+@@ -166,12 +183,14 @@
+                     gaussians.optimizer.step(visible, radii.shape[0])
+                     gaussians.optimizer.zero_grad(set_to_none = True)
+ 
++            _p16o.__exit__(None, None, None)
+             # record time
+             optim_end.record()
+             torch.cuda.synchronize()
+             optim_time = optim_start.elapsed_time(optim_end)
+             total_time += (iter_time + optim_time) / 1e3
+ 
++    p16_prof.P16.close()
+     # scene.save(iteration)
+     print(f"Gaussian number: {gaussians._xyz.shape[0]}")
+     print(f"Training time: {total_time}")

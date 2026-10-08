@@ -1,0 +1,148 @@
+================================================================================
+Trainable-HiGS-SCALING0-R-MX: Frozen 4-cell Fixed-State Benchmark
+================================================================================
+Output directory: /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/results_fixed
+Base directory: /mnt/storage_pool/liaoyuanjun/benchmark_data
+Timestamp: 2026-10-08T05:09:57.668203+00:00
+
+
+################################################################################
+# HIGH-N (~6.1M) / 540p / B4
+################################################################################
+
+================================================================================
+CELL W2_HIGH_540p_B4: mipnerf360/bicycle @ 960x540 B4
+================================================================================
+
+Command: python /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/run_higs_train_benchmark.py --base-dir /mnt/storage_pool/liaoyuanjun/benchmark_data --scene mipnerf360/bicycle --backends std_ll higs_native --n-train 4 --n-eval 3 --steps 100 --width 960 --height 540 --seed 0 --out /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/results_fixed/W2_HIGH_540p_B4.json
+
+
+--- STDOUT ---
+device=NVIDIA A100-PCIE-40GB torch=2.9.1+cu128
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+Loading model from: /home/liaoyuanjun/.local/lib/python3.10/site-packages/lpips/weights/v0.1/alex.pth
+scene=mipnerf360/bicycle n_gaussians=580416
+train_cams=[0, 1, 2, 3] eval_cams=[4, 5, 6] res=960x540
+probe: native-vs-recompute grad cosine=1.000000 init parity PSNR=14.00 dB
+[run] backend=std_ll scene=mipnerf360/bicycle
+  {"backend": "std_ll", "fwd_ms": 5.157898240089416, "bwd_ms": 8.703016953468323, "total_ms": 15.884966030716896, "train_ms": 17.45075199127197, "peak_vram_gb": 1.620119552, "culling_ratio": 0.0, "n_visible_avg": 580416.0, "psnr": 14.866430105624035, "ssim": 0.22818729281425476, "lpips": 0.6192941069602966, "final_n": 580416, "topology_rebuilt_frac": 0.0, "sampled_tile_ratio": 1.0, "isect_frac": 1.0, "refresh_ms": 0.0, "lpips_loss_weight": 0.0, "lpips_loss_every": 0, "lpips_full_res": false, "lpips_work_size": 0, "lpips_ms_avg": 0.0, "lpips_steps": 0, "sampling_mode": "uniform", "pixel_sampling_ratio": 1.0, "pixel_raster_ratio": null, "cull_interval": 1, "cull_interval_schedule": null, "masked_adam": false, "mask_prune": false, "mask_prune_opacity": null, "mask_prune_eval_refresh": 0, "mask_prune_min_frozen": 2, "masked_adam_union_decay": 0.0, "masked_adam_union_decay_eval_proj": false, "eval_proj_overlap": [], "frozen_decay_steps": 0, "frozen_decay_avg_rows": 0.0, "n_mask_pruned": 0, "mask_prune_hist": [], "eval_curve": [], "total_wall_s": 3.457120895385742, "probe_grad_cosine": 0.9999999523162841, "probe_init_psnr": 14.003035172504399}
+[run] backend=higs_native scene=mipnerf360/bicycle
+  {"backend": "higs_native", "fwd_ms": 5.368924148082733, "bwd_ms": 8.357509155273437, "total_ms": 15.539371371269226, "train_ms": 16.681287660598755, "peak_vram_gb": 1.781458944, "culling_ratio": 0.5494993246223397, "n_visible_avg": 261477.8, "psnr": 14.892186037132753, "ssim": 0.22797822952270508, "lpips": 0.6177506446838379, "final_n": 580416, "topology_rebuilt_frac": 0.0, "sampled_tile_ratio": 1.0, "isect_frac": 1.0, "refresh_ms": 0.0, "lpips_loss_weight": 0.0, "lpips_loss_every": 0, "lpips_full_res": false, "lpips_work_size": 0, "lpips_ms_avg": 0.0, "lpips_steps": 0, "sampling_mode": "uniform", "pixel_sampling_ratio": 1.0, "pixel_raster_ratio": null, "cull_interval": 1, "cull_interval_schedule": null, "masked_adam": false, "mask_prune": false, "mask_prune_opacity": null, "mask_prune_eval_refresh": 0, "mask_prune_min_frozen": 2, "masked_adam_union_decay": 0.0, "masked_adam_union_decay_eval_proj": false, "eval_proj_overlap": [], "frozen_decay_steps": 0, "frozen_decay_avg_rows": 0.0, "n_mask_pruned": 0, "mask_prune_hist": [], "eval_curve": [], "total_wall_s": 1.7673370838165283, "probe_grad_cosine": 0.9999999523162841, "probe_init_psnr": 14.003035172504399}
+
+wrote /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/results_fixed/W2_HIGH_540p_B4.json
+
+=== SUMMARY (ms / GB / PSNR / SSIM / LPIPS) ===
+
+-- mipnerf360/bicycle --
+  std_ll           fwd=     5.2ms bwd=     8.7ms tot=    15.9ms train=    17.5ms vram= 1.62GB cull=  0.0% sr=1 isect=100.0% PSNR=14.87 SSIM=0.2282 LPIPS=0.6193 N=580416
+  higs_native      fwd=     5.4ms bwd=     8.4ms tot=    15.5ms train=    16.7ms vram= 1.78GB cull= 54.9% sr=1 isect=100.0% PSNR=14.89 SSIM=0.2280 LPIPS=0.6178 N=580416
+
+
+--- STDERR ---
+/mnt/storage_pool/liaoyuanjun/higs-13scene-env/lib/python3.10/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/mnt/storage_pool/liaoyuanjun/higs-13scene-env/lib/python3.10/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=AlexNet_Weights.IMAGENET1K_V1`. You can also use `weights=AlexNet_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+
+
+✓ COMPLETED in 21.4s
+
+
+################################################################################
+# HIGH-N (~6.1M) / 1080p / B4
+################################################################################
+
+================================================================================
+CELL W3_HIGH_1080p_B4: mipnerf360/bicycle @ 1920x1080 B4
+================================================================================
+
+Command: python /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/run_higs_train_benchmark.py --base-dir /mnt/storage_pool/liaoyuanjun/benchmark_data --scene mipnerf360/bicycle --backends std_ll higs_native --n-train 4 --n-eval 3 --steps 100 --width 1920 --height 1080 --seed 0 --out /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/results_fixed/W3_HIGH_1080p_B4.json
+
+
+--- STDOUT ---
+device=NVIDIA A100-PCIE-40GB torch=2.9.1+cu128
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+Loading model from: /home/liaoyuanjun/.local/lib/python3.10/site-packages/lpips/weights/v0.1/alex.pth
+scene=mipnerf360/bicycle n_gaussians=580416
+train_cams=[0, 1, 2, 3] eval_cams=[4, 5, 6] res=1920x1080
+probe: native-vs-recompute grad cosine=1.000000 init parity PSNR=13.70 dB
+[run] backend=std_ll scene=mipnerf360/bicycle
+  {"backend": "std_ll", "fwd_ms": 12.057907204627991, "bwd_ms": 22.866391077041627, "total_ms": 37.499535996466875, "train_ms": 38.89727493286133, "peak_vram_gb": 2.205142016, "culling_ratio": 0.0, "n_visible_avg": 580416.0, "psnr": 14.641608687225176, "ssim": 0.2687157988548279, "lpips": 0.6974881887435913, "final_n": 580416, "topology_rebuilt_frac": 0.0, "sampled_tile_ratio": 1.0, "isect_frac": 1.0, "refresh_ms": 0.0, "lpips_loss_weight": 0.0, "lpips_loss_every": 0, "lpips_full_res": false, "lpips_work_size": 0, "lpips_ms_avg": 0.0, "lpips_steps": 0, "sampling_mode": "uniform", "pixel_sampling_ratio": 1.0, "pixel_raster_ratio": null, "cull_interval": 1, "cull_interval_schedule": null, "masked_adam": false, "mask_prune": false, "mask_prune_opacity": null, "mask_prune_eval_refresh": 0, "mask_prune_min_frozen": 2, "masked_adam_union_decay": 0.0, "masked_adam_union_decay_eval_proj": false, "eval_proj_overlap": [], "frozen_decay_steps": 0, "frozen_decay_avg_rows": 0.0, "n_mask_pruned": 0, "mask_prune_hist": [], "eval_curve": [], "total_wall_s": 5.4349682331085205, "probe_grad_cosine": 1.000000011920929, "probe_init_psnr": 13.698265871626223}
+[run] backend=higs_native scene=mipnerf360/bicycle
+  {"backend": "higs_native", "fwd_ms": 12.742737927436828, "bwd_ms": 19.178946571350096, "total_ms": 34.56047819927335, "train_ms": 35.752509441375736, "peak_vram_gb": 2.283981824, "culling_ratio": 0.5501714804553974, "n_visible_avg": 261087.67, "psnr": 14.639380053999336, "ssim": 0.2686566710472107, "lpips": 0.6976320147514343, "final_n": 580416, "topology_rebuilt_frac": 0.0, "sampled_tile_ratio": 1.0, "isect_frac": 1.0, "refresh_ms": 0.0, "lpips_loss_weight": 0.0, "lpips_loss_every": 0, "lpips_full_res": false, "lpips_work_size": 0, "lpips_ms_avg": 0.0, "lpips_steps": 0, "sampling_mode": "uniform", "pixel_sampling_ratio": 1.0, "pixel_raster_ratio": null, "cull_interval": 1, "cull_interval_schedule": null, "masked_adam": false, "mask_prune": false, "mask_prune_opacity": null, "mask_prune_eval_refresh": 0, "mask_prune_min_frozen": 2, "masked_adam_union_decay": 0.0, "masked_adam_union_decay_eval_proj": false, "eval_proj_overlap": [], "frozen_decay_steps": 0, "frozen_decay_avg_rows": 0.0, "n_mask_pruned": 0, "mask_prune_hist": [], "eval_curve": [], "total_wall_s": 5.209187984466553, "probe_grad_cosine": 1.000000011920929, "probe_init_psnr": 13.698265871626223}
+
+wrote /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/results_fixed/W3_HIGH_1080p_B4.json
+
+=== SUMMARY (ms / GB / PSNR / SSIM / LPIPS) ===
+
+-- mipnerf360/bicycle --
+  std_ll           fwd=    12.1ms bwd=    22.9ms tot=    37.5ms train=    38.9ms vram= 2.21GB cull=  0.0% sr=1 isect=100.0% PSNR=14.64 SSIM=0.2687 LPIPS=0.6975 N=580416
+  higs_native      fwd=    12.7ms bwd=    19.2ms tot=    34.6ms train=    35.8ms vram= 2.28GB cull= 55.0% sr=1 isect=100.0% PSNR=14.64 SSIM=0.2687 LPIPS=0.6976 N=580416
+
+
+--- STDERR ---
+/mnt/storage_pool/liaoyuanjun/higs-13scene-env/lib/python3.10/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/mnt/storage_pool/liaoyuanjun/higs-13scene-env/lib/python3.10/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=AlexNet_Weights.IMAGENET1K_V1`. You can also use `weights=AlexNet_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+
+
+✓ COMPLETED in 27.0s
+
+
+################################################################################
+# HIGH-N (~6.1M) / 1080p / B1
+################################################################################
+
+================================================================================
+CELL W4_HIGH_1080p_B1: mipnerf360/bicycle @ 1920x1080 B1
+================================================================================
+
+Command: python /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/run_higs_train_benchmark.py --base-dir /mnt/storage_pool/liaoyuanjun/benchmark_data --scene mipnerf360/bicycle --backends std_ll higs_native --n-train 1 --n-eval 3 --steps 100 --width 1920 --height 1080 --seed 0 --out /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/results_fixed/W4_HIGH_1080p_B1.json
+
+
+--- STDOUT ---
+device=NVIDIA A100-PCIE-40GB torch=2.9.1+cu128
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+Loading model from: /home/liaoyuanjun/.local/lib/python3.10/site-packages/lpips/weights/v0.1/alex.pth
+scene=mipnerf360/bicycle n_gaussians=580416
+train_cams=[0] eval_cams=[1, 2, 3] res=1920x1080
+probe: native-vs-recompute grad cosine=1.000000 init parity PSNR=12.99 dB
+[run] backend=std_ll scene=mipnerf360/bicycle
+  {"backend": "std_ll", "fwd_ms": 4.512819221019745, "bwd_ms": 4.855203835964203, "total_ms": 10.979596637189388, "train_ms": 12.383006734848022, "peak_vram_gb": 1.563632128, "culling_ratio": 0.0, "n_visible_avg": 580416.0, "psnr": 13.38391144864325, "ssim": 0.24444743990898132, "lpips": 0.737052857875824, "final_n": 580416, "topology_rebuilt_frac": 0.0, "sampled_tile_ratio": 1.0, "isect_frac": 1.0, "refresh_ms": 0.0, "lpips_loss_weight": 0.0, "lpips_loss_every": 0, "lpips_full_res": false, "lpips_work_size": 0, "lpips_ms_avg": 0.0, "lpips_steps": 0, "sampling_mode": "uniform", "pixel_sampling_ratio": 1.0, "pixel_raster_ratio": null, "cull_interval": 1, "cull_interval_schedule": null, "masked_adam": false, "mask_prune": false, "mask_prune_opacity": null, "mask_prune_eval_refresh": 0, "mask_prune_min_frozen": 2, "masked_adam_union_decay": 0.0, "masked_adam_union_decay_eval_proj": false, "eval_proj_overlap": [], "frozen_decay_steps": 0, "frozen_decay_avg_rows": 0.0, "n_mask_pruned": 0, "mask_prune_hist": [], "eval_curve": [], "total_wall_s": 2.649484395980835, "probe_grad_cosine": 1.000000011920929, "probe_init_psnr": 12.991838162858611}
+[run] backend=higs_native scene=mipnerf360/bicycle
+  {"backend": "higs_native", "fwd_ms": 5.060485138893127, "bwd_ms": 4.489943037033081, "total_ms": 11.092369593679905, "train_ms": 12.338442258834839, "peak_vram_gb": 1.736515072, "culling_ratio": 0.7025266188389017, "n_visible_avg": 172658.31, "psnr": 13.381173684265653, "ssim": 0.24475252628326416, "lpips": 0.7371575832366943, "final_n": 580416, "topology_rebuilt_frac": 0.0, "sampled_tile_ratio": 1.0, "isect_frac": 1.0, "refresh_ms": 0.0, "lpips_loss_weight": 0.0, "lpips_loss_every": 0, "lpips_full_res": false, "lpips_work_size": 0, "lpips_ms_avg": 0.0, "lpips_steps": 0, "sampling_mode": "uniform", "pixel_sampling_ratio": 1.0, "pixel_raster_ratio": null, "cull_interval": 1, "cull_interval_schedule": null, "masked_adam": false, "mask_prune": false, "mask_prune_opacity": null, "mask_prune_eval_refresh": 0, "mask_prune_min_frozen": 2, "masked_adam_union_decay": 0.0, "masked_adam_union_decay_eval_proj": false, "eval_proj_overlap": [], "frozen_decay_steps": 0, "frozen_decay_avg_rows": 0.0, "n_mask_pruned": 0, "mask_prune_hist": [], "eval_curve": [], "total_wall_s": 1.41261887550354, "probe_grad_cosine": 1.000000011920929, "probe_init_psnr": 12.991838162858611}
+
+wrote /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/results_fixed/W4_HIGH_1080p_B1.json
+
+=== SUMMARY (ms / GB / PSNR / SSIM / LPIPS) ===
+
+-- mipnerf360/bicycle --
+  std_ll           fwd=     4.5ms bwd=     4.9ms tot=    11.0ms train=    12.4ms vram= 1.56GB cull=  0.0% sr=1 isect=100.0% PSNR=13.38 SSIM=0.2444 LPIPS=0.7371 N=580416
+  higs_native      fwd=     5.1ms bwd=     4.5ms tot=    11.1ms train=    12.3ms vram= 1.74GB cull= 70.3% sr=1 isect=100.0% PSNR=13.38 SSIM=0.2448 LPIPS=0.7372 N=580416
+
+
+--- STDERR ---
+/mnt/storage_pool/liaoyuanjun/higs-13scene-env/lib/python3.10/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/mnt/storage_pool/liaoyuanjun/higs-13scene-env/lib/python3.10/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=AlexNet_Weights.IMAGENET1K_V1`. You can also use `weights=AlexNet_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+
+
+✓ COMPLETED in 16.9s
+
+
+================================================================================
+BENCHMARK COMPLETE
+================================================================================
+Summary written to: /mnt/storage_pool/liaoyuanjun/tmp_scaling0r/results_fixed/SCALING0R_SUMMARY.json
+
+================================================================================
+QUICK SUMMARY
+================================================================================
+Traceback (most recent call last):
+  File "/mnt/storage_pool/liaoyuanjun/tmp_scaling0r/run_scaling0r_frozen_cells.py", line 238, in <module>
+    main()
+  File "/mnt/storage_pool/liaoyuanjun/tmp_scaling0r/run_scaling0r_frozen_cells.py", line 230, in main
+    cell_id = result["cell_id"]
+KeyError: 'cell_id'

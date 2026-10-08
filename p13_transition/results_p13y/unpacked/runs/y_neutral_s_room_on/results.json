@@ -1,0 +1,242 @@
+{
+  "arm": "c0",
+  "scene": "room",
+  "iterations": 400,
+  "seed": 42,
+  "config": {
+    "scene": "room",
+    "resolution": "1080p",
+    "repo_root": "/root/3dgs-renderer-benchmark",
+    "iterations": 400,
+    "seed": 42,
+    "position_lr_init": 0.00016,
+    "position_lr_final": 1.6e-06,
+    "position_lr_delay_mult": 0.01,
+    "position_lr_max_steps": 30000,
+    "feature_lr": 0.0025,
+    "opacity_lr": 0.025,
+    "scaling_lr": 0.005,
+    "rotation_lr": 0.001,
+    "densify_from_iter": 500,
+    "densify_until_iter": 15000,
+    "densification_interval": 100,
+    "densify_grad_threshold": 0.0008,
+    "percent_dense": 0.01,
+    "min_opacity": 0.005,
+    "max_screen_size": 20,
+    "opacity_reset_interval": 3000,
+    "sh_degree": 3,
+    "sh_progress_interval": 1000,
+    "lambda_dssim": 0.2,
+    "renderer": "gsplat",
+    "gsplat_version": "1.5.3",
+    "tile_size": 16,
+    "packed": false,
+    "semantic_label": "REFERENCE_V1_ABSGRAD",
+    "eval_iterations": [
+      500,
+      1000,
+      2000,
+      5000,
+      10000,
+      15000,
+      20000,
+      25000,
+      30000
+    ],
+    "instrument_iterations": [
+      500,
+      1000,
+      2000,
+      5000,
+      10000,
+      15000,
+      20000,
+      25000
+    ],
+    "checkpoint_iterations": []
+  },
+  "renderer": {
+    "eps2d": 0.3,
+    "env": {
+      "HIGS_PX_RUNTIME": "2",
+      "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+      "HIGS_BWD_H8_MR": "1",
+      "HIGS_BWD_ABSGRAD": "1"
+    },
+    "backward_mode": "higs_native",
+    "f9": true,
+    "scalar_adjoint": true,
+    "h8_mr": true,
+    "px_runtime": 2
+  },
+  "eps2d_override": 0.3,
+  "binary_identity": {
+    "arm": "c0",
+    "so_sha256": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaffb7dacf3197258a513f11",
+    "so_path": "/root/epic05_build_cache/c0_ext/experimental_gaussian_render_inference_scene_cuda/experimental_gaussian_render_inference_scene_cuda.so",
+    "core_sha256": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+    "env": {
+      "HIGS_PX_RUNTIME": "2",
+      "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+      "HIGS_BWD_H8_MR": "1",
+      "HIGS_BWD_ABSGRAD": "1"
+    }
+  },
+  "loss_backend": {
+    "name": "fused-ssim",
+    "repo": "https://github.com/rahul-goel/fused-ssim",
+    "commit": "a7c48d6dd7ac6dc39a7958c7c4452e0b10418f38",
+    "module_file": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim/__init__.py",
+    "module_sha256": "7b3784de48096f3b5d1ee156ce721f71f77a02650131f6c539331bc7d2d1ecc6",
+    "so_path": "/root/miniforge3/envs/gsplat/lib/python3.10/site-packages/fused_ssim_cuda.cpython-310-x86_64-linux-gnu.so",
+    "so_sha256": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+    "padding": "same",
+    "train_flag": true,
+    "formula": "L = 0.8*L1 + 0.2*(1 - SSIM); SSIM = fused_ssim(padding='same', train=True); L1 on the same BCHW contiguous tensors (P11 fused_total_loss semantics)",
+    "eval_ssim_metric": "SepSSIM (frozen evaluation procedure unchanged)",
+    "p11_lock": {
+      "so_sha256": "dd6a4c799b98ff9fa82b4203acce3b36b1529c97155c0ef4cd50fd0f583d8ebb",
+      "classification": "SEMANTICALLY_MATCHED_WITHIN_FP (P11 Gate L1)"
+    },
+    "padding_same_probe": {
+      "map_shape": [
+        1,
+        3,
+        192,
+        256
+      ],
+      "input_shape": [
+        1,
+        3,
+        192,
+        256
+      ],
+      "same_shape": true,
+      "sep_ssim_scalar": 0.01809912919998169,
+      "fused_ssim_scalar": 0.018099242821335793,
+      "abs_diff": 1.1362135410308838e-07,
+      "threshold": 0.0001,
+      "pass": true
+    }
+  },
+  "higs_env_all": {
+    "HIGS_PX_RUNTIME": "2",
+    "HIGS_BWD_SCALAR_ADJOINT": "scalar_adjoint",
+    "HIGS_BWD_H8_MR": "1",
+    "HIGS_BWD_ABSGRAD": "1"
+  },
+  "timing_grade": "PUBLICATION",
+  "timing_note": "wall/iter timing is NOT publication-grade unless timing_grade=PUBLICATION and the run was on a CLEAN_PUBLICATION_GPU",
+  "timing": {
+    "total_wall_s": 9.07878535380587,
+    "total_wall_min": 0.15131308923009784,
+    "mean_iter_ms": 20.497027247329243,
+    "median_iter_ms": 20.278353476896882,
+    "n_iters": 400,
+    "phase_ms": {
+      "forward": {
+        "mean_ms": 6.913476406335831,
+        "median_ms": 6.807359933853149,
+        "min_ms": 3.2583999633789062,
+        "max_ms": 76.95216369628906
+      },
+      "loss": {
+        "mean_ms": 0.5146501594781876,
+        "median_ms": 0.5072480142116547,
+        "min_ms": 0.5000640153884888,
+        "max_ms": 3.0643200874328613
+      },
+      "backward": {
+        "mean_ms": 10.856596785783768,
+        "median_ms": 10.972815990447998,
+        "min_ms": 4.787583827972412,
+        "max_ms": 73.81263732910156
+      },
+      "densify": {
+        "mean_ms": 0.7499544025957584,
+        "median_ms": 0.6634719967842102,
+        "min_ms": 0.591871976852417,
+        "max_ms": 19.35036849975586
+      },
+      "optimizer": {
+        "mean_ms": 1.3339463996887206,
+        "median_ms": 1.2498719692230225,
+        "min_ms": 1.215775966644287,
+        "max_ms": 28.295007705688477
+      }
+    }
+  },
+  "initial_N": 112627,
+  "final_N": 112627,
+  "n_cameras": 311,
+  "scene_extent": 9.953736305236816,
+  "total_clones": 0,
+  "total_splits": 0,
+  "total_prunes": 0,
+  "total_opacity_resets": 0,
+  "peak_vram_gb": 0.8717021942138672,
+  "per_iter": [
+    {
+      "iter": 1,
+      "n_gs": 112627,
+      "loss": 0.2896811068058014,
+      "n_visible": 76103,
+      "loss_nan": false
+    },
+    {
+      "iter": 100,
+      "n_gs": 112627,
+      "loss": 0.19467025995254517,
+      "n_visible": 60794,
+      "loss_nan": false
+    },
+    {
+      "iter": 200,
+      "n_gs": 112627,
+      "loss": 0.17222782969474792,
+      "n_visible": 67808,
+      "loss_nan": false
+    },
+    {
+      "iter": 300,
+      "n_gs": 112627,
+      "loss": 0.17801231145858765,
+      "n_visible": 70451,
+      "loss_nan": false
+    },
+    {
+      "iter": 400,
+      "n_gs": 112627,
+      "loss": 0.1508743166923523,
+      "n_visible": 7055,
+      "loss_nan": false
+    }
+  ],
+  "densification_events": [],
+  "eval_rows": [
+    {
+      "step": 400,
+      "tag": "final",
+      "wall_time_s": 32.09750218782574,
+      "psnr": 17.40742797386011,
+      "ssim": 0.6567092955687421,
+      "l1": 0.09008904054185969,
+      "n_eval_cameras": 311,
+      "n_gaussians": 112627,
+      "lpips": 0.6234002490902254
+    }
+  ],
+  "final_eval": {
+    "step": 400,
+    "tag": "final",
+    "wall_time_s": 32.09750218782574,
+    "psnr": 17.40742797386011,
+    "ssim": 0.6567092955687421,
+    "l1": 0.09008904054185969,
+    "n_eval_cameras": 311,
+    "n_gaussians": 112627,
+    "lpips": 0.6234002490902254
+  },
+  "torch": "2.9.1+cu128"
+}

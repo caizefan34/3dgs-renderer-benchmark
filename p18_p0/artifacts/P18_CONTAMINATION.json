@@ -1,0 +1,31 @@
+{
+  "phase": "P18-P0",
+  "artifact": "P18_CONTAMINATION",
+  "created_utc": "2026-09-28T12:00:55Z",
+  "campaign_window_utc": {"start": "2026-09-28T10:04:00Z", "end": "2026-09-28T11:43:00Z"},
+  "policy": "single clean A100 for all timing (protocol 20)",
+  "gpu_for_timing": {
+    "index": 3,
+    "uuid": "GPU-431ac351-20f8-bdf7-d798-1c9a3f545b72",
+    "name": "NVIDIA A100-SXM4-80GB",
+    "memory_used_start_mib": 0,
+    "memory_used_end_mib": 0,
+    "utilization_start": "0 %", "utilization_end": "0 %",
+    "cuda_visible_devices": "3",
+    "temperature_end_c": 39, "power_end_w": 66.99,
+    "clocks_sm_end_mhz": 210, "clocks_sm_max_mhz": 1410,
+    "peak_vram_mib": "n/a (measured 0 MiB idle at campaign end; P18 workload peak well below 80GB)"
+  },
+  "foreign_pids": [
+    {"gpu_index": 2, "uuid": "GPU-bcca92b9-0234-7ec9-a2f0-a63925d52146", "pid": 2526226,
+     "used_memory_mib": 29984, "utilization": "98 %",
+     "note": "Foreign process on GPU 2 ONLY. P18 timing used GPU 3 exclusively (CUDA_VISIBLE_DEVICES=3). GPU 2 and GPU 3 are distinct physical A100-SXM4s with no shared GPU; SXM inter-GPU traffic does not affect single-GPU kernel timing. No foreign process ever appeared on GPU 3."}
+  ],
+  "other_gpus": {
+    "0": "0 MiB / 0%", "1": "0 MiB / 0%", "4": "0 MiB / 0%", "5": "0 MiB / 0%", "6": "0 MiB / 0%", "7": "0 MiB / 0%"
+  },
+  "hostname": "dsw-933622-64cc845c7d-lqswc",
+  "driver": "592.01", "cuda": "13.1 (driver-reported)", "torch": "2.9.1+cu128",
+  "uptime_at_end": "13 days 16:52",
+  "assessment": "CLEAN. P18's timing GPU (3) was idle (0 MiB, 0%) throughout; the only busy GPU (2) is a different physical device with no cross-GPU interference on single-GPU kernel timing. No contamination of the S_eval measurements. No re-run required."
+}

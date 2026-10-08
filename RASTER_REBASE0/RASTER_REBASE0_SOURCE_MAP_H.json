@@ -1,0 +1,26 @@
+{
+  "repo_id": "H-FasterGS",
+  "baseline": "Hahlbohm Faster-GS (CVPR 2026)",
+  "variant": "FasterGSFused",
+  "repo_url": "https://github.com/nerficg-project/faster-gaussian-splatting",
+  "branch": "FasterGSFused",
+  "commit": "ae665af",
+  "cuda_root": "FasterGSFusedCudaBackend/FasterGSFusedCudaBackend/rasterization",
+  "files": {
+    "forward": "src/forward.cu",
+    "backward": "src/backward.cu",
+    "api": "src/rasterization_api.cu",
+    "kernels_fwd": "include/kernels_forward.cuh",
+    "kernels_bwd": "include/kernels_backward.cuh",
+    "config": "include/rasterization_config.h"
+  },
+  "mechanism": {
+    "projection": "2D Gaussian (conic) via focal/center + w2c",
+    "instance": "tile-based instancing; splits large-footprint primitives into sub-tasks",
+    "sort": "depth keys (morton-ish)",
+    "forward": "sequential alpha compositing per tile (fused)",
+    "backward": "sequential alpha-blend gradient + fused Adam step (mutates params in-place)",
+    "optimizer": "Fused SparseGaussianAdam inside backward"
+  },
+  "n_sh_bases_rest_compiled": 15
+}

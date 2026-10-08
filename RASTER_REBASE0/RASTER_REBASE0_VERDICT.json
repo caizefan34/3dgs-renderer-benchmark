@@ -1,0 +1,12 @@
+{
+  "primary_verdict": "BACKWARD_FRONTIER_REDUCED",
+  "flags": [
+    "MM26_FASTER_COMMON_HOST",
+    "MEMORY_TRADEOFF_MATERIAL"
+  ],
+  "summary": "Under a matched common-host raster harness, ACM-MM-2026 FasterGS reduces the backward fraction from 0.63 (H-FasterGS) to 0.34 and absolute backward latency by ~39%, confirming its bucket-based parallel compositing attacks the sequential blend_backward residual. However M's forward is ~2.4x slower (more tile-gaussian instances + radix sort), so total raster time is higher in this microbenchmark. The production hotspot SHIFTS from backward to forward; backward is reduced but not eliminated.",
+  "evidence_strength": "OBSERVED (renderer-level, 8-config median); INFERRED (hotspot identity); HYPOTHESIZED (forward as next residual)",
+  "next_lane": "FORWARD-ARITH0 (investigate M forward: radix sort + bucket render overhead) OR rebase a fused-forward+parallel-backward hybrid",
+  "scientific_caveat": "raster-only microbenchmark on shared 8GB laptop; not full 30k training; instance-count units differ between backends; native-stack comparison not run",
+  "does_not_invent_method": true
+}

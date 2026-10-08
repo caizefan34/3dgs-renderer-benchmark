@@ -1,0 +1,46 @@
+{
+  "schema": "BWD_ARITH1_PREREG",
+  "title": "BWD-ARITH1-RECOMPUTE-GAUSSIAN",
+  "question": "Is storing exact forward Gaussian response G=exp(-Q/2) in FP32 and loading in blend_backward_cu cheaper than recomputing expf, after real memory traffic, buffer, production integration, and full-iteration costs?",
+  "hypothesis": "HYPOTHESIZED_DROP: store+load traffic (8*N_valid_G bytes) exceeds the O20-removable expf cost, making exact reuse net-negative on A100.",
+  "no_approximation": true,
+  "primary_candidate_storage": "FP32",
+  "predecessor_verdict": "BWD_ARITHMETIC_FRONTIER_FOUND",
+  "predecessor_mechanism": "COMPUTE_COUNT_BOUND + TRANSCENDENTAL_SFU",
+  "o20_exp_to_linear_backward_reduction_pct": 15.7,
+  "hardware_freeze": "MX A100-PCIE-40GB",
+  "forbidden_for_verdict": "RTX5070 / local GPU",
+  "scenes": [
+    "room",
+    "bicycle",
+    "garden"
+  ],
+  "variants": {
+    "R0": "production recompute (backward recomputes expf)",
+    "R1": "exact forward FP32 cache + backward load (THE CANDIDATE)",
+    "R2": "cache write-only diagnostic (forward writes, backward recomputes)",
+    "R3": "load-only synthetic diagnostic (prefilled cache, backward loads)"
+  },
+  "gates": {
+    "backward_gate": "T_B^R1 <= 0.92 * T_B^R0 (geomean >=8% reduction)",
+    "renderer_gate": "S_R >= 1.05x on >=2/3 scenes",
+    "iteration_gate": "S_iter >= 1.05x",
+    "memory_gate": "delta_VRAM <= 25% baseline preferred",
+    "gradient_gate": "cos >= 0.999999, relL2 <= 1e-5",
+    "forward_gate": "bit-identical forward output R1 vs R0"
+  },
+  "terminal_verdicts": [
+    "PASS_EXACT_GAUSSIAN_REUSE",
+    "PASS_ENGINEERING_ONLY",
+    "DROP_RECOMPUTE_SAVINGS_TOO_SMALL",
+    "DROP_REUSE_TRAFFIC_OVERHEAD",
+    "DROP_MEMORY_FEASIBILITY",
+    "DROP_GRADIENT_CORRECTNESS",
+    "DROP_TRAINING_REGRESSION",
+    "BLOCKED_GPU_OCCUPIED",
+    "BLOCKED_BUILD",
+    "INCONCLUSIVE_EVIDENCE"
+  ],
+  "no_rescue_rule": "If exact FP32 reuse fails on memory/traffic, STOP. No FP16/BF16/quant/selective/compressed/approximate.",
+  "traffic_prescreen_threshold": "If ideal store+load > 1.5x O20-removable, flag TRAFFIC_RISK_HIGH but continue to bounded diagnostic unless buffer infeasible."
+}

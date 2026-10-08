@@ -1,0 +1,9 @@
+{
+  "scene": "synthetic: N isotropic-anisotropic Gaussians, box[-2,2]^3, seed 42",
+  "cameras": "60-deg FOV, orbit views (0-3) at radius 4, optically matched between backends",
+  "gaussians": "means, scales(log for H / linear for M), rotations(quat), opacities(sigmoid for H / linear for M), SH deg3 (dc+15 rest)",
+  "image": "256x256, bg=0",
+  "loss": "sum of ones gradient (backward exercised fully)",
+  "fairness": "identical Gaussians+camera+image; only raster backend swapped; H params cloned per-iter (H backward mutates params via fused Adam); M Buffer.curr_offset reset per call",
+  "caveat": "H instance count (packed) != M num_rendered (raw tile-gaussian pairs); not a like-for-like work unit"
+}

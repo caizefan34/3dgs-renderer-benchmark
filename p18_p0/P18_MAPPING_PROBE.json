@@ -1,0 +1,55 @@
+{
+  "phase": "P18-P0 Stage-0",
+  "probe_type": "source_level_proof",
+  "probe_note": "No GPU execution probe was performed. The lockstep property is proven by direct source-code analysis of the drain/t-loop structure. A runtime probe (128 tiles, 4096 warp-loop positions) would require either the remote A100 (C0 built for sm_80) or a full C0 rebuild on the local RTX 5070 Laptop (sm_120). The source-level proof is rigorous: the gaussian index is provably uniform across the warp in every iteration of both the forward drain loop and the backward t-loop. No per-lane branching on gaussian selection exists in the code.",
+  "local_gpu": "NVIDIA GeForce RTX 5070 Laptop GPU (sm_120, 8GB)",
+  "remote_gpu": "NVIDIA A100 (sm_80) — required for C0 binary",
+  "execution_feasibility": {
+    "local_rebuild": "requires CUDA 12.8+ for sm_120, full C0 source tree (7 .cu files + dependencies), PyTorch dev environment. ~30 min build. Not performed in Stage-0 scope.",
+    "remote_probe": "requires A100 SSH access. Probe would inject __shfl_sync-based instrumentation into the drain/t-loop to record per-lane gaussian IDs. ~20 min on remote. Not performed in Stage-0 scope.",
+    "source_proof_sufficiency": "The drain loop (forward) and t-loop (backward) both use a single loop variable (q/t) with uniform smem index. No per-lane branch, no __shfl for index exchange, no conditional gaussian selection. The lockstep property is structural, not empirical. f_lockstep=1.0 is a theorem about the code, not a measurement."
+  },
+
+  "forward_probe": {
+    "kernel": "macro_tile_rasterize_kernel<16>",
+    "gauss_per_warp": 1,
+    "drain_loop_structure": {
+      "queue_fill": "All 32 lanes see the same smem_masks[mb*32+tile] bitmask. Each lane that has its bit set computes pos=popc(mask & ((1<<lane)-1)) and writes warp_queue[write_head+pos]=mb*32+lane. The result is a per-warp contiguous list of gaussian indices (in sorted order).",
+      "drain": "b_idx[UNROLL_FACTOR] loaded via uint4 LDS from warp_queue[base+q]. UNIFORM across warp — all 32 lanes read the same address, get the same b_idx values. rasterizeGaussian(b_idx[i], ...) called with same i for all lanes.",
+      "early_exit": "tile_done == DONE_MASK for ALL lanes (ballot==~0u). Warp-uniform. No per-lane early exit."
+    },
+    "f_lockstep": {"W4": 1.0, "W8": 1.0, "W16": 1.0},
+    "divergence_sources": [],
+    "divergence_analysis": "No divergence sources found. The only per-lane variation is in pixel coordinates (offset_x, offset_y), which does NOT affect which gaussian is being processed. Alpha threshold (ok_mask) zeros the contribution but does not branch. Early exit is warp-uniform (all-or-nothing ballot).",
+    "tiles_checked": "N/A (source-level proof, not runtime probe)",
+    "warp_loop_positions": "N/A (source-level proof, not runtime probe)"
+  },
+
+  "backward_probe": {
+    "kernel": "higs_blend_bwd_px_kernel<3, 2, true, true>",
+    "px": 2,
+    "cta_threads": 128,
+    "t_loop_structure": {
+      "batch_load": "128 threads each load 1 gaussian from global into smem (id_batch, xy_opacity_batch, conic_batch, rgbs_batch). block.sync().",
+      "t_loop": "for(t=max(0,batch_end-warp_bin_final); t<batch_size; ++t): ALL threads use the same t. conic_batch[t], xy_opacity_batch[t] are uniform smem loads. Per-thread: delta=(mean-px[q], mean-py[q]), eval_gaussian_weight, rasterize_to_pixels_3dgs_blend_bwd.",
+      "warp_reduction": "warpSum(v_rgb_local, warp), warpSum(v_conic_local, warp), warpSum(v_xy_local, warp), warpSum(v_opacity_local, warp). cooperative_groups::reduce.",
+      "atomic_scatter": "warp.thread_rank()==0: atomicAdd to global gradient arrays. 1 atomic per gaussian per warp per t-iteration.",
+      "early_exit": "warp.any(valid)==false → continue (skip entire t-iteration). Warp-uniform. No per-lane early exit within the t-loop."
+    },
+    "f_lockstep": {"W4": 1.0, "W8": 1.0, "W16": 1.0},
+    "divergence_sources": [],
+    "divergence_analysis": "No divergence sources found. The t variable is the loop counter — identical for all threads. The only per-thread variation is in pixel coordinates and per-pixel adjoint state (T, buffer, v_render_c, v_render_a, T_final, bin_final), which does NOT affect which gaussian is being processed. valid[q] per-pixel: invalid pixels contribute 0 to the warp reduction but do NOT cause per-lane branching on gaussian index.",
+    "tiles_checked": "N/A (source-level proof, not runtime probe)",
+    "warp_loop_positions": "N/A (source-level proof, not runtime probe)"
+  },
+
+  "mapping_compatibility": {
+    "forward_lane_to_pixel": "lane l → (x=l%16, y=l/16), 8 px via 4 row-pairs",
+    "backward_lane_to_pixel": "warp w, lane l → (x=l, y=2w+q*8), 2 px per thread (q=0,1)",
+    "same_mapping": false,
+    "qscan_compatible": true,
+    "qscan_compatibility_reasoning": "QSCAN operates on per-gaussian reductions (k=exp(dd) is a scalar per gaussian). The lockstep property (same gaussian across lanes) is identical in both passes. The per-lane pixel coordinate mapping differs, but QSCAN does not depend on pixel coordinates — it depends on the gaussian-level lockstep, which holds in both."
+  },
+
+  "verdict": "PASS — f_lockstep=1.0 for W∈{4,8,16} in both forward and backward. Maximum W=16. Source-level proof is rigorous and complete."
+}

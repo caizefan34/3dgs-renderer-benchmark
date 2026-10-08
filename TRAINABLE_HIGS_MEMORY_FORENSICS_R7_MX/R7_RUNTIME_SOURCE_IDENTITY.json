@@ -1,0 +1,49 @@
+{
+  "timestamp": "2026-10-08T12:00:00Z",
+  "campaign": "TRAINABLE-HIGS_MEMORY_FORENSICS_R7_MX",
+  "status": "PARTIALLY_COMPLETE",
+  "p0_binary_identity": {
+    "baseline_sha256": "40a009837e75620454059cfdbb5088cc08423f281e4c734da3053b727d39df50",
+    "candidate_sha256": "b64d02c1cdad51bfc9ff0c2c435f9a4c1d1603466700194fb30f1c2348bcf2c3",
+    "actual_binary": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/csrc.so",
+    "actual_sha256": "40a009837e75620454059cfdbb5088cc08423f281e4c734da3053b727d39df50",
+    "match": "baseline",
+    "source_file": "IntersectTile.cu",
+    "source_sha256": "b2468d28a329e7e5d7693f76eae1ba93c927865b50c1ce106c591e42843c8c0f"
+  },
+  "p1_oom_reproduction": {
+    "status": "COMPLETED",
+    "standard_rasterization": {
+      "result": "SUCCESS",
+      "peak_memory_gb": 8.02,
+      "note": "Standard rasterization does NOT trigger OOM at 4.4M"
+    },
+    "higs_specific": {
+      "status": "NOT_TESTED",
+      "reason": "rasterize_gaussian_higs_frozen not available in current build"
+    }
+  },
+  "p2_allocation_trace": {
+    "status": "NOT_EXECUTED",
+    "reason": "HiGS-specific function not available for testing"
+  },
+  "p3_oom_explanation": {
+    "status": "BLOCKED",
+    "reason": "Cannot reproduce OOM without HiGS-specific function"
+  },
+  "findings": {
+    "finding_1": "Loaded binary matches baseline SHA256 (40a0098...)",
+    "finding_2": "Standard rasterization succeeds at 4.4M with only 8.02 GB",
+    "finding_3": "HiGS-specific function rasterize_gaussian_higs_frozen not found in gsplat module",
+    "finding_4": "R3 reported OOM at 4.4M with 13.90 GiB allocation, but current environment does not reproduce"
+  },
+  "hypotheses": {
+    "h1_intersection_explosion": "UNTESTED - cannot run HiGS function",
+    "h2_sorting_workspace": "UNTESTED",
+    "h3_hierarchy_retention": "UNTESTED",
+    "h4_peak_overlap": "UNTESTED",
+    "h5_fragmentation": "UNLIKELY - standard rasterization works fine",
+    "h6_binary_mismatch": "POSSIBLE - R3 may have used different binary"
+  },
+  "conclusion": "PARTIALLY_IDENTIFIED - Binary identity verified but OOM not reproduced. R3 OOM may have been environment-specific or used different code path."
+}

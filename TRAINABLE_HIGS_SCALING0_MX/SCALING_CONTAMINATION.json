@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "stage": "Pre-benchmark GPU contamination policy",
+  "policy": {
+    "requirement": "GPU exclusive, no foreign processes, stable clocks, record temperature/power",
+    "enforcement": "Check nvidia-smi before each authoritative benchmark run",
+    "on_contamination": "Retain attempt, mark invalid, rerun unchanged"
+  },
+  "mx_environment_status": {
+    "timestamp": "2026-08-04",
+    "gpus": [
+      {"id": 0, "name": "A100-PCIE-40GB", "utilization": "unknown (cannot query)"},
+      {"id": 1, "name": "A100-PCIE-40GB", "utilization": "unknown"},
+      {"id": 2, "name": "A100-PCIE-40GB", "utilization": "unknown"},
+      {"id": 3, "name": "A100-PCIE-40GB", "utilization": "unknown"},
+      {"id": 4, "name": "A100-PCIE-40GB", "utilization": "unknown"},
+      {"id": 5, "name": "A100-PCIE-40GB", "utilization": "unknown"},
+      {"id": 6, "name": "A100-PCIE-40GB", "utilization": "unknown"},
+      {"id": 7, "name": "A100-PCIE-40GB", "utilization": "unknown"}
+    ],
+    "foreign_processes": "Cannot verify (nvidia-smi query blocked by disk-full)",
+    "temperature": "Not recorded",
+    "power": "Not recorded",
+    "stable_clocks": "Not verified"
+  },
+  "epic05_historical_context": {
+    "source": "reports/higs-trainability-implementation.md",
+    "gpu": "A100-SXM4-80GB (GPU1)",
+    "contamination_policy_followed": true,
+    "notes": "All benchmarks in rounds 1-27 followed GPU-exclusive policy; 'GPU1 idle' explicitly stated before each run"
+  },
+  "decision": {
+    "authoritative_benchmarks_possible_on_mx": false,
+    "reason": "Disk space exhausted; cannot load datasets or run any computation",
+    "alternative": "Analyze existing EPIC-05 benchmark evidence from reports",
+    "confidence_in_existing_evidence": "HIGH",
+    "rationale": "100 tests passing on EPIC-05; same codebase; protocol identical; extensive documentation"
+  }
+}

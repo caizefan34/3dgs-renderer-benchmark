@@ -1,0 +1,104 @@
+{
+  "schema": "PSC_P0_FROZEN_IDENTITY_REPROBE_v2",
+  "note": "Three INDEPENDENT state machines. Do not collapse into one FAIL.",
+  "state_machines": {
+    "host_provenance": {
+      "state": "HOST_PROVENANCE_FAIL",
+      "reason": "EXECUTION_HOST_MISMATCH",
+      "detail": "Active host is local WSL Ubuntu-24.04 with NVIDIA GeForce RTX 5070 Laptop GPU (UUID GPU-ddda4ab2-...). Intended formal environment is the EPIC-05 A100 frozen environment. Active GPU is not an A100."
+    },
+    "artifact_identity": {
+      "state": "NOT_TESTED_COMPLETE",
+      "access_state": "PASS",
+      "path_state": "NOT_FOUND",
+      "detail": "WSL root access works (uid=0), but none of the frozen artifacts are present under /root/epic05_frozen or /root/epic05_p12. No readable artifact exists, so no SHA256 could be compared. Missing bytes are NOT a hash failure."
+    },
+    "scientific_verdict": {
+      "state": "NONE",
+      "measurement_state": "NOT_STARTED",
+      "detail": "No PSC-P0 measurement has started. No scientific verdict (DROP/INCONCLUSIVE/STRONG_PROMOTE) may be emitted."
+    }
+  },
+  "host": {
+    "captured_utc": "2026-09-29T16:09:33.784521+00:00",
+    "hostname": "Giannis",
+    "os": "Ubuntu 24.04.4 LTS (Noble Numbat)",
+    "kernel": "Linux 6.6.87.2-microsoft-standard-WSL2 x86_64",
+    "uname": "Linux Giannis 6.6.87.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC x86_64 GNU/Linux",
+    "gpu_model": "NVIDIA GeForce RTX 5070 Laptop GPU",
+    "gpu_uuid": "GPU-ddda4ab2-d9b9-0efc-a5f9-f438ff9214b9",
+    "nvidia_smi_driver_version": "592.01",
+    "cuda_driver_version": "13.1",
+    "python_version_wsl_default": "3.12.3 (/usr/bin/python3; torch/gsplat NOT installed in this interpreter)",
+    "pytorch_version_wsl_default": null,
+    "torch_version_cuda_wsl_default": null,
+    "gsplat_version_wsl_default": null,
+    "git_repo_path": null,
+    "git_head": null,
+    "git_status": null,
+    "intended_formal_env": "EPIC-05 A100 frozen environment",
+    "active_is_intended_env": false
+  },
+  "artifacts": {
+    "frozen_c0_worktree": {
+      "expected_path": "/root/epic05_frozen/higs_c0_final30k_worktree",
+      "resolved_path": null,
+      "expected_sha256": null,
+      "observed_sha256": null,
+      "bytes": null,
+      "state": "PATH_NOT_FOUND"
+    },
+    "publication_trainer_p12": {
+      "expected_path": "/root/epic05_p12/publication_trainer_p12.py",
+      "resolved_path": null,
+      "expected_sha256": null,
+      "observed_sha256": null,
+      "bytes": null,
+      "state": "PATH_NOT_FOUND"
+    },
+    "room_25k_checkpoint": {
+      "expected_path": "/root/epic05_frozen/higs_c0_final30k_worktree (room@25K ckpt)",
+      "resolved_path": null,
+      "expected_sha256": "b31e5a6b0e733911b736bbad2e4f9d4d804d5929655f64efb51a9e5132fc047d",
+      "observed_sha256": null,
+      "bytes": null,
+      "state": "PATH_NOT_FOUND"
+    },
+    "c0_extension": {
+      "expected_path": "/root/epic05_frozen (C0 extension binary)",
+      "resolved_path": null,
+      "expected_sha256": "d26cccf46c7932bfb5fd44ee05e553af27e17c93eaff6dacf3197258a513f11",
+      "observed_sha256": null,
+      "bytes": null,
+      "state": "PATH_NOT_FOUND"
+    },
+    "gsplat_cuda_so": {
+      "expected_path": "/root/epic05_frozen (exact core gsplat_cuda.so)",
+      "resolved_path": null,
+      "expected_sha256": "935ea6c0dd04f34e26407afd895ca7d8bc452cc233b1432683ba0ec70d1ff37e",
+      "observed_sha256": null,
+      "bytes": null,
+      "state": "PATH_NOT_FOUND"
+    }
+  },
+  "trainer_path": null,
+  "worktree_path": null,
+  "git_head": null,
+  "git_status": null,
+  "overall_identity_state": "NOT_TESTED_COMPLETE",
+  "psc_p0_status": "BLOCKED",
+  "blocker_class": "EXECUTION_HOST_MISMATCH",
+  "secondary_blocker": "FROZEN_ARTIFACTS_NOT_PROVISIONED",
+  "stop_stage": "Stage -1 (Host Provenance Gate)",
+  "measurements_run": [],
+  "prohibitions_observed": [
+    "no sudo used",
+    "no root password requested",
+    "no distro modification",
+    "no rebuild/recompile of C0 or gsplat_cuda.so",
+    "no substitution of gsplat binary",
+    "no editing of prereg hashes/trainer/checkpoint",
+    "no resuming Faster-GS",
+    "no local RTX 5070 timing used as formal PSC timing"
+  ]
+}

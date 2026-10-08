@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0",
+  "protocol_id": "external-training-comparison-v0",
+  "date": "2026-10-01",
+  "baselines": [
+    {
+      "id": "original_3dgs",
+      "name": "INRIA 3DGS (graphdeco)",
+      "class": "external_reference",
+      "role": "correctness + quality reference",
+      "repository": "graphdeco 3d-gaussian-splatting",
+      "commit": "54c035f7834b564019656c3e3fcc3646292f727d",
+      "evidence_tier_target": "measured",
+      "exactness_gates_required": false,
+      "notes": "The original dense-Adam trainer. Defines the dense baseline trajectory."
+    },
+    {
+      "id": "fastgs",
+      "name": "FastGS",
+      "class": "external_public",
+      "role": "speed baseline",
+      "repository": "FastGS (training 3DGS in 100 seconds)",
+      "evidence_tier_target": "measured",
+      "exactness_gates_required": false,
+      "notes": "Throughput-oriented; uses sampling/approximation. Speed comparator, NOT an exactness comparator."
+    },
+    {
+      "id": "sparse_adam",
+      "name": "Sparse Adam (A Step to Decouple Optimization in 3DGS)",
+      "class": "external_public",
+      "role": "optimizer-sparsity baseline",
+      "repository": "Sparse Adam variant",
+      "evidence_tier_target": "measured",
+      "exactness_gates_required": false,
+      "notes": "Modified sparse optimizer; no dense-equivalence claim. Tests whether optimizer sparsity alone yields training speedup without exactness."
+    },
+    {
+      "id": "gsplat",
+      "name": "gsplat (nerfstudio)",
+      "class": "external_public",
+      "role": "production backend baseline",
+      "repository": "gsplat",
+      "evidence_tier_target": "measured",
+      "exactness_gates_required": false,
+      "notes": "DefaultStrategy densification; production-grade rasterizer. Backend comparator."
+    },
+    {
+      "id": "vos",
+      "name": "VOS-GS (internal)",
+      "class": "internal_exact",
+      "role": "exact optimizer-state virtualization",
+      "repository": "vos/sources/publication_trainer.py (frozen C0 + VOS)",
+      "evidence_tier_target": "measured",
+      "exactness_gates_required": true,
+      "notes": "Visibility-deferred zero-grad transitions, SH-only, iter 15001-30000. Bitwise replay vs dense A_s (VOS_VERDICT.json)."
+    },
+    {
+      "id": "reprotopo",
+      "name": "ReproTopo0 (internal)",
+      "class": "internal_exact",
+      "role": "exact topology-state reproduction",
+      "repository": "reprotopo0_src (frozen C0 + ReproTopo)",
+      "evidence_tier_target": "measured",
+      "exactness_gates_required": true,
+      "notes": "Deterministic clone/split/prune state machine; bitwise topology hash (REPROTOPO0_STRONG_PROMOTE)."
+    },
+    {
+      "id": "lavos",
+      "name": "LAVOS0 (internal)",
+      "class": "internal_exact_conditional",
+      "role": "unified exact optimizer+topology state",
+      "repository": "lavos0_headroom (frozen C0 + LAVOS)",
+      "evidence_tier_target": "measured",
+      "exactness_gates_required": true,
+      "promotion_gate": "LAVOS0_HEADROOM_PROMOTE or LAVOS0_STRONG_HEADROOM_PROMOTE",
+      "notes": "Included ONLY if promoted; otherwise NOT_PROMOTED. Lineage-aware VOS into dynamic 0-15K phase."
+    }
+  ],
+  "closed_or_positioning_only": [
+    {"id": "VTS0", "status": "CLOSED", "reason": "VTS0_DROP; extra_safe_skip_headroom=0.0 < 10% gate"},
+    {"id": "DetGS0", "status": "POSITIONING_ONLY", "reason": "NO_PUBLIC_COLLISION vs public; unified idea occupied by LAVOS0 internally"}
+  ]
+}

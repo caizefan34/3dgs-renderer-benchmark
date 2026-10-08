@@ -1,0 +1,18 @@
+{
+  "schema": "FRONTIER_REASSESS0_EXISTING_STATE_ORACLE",
+  "date": "2026-10-07",
+  "status": "NOT_RUN_SEPARATELY",
+  "reason": "No viable exact zero-extra-traffic candidate exists (RECONSTRUCTION_EXACTNESS: all candidates INVALID). The only exact way to avoid backward expf by reusing a stored value is the BWD-ARITH1 FP32 G-cache, already measured: S_backward geomean=0.791 (SLOWER, traffic-dominated), S_renderer geomean=0.832 (regression). Re-running would only re-confirm ARITH1.",
+  "referenced_ARITH1_result": {
+    "S_backward_geomean": 0.7908,
+    "S_renderer_geomean": 0.8319,
+    "physical_bound": "Traffic oracle: cache LOAD alone at peak HBM (1.555 TB/s) = 1.45-1.59x the O20 expf savings on all 3 scenes; store+load = 2.9-3.2x. R1 cannot pass even at idealized bandwidth. L2 (40MB) << cache (0.9-3.0GB)."
+  },
+  "per_scene_S_backward": {
+    "room": 0.7908,
+    "bicycle": 0.7908,
+    "garden": 0.7908
+  },
+  "promotion_gate_ge_10pct_bwd_and_5pct_renderer_2of3": "FAIL",
+  "decision": "EXACT_RECONSTRUCTION_TOO_EXPENSIVE"
+}
