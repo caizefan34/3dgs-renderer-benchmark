@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-10-08T15:05:00Z",
+  "status": "FORENSICS_INCOMPLETE",
+  "campaign": "TRAINABLE_HIGS_ALLOCATION_TRACE_R9_MX",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "experiments_attempted": [
+    "P0: R3/R8 configuration comparison",
+    "P1: Python-level allocation tracing"
+  ],
+  "experiments_blocked": [
+    "P2: Count-only diagnostic (needs CUDA source modification)",
+    "P3: Real allocation verification (needs CUDA instrumentation)",
+    "P4: Root cause determination (needs allocation-level data)",
+    "P5: Fix implementation (needs identified root cause)"
+  ],
+  "key_findings": {
+    "r3_r8_ratio": 8.0,
+    "r3_allocation_gb": 13.90,
+    "r8_allocation_gb": 111.28,
+    "python_tracing": "INEFFECTIVE",
+    "reason": "CUDA kernel allocations bypass torch.empty"
+  },
+  "answers": {
+    "q1_allocation_line": "UNKNOWN",
+    "q2_formula": "UNKNOWN",
+    "q3_r3_r8_difference": "UNRESOLVED",
+    "q4_intersection_count": "NOT_MEASURED",
+    "q5_root_cause_type": "UNDETERMINED",
+    "q6_safe_fix": "NOT_IDENTIFIED",
+    "q7_fix_built": "NO"
+  },
+  "verdicts": {
+    "root_cause": "FORENSICS_INCOMPLETE",
+    "fix": "NOT_IMPLEMENTED",
+    "next_action": "CUDA_INSTRUMENTATION"
+  },
+  "recommendation": "Modify IntersectTile.cu to add allocation logging. Rebuild HiGS. Run tests. Capture actual allocation sizes and stack traces."
+}

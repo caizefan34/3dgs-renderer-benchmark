@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-10-08T15:00:00Z",
+  "campaign": "TRAINABLE_HIGS_ALLOCATION_TRACE_R9_MX",
+  "status": "FORENSICS_INCOMPLETE",
+  "root_cause_verdict": "FORENSICS_INCOMPLETE",
+  "fix_verdict": "NOT_IMPLEMENTED",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "allocation_tracing": {
+    "python_level": "INEFFECTIVE",
+    "cuda_level": "NOT_IMPLEMENTED",
+    "reason": "Allocations occur inside CUDA kernels, bypassing torch.empty hooks"
+  },
+  "r3_r8_comparison": {
+    "r3_allocation_gb": 13.90,
+    "r8_allocation_gb": 111.28,
+    "ratio": 8.0,
+    "configuration_match": true,
+    "allocation_site_match": "UNKNOWN",
+    "explanation": "UNRESOLVED - may be different allocation sites or GPU memory states"
+  },
+  "hypotheses": {
+    "h1_intersection_explosion": "UNTESTED",
+    "h2_camera_duplication": "UNLIKELY",
+    "h3_hierarchy_duplication": "UNTESTED",
+    "h4_sorting_workspace": "UNTESTED",
+    "h5_peak_overlap": "UNTESTED",
+    "h6_different_sites": "POSSIBLE",
+    "h7_implementation_error": "UNTESTED",
+    "h8_binary_mismatch": "REFUTED"
+  },
+  "answers": {
+    "q1_allocation_line": "UNKNOWN - CUDA-level instrumentation needed",
+    "q2_formula": "UNKNOWN",
+    "q3_r3_r8_difference": "UNRESOLVED",
+    "q4_intersection_count": "NOT_MEASURED",
+    "q5_algorithmic_or_implementation": "UNDETERMINED",
+    "q6_safe_fix": "NOT_IDENTIFIED",
+    "q7_fix_built": "NO"
+  },
+  "recommendation": "Implement CUDA-level allocation instrumentation in IntersectTile.cu. Rebuild HiGS with logging. Run 580K and 4.4M tests. Capture actual allocation sizes and stack traces.",
+  "verdict": {
+    "root_cause": "FORENSICS_INCOMPLETE",
+    "fix": "NOT_IMPLEMENTED",
+    "next_action": "CUDA_INSTRUMENTATION"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "campaign": "WORK-GRADIENT-ORACLE0-MX",
+  "created_date": "2026-10-08",
+  "status": "NOT_RUN",
+  "purpose": "Falsify whether work-aware per-tile gradient value can beat gradient/error blind policies at matched REAL renderer cost before implementing new CUDA",
+  "repo": "https://github.com/caizefan34/3dgs-renderer-benchmark",
+  "source_reference_only": {
+    "path": "benchmark/run_higs_train_benchmark.py",
+    "role": "code inspection lead; MX source and .so identity must be separately verified",
+    "existing_paths": ["higs_dynamic_ts", "make_forward_fn(..., tile_mask=...)", "_error_guided_mask", "_importance_l1_loss"]
+  },
+  "hardware_target": "MX A100-PCIE-40GB",
+  "primary_tile_size": 16,
+  "primary_expected_pixel_budget": 0.25,
+  "secondary_budget_optional": 0.40,
+  "scenes_required": ["mipnerf360/garden", "mipnerf360/bicycle"],
+  "scenes_diagnostic": ["mipnerf360/room"],
+  "state_stages_preference": ["early", "late"],
+  "min_real_states_per_required_scene": 2,
+  "required_train_cameras_per_state": 2,
+  "candidate_pool_tiles_per_camera_state": 64,
+  "requested_mask_repetitions": 32,
+  "warmup_iterations": 30,
+  "timed_iterations": 100,
+  "paired_timing_repetitions": 3,
+  "primary_loss_for_unbiased_theory": "per-pixel additive L1; strictly separated from non-additive DSSIM/LPIPS",
+  "primary_parameter_group": "geometry: means3d plus scales/quats, with predeclared group normalization",
+  "diagnostic_groups": ["opacities", "SH", "screen_space_control"],
+  "arms": {
+    "U": "uniform independent Bernoulli tile inclusion, HT loss",
+    "E": "error-proxy guided Bernoulli tile inclusion, equal expected real GPU budget, HT loss",
+    "T": "temporal complementary Bernoulli/cyclic policy if existing, diagnostic only",
+    "O": "offline inaccessible per-tile gradient oracle; upper bound only, never timed as deployable policy",
+    "P": "cheap past-only gradient-value/cost proxy, prospective test on held-out TRAIN states/cameras"
+  },
+  "sampling": {
+    "selection": "independent Bernoulli per candidate tile for mathematical oracle",
+    "p_min": 0.05,
+    "p_max": 1.0,
+    "loss": "HT weighted pixel sums divided by exactly total training-view pixel/channel count",
+    "rule": "never substitute selected-pixel mean for unequal inclusion probabilities",
+    "border_tiles": "weight actual valid pixels; never count padded pixels"
+  },
+  "oracle_stage1_gate": {
+    "variance_reduction_vs_best_comparable_baseline": 0.30,
+    "min_positive_scene_stage_cases": 3,
+    "required_scene_coverage": ["garden", "bicycle"],
+    "math_oracle_result_cannot_claim_speedup": true
+  },
+  "deployable_stage2_gate": {
+    "proxy_variance_reduction_vs_best_matched_baseline": 0.20,
+    "scheduler_wall_overhead_max_fraction": 0.05,
+    "real_measured_cost_required": true,
+    "full_gpu_speedup_claim_allowed": false
+  },
+  "next_stage": "Only after both oracle and deployable proxy gates pass, request a separately frozen 3K quality-vs-wall pilot; never automatically start 30K",
+  "source_and_evidence_rules": [
+    "Use only genuine pre-existing MX checkpoints, record state path SHA256, N, iteration and provenance; block if missing",
+    "Source identity includes git SHA, dirty diff SHA, .so path SHA256, dataset and camera manifests",
+    "No synthetic Gaussians as real workload; synthetic only for standalone unit tests",
+    "No held-out/test views or pixels for policy design, tuning or scores",
+    "No CUDA kernel rewrite, no optimizer/densification/loss schedule alteration",
+    "Do not infer additive GPU time from tile-level proxy costs; measure actual mask-set CUDA and wall time",
+    "Do not claim non-additive loss unbiasedness",
+    "Do not equate an offline optimal policy (requiring true gradients) with deployable training speed",
+    "Preserve raw logs and mark absent experiments NOT_RUN / BLOCKED",
+    "No killing other GPU users or deleting scientific data"
+  ]
+}
