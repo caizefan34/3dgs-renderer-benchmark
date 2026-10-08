@@ -46,18 +46,41 @@
 - ✅ bicycle 10K: .../0010000.pt (908 MB)
 - ✅ bicycle final: .../final.pt (1.0 GB)
 
-### 环境验证待完成
-- [ ] Torch 版本与 CUDA 11.8 兼容性
-- [ ] gsplat 版本确认 (应为 1.5.3)
-- [ ] .so 动态库路径与 SHA256
-- [ ] tile_mask 稀疏渲染功能 smoke test
+### 环境验证
+- ✅ Torch 版本：2.7.1+cu118 (符合预期)
+- ❌ gsplat 导入失败：TMPDIR 磁盘空间不足 (/tmp, /var/tmp, /home 均 100% 满)
+- ❌ Storage pool 磁盘空间：31G 可用 (3.5T 总量，100% 使用)
+- ❌ benchmark/run_higs_train_benchmark.py 文件不存在于预期路径
 
-## 下一步
-1. 确认 FasterGSFused checkpoints 是否符合实验要求（early/late 定义）
-2. 验证环境依赖版本
-3. 执行 tile_mask sparse rendering smoke test
-4. 如全部通过，进入 S1A 阶段
+### 磁盘空间阻塞
+**当前状态**:
+- `/dev/sda1` (根分区): 439G 总量，429G 已用，**0G 可用** (100% 满)
+- `/dev/md0` (storage pool): 3.5T 总量，3.5T 已用，**31G 可用** (100% 满)
+
+**大目录分析**:
+- `/mnt/storage_pool/liaoyuanjun/data`: 2.1T (最大占用)
+- `/home/liaoyuanjun/projects`: 90G
+- `/home/liaoyuanjun/miniforge3`: 63G
+- `/home/liaoyuanjun/3dgs-renderer-benchmark`: 46G
+
+**影响**:
+- Python 无法创建临时文件（gsplat 导入失败）
+- 无法运行任何需要临时存储的 Python 脚本
+- 磁盘不足以进行实验（需要存储 checkpoints、临时数据、结果）
 
 ## 阻塞项
-- **待验证**: FasterGSFused checkpoint 的 provenance 和 N 值（是否是真实训练 state）
-- **待验证**: garden 场景缺少完整 PLY 文件（仅有 COLMAP sparse），需要转换或寻找替代
+- **BLOCKED_ENVIRONMENT**: 磁盘空间严重不足
+  - 根分区 100% 满 (0G 可用)
+  - Storage pool 100% 满 (31G 可用)
+  - Python 无法运行（临时目录不可用）
+  - 无法清理他人数据
+  - 需要用户清理或扩容磁盘
+
+- **BLOCKED_SOURCE_IDENTITY**: benchmark/run_higs_train_benchmark.py 不存在
+  - 需要确认实际源码路径或同步完整仓库
+
+## 建议行动
+1. **紧急**: 清理 `/mnt/storage_pool/liaoyuanjun/data` (2.1T) 或其他非关键数据
+2. 确认 3dgs-renderer-benchmark 仓库完整性
+3. 验证 gsplat 安装是否完整
+4. 如磁盘问题无法解决，需 BLOCKED_ENVIRONMENT 并交付诊断

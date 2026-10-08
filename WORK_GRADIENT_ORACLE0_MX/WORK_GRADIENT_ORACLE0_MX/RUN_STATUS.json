@@ -1,1 +1,100 @@
-{"campaign":"WORK-GRADIENT-ORACLE0-MX","status":"NOT_RUN","fresh_mx_measurements":0,"offline_math_tests_only":true,"next":"Transfer package to DSH on MX; perform Stage S0 before experiments"}
+{
+  "schema": "WORK_GRADIENT_ORACLE0_MX.RUN_STATUS.v1",
+  "timestamp_utc": "2026-10-08T14:35:00Z",
+  "campaign": "WORK-GRADIENT-ORACLE0-MX",
+  "status": "BLOCKED_ENVIRONMENT",
+  
+  "stage_progress": {
+    "S0_audit": "IN_PROGRESS → BLOCKED",
+    "S0_checkpoints": "NOT_STARTED (blocked by disk space)",
+    "S0_verify_sparse": "NOT_STARTED (blocked by disk space and missing source)",
+    "S1a_oracle": "NOT_STARTED",
+    "S1a_analytic": "NOT_STARTED",
+    "S1b_proxy": "NOT_STARTED",
+    "S1b_timing": "NOT_STARTED"
+  },
+  
+  "fresh_mx_measurements": 0,
+  "offline_math_tests_only": false,
+  "real_experiments_executed": 0,
+  
+  "blocking_issue": {
+    "category": "DISK_SPACE",
+    "severity": "CRITICAL",
+    "description": "All disk partitions at 100% capacity; Python cannot execute due to lack of temporary directory space",
+    "root_partition_available_gb": 0,
+    "storage_pool_available_gb": 31,
+    "impact": "No experiments possible; gsplat import fails; checkpoint verification impossible"
+  },
+  
+  "secondary_issues": [
+    {
+      "category": "SOURCE_IDENTITY",
+      "issue": "benchmark/run_higs_train_benchmark.py missing",
+      "impact": "Cannot verify tile_mask API or source code identity"
+    },
+    {
+      "category": "CHECKPOINT_PROVENANCE",
+      "issue": "FasterGSFused checkpoints found but metadata unavailable",
+      "impact": "Cannot verify N values, iteration, or training provenance"
+    }
+  ],
+  
+  "environment_verified": {
+    "ssh_connectivity": true,
+    "hostname": "bms-39468022-001",
+    "gpu_count": 8,
+    "gpu_model": "NVIDIA A100-PCIE-40GB",
+    "python_path": "/home/liaoyuanjun/miniforge3/envs/nerficg/bin/python",
+    "torch_version": "2.7.1+cu118",
+    "cuda_runtime": "11.8",
+    "gsplat_version": "UNKNOWN (import failed)",
+    "repo_path": "/home/liaoyuanjun/3dgs-renderer-benchmark",
+    "git_commit": "32ab80e773f74f4d8e40ff4e338c86b29c7957f5"
+  },
+  
+  "data_inventory": {
+    "datasets_found": ["mipnerf360/garden", "mipnerf360/bicycle"],
+    "checkpoints_found": 6,
+    "checkpoint_paths_verified": false,
+    "checkpoint_metadata_extracted": false
+  },
+  
+  "next_action_required": "User must resolve disk space (clean at least 100-200 GB) and verify source code completeness before re-running S0 audit",
+  
+  "estimated_time_to_resolution": "Unknown (depends on user cleanup speed)",
+  
+  "deliverables_status": {
+    "CAPABILITY_AUDIT.json": "COMPLETE",
+    "PROGRESS.md": "COMPLETE",
+    "REPORT.md": "COMPLETE",
+    "RUN_STATUS.json": "COMPLETE (this file)",
+    "SOURCE_IDENTITY.json": "NOT_STARTED (blocked)",
+    "STATE_INVENTORY.json": "NOT_STARTED (blocked)",
+    "gpu_snapshots/": "PARTIAL (only disk and basic GPU info)",
+    "raw/": "EMPTY (no experiments run)",
+    "logs/": "PARTIAL (SSH and disk checks only)",
+    "commands/": "PARTIAL (disk and source audit commands)"
+  },
+  
+  "scientific_gates": {
+    "S0_source_audit": "BLOCKED",
+    "S0_sparse_render_smoke": "BLOCKED",
+    "S0_checkpoint_verification": "BLOCKED",
+    "S1a_gradient_oracle_gate": "NOT_STARTED",
+    "S1b_proxy_gate": "NOT_STARTED",
+    "S1b_timing_gate": "NOT_STARTED"
+  },
+  
+  "user_guidance": {
+    "immediate_action_required": true,
+    "action_items": [
+      "Clean disk space: /mnt/storage_pool/liaoyuanjun/data (2.1TB) or other large directories",
+      "Verify source code: benchmark/run_higs_train_benchmark.py must exist",
+      "Re-run S0 audit after disk cleanup",
+      "Verify checkpoint provenance once Python can execute"
+    ],
+    "estimated_cleanup_needed_gb": "100-200 minimum, preferably 300+",
+    "cleanup_safety_note": "DO NOT delete other users' data; liaoyuanjun must confirm which directories are safe to clean"
+  }
+}

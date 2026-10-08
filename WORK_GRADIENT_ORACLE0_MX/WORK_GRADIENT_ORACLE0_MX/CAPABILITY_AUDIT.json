@@ -1,0 +1,162 @@
+{
+  "schema": "WORK_GRADIENT_ORACLE0_MX.CAPABILITY_AUDIT.v1",
+  "timestamp_utc": "2026-10-08T14:35:00Z",
+  "terminal_verdict": "BLOCKED_ENVIRONMENT",
+  "executed_stage": "S0",
+  
+  "ssh_connectivity": {
+    "status": "PASS",
+    "hostname": "bms-39468022-001",
+    "ssh_profile": "mx (pre-existing trusted profile)"
+  },
+  
+  "gpu_inventory": {
+    "status": "PASS",
+    "gpu_count": 8,
+    "gpu_model": "NVIDIA A100-PCIE-40GB",
+    "compute_capability": [8, 0],
+    "total_memory_mib": 40960,
+    "note": "All 8 GPUs detected as expected"
+  },
+  
+  "python_environment": {
+    "status": "PASS",
+    "python_path": "/home/liaoyuanjun/miniforge3/envs/nerficg/bin/python",
+    "torch_version": "2.7.1+cu118",
+    "cuda_runtime": "11.8",
+    "torch_compatibility": "PASS (torch 2.7.1+cu118 confirmed)"
+  },
+  
+  "gsplat_environment": {
+    "status": "FAIL",
+    "import_error": "FileNotFoundError: No usable temporary directory found",
+    "root_cause": "Disk space exhausted - all TMPDIR candidates full",
+    "expected_version": "1.5.3",
+    "actual_version": "UNKNOWN (import failed)"
+  },
+  
+  "disk_space": {
+    "status": "CRITICAL_FAILURE",
+    "root_partition": {
+      "device": "/dev/sda1",
+      "total_gb": 439,
+      "used_gb": 429,
+      "available_gb": 0,
+      "usage_percent": 100
+    },
+    "storage_pool": {
+      "device": "/dev/md0",
+      "mount": "/mnt/storage_pool",
+      "total_gb": 3584,
+      "used_gb": 3553,
+      "available_gb": 31,
+      "usage_percent": 100
+    },
+    "impact": "Python cannot run due to lack of temporary directory space; experiments impossible"
+  },
+  
+  "source_code": {
+    "status": "FAIL",
+    "repo_path": "/home/liaoyuanjun/3dgs-renderer-benchmark",
+    "git_commit": "32ab80e773f74f4d8e40ff4e338c86b29c7957f5",
+    "git_status": "dirty (3 modified files, multiple untracked)",
+    "modified_files": [
+      "baseline/reference_v1/colmap_reader.py",
+      "baseline/reference_v1/config.py",
+      "scripts/phase-r0.1/collect_checkpoints.sh"
+    ],
+    "missing_files": [
+      "benchmark/run_higs_train_benchmark.py (PRIMARY BENCHMARK FILE NOT FOUND)"
+    ],
+    "key_api_present": false,
+    "note": "Expected benchmark file does not exist at documented path"
+  },
+  
+  "datasets": {
+    "status": "PASS",
+    "base_path": "/mnt/storage_pool/liaoyuanjun/benchmark_data/mipnerf360",
+    "garden": {
+      "images_count": 185,
+      "sparse_structure": "COLMAP format (cameras.bin, images.bin, points3D.bin)",
+      "eval_cameras": false,
+      "eval_images": false,
+      "checkpoints_pt": false
+    },
+    "bicycle": {
+      "images_count": "present",
+      "eval_cameras_json": true,
+      "eval_images_dir": true,
+      "point_cloud_ply": true,
+      "checkpoints_pt": false
+    }
+  },
+  
+  "available_checkpoints": {
+    "status": "PARTIAL_PASS",
+    "fastergsfused": {
+      "garden_5k": {
+        "path": "/mnt/storage_pool/liaoyuanjun/strong_baselines/nerficg/output/FasterGSFused/fp1_garden_2026-10-06-01-32-48/checkpoints/0005000.pt",
+        "size_mb": 483,
+        "provenance": "UNVERIFIED (no metadata or training log found)"
+      },
+      "garden_10k": {
+        "path": "/mnt/storage_pool/liaoyuanjun/strong_baselines/nerficg/output/FasterGSFused/fp1_garden_2026-10-06-01-32-48/checkpoints/0010000.pt",
+        "size_mb": 567,
+        "provenance": "UNVERIFIED"
+      },
+      "garden_final": {
+        "path": "/mnt/storage_pool/liaoyuanjun/strong_baselines/nerficg/output/FasterGSFused/fp1_garden_2026-10-06-01-32-48/checkpoints/final.pt",
+        "size_mb": 732,
+        "provenance": "UNVERIFIED"
+      },
+      "bicycle_5k": {
+        "path": "/mnt/storage_pool/liaoyuanjun/strong_baselines/nerficg/output/FasterGSFused/fp1_bicycle_2026-10-06-01-01-33/checkpoints/0005000.pt",
+        "size_mb": 579,
+        "provenance": "UNVERIFIED"
+      },
+      "bicycle_10k": {
+        "path": "/mnt/storage_pool/liaoyuanjun/strong_baselines/nerficg/output/FasterGSFused/fp1_bicycle_2026-10-06-01-01-33/checkpoints/0010000.pt",
+        "size_mb": 908,
+        "provenance": "UNVERIFIED"
+      },
+      "bicycle_final": {
+        "path": "/mnt/storage_pool/liaoyuanjun/strong_baselines/nerficg/output/FasterGSFused/fp1_bicycle_2026-10-06-01-01-33/checkpoints/final.pt",
+        "size_mb": 1045,
+        "provenance": "UNVERIFIED"
+      }
+    },
+    "note": "Checkpoint provenance, N values, and training metadata UNVERIFIED due to disk space preventing Python execution"
+  },
+  
+  "blocking_issues": [
+    {
+      "severity": "CRITICAL",
+      "category": "BLOCKED_ENVIRONMENT",
+      "issue": "Disk space exhausted (root 0GB, storage 31GB available)",
+      "impact": "Python cannot execute; all experiments impossible",
+      "requires": "User intervention to clean /mnt/storage_pool/liaoyuanjun/data (2.1TB) or other non-critical data"
+    },
+    {
+      "severity": "CRITICAL",
+      "category": "BLOCKED_SOURCE_IDENTITY",
+      "issue": "Primary benchmark file benchmark/run_higs_train_benchmark.py does not exist",
+      "impact": "Cannot verify source code identity or tile_mask API",
+      "requires": "Confirm repository completeness or locate actual source path"
+    },
+    {
+      "severity": "HIGH",
+      "category": "BLOCKED_MISSING_REAL_STATES",
+      "issue": "Checkpoint provenance and N values unverified",
+      "impact": "Cannot confirm if checkpoints are genuine training states or mislabeled (e.g., 580K labeled as 6M)",
+      "requires": "Load checkpoints with Python to extract metadata once disk space resolved"
+    }
+  ],
+  
+  "next_action_required": "BLOCKED - User must resolve disk space before proceeding",
+  "estimated_resolution_time": "Unknown (depends on user cleanup or storage expansion)",
+  
+  "evidence_files": [
+    "PROGRESS.md (detailed progress log)",
+    "This audit report"
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "timestamp": "2026-10-08T15:30:00Z",
+  "campaign": "TRAINABLE_HIGS_OOM_ROOTCAUSE_R10_MX",
+  "status": "ROOT_CAUSE_IDENTIFIED",
+  "root_cause_verdict": "ROOT_CAUSE_IDENTIFIED",
+  "fix_verdict": "NOT_IMPLEMENTED",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "allocation_site": {
+    "file": "IntersectTile.cu",
+    "line": 833,
+    "function": "gsplat::intersect_tile",
+    "code": "isect_ids = at::empty({n_isects}, opt.dtype(at::kLong));",
+    "allocation_type": "PyTorch at::empty"
+  },
+  "allocation_details": {
+    "requested_bytes": 119488359424,
+    "requested_gb": 111.28,
+    "requested_gib": 111.28,
+    "formula": "n_isects * 12 bytes (8 for int64 + 4 for int32)",
+    "n_isects": 9957363285,
+    "tensor_1": "isect_ids [n_isects] int64",
+    "tensor_2": "flatten_ids [n_isects] int32"
+  },
+  "stack_trace_evidence": {
+    "key_frames": [
+      "gsplat::intersect_tile at IntersectTile.cu",
+      "at::empty at EmptyTensor.cpp",
+      "at::detail::empty_cuda",
+      "c10::cuda::CUDACachingAllocator::malloc"
+    ],
+    "full_stack_saved": true,
+    "snapshot_captured": true
+  },
+  "n_isects_analysis": {
+    "expected_4p4m_b4": 158000000,
+    "actual_4p4m_b4": 9957363285,
+    "ratio": 63.0,
+    "conclusion": "Intersection count explosion (63x over-counting)"
+  },
+  "r3_r8_comparison": {
+    "r3_allocation_gb": 13.90,
+    "r8_allocation_gb": 111.28,
+    "ratio": 8.0,
+    "same_site": true,
+    "explanation": "Same allocation site, different n_isects values (R3 had 8x fewer intersections)"
+  },
+  "hypotheses": {
+    "h1_intersection_explosion": "SUPPORTED",
+    "h2_camera_duplication": "POSSIBLE",
+    "h3_hierarchy_duplication": "POSSIBLE",
+    "h4_sorting_workspace": "REFUTED",
+    "h5_peak_overlap": "REFUTED",
+    "h6_different_sites": "REFUTED",
+    "h7_implementation_error": "LIKELY",
+    "h8_binary_mismatch": "REFUTED"
+  },
+  "answers": {
+    "q1_allocation_line": "IntersectTile.cu:833",
+    "q2_formula": "n_isects * 12 bytes where n_isects = 9,957,363,285",
+    "q3_r3_r8_difference": "Same site, different n_isects (R8 had 8x more intersections)",
+    "q4_intersection_count": "9,957,363,285 (63x expected)",
+    "q5_algorithmic_or_implementation": "IMPLEMENTATION_ERROR (counting bug)",
+    "q6_safe_fix": "NOT_IDENTIFIED (need to fix counting logic first)",
+    "q7_fix_built": "NO"
+  },
+  "recommendation": "Fix intersection counting kernel in IntersectTile.cu. Current count is 63x too high. Investigate: (1) hierarchy traversal for duplicates, (2) culling logic application, (3) count kernel correctness. Do NOT fix allocation size - it's correct given n_isects.",
+  "verdict": {
+    "root_cause": "ROOT_CAUSE_IDENTIFIED",
+    "fix": "NOT_IMPLEMENTED",
+    "next_action": "FIX_COUNTING_KERNEL"
+  }
+}
