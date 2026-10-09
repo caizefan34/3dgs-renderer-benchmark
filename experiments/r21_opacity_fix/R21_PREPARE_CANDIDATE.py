@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import shutil
+import sys
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -51,6 +53,42 @@ def verify_candidate(root):
     if sha(root/EXT) != r20['binary_sha256']: raise ValueError('R20 build identity mismatch')
     for rel, expected in identity['unchanged_files'].items():
         if sha(root/rel) != expected: raise ValueError(f'Candidate dependency changed: {rel}')
+    return identity
+
+
+def load_verified_binaries(root, *, higs):
+    """Import pinned .so modules directly; an import failure must not trigger JIT.
+
+    Both actual frozen backend loaders catch ImportError and attempt a build.
+    Load by exact path before importing gsplat: its package initializer can
+    itself import the backend. ABI/import failures propagate without a builder.
+    """
+    root = Path(root).resolve()
+    sys.path.insert(0, str(root))
+    modules = [('gsplat.csrc', MAIN, STD_SHA)]
+    if higs:
+        modules.append(('gsplat.experimental.render.kernels.csrc', EXT, R20_EXT_SHA))
+    identity = {}
+    for name, relative, expected in modules:
+        path = (root/relative).resolve()
+        if sha(path) != expected:
+            raise ValueError(f'Binary bytes differ from pinned candidate: {path}')
+        module = sys.modules.get(name)
+        if module is None:
+            spec = importlib.util.spec_from_file_location(name, path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f'Cannot load pinned binary: {path}')
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                del sys.modules[name]
+                raise
+        loaded = Path(module.__file__).resolve()
+        if loaded != path or sha(loaded) != expected:
+            raise ValueError(f'Loaded binary differs from pinned candidate: {name}: {loaded}')
+        identity[name] = {'path':str(loaded), 'sha256':expected}
     return identity
 
 

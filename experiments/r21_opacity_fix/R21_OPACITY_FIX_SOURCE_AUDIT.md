@@ -93,6 +93,13 @@ tile masks, sorting, blending nor their thresholds. Tile/pixel parity still
 requires the supplied MX numerical test; mathematical support alignment alone
 is insufficient evidence of no lost pixel contribution.
 
+The actual MX `gsplat/cuda/_backend.py` and exported experimental
+`render/kernels/_backend.py` both catch prebuilt import failures and attempt
+JIT compilation. P4 test workers and history capture therefore preload the
+exact pinned libraries by path before package initialization, then check their
+actual module paths and hashes. This adds no production renderer change and
+prevents a fallback build from masquerading as frozen/candidate parity.
+
 ## Real evidence and remaining gates
 
 `evidence/KNOWN_MISMATCH_FIXTURES.json` was extracted using CPU-only reads of

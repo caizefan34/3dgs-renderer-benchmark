@@ -119,6 +119,8 @@ def main():
     if args.backend == "higs":
         from R21_PREPARE_CANDIDATE import verify_candidate
         identity["r21_candidate"] = verify_candidate(args.project)
+    from R21_PREPARE_CANDIDATE import load_verified_binaries
+    identity["loaded_binaries"] = load_verified_binaries(args.project, higs=args.backend == "higs")
     options = {k:(str(v.resolve()) if isinstance(v, Path) else v) for k,v in vars(args).items()}
     options["capture_at"] = [int(v) for v in args.capture_at.split(",") if v]
     options["arm"] = args.arm or ("A" if args.backend == "std_ll" else "B")

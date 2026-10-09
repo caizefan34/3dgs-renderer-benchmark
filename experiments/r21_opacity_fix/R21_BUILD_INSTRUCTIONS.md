@@ -52,6 +52,13 @@ identical. A mismatch aborts; export and audit changed sources instead of
 disabling checks. Failed preparation leaves a partial new directory for
 inspection; use another fresh directory when retrying.
 
+P4 workers and history capture preload the two compiled modules by their exact
+paths, before package initialization, and check the loaded paths and SHA256.
+Import/ABI failures abort. They cannot silently use the backend loader's JIT
+fallback. The two added CPU tests cover wrong loaded paths/bytes and import
+failure; the CPU suite now has 15 tests. Production wrapper bytes are unchanged
+by this additional validation.
+
 Public API is unchanged. Internal projection calls now require activated
 opacity `[1,N]` / `[1,Nvisible]`. `eps2d=.1` remains the explicit R20 trainer
 setting. Neither thresholds nor sigmoid/exp/quaternion activation is changed.

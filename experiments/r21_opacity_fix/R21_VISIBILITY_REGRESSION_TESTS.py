@@ -230,6 +230,35 @@ class WrapperContracts(unittest.TestCase):
                 self.assertTrue(torch.equal(gathered[3], self.opacity[ids]))
                 self.assertEqual(sum(a != b for a,b in zip(record['std_visibility'], record['r20_visibility'])), 32)
 
+    def test_loaded_binary_identity_rejects_other_path_and_wrong_bytes(self):
+        import R21_PREPARE_CANDIDATE as prepare
+        root = (HERE/'unused_runtime_fixture').resolve()
+        module = types.SimpleNamespace(__file__=str(root/prepare.MAIN))
+        with patch.dict(sys.modules, {'gsplat.csrc':module}), \
+             patch.object(prepare, 'sha', return_value=prepare.STD_SHA), patch.object(sys, 'path', list(sys.path)):
+            result = prepare.load_verified_binaries(root, higs=False)
+            self.assertEqual(result['gsplat.csrc']['sha256'], prepare.STD_SHA)
+            module.__file__ = str(root/'jit-cache/csrc.so')
+            with self.assertRaisesRegex(ValueError, 'Loaded binary differs'):
+                prepare.load_verified_binaries(root, higs=False)
+            module.__file__ = str(root/prepare.MAIN)
+            with patch.object(prepare, 'sha', return_value='different'):
+                with self.assertRaisesRegex(ValueError, 'Binary bytes differ'):
+                    prepare.load_verified_binaries(root, higs=False)
+
+    def test_loaded_binary_import_failure_does_not_fallback(self):
+        import R21_PREPARE_CANDIDATE as prepare
+        with patch.object(prepare.importlib.util, 'module_from_spec', side_effect=ImportError('ABI mismatch')) as imp, \
+             patch.object(prepare.importlib.util, 'spec_from_file_location',
+                          return_value=types.SimpleNamespace(loader=object())), \
+             patch.object(prepare, 'sha', return_value=prepare.STD_SHA), \
+             patch.object(sys, 'path', list(sys.path)), patch.dict(sys.modules):
+            sys.modules.pop('gsplat.csrc', None)
+            with self.assertRaisesRegex(ImportError, 'ABI mismatch'):
+                prepare.load_verified_binaries(HERE, higs=True)
+            imp.assert_called_once()
+            self.assertNotIn('gsplat.csrc', sys.modules)
+
 
 def opacity_fixtures():
     cases = parity.synthetic_fixtures()
@@ -287,6 +316,8 @@ def worker(args):
     if args.backend == 'higs':
         from R21_PREPARE_CANDIDATE import verify_candidate
         verify_candidate(root)
+    from R21_PREPARE_CANDIDATE import load_verified_binaries
+    loaded_binaries = load_verified_binaries(root, higs=args.backend == 'higs')
     sys.path.insert(0, str(root))
     import gsplat
     if root not in Path(gsplat.__file__).resolve().parents: raise ValueError('Wrong gsplat import root')
@@ -330,6 +361,7 @@ def worker(args):
         finally:
             parity.render = original
     torch.save(dict(results=results, projection=projection, dynamic=dynamic, root=str(root),
+                    loaded_binaries=loaded_binaries,
                     device=torch.cuda.get_device_name(), px=os.getenv('HIGS_PX_RUNTIME')), args.output)
 
 
@@ -402,6 +434,7 @@ def gpu_suite(args):
     write_json(args.output, dict(status='PASS_SCOPED' if passed else 'FAIL',
         scope='same-state supplied fixtures; full P4 historical/training gates remain separate',
         fixture_sha256=sha(fixture_path), cameras=args.cameras, px=os.getenv('HIGS_PX_RUNTIME', '2'),
+        loaded_binaries={tag:c['loaded_binaries'] for tag,c in captures.items()},
         true_absgrad=true_report, signed_mode=false_report, side_channel=side_report,
         dynamic_topology=dynamic_report, visibility=visibility,
         history_replay='NOT_EXECUTED', training='NOT_EXECUTED'))
