@@ -1,0 +1,85 @@
+{
+  "timestamp_utc": "2026-10-08T14:44:00Z",
+  "campaign": "WORK-GRADIENT-ORACLE0-MX",
+  "audit_type": "MINIMAL_SMOKE_TEST",
+  "status": "BLOCKED",
+  
+  "test_intent": "Verify sparse tile-mask rendering skips unselected tiles and produces correct gradients",
+  
+  "prerequisites": {
+    "python_env": "PASS",
+    "torch_cuda": "PASS",
+    "gsplat_import": "PASS",
+    "checkpoint_loadable": "PASS",
+    "source_benchmark_file": "EXTRACTED",
+    "sparse_tile_api": "MISSING"
+  },
+  
+  "gsplat_audit": {
+    "version": "1.5.3",
+    "path": "/home/liaoyuanjun/miniforge3/envs/nerficg/lib/python3.11/site-packages/gsplat",
+    "has_experimental_module": false,
+    "experimental_import_error": "cannot import name 'experimental' from 'gsplat'",
+    "has_higs_dynamic_function": false,
+    "has_tile_mask_parameter": false,
+    "binaries_found": 0,
+    "sparse_tile_api_available": false
+  },
+  
+  "test_execution": {
+    "attempted": false,
+    "reason": "gsplat.experimental.HiGS API not available in installed gsplat 1.5.3",
+    "error": "ImportError: cannot import name 'experimental' from 'gsplat'",
+    "blocked_at": "PREREQUISITE_CHECK"
+  },
+  
+  "what_would_be_tested": {
+    "test_1": "Load checkpoint (garden_5K, N=2047889)",
+    "test_2": "Create tile_mask selecting 25% of tiles (random subset)",
+    "test_3": "Call rasterize_gaussian_higs_dynamic with tile_mask parameter",
+    "test_4": "Verify only selected tiles are rendered (forward output sparse)",
+    "test_5": "Verify backward pass produces gradients only for selected tiles",
+    "test_6": "Verify loss weighting correct (importance_l1_loss with proper normalization)",
+    "test_7": "Verify CUDA sparse kernel skips unselected tile intersection/binning work"
+  },
+  
+  "expected_findings": {
+    "sparse_forward": "Only pixels in selected tiles should have non-zero render values",
+    "sparse_backward": "Only Gaussians contributing to selected tiles should have non-zero gradients",
+    "loss_weighting": "Importance weights should normalize by selected pixel count",
+    "kernel_efficiency": "CUDA events should show speedup proportional to selected tile fraction"
+  },
+  
+  "blocking_issue": {
+    "category": "BINARY_SOURCE_MISMATCH",
+    "severity": "CRITICAL",
+    "description": "Installed gsplat 1.5.3 is base version without experimental.HiGS extensions",
+    "root_cause": "Benchmark source (extracted from commit 3bd1592) requires gsplat fork with HiGS API",
+    "impact": "Cannot verify sparse tile-mask functionality, cannot execute S1A gradient oracle"
+  },
+  
+  "verification_paths": {
+    "path_1": {
+      "action": "Check if gsplat has separate HiGS package",
+      "command": "pip list | grep -i higs",
+      "status": "NOT_EXECUTED"
+    },
+    "path_2": {
+      "action": "Search for gsplat fork with HiGS in repository",
+      "url": "https://github.com/caizefan34/3dgs-renderer-benchmark",
+      "status": "NOT_EXECUTED"
+    },
+    "path_3": {
+      "action": "Check gsplat installation source (pip vs source)",
+      "command": "pip show gsplat",
+      "status": "NOT_EXECUTED"
+    },
+    "path_4": {
+      "action": "Reinstall gsplat from correct branch/commit with HiGS",
+      "status": "BLOCKED_REQUIRES_USER_CONFIRMATION"
+    }
+  },
+  
+  "gate_status": "BLOCKED",
+  "gate_reason": "Cannot execute smoke test due to missing gsplat.experimental.HiGS API"
+}

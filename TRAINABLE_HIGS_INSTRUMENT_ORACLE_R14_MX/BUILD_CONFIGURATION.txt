@@ -1,0 +1,43 @@
+HiGS Build Configuration
+========================
+
+Source Location:
+/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/
+
+Build System: PyTorch C++ Extension (setuptools)
+
+Build Command:
+python setup.py build_ext --inplace
+
+Build Requirements:
+- CUDA Toolkit 12.8
+- PyTorch 2.9.1+cu128
+- Python 3.10
+- C++17 compatible compiler (GCC 9+)
+
+Output Binary:
+gsplat/experimental/render/kernels/csrc.so
+
+Binary SHA256:
+b64d02c1cdad51bfc9ff0c2c435f9a4c1d1603466700194fb30f1c2348bcf2c3
+
+Environment Activation:
+source /home/liaoyuanjun/miniforge3/bin/activate /mnt/storage_pool/liaoyuanjun/higs-13scene-env
+
+CUDA Extension Structure:
+- gsplat/cuda/csrc/IntersectTile.cu  (main counting logic)
+- gsplat/cuda/ext.cpp                  (pybind11 bindings)
+- setup.py                            (build configuration)
+
+Verification:
+Binary verified by R8_RUNTIME_RECOVERY campaign at 580K Gaussians, B1 camera.
+
+Key Source Files:
+1. IntersectTile.cu - Contains intersect_tile() function with counting kernel
+2. ext.cpp - C++ pybind11 bindings for Python interface
+3. setup.py - PyTorch extension build configuration
+
+Build Notes:
+- Uses CUB library for prefix sum (included in CUDA toolkit)
+- Uses ATen (PyTorch C++ tensor library)
+- No external dependencies beyond PyTorch and CUDA

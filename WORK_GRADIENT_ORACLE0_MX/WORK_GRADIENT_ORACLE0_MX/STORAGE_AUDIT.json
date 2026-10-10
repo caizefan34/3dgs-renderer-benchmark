@@ -1,0 +1,103 @@
+{
+  "timestamp_utc": "2026-10-08T14:40:00Z",
+  "campaign": "WORK-GRADIENT-ORACLE0-MX",
+  "audit_type": "STORAGE_RECOVERY",
+  
+  "partitions": {
+    "root": {
+      "device": "/dev/sda1",
+      "mount": "/",
+      "total_gb": 439,
+      "used_gb": 429,
+      "available_gb": 0,
+      "usage_percent": 100,
+      "filesystem": "ext4"
+    },
+    "storage_pool": {
+      "device": "/dev/md0",
+      "mount": "/mnt/storage_pool",
+      "total_gb": 3584,
+      "used_gb": 3553,
+      "available_gb": 31,
+      "usage_percent": 100,
+      "filesystem": "xfs"
+    }
+  },
+  
+  "inodes": {
+    "root": {
+      "total": 29237248,
+      "used": 2021817,
+      "free": 27215431,
+      "usage_percent": 7
+    },
+    "storage_pool": {
+      "total": 75869656,
+      "used": 12741040,
+      "free": 63128616,
+      "usage_percent": 17
+    }
+  },
+  
+  "user_info": {
+    "username": "liaoyuanjun",
+    "uid": 1000,
+    "home": "/home/liaoyuanjun",
+    "quota": "NOT_SET"
+  },
+  
+  "writeability_test": {
+    "root_tmp": false,
+    "storage_pool": true,
+    "test_file_size_mb": 10,
+    "test_result": "PASS"
+  },
+  
+  "temp_directory": {
+    "created": "/mnt/storage_pool/liaoyuanjun/work_gradient_oracle0_tmp",
+    "owner": "liaoyuanjun",
+    "permissions": "drwxr-xr-x",
+    "purpose": "Isolated TMPDIR for WORK-GRADIENT-ORACLE0-MX recovery"
+  },
+  
+  "environment_variables": {
+    "TMPDIR": "/mnt/storage_pool/liaoyuanjun/work_gradient_oracle0_tmp",
+    "TMP": "/mnt/storage_pool/liaoyuanjun/work_gradient_oracle0_tmp",
+    "TEMP": "/mnt/storage_pool/liaoyuanjun/work_gradient_oracle0_tmp",
+    "XDG_CACHE_HOME": "/mnt/storage_pool/liaoyuanjun/work_gradient_oracle0_tmp/cache"
+  },
+  
+  "python_imports": {
+    "tempfile": "PASS",
+    "torch": "PASS",
+    "torch_version": "2.7.1+cu118",
+    "cuda_available": true,
+    "cuda_version": "11.8",
+    "gpu_name": "NVIDIA A100-PCIE-40GB",
+    "gsplat": "PASS",
+    "gsplat_version": "1.5.3"
+  },
+  
+  "solution": {
+    "problem": "Root partition 100% full, Python tempfile module failed",
+    "solution": "Created isolated TMPDIR on storage pool with write permission",
+    "result": "All Python imports successful with TMPDIR set"
+  },
+  
+  "large_directories": {
+    "storage_pool": [
+      {"path": "/mnt/storage_pool/liaoyuanjun/data", "size_tb": 2.1},
+      {"path": "/mnt/storage_pool/liaoyuanjun/hf_home", "size_gb": 47},
+      {"path": "/mnt/storage_pool/liaoyuanjun/runs", "size_gb": 43}
+    ],
+    "home": [
+      {"path": "/home/liaoyuanjun/projects", "size_gb": 90},
+      {"path": "/home/liaoyuanjun/miniforge3", "size_gb": 63},
+      {"path": "/home/liaoyuanjun/3dgs-renderer-benchmark", "size_gb": 46}
+    ]
+  },
+  
+  "recommendation": "Storage space on root partition requires cleanup by user; TMPDIR workaround enables Python execution for experiment",
+  
+  "gate_status": "PASS"
+}

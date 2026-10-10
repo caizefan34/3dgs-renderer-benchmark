@@ -1,0 +1,92 @@
+{
+  "schema": "WV0_PROTOCOL.v1",
+  "campaign": "WV-HIER-ORACLE0-MX",
+  "objective": "Falsification campaign: does intermediate spatial execution granularity (8x8, 4x4) occupy an interior work-variance Pareto point between conventional 16x16 tile sparsity and iid 1x1 pixel sparsity, at matched expected pixel supervision budget?",
+  "execution_model": "OBSERVED_ORACLE",
+  "backend": {
+    "renderer": "gsplat 1.5.3 (user-site, CUDA 12.4 build, torch 2.4.1+cu124)",
+    "env": "conda anysplat on MX (bms-39468022-001)",
+    "substrate_note": "Structural + gradient oracle. G8/G4 are NOT native CUDA scheduling units; work is measured via STRUCTURAL_WORK_ORACLE (Gaussian-tile intersection counts from frozen projected state). Gradient fidelity is measured exactly via gsplat's own rasterizer + autograd on tile-masked L2 loss with inverse-probability weighting."
+  },
+  "fixed_states": {
+    "scenes": ["room", "garden", "bicycle"],
+    "stages": {
+      "early": "~5k iterations",
+      "mid": "~15k iterations",
+      "late": "~30k iterations"
+    },
+    "selection": "room: 5000/15000/30000; garden: 5000/15000/30000 (s22 baseline); bicycle: 5000/15000/30000 (s22 baseline). All genuine trained checkpoints, no synthetic duplication.",
+    "minimum_met": ">=2 genuine states per scene (each scene has 3)"
+  },
+  "gradient_reference": {
+    "loss": "L2 (MSE) per pixel on rendered RGB vs GT, summed over pixels",
+    "supervision": "full image (dense)",
+    "parameter_groups": ["means", "quats", "scales", "opacities", "colors"],
+    "geometry_groups": ["means", "quats", "scales"],
+    "rationale": "Per-pixel gradient contributions are additive under L2, so uniform tile-subset with IPW yields an UNBIASED estimator of the dense gradient. This isolates granularity->variance without confounding selection policy. Identical camera/loss/resolution/Gaussian state/eps2d/SH degree across granularities."
+  },
+  "candidate_granularities": [16, 8, 4, 1],
+  "granularity_definitions": {
+    "G16": "16x16 tile (gsplat native)",
+    "G8": "8x8 tile",
+    "G4": "4x4 tile",
+    "G1": "1x1 iid pixel (each pixel its own execution unit)"
+  },
+  "sampling_policy": "uniform random only; no error-guided/importance/residual/adaptive sampling",
+  "sampling_budgets": [0.25, 0.40],
+  "inclusion_probability": {
+    "model": "Bernoulli per execution unit (tile for G in {16,8,4}, pixel for G=1)",
+    "pi": "p (equal-size units -> expected selected pixel fraction = p exactly)",
+    "boundary": "boundary tiles have fewer pixels but same inclusion prob -> per-pixel inclusion = pi for all pixels -> unbiased",
+    "ipw_weight": "1/pi applied to selected pixels' loss"
+  },
+  "mask_repetitions": 32,
+  "mask_seeds": "0..31, frozen, identical seed list across all granularities",
+  "metrics": {
+    "per_group": ["relative_L2", "cosine", "NMSE"],
+    "aggregation": ["per-group", "macro-average across 5 groups", "geometry-only macro-average (means+quats+scales)"],
+    "stats_over_32_masks": ["mean", "median", "std", "p25", "p75", "p90"],
+    "variance_decomposition": {
+      "Var_k": "E||ghat_k - E[ghat_k]||^2 across masks",
+      "Bias_k": "||E[ghat_k] - g*_k||",
+      "note": "uniform IPW should be ~unbiased; large bias investigated before interpreting variance"
+    }
+  },
+  "topology_diagnostic": {
+    "status": "DIAGNOSTIC_ONLY",
+    "signals": ["means2d gradient norm"],
+    "metrics": ["relative_L2", "cosine", "rank_correlation", "topK_overlap"],
+    "K": ["top 1%", "top 5%"],
+    "note": "not a GO/DROP gate for ORACLE0"
+  },
+  "work_definition": {
+    "pixel_fraction": "E[selected pixels]/total",
+    "structural_work_counters": ["selected_pixels", "selected_tiles", "gaussian_tile_intersections", "visible_gaussians"],
+    "W_int": "Gaussian-tile intersections (selected) / (dense full)",
+    "W_blend": "approximated by same selected fraction (blend interactions scale with selected pixels for uniform tile sampling)",
+    "evidence_class": "STRUCTURAL_WORK_ORACLE",
+    "no_runtime_claim": "no wall-time speedup claimed from structural counters"
+  },
+  "runtime_calibration": {
+    "status": "NOT_RUN_IN_ORACLE0",
+    "reason": "G8/G4 not native CUDA units; dense/tile/pixel runtime calibration deferred to Codex implementation phase per spec section 23",
+    "existing_modes": "dense + 16x16 tile + iid pixel executable via gsplat; calibration planned but not blocking"
+  },
+  "anti_confounding": {
+    "held_constant": ["sampling_policy", "loss", "optimizer(n/a - no training)", "densification(n/a)", "resolution_within_condition", "eps2d", "SH_degree", "camera", "Gaussian_state"],
+    "only_varied": ["granularity", "sampling_mask"]
+  },
+  "go_gate": {
+    "Gate_A": "NMSE_cand <= 0.70 * NMSE_G16 on geometry macro avg, across >=2 of 3 scenes AND >=2 stages per passing scene (>=30% reduction; >=50% preferred)",
+    "Gate_B": "matched gradient cosine improves materially over G16 (not just norm shrinkage)",
+    "Gate_C": "W_cand,dense <= 0.70 for blend or intersection work AND no catastrophic other-counter increase",
+    "Gate_D": "at least one high-load scene (garden or bicycle) passes",
+    "strong_go": "G8 or G4: >=50% lower geometry NMSE than G16 AND W <= 0.65 dense on garden+bicycle for >=1 common budget and >=2 stages each"
+  },
+  "drop_gates": {
+    "NO_GO_NO_INTERIOR_PARETO": "G16 poor, G8 poor, G4 poor, G1 good",
+    "NO_GO_WORK_COLLAPSE": "G8/G4 improve gradients but W > 0.85 dense",
+    "NO_GO_NO_VARIANCE_ADVANTAGE": "intermediate granularity does not materially improve gradient fidelity over G16",
+    "NO_GO_NOT_GENERAL": "benefit only on one low-load scene"
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "evidence_class": "PROVENANCE_CLASSIFICATION_OF_EXISTING_EVIDENCE",
+  "provenance": {
+    "observed_saved_active_pixel_fraction": {
+      "class": "OBSERVED",
+      "source": "MX reconstructed_masks/*.bin (real rendered tile masks, 32 seeds)",
+      "role": "validates inclusion probability = p (sampling-design correctness)",
+      "used_in_N1N2": "cross-check only"
+    },
+    "observed_saved_mean_selected_pixels": {
+      "class": "OBSERVED",
+      "source": "MX reconstructed_masks (mean over 32 seeds)",
+      "role": "validates expected_selected_pixels (DERIVED) against real mask",
+      "used_in_N1N2": "cross-check only"
+    },
+    "observed_saved_mean_selected_tiles": {
+      "class": "OBSERVED",
+      "source": "MX reconstructed_masks (mean over 32 seeds)",
+      "role": "validates p-fraction tile inclusion at G16/G4",
+      "used_in_N1N2": "cross-check only"
+    },
+    "dense_intersection_proxy": {
+      "class": "DERIVED",
+      "source": "absolute_intersection_at_G = drawn_gaussians * pi*r_max^2 * G^2 / (H*W) (analytic)",
+      "role": "the rho = I_G4/I_G16 basis of the N1/N2 work model",
+      "used_in_N1N2": "PRIMARY (rho)"
+    },
+    "expected_selected_pixels": {
+      "class": "DERIVED",
+      "source": "image_area * p",
+      "role": "cross-checked against OBSERVED selected pixels",
+      "used_in_N1N2": "validation"
+    },
+    "physical_cuda_intersections": {
+      "class": "NOT_MEASURED",
+      "source": "no kernel-visible intersection counter instrumented",
+      "role": "would be the true I_G4/I_G16; absent",
+      "used_in_N1N2": "absent"
+    },
+    "kernel_ms": {
+      "class": "NOT_MEASURED",
+      "source": "no CUDA kernel timing",
+      "role": "true GPU time; absent",
+      "used_in_N1N2": "absent"
+    },
+    "forward_backward_ms": {
+      "class": "NOT_MEASURED",
+      "source": "no fwd+bwd timing",
+      "role": "true end-to-end time; absent",
+      "used_in_N1N2": "absent"
+    }
+  },
+  "cross_checks": {
+    "p0.25_active_pixel_fraction": {
+      "observed_mean": 0.25003050146779654,
+      "target": 0.25,
+      "max_abs_dev": 0.0011815837446089994,
+      "verdict": "VALIDATES inclusion probability = p on real rendered masks"
+    },
+    "p0.40_active_pixel_fraction": {
+      "observed_mean": 0.399645641760092,
+      "target": 0.4,
+      "max_abs_dev": 0.00123855097594594,
+      "verdict": "VALIDATES inclusion probability = p on real rendered masks"
+    },
+    "selected_pixels_G16_p025": {
+      "observed_mean": 109474.75,
+      "derived_expected": 109755.0,
+      "rel_err": 0.0025534144230331193,
+      "verdict": "OBSERVED matches DERIVED expected selected pixels (<1% rel err)"
+    }
+  },
+  "rho_table": [
+    {
+      "state_id": "bicycle__iter15000",
+      "I_G16_derived": 4016382.0,
+      "I_G4_derived": 24153385.0,
+      "rho_derived": 6.013717071732719,
+      "physical_cuda_intersections_G4": "NOT_MEASURED",
+      "rho_observable": "NO_derived_only"
+    },
+    {
+      "state_id": "bicycle__iter30000",
+      "I_G16_derived": 3662457.0,
+      "I_G4_derived": 21440859.0,
+      "rho_derived": 5.854228186160275,
+      "physical_cuda_intersections_G4": "NOT_MEASURED",
+      "rho_observable": "NO_derived_only"
+    },
+    {
+      "state_id": "bicycle__iter5000",
+      "I_G16_derived": 2413832.0,
+      "I_G4_derived": 19206646.0,
+      "rho_derived": 7.956910837208223,
+      "physical_cuda_intersections_G4": "NOT_MEASURED",
+      "rho_observable": "NO_derived_only"
+    },
+    {
+      "state_id": "garden__iter15000",
+      "I_G16_derived": 2705220.0,
+      "I_G4_derived": 13056078.0,
+      "rho_derived": 4.826253687315634,
+      "physical_cuda_intersections_G4": "NOT_MEASURED",
+      "rho_observable": "NO_derived_only"
+    },
+    {
+      "state_id": "garden__iter30000",
+      "I_G16_derived": 2682079.0,
+      "I_G4_derived": 12954997.0,
+      "rho_derived": 4.830207089351209,
+      "physical_cuda_intersections_G4": "NOT_MEASURED",
+      "rho_observable": "NO_derived_only"
+    },
+    {
+      "state_id": "garden__iter5000",
+      "I_G16_derived": 2550983.0,
+      "I_G4_derived": 11880321.0,
+      "rho_derived": 4.657154124508081,
+      "physical_cuda_intersections_G4": "NOT_MEASURED",
+      "rho_observable": "NO_derived_only"
+    },
+    {
+      "state_id": "room__iter15000",
+      "I_G16_derived": 1496230.0,
+      "I_G4_derived": 11910452.0,
+      "rho_derived": 7.960308241380002,
+      "physical_cuda_intersections_G4": "NOT_MEASURED",
+      "rho_observable": "NO_derived_only"
+    },
+    {
+      "state_id": "room__iter30000",
+      "I_G16_derived": 1354839.0,
+      "I_G4_derived": 11078012.0,
+      "rho_derived": 8.17662615262773,
+      "physical_cuda_intersections_G4": "NOT_MEASURED",
+      "rho_observable": "NO_derived_only"
+    },
+    {
+      "state_id": "room__iter5000",
+      "I_G16_derived": 1424660.0,
+      "I_G4_derived": 13162206.0,
+      "rho_derived": 9.238840144315136,
+      "physical_cuda_intersections_G4": "NOT_MEASURED",
+      "rho_observable": "NO_derived_only"
+    }
+  ],
+  "conclusion": {
+    "what_is_observed": "Inclusion probability = p (active-pixel fraction 0.2494 vs 0.25 target; selected pixels match expected); selected-tile counts. These validate the SAMPLING DESIGN.",
+    "what_is_derived": "dense_intersection_proxy (I_G16, I_G4, rho) \u2014 analytic, basis of the N1/N2 work comparison. rho is DERIVED_ONLY; physical_cuda_intersections is NOT_MEASURED, so rho cannot be validated against a true kernel intersection count.",
+    "what_is_not_measured": "kernel_ms, forward_backward_ms, physical_cuda_intersections \u2014 all NOT_MEASURED. No GPU time exists.",
+    "N1N2_conclusion_basis": "The N1/N2 dominance comparison rests ENTIRELY on the DERIVED rho proxy. It is GAM-invariant (round 2) but NOT validated against any OBSERVED intersection count. This is consistent with the report's claim that the result is a structural proxy, not GPU time.",
+    "honesty_note": "OBSERVED data confirms the sampling design is correct (inclusion=p). It does NOT confirm the dense-intersection magnitudes; those remain DERIVED. No claim of measured GPU work."
+  }
+}

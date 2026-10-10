@@ -1,0 +1,628 @@
+{
+  "deliverable": "R17_CAMERA_IDENTITY.json",
+  "status": "EXECUTED",
+  "r3_synthetic": {
+    "status": "SYNTHETIC_CIRCULAR_NOT_FROM_CAMERAS_JSON",
+    "cam0_K": {
+      "shape": [
+        3,
+        3
+      ],
+      "rows": [
+        [
+          960.0,
+          0.0,
+          480.0
+        ],
+        [
+          0.0,
+          540.0,
+          270.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "cam0_viewmatrix": {
+      "shape": [
+        4,
+        4
+      ],
+      "rows": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          2.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.5
+        ],
+        [
+          -0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "cam0_viewmatrix_translation": [
+      2.0,
+      0.5,
+      0.0
+    ],
+    "cam0_camera_center": [
+      -2.0,
+      -0.5,
+      0.0
+    ],
+    "note": "fx=width=960, fy=height=540, cx=480, cy=270; radius-2 circle around origin, height 0.5. At angle=0 (i=0) R is the identity matrix and viewmatrix translation t=(2.0, 0.5, 0.0) (camera center = -R^T t = (-2.0, -0.5, 0.0)), so camera-z depth equals world-z (same as R8 identity camera), but the projection has a +2 x-offset.",
+    "call_site_discrepancy": {
+      "status": "UNRESOLVED_FROM_LOCAL_ARTIFACTS",
+      "script_main_call": "get_bicycle_cameras(n_train=1, n_eval=0, ...) => 1 camera (angle=0), each forward = single viewmat.unsqueeze(0) call (batch 1)",
+      "script_main_call_matches_n1_cam0": true,
+      "protocol_identity_json_claim": "cameras.n_train=4, batch=4 (HN-540-B4 naming)",
+      "run_status_mitigation": "RUN_STATUS.json lists 'Reduce batch size to 1 camera' as an attempted OOM mitigation",
+      "interpretation": "R3 cell names say B4 but the on-disk script generates and loops over a single camera; the protocol JSON claims n_train=4. R17 benchmark (P4) does not depend on resolving this: it uses the real cameras.json protocol instead."
+    }
+  },
+  "r8_identity": {
+    "status": "IDENTITY_SYNTHETIC_NOT_FROM_CAMERAS_JSON",
+    "K": {
+      "shape": [
+        3,
+        3
+      ],
+      "rows": [
+        [
+          960.0,
+          0.0,
+          480.0
+        ],
+        [
+          0.0,
+          540.0,
+          270.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "viewmatrix": {
+      "shape": [
+        4,
+        4
+      ],
+      "rows": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "note": "camera at world origin looking +Z (depth == world z)"
+  },
+  "real_protocol": {
+    "status": "EXECUTED",
+    "source_json": "C:/Users/36570/3dgs-renderer-benchmark/data/official/mipnerf360/bicycle/cameras.json",
+    "source_json_sha256": "5f0ebcb6b33e415061a485ed9961fb277cf7e875586f0d82d88b746d9d9fd502",
+    "n_cameras": 194,
+    "protocol": "GTDataset: load_cameras_from_json (c2w -> inv) + resize_cameras preserving tanfov; 540p render = 960x540; 1080p render = 1920x1080",
+    "batch_protocols": {
+      "B1": "viewmats [1,4,4], Ks [1,3,3], width 960, height 540 (cam0)",
+      "B4_R8_style": "ONE call, viewmats [4,4,4], Ks [4,3,3], cams 0..3",
+      "B4_R3_style": "4 sequential single-camera calls, cams 0..3"
+    },
+    "cam0_540": {
+      "img_name": "_DSC8679",
+      "id": 0,
+      "orig_wh": [
+        4946,
+        3286
+      ],
+      "render_wh": [
+        960,
+        540
+      ],
+      "K": {
+        "shape": [
+          3,
+          3
+        ],
+        "rows": [
+          [
+            902.4515991210938,
+            0.0,
+            480.0
+          ],
+          [
+            0.0,
+            760.420654296875,
+            270.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "viewmatrix": {
+        "shape": [
+          4,
+          4
+        ],
+        "rows": [
+          [
+            0.6356840133666992,
+            0.1589352786540985,
+            -0.7554107308387756,
+            0.00276705389842391
+          ],
+          [
+            -0.03804421052336693,
+            0.9838365912437439,
+            0.17498062551021576,
+            -1.1024391651153564
+          ],
+          [
+            0.7710112929344177,
+            -0.0824933797121048,
+            0.6314558386802673,
+            3.83779239654541
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "camera_center": [
+        -3.0026817321777344,
+        1.4007726907730103,
+        -2.228400468826294
+      ],
+      "tanfovx": 0.5318844651104229,
+      "tanfovy": 0.3550666409615158
+    },
+    "cam1_540": {
+      "img_name": "_DSC8687",
+      "id": 1,
+      "orig_wh": [
+        4946,
+        3286
+      ],
+      "render_wh": [
+        960,
+        540
+      ],
+      "K": {
+        "shape": [
+          3,
+          3
+        ],
+        "rows": [
+          [
+            902.4515991210938,
+            0.0,
+            480.0
+          ],
+          [
+            0.0,
+            760.420654296875,
+            270.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "viewmatrix": {
+        "shape": [
+          4,
+          4
+        ],
+        "rows": [
+          [
+            -0.35078009963035583,
+            0.21591274440288544,
+            -0.9112272262573242,
+            0.6493349075317383
+          ],
+          [
+            0.020943980664014816,
+            0.9746227860450745,
+            0.22287169098854065,
+            -0.8075838088989258
+          ],
+          [
+            0.9362236261367798,
+            0.05909423157572746,
+            -0.34640035033226013,
+            3.6905064582824707
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "camera_center": [
+        -3.210451602935791,
+        0.4288022518157959,
+        2.050071954727173
+      ],
+      "tanfovx": 0.5318844651104229,
+      "tanfovy": 0.3550666409615158
+    },
+    "cam2_540": {
+      "img_name": "_DSC8695",
+      "id": 2,
+      "orig_wh": [
+        4946,
+        3286
+      ],
+      "render_wh": [
+        960,
+        540
+      ],
+      "K": {
+        "shape": [
+          3,
+          3
+        ],
+        "rows": [
+          [
+            902.4515991210938,
+            0.0,
+            480.0
+          ],
+          [
+            0.0,
+            760.420654296875,
+            270.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "viewmatrix": {
+        "shape": [
+          4,
+          4
+        ],
+        "rows": [
+          [
+            -0.9953674674034119,
+            0.07027698308229446,
+            -0.06561114639043808,
+            0.2842329740524292
+          ],
+          [
+            0.05127120018005371,
+            0.9652866125106812,
+            0.2561112344264984,
+            -0.9363399744033813
+          ],
+          [
+            0.08133228123188019,
+            0.251560777425766,
+            -0.9644181132316589,
+            4.299888610839844
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "camera_center": [
+        -0.018796242773532867,
+        -0.19782204926013947,
+        4.405346393585205
+      ],
+      "tanfovx": 0.5318844651104229,
+      "tanfovy": 0.3550666409615158
+    },
+    "cam3_540": {
+      "img_name": "_DSC8703",
+      "id": 3,
+      "orig_wh": [
+        4946,
+        3286
+      ],
+      "render_wh": [
+        960,
+        540
+      ],
+      "K": {
+        "shape": [
+          3,
+          3
+        ],
+        "rows": [
+          [
+            902.4515991210938,
+            0.0,
+            480.0
+          ],
+          [
+            0.0,
+            760.420654296875,
+            270.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "viewmatrix": {
+        "shape": [
+          4,
+          4
+        ],
+        "rows": [
+          [
+            -0.4379432201385498,
+            -0.18582120537757874,
+            0.8795886635780334,
+            0.07005468010902405
+          ],
+          [
+            0.1346404254436493,
+            0.9538128972053528,
+            0.26853859424591064,
+            -1.1413320302963257
+          ],
+          [
+            -0.8888631463050842,
+            0.23603284358978271,
+            -0.3926968276500702,
+            3.770507574081421
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "camera_center": [
+        3.5358145236968994,
+        0.21167123317718506,
+        1.725538730621338
+      ],
+      "tanfovx": 0.5318844651104229,
+      "tanfovy": 0.3550666409615158
+    },
+    "cam0_1080": {
+      "img_name": "_DSC8679",
+      "render_wh": [
+        1920,
+        1080
+      ],
+      "tanfovx": 0.5318844651104229,
+      "tanfovy": 0.3550666409615158
+    }
+  },
+  "scene_depth_evidence": {
+    "status": "EXECUTED",
+    "n_used_for_stats": 3000,
+    "scene_mean_xyz": [
+      0.006913745775818825,
+      0.05761830136179924,
+      -0.01133914664387703
+    ],
+    "scene_median_xyz": [
+      0.01142733171582222,
+      0.07641325145959854,
+      0.01649404689669609
+    ],
+    "scene_bbox_1_99pct": [
+      [
+        -2.2890782356262207,
+        2.3080482482910156
+      ],
+      [
+        -2.3864481449127197,
+        2.3076889514923096
+      ],
+      [
+        -2.387941837310791,
+        2.241295576095581
+      ]
+    ],
+    "identity_camera_r8": {
+      "n": 3000,
+      "frac_positive_depth": 0.5086666941642761,
+      "min_depth": -3.868840217590332,
+      "median_depth": 0.01649404689669609,
+      "max_depth": 2.935936212539673
+    },
+    "r3_synthetic_cam0": {
+      "n": 3000,
+      "frac_positive_depth": 0.5086666941642761,
+      "min_depth": -3.868840217590332,
+      "median_depth": 0.01649404689669609,
+      "max_depth": 2.935936212539673
+    },
+    "real_cam0": {
+      "n": 3000,
+      "frac_positive_depth": 1.0,
+      "min_depth": 0.534034252166748,
+      "median_depth": 3.8333754539489746,
+      "max_depth": 7.353425979614258
+    },
+    "real_cam1": {
+      "n": 3000,
+      "frac_positive_depth": 1.0,
+      "min_depth": 0.4273490905761719,
+      "median_depth": 3.7007029056549072,
+      "max_depth": 8.221393585205078
+    },
+    "real_cam2": {
+      "n": 3000,
+      "frac_positive_depth": 1.0,
+      "min_depth": 1.2835578918457031,
+      "median_depth": 4.294246673583984,
+      "max_depth": 8.395888328552246
+    },
+    "real_cam3": {
+      "n": 3000,
+      "frac_positive_depth": 1.0,
+      "min_depth": 0.10544538497924805,
+      "median_depth": 3.763209819793701,
+      "max_depth": 7.1717529296875
+    }
+  },
+  "source_evidence": {
+    "r3_camera_generator": {
+      "found": true,
+      "file": "C:\\Users\\36570\\3dgs-renderer-benchmark\\R17_EXEC_PACK\\TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX\\reference\\run_r3_benchmark.py",
+      "line_of_needle": 44,
+      "lines": [
+        "40:         'opacities': opacities,",
+        "41:         'shs': shs",
+        "42:     }",
+        "43: ",
+        "44: def get_bicycle_cameras(n_train=4, n_eval=3, width=960, height=540):",
+        "45:     \"\"\"Generate bicycle camera poses\"\"\"",
+        "46:     # Simple circular camera path",
+        "47:     cameras = []",
+        "48:     ",
+        "49:     # Training cameras",
+        "50:     for i in range(n_train):",
+        "51:         angle = 2 * np.pi * i / n_train",
+        "52:         R = torch.tensor(["
+      ],
+      "file_sha256": "c78b029c68378486dbe61a8bd5187a00df378ed96f6b0e47b39ebd0a64a528ad"
+    },
+    "r3_fx_fy": {
+      "found": true,
+      "file": "C:\\Users\\36570\\3dgs-renderer-benchmark\\R17_EXEC_PACK\\TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX\\reference\\run_r3_benchmark.py",
+      "line_of_needle": 65,
+      "lines": [
+        "61:             'R': R,",
+        "62:             't': t,",
+        "63:             'width': width,",
+        "64:             'height': height,",
+        "65:             'fx': width * 1.0,",
+        "66:             'fy': height * 1.0,",
+        "67:             'cx': width / 2,",
+        "68:             'cy': height / 2",
+        "69:         })",
+        "70:     ",
+        "71:     # Eval cameras",
+        "72:     for i in range(n_eval):",
+        "73:         angle = 2 * np.pi * (i + 0.5) / n_eval"
+      ],
+      "file_sha256": "c78b029c68378486dbe61a8bd5187a00df378ed96f6b0e47b39ebd0a64a528ad"
+    },
+    "r8_identity": {
+      "found": true,
+      "file": "C:\\Users\\36570\\3dgs-renderer-benchmark\\R17_EXEC_PACK\\TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX\\reference\\R8_WORKING_ENTRYPOINT.py",
+      "line_of_needle": 40,
+      "lines": [
+        "36: fx, fy = width, height",
+        "37: cx, cy = width / 2, height / 2",
+        "38: ",
+        "39: K = torch.tensor([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=torch.float32, device=device).unsqueeze(0)",
+        "40: viewmat = torch.eye(4, device=device, dtype=torch.float32).unsqueeze(0)",
+        "41: ",
+        "42: print(f\"\\nRunning HiGS rasterization (580K)...\")",
+        "43: torch.cuda.reset_peak_memory_stats()",
+        "44: ",
+        "45: try:",
+        "46:     result = rasterize_gaussian_higs_frozen(",
+        "47:         xyz, rotation, scaling, opacity.squeeze(-1), shs,",
+        "48:         viewmats=viewmat, Ks=K,"
+      ],
+      "file_sha256": "9f2bc47de41c2842ba92c73747f8b6a75884fd3d16a6d75ec944671aaf13f5e6"
+    },
+    "r8_fx_fy": {
+      "found": true,
+      "file": "C:\\Users\\36570\\3dgs-renderer-benchmark\\R17_EXEC_PACK\\TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX\\reference\\R8_WORKING_ENTRYPOINT.py",
+      "line_of_needle": 36,
+      "lines": [
+        "32: print(f\"State moved to GPU: {torch.cuda.memory_allocated() / 1e9:.2f} GB\")",
+        "33: ",
+        "34: # Setup camera (from R3)",
+        "35: height, width = 540, 960",
+        "36: fx, fy = width, height",
+        "37: cx, cy = width / 2, height / 2",
+        "38: ",
+        "39: K = torch.tensor([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=torch.float32, device=device).unsqueeze(0)",
+        "40: viewmat = torch.eye(4, device=device, dtype=torch.float32).unsqueeze(0)",
+        "41: ",
+        "42: print(f\"\\nRunning HiGS rasterization (580K)...\")",
+        "43: torch.cuda.reset_peak_memory_stats()",
+        "44: "
+      ],
+      "file_sha256": "9f2bc47de41c2842ba92c73747f8b6a75884fd3d16a6d75ec944671aaf13f5e6"
+    }
+  },
+  "r17_used_cameras": {
+    "B1_camera": "cam0 (_DSC8679)",
+    "B4_cameras": [
+      "_DSC8679",
+      "_DSC8687",
+      "_DSC8695",
+      "_DSC8703"
+    ],
+    "indices": [
+      0,
+      1,
+      2,
+      3
+    ]
+  }
+}

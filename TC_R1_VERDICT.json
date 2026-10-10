@@ -1,0 +1,144 @@
+{
+  "task": "TEMPORAL_COVERAGE_R1_MX",
+  "verdict": "TC_R1_DROP",
+  "n_runs": 18,
+  "n_missing": 0,
+  "gate_B_vs_A": {
+    "mean_psnr_gain_BmA": -0.054118038169355266,
+    "mean_psnr_gain_ge_0.10": false,
+    "scenes_psnr_ge_0.05": 0,
+    "scenes_psnr_ge_0.05_count": "0/3",
+    "scenes_psnr_ge_0.05_ge_2of3": false,
+    "mean_lpips_reg_BmA": -0.0014963150024414062,
+    "mean_lpips_reg_le_0.005": true,
+    "max_scene_lpips_reg_BmA": 0.001148819923400879,
+    "max_scene_lpips_reg_le_0.010": true,
+    "mean_speed_BmA": 0.949630934147586,
+    "mean_speed_ge_0.95": false,
+    "nan_any": false,
+    "no_nan_stability": true,
+    "B_passes_A_gate": false
+  },
+  "gate_B_vs_W": {
+    "mean_psnr_BmW": 0.0061304930010136855,
+    "mean_lpips_BmW": -0.0005261798699696859,
+    "mean_speed_BmW": 0.9918332571370363,
+    "psnr_BmW_per_scene": {
+      "mipnerf360/garden": 0.10821008615355954,
+      "mipnerf360/bicycle": -0.03296905947860029,
+      "mipnerf360/room": -0.05684954767191819
+    },
+    "B_within_0.05dB_of_W": true,
+    "note": "B vs W paired per-scene/per-seed diffs reported; if within band, B is baseline-equivalent (ordinary without-replacement)."
+  },
+  "psnr_BmA_per_scene": {
+    "mipnerf360/garden": -0.0018259329169216798,
+    "mipnerf360/bicycle": -0.0767033399477457,
+    "mipnerf360/room": -0.08382484164339843
+  },
+  "psnr_BmW_per_scene": {
+    "mipnerf360/garden": 0.10821008615355954,
+    "mipnerf360/bicycle": -0.03296905947860029,
+    "mipnerf360/room": -0.05684954767191819
+  },
+  "seed_spread_BmA": {
+    "mipnerf360/garden": {
+      "seed_diffs": [
+        0.19837396497464255,
+        -0.2020258308084859
+      ],
+      "mean": -0.0018259329169216798,
+      "std": 0.20019989789156423,
+      "range": 0.40039979578312845
+    },
+    "mipnerf360/bicycle": {
+      "seed_diffs": [
+        -0.14563258313074812,
+        -0.007774096764743277
+      ],
+      "mean": -0.0767033399477457,
+      "std": 0.06892924318300242,
+      "range": 0.13785848636600484
+    },
+    "mipnerf360/room": {
+      "seed_diffs": [
+        0.29576579824366434,
+        -0.4634154815304612
+      ],
+      "mean": -0.08382484164339843,
+      "std": 0.37959063988706276,
+      "range": 0.7591812797741255
+    },
+    "_pooled": {
+      "n_pairs": 6,
+      "mean": -0.054118038169355266,
+      "std": 0.2536712753888662,
+      "note": "pooled across 3 scenes x 2 seeds = 6 paired diffs; this is the statistical unit, NOT per-eval-camera."
+    }
+  },
+  "ttq": {
+    "mipnerf360/garden": {
+      "A": {
+        "target_psnr": 11.881728875719165,
+        "reached_step": 1000,
+        "reached_wall_s": 44.89292097091675
+      },
+      "B": {
+        "target_psnr": 11.881728875719165,
+        "reached_step": 1000,
+        "reached_wall_s": 47.79287147521973
+      },
+      "W": {
+        "target_psnr": 11.881728875719165,
+        "reached_step": 1000,
+        "reached_wall_s": 45.805283546447754
+      }
+    },
+    "mipnerf360/bicycle": {
+      "A": {
+        "target_psnr": 13.394601220908864,
+        "reached_step": 1000,
+        "reached_wall_s": 64.67569613456726
+      },
+      "B": {
+        "target_psnr": 13.394601220908864,
+        "reached_step": 1000,
+        "reached_wall_s": 66.75336360931396
+      },
+      "W": {
+        "target_psnr": 13.394601220908864,
+        "reached_step": 1000,
+        "reached_wall_s": 67.6112289428711
+      }
+    },
+    "mipnerf360/room": {
+      "A": {
+        "target_psnr": 16.53441788062341,
+        "reached_step": 1000,
+        "reached_wall_s": 50.93040084838867
+      },
+      "B": {
+        "target_psnr": 16.53441788062341,
+        "reached_step": 1000,
+        "reached_wall_s": 53.335001707077026
+      },
+      "W": {
+        "target_psnr": 16.53441788062341,
+        "reached_step": 1000,
+        "reached_wall_s": 54.50204515457153
+      }
+    }
+  },
+  "decision_definitions": {
+    "TC_R1_GO_30K_CANDIDATE": "B passes A gate AND shows incremental value over W",
+    "TC_R1_BASELINE_EQUIVALENT": "B > A but ~W (effective sampler, no distinct innovation)",
+    "TC_R1_INCONCLUSIVE": "unstable/insufficient/interfered",
+    "TC_R1_DROP": "B fails pre-registered quality/speed gate"
+  },
+  "labels": {
+    "psnr_gain_BmA": "OBSERVED",
+    "lpips_reg_BmA": "OBSERVED",
+    "speed_BmA": "OBSERVED",
+    "ttq": "DERIVED"
+  }
+}

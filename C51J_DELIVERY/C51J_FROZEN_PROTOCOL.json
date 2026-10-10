@@ -1,0 +1,144 @@
+{
+  "schema_version": "C51J-1.0",
+  "protocol_name": "C51J_FROZEN_TRAINING_VALIDATION_PROTOCOL",
+  "generated_utc": "2026-10-10",
+  "generated_by": "DSH execution agent (C51J)",
+  "frozen": true,
+  "status": "PREPARED_NOT_EXECUTED",
+  "reason_not_executed": "MX /mnt/storage_pool 100% full (~420MB free, 94% inodes) and all 8 A100-PCIE-40GB occupied by unrelated jobs at audit time. No exclusive GPU + no storage => harness is EXECUTION-GATED (refuses to run). This protocol is the deliverable; execution awaits an exclusive GPU and free storage.",
+  "supersedes_missing_artifact": "The historical 132-job (confirmatory_accel15_11s3) per-run frozen protocol file was NOT locatable on MX or EPIC-05 at audit time. This is a NEW, self-contained, executable protocol for fresh confirmation. It does NOT claim to reproduce the historical 132-job runs.",
+
+  "research_track": "CVPR27-C51-JOINT",
+  "platform": {
+    "required_gpu": "NVIDIA A100-PCIE-40GB (exclusive)",
+    "forbidden_cohorts": ["RTX 5070 Laptop", "A100-80GB"],
+    "cohort_rule": "Never merge hardware cohorts. A100-40GB result only.",
+    "mx_account": "liaoyuanjun (uid 1002)",
+    "usable_env": {
+      "recommended": "/home/liaoyuanjun/miniforge3/envs/nerficg/bin/python",
+      "torch": "2.7.1+cu118",
+      "cuda_driver_api": "11.8",
+      "cxx11_abi": 1,
+      "gsplat": "1.5.3",
+      "simple_knn": "OK",
+      "note": "torch 2.7.1 is closest to the historical 2.7.0+cu128 lineage. Default `python3` on MX has a BROKEN torch (no __version__/cuda) and MUST NOT be used."
+    },
+    "alternate_envs": {
+      "strong_native": {"torch": "2.1.0+cu118", "cxx11_abi": 0, "gsplat": "1.5.3"},
+      "anysplat": {"torch": "2.4.1+cu124", "cxx11_abi": 0, "gsplat": "1.5.3", "note": "simple_knn absent"}
+    },
+    "inaccessible_env": {
+      "path": "/root/miniforge3/envs/gsplat/bin/python",
+      "status": "root-owned; 'Permission denied' for liaoyuanjun; no passwordless sudo",
+      "implication": "Any historical run that used the root gsplat env cannot be reproduced as liaoyuanjun without env recreation. Record env per run."
+    },
+    "abi_note_R28B": "The R28-B ABI failure class is isolated to prebuilt HiGS/native rasterizers built with the wrong C++ ABI. nerficg uses cxx11_abi=1; strong_native uses cxx11_abi=0. A prebuilt rasterizer's ABI must match the chosen env. This is an ENVIRONMENT/ABI issue, not a gsplat-source issue: gsplat 1.5.3 imports cleanly in all three envs. It does not block a fresh gsplat experiment provided the rasterizer is built/selected to match the env ABI."
+  },
+
+  "data": {
+    "dataset": "Mip-NeRF 360 (original)",
+    "root_on_mx": "/mnt/storage_pool/liaoyuanjun/benchmark_data/mipnerf360",
+    "dev_priority_scenes": ["room", "bicycle", "garden"],
+    "full_scene_list": ["bicycle", "bonsai", "counter", "garden", "kitchen", "room", "stump", "train", "truck", "drjohnson", "playroom"],
+    "split_isolation": {
+      "rule": "NO hyperparameter or method selection using held-out test views. Development (Room/Bicycle/Garden) is a DEV split only. Final confirmation uses the 11-scene held-out set with pre-registered gates.",
+      "train_views": "used for gradient + densification decisions only",
+      "val_views": "used ONLY for time-to-quality (TTQ) checkpoints and early-stop decisions; never fed back into method choice",
+      "heldout_test_views": "used ONLY for final PSNR/SSIM/LPIPS; never seen during training or method selection"
+    }
+  },
+
+  "training_plan": {
+    "iterations_full": 30000,
+    "iterations_dev_screening": 5000,
+    "iterations_smoke": 1000,
+    "initialization": "from_sfm (identical SfM point cloud per scene, identical init for all arms)",
+    "seed_policy": "same seed across arms within a cell for pairing; confirmatory uses >=3 seeds (0,1,2)",
+    "camera_sequence": "fixed shuffled order per (scene,seed), identical across arms",
+    "sh_degree_schedule": "0 -> 3 progressive (1000-iter steps)",
+    "densify_start": 500,
+    "densify_end_frac": 0.5,
+    "densify_interval": 100,
+    "opacity_reset_interval": 3000,
+    "loss": {"l1_weight": 0.8, "ssim_weight": 0.2},
+    "grad_clip": 1.0,
+    "eps2d": 0.1,
+    "radius_clip": 0.0,
+    "tile_size": 16,
+    "absgrad": true,
+    "absgrad_threshold": 0.0008
+  },
+
+  "arms": {
+    "native_baseline": {
+      "role": "B1 clean gsplat native baseline",
+      "description": "stock gsplat 30K training, full densification, no sparsity, no pruning beyond opacity-reset",
+      "expected": "reference for quality + wall time"
+    },
+    "opacity_pruning_control": {
+      "role": "naive fixed-budget / opacity-pruning control",
+      "description": "stock densification + periodic opacity pruning at a FIXED budget (no error guidance). This is the simple control the new method must substantially beat.",
+      "expected": "some speedup, quality cost; defines the naive bar"
+    },
+    "strong_candidate": {
+      "role": "reproducible strongest baseline (gsplat_30k_fused_prune10_rclip05)",
+      "status": "RESTORABLE_ONLY",
+      "description": "fused render + opacity pruning every 10th densification event + radius_clip 0.05. If the implementation cannot be restored to a verifiable SHA256-pinned checkout, this arm is marked UNRESTORED and excluded — it is NOT substituted.",
+      "expected": "1.164x wall on A100 (historical aggregate); included only when reproducible"
+    },
+    "codex_candidate": {
+      "role": "candidate under test (received via Codex manifest)",
+      "status": "AWAITING_CODEX",
+      "runtime_flag": "<filled from Codex manifest>",
+      "validation_order": ["correctness", "1K smoke", "paired 5K", "GO_TO_30K gate"]
+    }
+  },
+
+  "timing_contract": {
+    "wall_clock_boundary": "first training iter to final checkpoint save (dataset_ready_to_final_checkpoint)",
+    "synchronization": "torch.cuda.synchronize before start and stop",
+    "metrics_per_run": [
+      "wall_seconds_total",
+      "time_to_quality_seconds (first iter reaching val PSNR >= native_baseline_final - 0.5dB)",
+      "peak_gpu_memory_mib (torch.cuda.max_memory_allocated)",
+      "per_iter_mean_ms / p50 / p90",
+      "final_gaussian_count",
+      "clone/split/prune cumulative counts"
+    ],
+    "gpu_trace": "nsys or torch profiler trace per arm (raw artifact, not aggregated)"
+  },
+
+  "gates": {
+    "screening_5k": {
+      "vs_native_psnr_drop_max": 0.5,
+      "vs_native_ssim_drop_max": 0.005,
+      "net_wall_gain_vs_naive_min": 0.03,
+      "no_nan_oom": true,
+      "decision_values": ["GO_TO_30K", "NO_GO", "NEED_ONE_SPECIFIC_FIX"]
+    },
+    "final_30k": {
+      "wall_speedup_vs_strongest_reproducible_baseline_min": 1.10,
+      "delta_psnr_min": -0.10,
+      "delta_ssim_min": -0.002,
+      "delta_lpips_max": 0.005,
+      "seeds_min": 3,
+      "note": "5K alone CANNOT claim final pass. These are full-training targets."
+    }
+  },
+
+  "anti_leakage": {
+    "no_test_tuning": "enforced by split_isolation; any per-test-view method change voids the run",
+    "no_cohort_merge": "A100-40GB only",
+    "no_aggregate_hiding": "report per-scene before any aggregate"
+  },
+
+  "artifact_paths": {
+    "output_root": "/mnt/storage_pool/liaoyuanjun/CVPR27_C51_JOINT_MX",
+    "harness": "C51J_DELIVERY/C51J_harness.py",
+    "protocol": "C51J_DELIVERY/C51J_FROZEN_PROTOCOL.json",
+    "smoke": "C51J_DELIVERY/C51J_1K_SMOKE.json",
+    "paired_5k": "C51J_DELIVERY/C51J_5K_PAIRED.csv",
+    "quality": "C51J_DELIVERY/C51J_QUALITY_PERFORMANCE.csv",
+    "manifest_sha256": "C51J_DELIVERY/MANIFEST_SHA256.json"
+  }
+}

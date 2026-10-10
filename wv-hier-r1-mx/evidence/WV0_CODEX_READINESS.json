@@ -1,0 +1,62 @@
+{
+  "schema": "WV0_CODEX_READINESS.audit.v1",
+  "verdict": "BLOCKED_RAW_EVIDENCE",
+  "prior_verdict": "GO_CODEX_HIER_EXECUTION",
+  "prior_GO_accepted_as_runtime_evidence": false,
+  "evidence_class": "STRUCTURAL_ORACLE_ONLY",
+  "same_pixel_budget": {
+    "saved_summary_G4_better": 18,
+    "total_state_budget_pairs": 18,
+    "at_least_30pct_lower": 16,
+    "G4_G16_NMSE_ratio_range": [
+      0.41494720840843113,
+      0.7071070262527244
+    ],
+    "paired_statistical_significance": "BLOCKED_NO_RAW"
+  },
+  "same_absolute_work": {
+    "measured": false,
+    "G4_G16_structural_proxy_ratio_range": [
+      4.657154124508081,
+      9.238840144315136
+    ],
+    "equal_proxy_cost_model_NMSE_ratio_range": [
+      3.8391409824403575,
+      6.348233088413088
+    ],
+    "model_is_extrapolation": true,
+    "model_invalid_as_runtime_result": true
+  },
+  "timing_evidence": "NO_MATCHED_G4_OR_HIERARCHICAL_KERNEL_OR_F_B_TIMINGS",
+  "hierarchy": "PLAUSIBLE_MECHANISM_UNVALIDATED; nearly all parents activate under iid fine sampling",
+  "allowed_next_action": "Provide raw evidence, or consider separately authorized minimal instrumented replay after reviewing this audit. No CUDA modification or GPU run performed by this audit.",
+  "minimum_remeasurement_proposal": {
+    "purpose": "small provenance and repeatability pilot, not replacement for the 9-state claim",
+    "one_high_N_existing_checkpoint": true,
+    "cameras": 2,
+    "granularities": [
+      16,
+      4
+    ],
+    "budgets": [
+      0.25,
+      0.4
+    ],
+    "seeds": 32,
+    "sparse_gradients": 256,
+    "dense_reference_gradients": 2,
+    "training_steps": 0,
+    "requested_evidence": [
+      "per-camera/seed/group nmse, cosine, relative L2, dense/estimate norm and dot",
+      "pixel/tile mask bits and SHA",
+      "per-camera work counts for G16/G8/G4/G1 without claiming unimplemented kernel time",
+      "exact source/binary/input hashes",
+      "fixed-camera online mean/variance accumulators with stated retention"
+    ],
+    "automatic_execution": false
+  },
+  "full_WV0_reconstruction_if_ever_needed": "18432 sparse estimates and 72 dense references, separately authorized; not automatically launched.",
+  "GPU_compute_seconds_this_audit": 0,
+  "CUDA_source_edits": 0,
+  "new_training_steps": 0
+}

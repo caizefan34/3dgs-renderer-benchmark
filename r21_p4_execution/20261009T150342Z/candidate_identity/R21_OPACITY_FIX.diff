@@ -1,0 +1,122 @@
+--- a/gsplat/experimental/render/functional/gaussian_inference.py
++++ b/gsplat/experimental/render/functional/gaussian_inference.py
+@@ -19,6 +19,7 @@
+ from __future__ import annotations
+ 
+ import math
++import weakref
+ 
+ from typing import Any, Optional
+ 
+@@ -665,7 +666,7 @@
+ 
+ 
+ 
+-def _cull_gaussians(means, quats, scales, viewmats, Ks, width, height, eps2d=0.3):
++def _cull_gaussians(means, quats, scales, viewmats, Ks, width, height, eps2d=0.3, *, opacities):
+     """Determine visible Gaussians via projection culling.
+     
+     Uses fully_fused_projection (under no_grad) to compute per-Gaussian
+@@ -682,6 +683,7 @@
+             covars=None,
+             quats=quats.unsqueeze(0).contiguous(),
+             scales=scales.unsqueeze(0).contiguous(),
++            opacities=opacities.unsqueeze(0).contiguous(),
+             viewmats=viewmats.contiguous(),
+             Ks=Ks.contiguous(),
+             width=width, height=height, eps2d=eps2d,
+@@ -698,6 +700,7 @@
+     width, height, eps2d=0.3,
+     near_plane=0.01, far_plane=1e10, radius_clip=0.0,
+     camera_model="pinhole",
++    *, opacities,
+ ):
+     """Union-visibility culling over all cameras with ONE batched projection.
+ 
+@@ -722,6 +725,7 @@
+             covars=None,
+             quats=quats.unsqueeze(0).contiguous(),
+             scales=scales.unsqueeze(0).contiguous(),
++            opacities=opacities.unsqueeze(0).contiguous(),
+             viewmats=viewmats.contiguous(),
+             Ks=Ks.contiguous(),
+             width=width,
+@@ -748,17 +752,14 @@
+     near_plane=0.01, far_plane=1e10, radius_clip=0.0,
+     camera_model="pinhole",
+     cache_key: str = "default",
++    *, opacities,
+ ):
+     """Union-visibility culling with a refresh-interval cache.
+ 
+-    The batched full-N projection is the only forward stage that touches every
+-    Gaussian (isect/rasterize already run on the visible subset), so on the
+-    dynamic training loop reusing its result for ``interval`` forwards removes
+-    one full-N projection (and the union-mask bookkeeping) per step. The
+-    visible set changes slowly under optimizer steps (~lr * grad per step), and
+-    every topology change (densify/prune -> ``mark_dirty`` / ``rebuild``)
+-    invalidates the cache, so a fresh cull is guaranteed exactly when the
+-    Gaussian count changes.
++    Reuse is valid only while every projection input is unchanged. Opacity
++    resets, optimizer updates, camera changes and topology edits must refresh
++    the bounds, even within ``interval``. Weak references avoid retaining an
++    activation graph or allowing allocator address reuse to alias old inputs.
+ 
+     Args:
+         handle: :class:`HigsRendererHandle` owning the per-camera-key cull
+@@ -768,8 +769,18 @@
+         visible_ids: 1D int64 tensor of visible Gaussian indices.
+     """
+     interval = max(1, int(interval))
++    tensors = (means, quats, scales, opacities, viewmats, Ks)
++    criteria = (width, height, eps2d, near_plane, far_plane, radius_clip, camera_model)
++    try:
++        versions = tuple(t._version for t in tensors)
++    except RuntimeError:  # inference-mode tensors do not track mutations
++        versions = None
+     slot = handle._cull_cache.get(cache_key)
+-    if slot is not None and (handle._fwd_count - slot[2]) < interval:
++    if (versions is not None and slot is not None and len(slot) == 5
++            and (handle._fwd_count - slot[2]) < interval
++            and len(slot[3]) == len(tensors) and slot[4] == criteria
++            and all(ref() is t and version == current
++                    for (ref, version), t, current in zip(slot[3], tensors, versions))):
+         return slot[0]
+     vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
+         means, quats, scales, viewmats, Ks,
+@@ -777,8 +788,10 @@
+         eps2d=eps2d, near_plane=near_plane,
+         far_plane=far_plane, radius_clip=radius_clip,
+         camera_model=camera_model,
++        opacities=opacities,
+     )
+-    handle._cull_cache[cache_key] = (vis_ids, _vis_mask, handle._fwd_count)
++    input_refs = tuple(zip((weakref.ref(t) for t in tensors), versions)) if versions is not None else ()
++    handle._cull_cache[cache_key] = (vis_ids, _vis_mask, handle._fwd_count, input_refs, criteria)
+     return vis_ids
+ 
+ 
+@@ -1785,6 +1798,7 @@
+                         far_plane=far_plane, radius_clip=radius_clip,
+                         camera_model=camera_model,
+                         cache_key=ctx.cull_cache_key,
++                        opacities=opacities,
+                     )
+                 else:
+                     vis_ids, _vis_mask, _ratio = _cull_gaussians_batched(
+@@ -1793,6 +1807,7 @@
+                         eps2d=eps2d, near_plane=near_plane,
+                         far_plane=far_plane, radius_clip=radius_clip,
+                         camera_model=camera_model,
++                        opacities=opacities,
+                     )
+                 visible_ids = vis_ids
+ 
+@@ -2032,6 +2047,7 @@
+                     covars=None,
+                     quats=quats_b.contiguous(),
+                     scales=scales_b.contiguous(),
++                    opacities=opacities_b.contiguous(),
+                     viewmats=viewmats,
+                     Ks=Ks,
+                     width=width,

@@ -1,0 +1,52 @@
+{
+  "schema": "S0R2_BUILD_IDENTITY",
+  "timestamp_utc": "2026-10-08T15:12:00Z",
+  "campaign": "WORK-GRADIENT-ORACLE0-MX",
+  "phase": "S0R2",
+
+  "build_strategy": "REUSE_PREBUILT (no new build required)",
+  "reason": "A source-matched prebuilt gsplat_scene_cuda.so already exists, built from the exact selected source commit 77ab983 in the matching higs-13scene-env. Reused to avoid root-partition write and rebuild time.",
+
+  "prebuilt_binary": {
+    "path": "/home/liaoyuanjun/higs-13scene/artifacts/cuda-build/gsplat-higs-mx-py310/gsplat_scene_cuda/gsplat_scene_cuda.so",
+    "sha256": "e4b0bc5bf358ec43875a3b7e0d84591763968021b7c7eabcc6d60572490627c8",
+    "size_bytes": 236744,
+    "build_id_sha1": "b2af8a674baeae0fc4097e9d670d2669a196fc84",
+    "exports": ["pack_gaussian_inference_scene"],
+    "build_params_sha256": "67b387a79b4e06e53bb06d7ca2dc03499158331b7447a39466063b391461f38d"
+  },
+
+  "build_environment": {
+    "conda_env_path": "/mnt/storage_pool/liaoyuanjun/higs-13scene-env",
+    "python": "3.10.21",
+    "python_exe": "/mnt/storage_pool/liaoyuanjun/higs-13scene-env/bin/python",
+    "torch": "2.9.1+cu128",
+    "cuda_runtime": "12.8",
+    "nvcc": "12.8 (V12.8.93)",
+    "gpu_target": "A100-PCIE-40GB, sm_80 (compute_80)",
+    "cxx_standard": "c++17",
+    "build_isolation": "TORCH_EXTENSIONS_DIR redirected to /mnt/storage_pool/liaoyuanjun/work_gradient_oracle0_tmp/torch_ext; TMPDIR on storage pool"
+  },
+
+  "main_cuda_extension": {
+    "path": "/home/liaoyuanjun/.local/lib/python3.10/site-packages/gsplat/csrc.so",
+    "sha256": "17aed4aebdc2b4c1a0b6a23de52319140abc0da12c25c2139926778edf51d24e",
+    "size_bytes": 16377064,
+    "role": "main gsplat fused rasterizer (fully_fused_projection, isect_tiles, rasterize_to_pixels) used by the HiGS training path",
+    "note": "loaded from ~/.local overlay; requires PYTHONNOUSERSITE=1 so package resolves consistently, but the compiled csrc.so ABI (torch 2.x cu12.8 py310) matches higs-13scene-env"
+  },
+
+  "loading_mechanism": {
+    "prebuilt_import": "sys.path.insert(0, build_dir); import gsplat_scene_cuda",
+    "jit_fallback": "gsplat/_lazy_backend.py make_lazy_backend tries prebuilt import first, then JIT. JIT disabled via prebuilt on path; TORCH_EXTENSIONS_DIR redirected to storage pool as safety.",
+    "verified_load": true
+  },
+
+  "root_partition_constraint": {
+    "root_available_gb": 0,
+    "complied": true,
+    "note": "No build or install written to root partition. Prebuilt .so reused. JIT cache dir redirected to storage pool."
+  },
+
+  "gate_status": "PASS"
+}

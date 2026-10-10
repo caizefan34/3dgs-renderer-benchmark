@@ -1,0 +1,63 @@
+{
+  "task": "TFC_P0_NOVELTY_GATE_MX",
+  "protocol": "DSH_EXECUTION_PROMPT.md (Stage P0, read-only, no GPU)",
+  "generated_utc": "2026-10-08T00:00:00Z",
+  "executor_role": "research executor (not adjudicator); Stage P0 only",
+  "fail_closed": true,
+  "gpu_compute_seconds_this_task": 0,
+
+  "PRIMARY_VERDICT": "TFC_FOOTPRINT_ONLY_NO_NOVELTY",
+
+  "gates": {
+    "N0_novelty": {
+      "verdict": "FAIL_TFC_FOOTPRINT_ONLY_NO_NOVELTY",
+      "basis": "TFC mode1 tile set == AccuTile (gsplat upstream PR#927 / Speedy-Splat) ellipse-exact tile set. TFC is a rows-only special case that OMITS the isY shorter-axis heuristic; it never emits a tile AccuTile does not (tfc_only_total=0 on 10500 real projected-Gaussian cases), and its asymptotic work O(rows) >= AccuTile O(min(rows,cols)).",
+      "decisive_evidence": [
+        "_tfc_prior_art_audit/TFC_VS_ACCUTILE_MEMBERSHIP.json: real N=3500 x {room,bicycle,garden}, tile16; tfc_only_tiles_total=0, acc_only_tiles_total=2257, max_acc_only=1",
+        "_tfc_prior_art_audit/TFC_COMPLEXITY_OPERATION_AUDIT.json: TFC_mode1 O(rows) >= AccuTile O(min(rows,cols)); TFC omits shorter-dim selection",
+        "_tfc_prior_art_audit/TFC_CURRENT_GSPLAT_BASELINE_AUDIT.json: vs gsplat1.5.3 AABB reduction 42.91% is INHERENT to ellipse-exact enumeration; vs current main (AccuTile) TFC intersection-count advantage ~0",
+        "public_baselines/gsplat/gsplat/cuda/csrc/IntersectTile.cu (sha256 1f331b6d...) == current main AccuTile: accutile_ellipse_intersection / accutile_process_tiles, isY = y_span<x_span"
+      ]
+    },
+    "E0_economics_headroom": {
+      "verdict": "HEADROOM_UNMEASURED_vs_B2",
+      "basis": "No same-cohort production measurement of TFC against the AccuTile-enabled strong baseline (B2). TFC_FC0 30K wall-clock (geomean 1.0594x) is vs the gsplat 1.5.3 AABB baseline on a DIFFERENT cohort (EPIC-05 A100-SXM4, torch 2.10) than the AccuTile 30K run (1.1039x, MX A100-PCIE, anysplats torch 2.4.1). The two cannot be composed. Per TFC_VS_ACCUTILE_MEMBERSHIP + baseline audit, TFC removes ~0 additional intersection work beyond AccuTile.",
+      "b1_definition": "clean frozen gsplat v1.5.3 / per-axis AABB tile enumeration (WEAK for 2026 novelty)",
+      "b2_definition": "gsplat upstream main AccuTile (PR#927, commit 28e794ca / merge 3d4f9027), strip-based SnugBox ellipse intersection (PRIOR ART from Speedy-Splat)",
+      "b2_comparison_status": "NOT_MEASURED (no TFC-vs-B2 same-cohort production run); analytically TFC advantage over B2 ~0 intersection pairs"
+    },
+    "C0_correctness": {
+      "verdict": "NOT_RUN",
+      "basis": "Gate C0 requires future GPU authorization; P0 is read-only and does not start it."
+    }
+  },
+
+  "forbidden_claims_respected": {
+    "1.3564x_not_production": true,
+    "1.1988x_not_production": true,
+    "1.0317x_not_production": true,
+    "38.2pct_pairs_not_gpu_time": true,
+    "gradient_not_only_atomic_noise": true,
+    "ellipse_culling_not_new_in_2026": true
+  },
+
+  "four_key_questions": {
+    "Q1_novelty_beyond_speedysplat_flashgs_accutile": "NONE. TFC mode1 == AccuTile ellipse-exact tile set; strict subset (tfc_only=0); O(rows)>=O(min(rows,cols)); omits isY. FlashGS per-tile edge test, QuadBox, StopThePop all cover ellipse-tile overlap.",
+    "Q2_expensive_work_eliminated_by_novel_delta_beyond_strong_baseline": "NONE. TFC eliminates ~0 additional intersection work beyond AccuTile (B2). The only measured real remaining compute after AccuTile is ORTHOGONAL to footprint: backward block-level atomic accumulation (~65% of backward, 7.5x warp duplication, conservative E2E 5-12%, additive with AccuTile; R6-A), forward staging floor / per-tile AABB reject (LAW-AABB-TILE TS32 1.63-1.85x), per-pixel transmittance early-stop (gsplat built-in 1-2%). None of these is TFC.",
+    "Q3_gradient_difference_requires_further_repair": "YES_CHARACTERIZE_NOT_REPAIR. A-vs-B gradient diff is REAL (PBR0 train cam151 aa_cos 0.9999522864818573 vs ab_cos 0.9993930160999298) and ACCUMULATES over 30K (TFC_FC0 garden dPSNR -0.0717 dB > 0.05 dB gate). Mechanism: tile membership computed on DETACHED tensors => discrete tile routing not differentiated => changed gradient routing/aggregation. This is INHERENT to ANY footprint culling (AccuTile B1A 30K garden also -0.714 dB); it is not a TFC-specific bug. No new TFC-specific correction is warranted; if any footprint method is adopted the perturbation must be reported as a known quality trade, and the blanket 'only atomic noise' explanation is DISALLOWED (PBR0/TFC_FC0 show real accumulation).",
+    "Q4_tfc_fc0_complete_and_tierA_metric": "YES_COMPLETE_BUT_VS_WEAK_BASELINE. TFC_FC0 is a real, complete 30K run: room/garden/bicycle, seed42, gsplat v1.5.3 EPIC-05 A100-SXM4, torch 2.10. TIER-A metric: TFC_FC0_TIMING speedup_30k geomean 1.0594x (room 1.0467, garden 1.0679, bicycle 1.0639) = AABB-baseline wall-clock ratio. Quality gate FAIL (garden dPSNR -0.0717 dB) => fail-closed. NOT a claim vs AccuTile; different cohort than AccuTile 30K (1.1039x)."
+  },
+
+  "recommendation": {
+    "action": "STOP_TFC_FOOTPRINT_DIRECTION",
+    "new_cuda_or_training_for_tfc": false,
+    "note": "Per DECISION_PROTOCOL.md: footprint-only default => STOP all new CUDA and training for the TFC/ellipse-footprint direction. Historical TFC/TFC2/PBR0/FC0 results retained as implementation baselines / negative-method evidence. Do not preempt TEMPORAL_COVERAGE-R1, WV-HIER, or C51 archived results.",
+    "most_economical_next_falsifier_if_any": "NONE for TFC (footprint-only). The only orthogonal real-work direction with measured headroom is backward block-level atomic aggregation (R6-A-class), which is a SEPARATE mechanism, not TFC, and would require its own prereg + explicit GPU authorization. Not started here."
+  },
+
+  "cohorts_kept_separate": {
+    "EPIC05_A100_SXM4": "gsplat v1.5.3 (fork 937e2991), torch 2.10; hosts TFC_FC0 30K (vs AABB baseline)",
+    "MX_A100_PCIE_40GB": "8xA100-PCIE; hosts TFC2/PBR0/PUB0 proxies and AccuTile30K (anysplats torch 2.4.1, B1A 30K vs B1)",
+    "gsplat_versions": "v1.5.3 (AABB) vs post-v1.5.3 upstream main / AccuTile (PR#927)"
+  }
+}

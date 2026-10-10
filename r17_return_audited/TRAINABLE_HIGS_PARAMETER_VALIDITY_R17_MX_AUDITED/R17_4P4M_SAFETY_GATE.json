@@ -1,0 +1,1478 @@
+{
+  "deliverable": "R17_4P4M_SAFETY_GATE.json",
+  "checkpoint": {
+    "path": "/mnt/storage_pool/liaoyuanjun/r4_13scene_v2/bicycle/candidate_c/checkpoints/iter_30000.pt",
+    "exists": true,
+    "sha256": "ccec425c8da02d423fb66e89450e3c837209f280deea24dbf4a507bc3cd4ea14",
+    "n_gaussians": 4413928,
+    "keys": [
+      "active_sh_degree",
+      "denom",
+      "max_radii2D",
+      "num_points",
+      "opacity",
+      "rotation",
+      "scaling",
+      "shs",
+      "spatial_lr_scale",
+      "xyz",
+      "xyz_gradient_accum"
+    ]
+  },
+  "n_gaussians": 4413928,
+  "cameras_json": "/home/liaoyuanjun/higs-13scene/data/official/mipnerf360/bicycle/cameras.json",
+  "cameras_json_sha256": "5f0ebcb6b33e415061a485ed9961fb277cf7e875586f0d82d88b746d9d9fd502",
+  "constants": {
+    "header": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/cuda/include/Common.h",
+    "sha256": "31cefccf8159caa862139f934926b1c3bec6699a392a4108babea63f44294d08",
+    "alpha_threshold": 0.00392156862745098,
+    "gaussian_extend": 3.33,
+    "found": true
+  },
+  "policy": {
+    "raw_scenarios": "ESTIMATE ONLY — full call is never executed for raw params",
+    "activated_scenarios": "estimate first; full fwd+bwd only if the byte projection fits free VRAM",
+    "margin_bytes": 6442450944,
+    "estimate_samples": 20000
+  },
+  "r8_reference_claims": {
+    "source": "TRAINABLE_HIGS_RUNTIME_RECOVERY_R8_MX/R8_FINAL_REPORT.md",
+    "scenario": "4.4M raw+identity B4 (960x540) -> CUDA OOM, allocation request 111.28 GiB",
+    "reported_requested_bytes": 119485990174.72,
+    "gpu_total_bytes": 42402064629.76,
+    "gpu_free_bytes_at_failure": 14495514624.0
+  },
+  "scenarios": {
+    "raw_identity_b1": {
+      "config": {
+        "params": "raw",
+        "camera": "identity",
+        "batch": 1,
+        "rec_mode": "estimate_only",
+        "desc": "raw params + identity camera (R8 protocol core)"
+      },
+      "status": "ESTIMATED_GATE_SKIPPED_FULL",
+      "pre_mem": {
+        "tag": "raw_identity_b1_pre",
+        "cuda": true,
+        "device": "NVIDIA A100-PCIE-40GB",
+        "free_gb": 35.07585024,
+        "total_gb": 42.405855232,
+        "allocated_gb": 0.0,
+        "reserved_gb": 0.0,
+        "peak_allocated_gb": 0.0
+      },
+      "state_allocated_gb": 1.042368,
+      "abort_info": {
+        "mode": "estimate_only",
+        "record": {
+          "call_index": 0,
+          "means2d_shape": [
+            1,
+            1,
+            2081070,
+            2
+          ],
+          "tile_grid": [
+            60,
+            34
+          ],
+          "n_images": 1,
+          "subset": {
+            "source": "R17 interceptor => gsplat.cuda._wrapper.isect_tiles",
+            "full_projected_gaussian_count": 2081070,
+            "sample_gaussian_count": 20000,
+            "sample_seed": 123,
+            "projected_tensor_shape": [
+              1,
+              1,
+              2081070,
+              2
+            ],
+            "sampled_tensor_shape": [
+              1,
+              1,
+              20000,
+              2
+            ],
+            "width_in_tiles": 60,
+            "height_in_tiles": 34,
+            "tile_size": 16,
+            "n_images": 1,
+            "gpu_count_sum": 35871237,
+            "gpu_emitted_intersection_count": 35871237,
+            "gpu_count_and_emit_agree": true,
+            "has_conics": true,
+            "has_opacities": true,
+            "has_tile_mask": false,
+            "torch_version": "2.9.1+cu128",
+            "r17_mode": "estimate_only",
+            "r17_tag": "raw_identity_b1"
+          },
+          "estimate": {
+            "estimate_samples": 20000,
+            "estimate_seed": 123,
+            "call_full_n": 2081070,
+            "call_n_images": 1,
+            "call_total_primitives": 2081070,
+            "tiles_per_image": 2040,
+            "sample_count_stats": {
+              "count_n": 20000,
+              "count_mean": 1793.56185,
+              "count_min": 0.0,
+              "count_max": 2040.0,
+              "count_p50": 2040.0,
+              "count_p90": 2040.0,
+              "count_p99": 2040.0
+            },
+            "sample_frac_at_tile_bound": 0.7791,
+            "est_isects_mean_scaled": 3732527759.1795,
+            "est_isects_p90_scaled": 4245382800.0,
+            "projected_bytes_lower": 44790333110.154,
+            "projected_bytes_documented_conservative": 134370999330.462,
+            "gpu_free_bytes": 32871743488,
+            "gpu_total_bytes": 42405855232,
+            "gpu_allocated_bytes_at_gate": 1658126336,
+            "memory_margin_bytes": 6442450944,
+            "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+            "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+            "headroom_after_projection_bytes": -107941706786.462
+          }
+        },
+        "estimate": {
+          "estimate_samples": 20000,
+          "estimate_seed": 123,
+          "call_full_n": 2081070,
+          "call_n_images": 1,
+          "call_total_primitives": 2081070,
+          "tiles_per_image": 2040,
+          "sample_count_stats": {
+            "count_n": 20000,
+            "count_mean": 1793.56185,
+            "count_min": 0.0,
+            "count_max": 2040.0,
+            "count_p50": 2040.0,
+            "count_p90": 2040.0,
+            "count_p99": 2040.0
+          },
+          "sample_frac_at_tile_bound": 0.7791,
+          "est_isects_mean_scaled": 3732527759.1795,
+          "est_isects_p90_scaled": 4245382800.0,
+          "projected_bytes_lower": 44790333110.154,
+          "projected_bytes_documented_conservative": 134370999330.462,
+          "gpu_free_bytes": 32871743488,
+          "gpu_total_bytes": 42405855232,
+          "gpu_allocated_bytes_at_gate": 1658126336,
+          "memory_margin_bytes": 6442450944,
+          "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+          "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+          "headroom_after_projection_bytes": -107941706786.462
+        }
+      },
+      "fwd_status": "SAFE_ABORT_estimate_only",
+      "bwd_status": "NOT_RUN",
+      "fwd_ms": null,
+      "bwd_ms": null,
+      "peak_vram_gb": 2.090044416,
+      "post_mem": {
+        "tag": "raw_identity_b1_post",
+        "cuda": true,
+        "device": "NVIDIA A100-PCIE-40GB",
+        "free_gb": 32.871743488,
+        "total_gb": 42.405855232,
+        "allocated_gb": 1.042369024,
+        "reserved_gb": 2.126512128,
+        "peak_allocated_gb": 2.090044416
+      },
+      "recorder": {
+        "mode": "estimate_only",
+        "tag": "raw_identity_b1",
+        "qualifying_calls": [
+          {
+            "call_index": 0,
+            "means2d_shape": [
+              1,
+              1,
+              2081070,
+              2
+            ],
+            "tile_grid": [
+              60,
+              34
+            ],
+            "n_images": 1,
+            "subset": {
+              "source": "R17 interceptor => gsplat.cuda._wrapper.isect_tiles",
+              "full_projected_gaussian_count": 2081070,
+              "sample_gaussian_count": 20000,
+              "sample_seed": 123,
+              "projected_tensor_shape": [
+                1,
+                1,
+                2081070,
+                2
+              ],
+              "sampled_tensor_shape": [
+                1,
+                1,
+                20000,
+                2
+              ],
+              "width_in_tiles": 60,
+              "height_in_tiles": 34,
+              "tile_size": 16,
+              "n_images": 1,
+              "gpu_count_sum": 35871237,
+              "gpu_emitted_intersection_count": 35871237,
+              "gpu_count_and_emit_agree": true,
+              "has_conics": true,
+              "has_opacities": true,
+              "has_tile_mask": false,
+              "torch_version": "2.9.1+cu128",
+              "r17_mode": "estimate_only",
+              "r17_tag": "raw_identity_b1"
+            },
+            "estimate": {
+              "estimate_samples": 20000,
+              "estimate_seed": 123,
+              "call_full_n": 2081070,
+              "call_n_images": 1,
+              "call_total_primitives": 2081070,
+              "tiles_per_image": 2040,
+              "sample_count_stats": {
+                "count_n": 20000,
+                "count_mean": 1793.56185,
+                "count_min": 0.0,
+                "count_max": 2040.0,
+                "count_p50": 2040.0,
+                "count_p90": 2040.0,
+                "count_p99": 2040.0
+              },
+              "sample_frac_at_tile_bound": 0.7791,
+              "est_isects_mean_scaled": 3732527759.1795,
+              "est_isects_p90_scaled": 4245382800.0,
+              "projected_bytes_lower": 44790333110.154,
+              "projected_bytes_documented_conservative": 134370999330.462,
+              "gpu_free_bytes": 32871743488,
+              "gpu_total_bytes": 42405855232,
+              "gpu_allocated_bytes_at_gate": 1658126336,
+              "memory_margin_bytes": 6442450944,
+              "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+              "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+              "headroom_after_projection_bytes": -107941706786.462
+            }
+          }
+        ],
+        "n_qualifying_calls": 1,
+        "first_call_records": {
+          "call_index": 0,
+          "means2d_shape": [
+            1,
+            1,
+            2081070,
+            2
+          ],
+          "tile_grid": [
+            60,
+            34
+          ],
+          "n_images": 1,
+          "subset": {
+            "source": "R17 interceptor => gsplat.cuda._wrapper.isect_tiles",
+            "full_projected_gaussian_count": 2081070,
+            "sample_gaussian_count": 20000,
+            "sample_seed": 123,
+            "projected_tensor_shape": [
+              1,
+              1,
+              2081070,
+              2
+            ],
+            "sampled_tensor_shape": [
+              1,
+              1,
+              20000,
+              2
+            ],
+            "width_in_tiles": 60,
+            "height_in_tiles": 34,
+            "tile_size": 16,
+            "n_images": 1,
+            "gpu_count_sum": 35871237,
+            "gpu_emitted_intersection_count": 35871237,
+            "gpu_count_and_emit_agree": true,
+            "has_conics": true,
+            "has_opacities": true,
+            "has_tile_mask": false,
+            "torch_version": "2.9.1+cu128",
+            "r17_mode": "estimate_only",
+            "r17_tag": "raw_identity_b1"
+          },
+          "estimate": {
+            "estimate_samples": 20000,
+            "estimate_seed": 123,
+            "call_full_n": 2081070,
+            "call_n_images": 1,
+            "call_total_primitives": 2081070,
+            "tiles_per_image": 2040,
+            "sample_count_stats": {
+              "count_n": 20000,
+              "count_mean": 1793.56185,
+              "count_min": 0.0,
+              "count_max": 2040.0,
+              "count_p50": 2040.0,
+              "count_p90": 2040.0,
+              "count_p99": 2040.0
+            },
+            "sample_frac_at_tile_bound": 0.7791,
+            "est_isects_mean_scaled": 3732527759.1795,
+            "est_isects_p90_scaled": 4245382800.0,
+            "projected_bytes_lower": 44790333110.154,
+            "projected_bytes_documented_conservative": 134370999330.462,
+            "gpu_free_bytes": 32871743488,
+            "gpu_total_bytes": 42405855232,
+            "gpu_allocated_bytes_at_gate": 1658126336,
+            "memory_margin_bytes": 6442450944,
+            "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+            "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+            "headroom_after_projection_bytes": -107941706786.462
+          }
+        },
+        "estimate": {
+          "estimate_samples": 20000,
+          "estimate_seed": 123,
+          "call_full_n": 2081070,
+          "call_n_images": 1,
+          "call_total_primitives": 2081070,
+          "tiles_per_image": 2040,
+          "sample_count_stats": {
+            "count_n": 20000,
+            "count_mean": 1793.56185,
+            "count_min": 0.0,
+            "count_max": 2040.0,
+            "count_p50": 2040.0,
+            "count_p90": 2040.0,
+            "count_p99": 2040.0
+          },
+          "sample_frac_at_tile_bound": 0.7791,
+          "est_isects_mean_scaled": 3732527759.1795,
+          "est_isects_p90_scaled": 4245382800.0,
+          "projected_bytes_lower": 44790333110.154,
+          "projected_bytes_documented_conservative": 134370999330.462,
+          "gpu_free_bytes": 32871743488,
+          "gpu_total_bytes": 42405855232,
+          "gpu_allocated_bytes_at_gate": 1658126336,
+          "memory_margin_bytes": 6442450944,
+          "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+          "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+          "headroom_after_projection_bytes": -107941706786.462
+        },
+        "aborted": true,
+        "seconds": 0.08926606178283691
+      },
+      "estimate": {
+        "estimate_samples": 20000,
+        "estimate_seed": 123,
+        "call_full_n": 2081070,
+        "call_n_images": 1,
+        "call_total_primitives": 2081070,
+        "tiles_per_image": 2040,
+        "sample_count_stats": {
+          "count_n": 20000,
+          "count_mean": 1793.56185,
+          "count_min": 0.0,
+          "count_max": 2040.0,
+          "count_p50": 2040.0,
+          "count_p90": 2040.0,
+          "count_p99": 2040.0
+        },
+        "sample_frac_at_tile_bound": 0.7791,
+        "est_isects_mean_scaled": 3732527759.1795,
+        "est_isects_p90_scaled": 4245382800.0,
+        "projected_bytes_lower": 44790333110.154,
+        "projected_bytes_documented_conservative": 134370999330.462,
+        "gpu_free_bytes": 32871743488,
+        "gpu_total_bytes": 42405855232,
+        "gpu_allocated_bytes_at_gate": 1658126336,
+        "memory_margin_bytes": 6442450944,
+        "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+        "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+        "headroom_after_projection_bytes": -107941706786.462
+      },
+      "nan": null,
+      "seconds": 1.5208156108856201,
+      "vs_r8_reported_request": {
+        "r8_requested_bytes": 119485990174.72,
+        "r17_projected_bytes_conservative": 134370999330.462,
+        "ratio_r17_over_r8": 1.124575350917511
+      }
+    },
+    "raw_identity_b4": {
+      "config": {
+        "params": "raw",
+        "camera": "identity",
+        "batch": 4,
+        "rec_mode": "estimate_only",
+        "desc": "raw params + 4 identity cams in ONE call (R8 4.4M OOM scenario)"
+      },
+      "status": "ESTIMATED_GATE_SKIPPED_FULL",
+      "pre_mem": {
+        "tag": "raw_identity_b4_pre",
+        "cuda": true,
+        "device": "NVIDIA A100-PCIE-40GB",
+        "free_gb": 34.996158464,
+        "total_gb": 42.405855232,
+        "allocated_gb": 1.024e-06,
+        "reserved_gb": 0.002097152,
+        "peak_allocated_gb": 2.090044416
+      },
+      "state_allocated_gb": 1.042369024,
+      "abort_info": {
+        "mode": "estimate_only",
+        "record": {
+          "call_index": 0,
+          "means2d_shape": [
+            1,
+            4,
+            2081070,
+            2
+          ],
+          "tile_grid": [
+            60,
+            34
+          ],
+          "n_images": 4,
+          "subset": {
+            "source": "R17 interceptor => gsplat.cuda._wrapper.isect_tiles",
+            "full_projected_gaussian_count": 2081070,
+            "sample_gaussian_count": 20000,
+            "sample_seed": 123,
+            "projected_tensor_shape": [
+              1,
+              4,
+              2081070,
+              2
+            ],
+            "sampled_tensor_shape": [
+              1,
+              4,
+              20000,
+              2
+            ],
+            "width_in_tiles": 60,
+            "height_in_tiles": 34,
+            "tile_size": 16,
+            "n_images": 4,
+            "gpu_count_sum": 143484948,
+            "gpu_emitted_intersection_count": 143484948,
+            "gpu_count_and_emit_agree": true,
+            "has_conics": true,
+            "has_opacities": true,
+            "has_tile_mask": false,
+            "torch_version": "2.9.1+cu128",
+            "r17_mode": "estimate_only",
+            "r17_tag": "raw_identity_b4"
+          },
+          "estimate": {
+            "estimate_samples": 80000,
+            "estimate_seed": 123,
+            "call_full_n": 2081070,
+            "call_n_images": 4,
+            "call_total_primitives": 8324280,
+            "tiles_per_image": 2040,
+            "sample_count_stats": {
+              "count_n": 80000,
+              "count_mean": 1793.56185,
+              "count_min": 0.0,
+              "count_max": 2040.0,
+              "count_p50": 2040.0,
+              "count_p90": 2040.0,
+              "count_p99": 2040.0
+            },
+            "sample_frac_at_tile_bound": 0.7791,
+            "est_isects_mean_scaled": 14930111036.718,
+            "est_isects_p90_scaled": 16981531200.0,
+            "projected_bytes_lower": 179161332440.616,
+            "projected_bytes_documented_conservative": 537483997321.848,
+            "gpu_free_bytes": 31068192768,
+            "gpu_total_bytes": 42405855232,
+            "gpu_allocated_bytes_at_gate": 1996614144,
+            "memory_margin_bytes": 6442450944,
+            "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+            "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+            "headroom_after_projection_bytes": -512858255497.848
+          }
+        },
+        "estimate": {
+          "estimate_samples": 80000,
+          "estimate_seed": 123,
+          "call_full_n": 2081070,
+          "call_n_images": 4,
+          "call_total_primitives": 8324280,
+          "tiles_per_image": 2040,
+          "sample_count_stats": {
+            "count_n": 80000,
+            "count_mean": 1793.56185,
+            "count_min": 0.0,
+            "count_max": 2040.0,
+            "count_p50": 2040.0,
+            "count_p90": 2040.0,
+            "count_p99": 2040.0
+          },
+          "sample_frac_at_tile_bound": 0.7791,
+          "est_isects_mean_scaled": 14930111036.718,
+          "est_isects_p90_scaled": 16981531200.0,
+          "projected_bytes_lower": 179161332440.616,
+          "projected_bytes_documented_conservative": 537483997321.848,
+          "gpu_free_bytes": 31068192768,
+          "gpu_total_bytes": 42405855232,
+          "gpu_allocated_bytes_at_gate": 1996614144,
+          "memory_margin_bytes": 6442450944,
+          "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+          "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+          "headroom_after_projection_bytes": -512858255497.848
+        }
+      },
+      "fwd_status": "SAFE_ABORT_estimate_only",
+      "bwd_status": "NOT_RUN",
+      "fwd_ms": null,
+      "bwd_ms": null,
+      "peak_vram_gb": 3.723114496,
+      "post_mem": {
+        "tag": "raw_identity_b4_post",
+        "cuda": true,
+        "device": "NVIDIA A100-PCIE-40GB",
+        "free_gb": 31.068192768,
+        "total_gb": 42.405855232,
+        "allocated_gb": 1.042369024,
+        "reserved_gb": 3.930062848,
+        "peak_allocated_gb": 3.723114496
+      },
+      "recorder": {
+        "mode": "estimate_only",
+        "tag": "raw_identity_b4",
+        "qualifying_calls": [
+          {
+            "call_index": 0,
+            "means2d_shape": [
+              1,
+              4,
+              2081070,
+              2
+            ],
+            "tile_grid": [
+              60,
+              34
+            ],
+            "n_images": 4,
+            "subset": {
+              "source": "R17 interceptor => gsplat.cuda._wrapper.isect_tiles",
+              "full_projected_gaussian_count": 2081070,
+              "sample_gaussian_count": 20000,
+              "sample_seed": 123,
+              "projected_tensor_shape": [
+                1,
+                4,
+                2081070,
+                2
+              ],
+              "sampled_tensor_shape": [
+                1,
+                4,
+                20000,
+                2
+              ],
+              "width_in_tiles": 60,
+              "height_in_tiles": 34,
+              "tile_size": 16,
+              "n_images": 4,
+              "gpu_count_sum": 143484948,
+              "gpu_emitted_intersection_count": 143484948,
+              "gpu_count_and_emit_agree": true,
+              "has_conics": true,
+              "has_opacities": true,
+              "has_tile_mask": false,
+              "torch_version": "2.9.1+cu128",
+              "r17_mode": "estimate_only",
+              "r17_tag": "raw_identity_b4"
+            },
+            "estimate": {
+              "estimate_samples": 80000,
+              "estimate_seed": 123,
+              "call_full_n": 2081070,
+              "call_n_images": 4,
+              "call_total_primitives": 8324280,
+              "tiles_per_image": 2040,
+              "sample_count_stats": {
+                "count_n": 80000,
+                "count_mean": 1793.56185,
+                "count_min": 0.0,
+                "count_max": 2040.0,
+                "count_p50": 2040.0,
+                "count_p90": 2040.0,
+                "count_p99": 2040.0
+              },
+              "sample_frac_at_tile_bound": 0.7791,
+              "est_isects_mean_scaled": 14930111036.718,
+              "est_isects_p90_scaled": 16981531200.0,
+              "projected_bytes_lower": 179161332440.616,
+              "projected_bytes_documented_conservative": 537483997321.848,
+              "gpu_free_bytes": 31068192768,
+              "gpu_total_bytes": 42405855232,
+              "gpu_allocated_bytes_at_gate": 1996614144,
+              "memory_margin_bytes": 6442450944,
+              "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+              "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+              "headroom_after_projection_bytes": -512858255497.848
+            }
+          }
+        ],
+        "n_qualifying_calls": 1,
+        "first_call_records": {
+          "call_index": 0,
+          "means2d_shape": [
+            1,
+            4,
+            2081070,
+            2
+          ],
+          "tile_grid": [
+            60,
+            34
+          ],
+          "n_images": 4,
+          "subset": {
+            "source": "R17 interceptor => gsplat.cuda._wrapper.isect_tiles",
+            "full_projected_gaussian_count": 2081070,
+            "sample_gaussian_count": 20000,
+            "sample_seed": 123,
+            "projected_tensor_shape": [
+              1,
+              4,
+              2081070,
+              2
+            ],
+            "sampled_tensor_shape": [
+              1,
+              4,
+              20000,
+              2
+            ],
+            "width_in_tiles": 60,
+            "height_in_tiles": 34,
+            "tile_size": 16,
+            "n_images": 4,
+            "gpu_count_sum": 143484948,
+            "gpu_emitted_intersection_count": 143484948,
+            "gpu_count_and_emit_agree": true,
+            "has_conics": true,
+            "has_opacities": true,
+            "has_tile_mask": false,
+            "torch_version": "2.9.1+cu128",
+            "r17_mode": "estimate_only",
+            "r17_tag": "raw_identity_b4"
+          },
+          "estimate": {
+            "estimate_samples": 80000,
+            "estimate_seed": 123,
+            "call_full_n": 2081070,
+            "call_n_images": 4,
+            "call_total_primitives": 8324280,
+            "tiles_per_image": 2040,
+            "sample_count_stats": {
+              "count_n": 80000,
+              "count_mean": 1793.56185,
+              "count_min": 0.0,
+              "count_max": 2040.0,
+              "count_p50": 2040.0,
+              "count_p90": 2040.0,
+              "count_p99": 2040.0
+            },
+            "sample_frac_at_tile_bound": 0.7791,
+            "est_isects_mean_scaled": 14930111036.718,
+            "est_isects_p90_scaled": 16981531200.0,
+            "projected_bytes_lower": 179161332440.616,
+            "projected_bytes_documented_conservative": 537483997321.848,
+            "gpu_free_bytes": 31068192768,
+            "gpu_total_bytes": 42405855232,
+            "gpu_allocated_bytes_at_gate": 1996614144,
+            "memory_margin_bytes": 6442450944,
+            "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+            "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+            "headroom_after_projection_bytes": -512858255497.848
+          }
+        },
+        "estimate": {
+          "estimate_samples": 80000,
+          "estimate_seed": 123,
+          "call_full_n": 2081070,
+          "call_n_images": 4,
+          "call_total_primitives": 8324280,
+          "tiles_per_image": 2040,
+          "sample_count_stats": {
+            "count_n": 80000,
+            "count_mean": 1793.56185,
+            "count_min": 0.0,
+            "count_max": 2040.0,
+            "count_p50": 2040.0,
+            "count_p90": 2040.0,
+            "count_p99": 2040.0
+          },
+          "sample_frac_at_tile_bound": 0.7791,
+          "est_isects_mean_scaled": 14930111036.718,
+          "est_isects_p90_scaled": 16981531200.0,
+          "projected_bytes_lower": 179161332440.616,
+          "projected_bytes_documented_conservative": 537483997321.848,
+          "gpu_free_bytes": 31068192768,
+          "gpu_total_bytes": 42405855232,
+          "gpu_allocated_bytes_at_gate": 1996614144,
+          "memory_margin_bytes": 6442450944,
+          "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+          "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+          "headroom_after_projection_bytes": -512858255497.848
+        },
+        "aborted": true,
+        "seconds": 0.2751753330230713
+      },
+      "estimate": {
+        "estimate_samples": 80000,
+        "estimate_seed": 123,
+        "call_full_n": 2081070,
+        "call_n_images": 4,
+        "call_total_primitives": 8324280,
+        "tiles_per_image": 2040,
+        "sample_count_stats": {
+          "count_n": 80000,
+          "count_mean": 1793.56185,
+          "count_min": 0.0,
+          "count_max": 2040.0,
+          "count_p50": 2040.0,
+          "count_p90": 2040.0,
+          "count_p99": 2040.0
+        },
+        "sample_frac_at_tile_bound": 0.7791,
+        "est_isects_mean_scaled": 14930111036.718,
+        "est_isects_p90_scaled": 16981531200.0,
+        "projected_bytes_lower": 179161332440.616,
+        "projected_bytes_documented_conservative": 537483997321.848,
+        "gpu_free_bytes": 31068192768,
+        "gpu_total_bytes": 42405855232,
+        "gpu_allocated_bytes_at_gate": 1996614144,
+        "memory_margin_bytes": 6442450944,
+        "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+        "decision": "SKIP_FULL_INSUFFICIENT_HEADROOM",
+        "headroom_after_projection_bytes": -512858255497.848
+      },
+      "nan": null,
+      "seconds": 0.6157464981079102,
+      "vs_r8_reported_request": {
+        "r8_requested_bytes": 119485990174.72,
+        "r17_projected_bytes_conservative": 537483997321.848,
+        "ratio_r17_over_r8": 4.498301403670044
+      }
+    },
+    "activated_real_b1": {
+      "config": {
+        "params": "activated",
+        "camera": "real",
+        "batch": 1,
+        "rec_mode": "gated_full",
+        "desc": "contract-activated params + real cam0"
+      },
+      "status": "FULL_EXECUTED",
+      "pre_mem": {
+        "tag": "activated_real_b1_pre",
+        "cuda": true,
+        "device": "NVIDIA A100-PCIE-40GB",
+        "free_gb": 34.996158464,
+        "total_gb": 42.405855232,
+        "allocated_gb": 1.024e-06,
+        "reserved_gb": 0.002097152,
+        "peak_allocated_gb": 3.723114496
+      },
+      "state_allocated_gb": 1.042369024,
+      "metadata": {
+        "n_gaussians": 4413928,
+        "n_visible": 1410108,
+        "culling_ratio": 0.6805321699855549,
+        "backward_backend": "higs_native",
+        "native_available": true,
+        "scene_version": null,
+        "topology_rebuilt": false,
+        "packed_dtype": null,
+        "sh_compression_mode": "none",
+        "render_mode": "RGB",
+        "use_higs_culling": true,
+        "higs_preview": null,
+        "freeze_topology": true,
+        "render_count": 3,
+        "sampled_tile_ratio": 1.0,
+        "tile_mask": "tensor([[[True, True, True,  ..., True, True, True],\n         [True, True, True,  ..., True, True, True],\n         [True, True, True,  ..., True, True, True],\n         ...,\n         [True, True, True,",
+        "n_isects": 4140066,
+        "n_isects_full": 4140066,
+        "cull_refresh_interval": 1
+      },
+      "fwd_status": "PASS",
+      "bwd_status": "PASS",
+      "fwd_ms": 2536.217529296875,
+      "bwd_ms": 589.2149047851562,
+      "peak_vram_gb": 3.314783744,
+      "post_mem": {
+        "tag": "activated_real_b1_post",
+        "cuda": true,
+        "device": "NVIDIA A100-PCIE-40GB",
+        "free_gb": 31.30097664,
+        "total_gb": 42.405855232,
+        "allocated_gb": 2.255440896,
+        "reserved_gb": 3.64904448,
+        "peak_allocated_gb": 3.314783744
+      },
+      "recorder": {
+        "mode": "gated_full",
+        "tag": "activated_real_b1",
+        "qualifying_calls": [
+          {
+            "call_index": 0,
+            "means2d_shape": [
+              1,
+              1,
+              1410108,
+              2
+            ],
+            "tile_grid": [
+              60,
+              34
+            ],
+            "n_images": 1,
+            "subset": {
+              "source": "R17 interceptor => gsplat.cuda._wrapper.isect_tiles",
+              "full_projected_gaussian_count": 1410108,
+              "sample_gaussian_count": 1000,
+              "sample_seed": 42,
+              "projected_tensor_shape": [
+                1,
+                1,
+                1410108,
+                2
+              ],
+              "sampled_tensor_shape": [
+                1,
+                1,
+                1000,
+                2
+              ],
+              "width_in_tiles": 60,
+              "height_in_tiles": 34,
+              "tile_size": 16,
+              "n_images": 1,
+              "gpu_count_sum": 2775,
+              "gpu_emitted_intersection_count": 2775,
+              "gpu_count_and_emit_agree": true,
+              "has_conics": true,
+              "has_opacities": true,
+              "has_tile_mask": false,
+              "torch_version": "2.9.1+cu128",
+              "r17_mode": "gated_full",
+              "r17_tag": "activated_real_b1"
+            },
+            "estimate": {
+              "estimate_samples": 1000,
+              "estimate_seed": 123,
+              "call_full_n": 1410108,
+              "call_n_images": 1,
+              "call_total_primitives": 1410108,
+              "tiles_per_image": 2040,
+              "sample_count_stats": {
+                "count_n": 1000,
+                "count_mean": 2.775,
+                "count_min": 0.0,
+                "count_max": 30.0,
+                "count_p50": 2.0,
+                "count_p90": 5.0,
+                "count_p99": 10.009999999999991
+              },
+              "sample_frac_at_tile_bound": 0.0,
+              "est_isects_mean_scaled": 3913049.6999999997,
+              "est_isects_p90_scaled": 7050540.0,
+              "projected_bytes_lower": 46956596.4,
+              "projected_bytes_documented_conservative": 140869789.2,
+              "gpu_free_bytes": 33473626112,
+              "gpu_total_bytes": 42405855232,
+              "gpu_allocated_bytes_at_gate": 1471628288,
+              "memory_margin_bytes": 6442450944,
+              "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+              "decision": "RUN_FULL",
+              "headroom_after_projection_bytes": 26890305378.8
+            },
+            "full_call_seconds": 0.5021200180053711,
+            "sum_counts": 4140066,
+            "sum_counts_over_tiles": 2029.4441176470589,
+            "emitted_ids": 4140066,
+            "count_emit_agree": true
+          }
+        ],
+        "n_qualifying_calls": 1,
+        "first_call_records": {
+          "call_index": 0,
+          "means2d_shape": [
+            1,
+            1,
+            1410108,
+            2
+          ],
+          "tile_grid": [
+            60,
+            34
+          ],
+          "n_images": 1,
+          "subset": {
+            "source": "R17 interceptor => gsplat.cuda._wrapper.isect_tiles",
+            "full_projected_gaussian_count": 1410108,
+            "sample_gaussian_count": 1000,
+            "sample_seed": 42,
+            "projected_tensor_shape": [
+              1,
+              1,
+              1410108,
+              2
+            ],
+            "sampled_tensor_shape": [
+              1,
+              1,
+              1000,
+              2
+            ],
+            "width_in_tiles": 60,
+            "height_in_tiles": 34,
+            "tile_size": 16,
+            "n_images": 1,
+            "gpu_count_sum": 2775,
+            "gpu_emitted_intersection_count": 2775,
+            "gpu_count_and_emit_agree": true,
+            "has_conics": true,
+            "has_opacities": true,
+            "has_tile_mask": false,
+            "torch_version": "2.9.1+cu128",
+            "r17_mode": "gated_full",
+            "r17_tag": "activated_real_b1"
+          },
+          "estimate": {
+            "estimate_samples": 1000,
+            "estimate_seed": 123,
+            "call_full_n": 1410108,
+            "call_n_images": 1,
+            "call_total_primitives": 1410108,
+            "tiles_per_image": 2040,
+            "sample_count_stats": {
+              "count_n": 1000,
+              "count_mean": 2.775,
+              "count_min": 0.0,
+              "count_max": 30.0,
+              "count_p50": 2.0,
+              "count_p90": 5.0,
+              "count_p99": 10.009999999999991
+            },
+            "sample_frac_at_tile_bound": 0.0,
+            "est_isects_mean_scaled": 3913049.6999999997,
+            "est_isects_p90_scaled": 7050540.0,
+            "projected_bytes_lower": 46956596.4,
+            "projected_bytes_documented_conservative": 140869789.2,
+            "gpu_free_bytes": 33473626112,
+            "gpu_total_bytes": 42405855232,
+            "gpu_allocated_bytes_at_gate": 1471628288,
+            "memory_margin_bytes": 6442450944,
+            "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+            "decision": "RUN_FULL",
+            "headroom_after_projection_bytes": 26890305378.8
+          },
+          "full_call_seconds": 0.5021200180053711,
+          "sum_counts": 4140066,
+          "sum_counts_over_tiles": 2029.4441176470589,
+          "emitted_ids": 4140066,
+          "count_emit_agree": true
+        },
+        "estimate": {
+          "estimate_samples": 1000,
+          "estimate_seed": 123,
+          "call_full_n": 1410108,
+          "call_n_images": 1,
+          "call_total_primitives": 1410108,
+          "tiles_per_image": 2040,
+          "sample_count_stats": {
+            "count_n": 1000,
+            "count_mean": 2.775,
+            "count_min": 0.0,
+            "count_max": 30.0,
+            "count_p50": 2.0,
+            "count_p90": 5.0,
+            "count_p99": 10.009999999999991
+          },
+          "sample_frac_at_tile_bound": 0.0,
+          "est_isects_mean_scaled": 3913049.6999999997,
+          "est_isects_p90_scaled": 7050540.0,
+          "projected_bytes_lower": 46956596.4,
+          "projected_bytes_documented_conservative": 140869789.2,
+          "gpu_free_bytes": 33473626112,
+          "gpu_total_bytes": 42405855232,
+          "gpu_allocated_bytes_at_gate": 1471628288,
+          "memory_margin_bytes": 6442450944,
+          "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+          "decision": "RUN_FULL",
+          "headroom_after_projection_bytes": 26890305378.8
+        },
+        "aborted": false,
+        "seconds": 3.333721399307251
+      },
+      "estimate": {
+        "estimate_samples": 1000,
+        "estimate_seed": 123,
+        "call_full_n": 1410108,
+        "call_n_images": 1,
+        "call_total_primitives": 1410108,
+        "tiles_per_image": 2040,
+        "sample_count_stats": {
+          "count_n": 1000,
+          "count_mean": 2.775,
+          "count_min": 0.0,
+          "count_max": 30.0,
+          "count_p50": 2.0,
+          "count_p90": 5.0,
+          "count_p99": 10.009999999999991
+        },
+        "sample_frac_at_tile_bound": 0.0,
+        "est_isects_mean_scaled": 3913049.6999999997,
+        "est_isects_p90_scaled": 7050540.0,
+        "projected_bytes_lower": 46956596.4,
+        "projected_bytes_documented_conservative": 140869789.2,
+        "gpu_free_bytes": 33473626112,
+        "gpu_total_bytes": 42405855232,
+        "gpu_allocated_bytes_at_gate": 1471628288,
+        "memory_margin_bytes": 6442450944,
+        "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+        "decision": "RUN_FULL",
+        "headroom_after_projection_bytes": 26890305378.8
+      },
+      "nan": {
+        "frame": {
+          "shape": [
+            1,
+            540,
+            960,
+            3
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "alpha": {
+          "shape": [
+            1,
+            540,
+            960,
+            1
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "grad_means": {
+          "shape": [
+            4413928,
+            3
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "grad_quats": {
+          "shape": [
+            4413928,
+            4
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "grad_scales": {
+          "shape": [
+            4413928,
+            3
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "grad_opacities": {
+          "shape": [
+            4413928
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "grad_shs": {
+          "shape": [
+            4413928,
+            16,
+            3
+          ],
+          "has_nan": false,
+          "has_inf": false
+        }
+      },
+      "seconds": 3.9986701011657715,
+      "vs_r8_reported_request": {
+        "r8_requested_bytes": 119485990174.72,
+        "r17_projected_bytes_conservative": 140869789.2,
+        "ratio_r17_over_r8": 0.001178964906212111
+      }
+    },
+    "activated_real_b4": {
+      "config": {
+        "params": "activated",
+        "camera": "real",
+        "batch": 4,
+        "rec_mode": "gated_full",
+        "desc": "contract-activated params + real cam0..3 (ONE call)"
+      },
+      "status": "FULL_EXECUTED",
+      "pre_mem": {
+        "tag": "activated_real_b4_pre",
+        "cuda": true,
+        "device": "NVIDIA A100-PCIE-40GB",
+        "free_gb": 32.670416896,
+        "total_gb": 42.405855232,
+        "allocated_gb": 2.255440896,
+        "reserved_gb": 2.279604224,
+        "peak_allocated_gb": 3.314783744
+      },
+      "state_allocated_gb": 3.297808896,
+      "metadata": {
+        "n_gaussians": 4413928,
+        "n_visible": 2415374,
+        "culling_ratio": 0.452783552427679,
+        "backward_backend": "higs_native",
+        "native_available": true,
+        "scene_version": null,
+        "topology_rebuilt": false,
+        "packed_dtype": null,
+        "sh_compression_mode": "none",
+        "render_mode": "RGB",
+        "use_higs_culling": true,
+        "higs_preview": null,
+        "freeze_topology": true,
+        "render_count": 4,
+        "sampled_tile_ratio": 1.0,
+        "tile_mask": "tensor([[[True, True, True,  ..., True, True, True],\n         [True, True, True,  ..., True, True, True],\n         [True, True, True,  ..., True, True, True],\n         ...,\n         [True, True, True,",
+        "n_isects": 15877992,
+        "n_isects_full": 15877992,
+        "cull_refresh_interval": 1
+      },
+      "fwd_status": "PASS",
+      "bwd_status": "PASS",
+      "fwd_ms": 644.15234375,
+      "bwd_ms": 45.87843322753906,
+      "peak_vram_gb": 5.084178432,
+      "post_mem": {
+        "tag": "activated_real_b4_post",
+        "cuda": true,
+        "device": "NVIDIA A100-PCIE-40GB",
+        "free_gb": 28.601942016,
+        "total_gb": 42.405855232,
+        "allocated_gb": 2.604815872,
+        "reserved_gb": 6.348079104,
+        "peak_allocated_gb": 5.084178432
+      },
+      "recorder": {
+        "mode": "gated_full",
+        "tag": "activated_real_b4",
+        "qualifying_calls": [
+          {
+            "call_index": 0,
+            "means2d_shape": [
+              1,
+              4,
+              2415374,
+              2
+            ],
+            "tile_grid": [
+              60,
+              34
+            ],
+            "n_images": 4,
+            "subset": {
+              "source": "R17 interceptor => gsplat.cuda._wrapper.isect_tiles",
+              "full_projected_gaussian_count": 2415374,
+              "sample_gaussian_count": 1000,
+              "sample_seed": 42,
+              "projected_tensor_shape": [
+                1,
+                4,
+                2415374,
+                2
+              ],
+              "sampled_tensor_shape": [
+                1,
+                4,
+                1000,
+                2
+              ],
+              "width_in_tiles": 60,
+              "height_in_tiles": 34,
+              "tile_size": 16,
+              "n_images": 4,
+              "gpu_count_sum": 6195,
+              "gpu_emitted_intersection_count": 6195,
+              "gpu_count_and_emit_agree": true,
+              "has_conics": true,
+              "has_opacities": true,
+              "has_tile_mask": false,
+              "torch_version": "2.9.1+cu128",
+              "r17_mode": "gated_full",
+              "r17_tag": "activated_real_b4"
+            },
+            "estimate": {
+              "estimate_samples": 4000,
+              "estimate_seed": 123,
+              "call_full_n": 2415374,
+              "call_n_images": 4,
+              "call_total_primitives": 9661496,
+              "tiles_per_image": 2040,
+              "sample_count_stats": {
+                "count_n": 4000,
+                "count_mean": 1.54875,
+                "count_min": 0.0,
+                "count_max": 23.0,
+                "count_p50": 1.0,
+                "count_p90": 4.0,
+                "count_p99": 9.0
+              },
+              "sample_frac_at_tile_bound": 0.0,
+              "est_isects_mean_scaled": 14963241.930000002,
+              "est_isects_p90_scaled": 38645984.0,
+              "projected_bytes_lower": 179558903.16000003,
+              "projected_bytes_documented_conservative": 538676709.48,
+              "gpu_free_bytes": 30422269952,
+              "gpu_total_bytes": 42405855232,
+              "gpu_allocated_bytes_at_gate": 4380645376,
+              "memory_margin_bytes": 6442450944,
+              "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+              "decision": "RUN_FULL",
+              "headroom_after_projection_bytes": 23441142298.52
+            },
+            "full_call_seconds": 0.11774754524230957,
+            "sum_counts": 15877992,
+            "sum_counts_over_tiles": 1945.8323529411764,
+            "emitted_ids": 15877992,
+            "count_emit_agree": true
+          }
+        ],
+        "n_qualifying_calls": 1,
+        "first_call_records": {
+          "call_index": 0,
+          "means2d_shape": [
+            1,
+            4,
+            2415374,
+            2
+          ],
+          "tile_grid": [
+            60,
+            34
+          ],
+          "n_images": 4,
+          "subset": {
+            "source": "R17 interceptor => gsplat.cuda._wrapper.isect_tiles",
+            "full_projected_gaussian_count": 2415374,
+            "sample_gaussian_count": 1000,
+            "sample_seed": 42,
+            "projected_tensor_shape": [
+              1,
+              4,
+              2415374,
+              2
+            ],
+            "sampled_tensor_shape": [
+              1,
+              4,
+              1000,
+              2
+            ],
+            "width_in_tiles": 60,
+            "height_in_tiles": 34,
+            "tile_size": 16,
+            "n_images": 4,
+            "gpu_count_sum": 6195,
+            "gpu_emitted_intersection_count": 6195,
+            "gpu_count_and_emit_agree": true,
+            "has_conics": true,
+            "has_opacities": true,
+            "has_tile_mask": false,
+            "torch_version": "2.9.1+cu128",
+            "r17_mode": "gated_full",
+            "r17_tag": "activated_real_b4"
+          },
+          "estimate": {
+            "estimate_samples": 4000,
+            "estimate_seed": 123,
+            "call_full_n": 2415374,
+            "call_n_images": 4,
+            "call_total_primitives": 9661496,
+            "tiles_per_image": 2040,
+            "sample_count_stats": {
+              "count_n": 4000,
+              "count_mean": 1.54875,
+              "count_min": 0.0,
+              "count_max": 23.0,
+              "count_p50": 1.0,
+              "count_p90": 4.0,
+              "count_p99": 9.0
+            },
+            "sample_frac_at_tile_bound": 0.0,
+            "est_isects_mean_scaled": 14963241.930000002,
+            "est_isects_p90_scaled": 38645984.0,
+            "projected_bytes_lower": 179558903.16000003,
+            "projected_bytes_documented_conservative": 538676709.48,
+            "gpu_free_bytes": 30422269952,
+            "gpu_total_bytes": 42405855232,
+            "gpu_allocated_bytes_at_gate": 4380645376,
+            "memory_margin_bytes": 6442450944,
+            "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+            "decision": "RUN_FULL",
+            "headroom_after_projection_bytes": 23441142298.52
+          },
+          "full_call_seconds": 0.11774754524230957,
+          "sum_counts": 15877992,
+          "sum_counts_over_tiles": 1945.8323529411764,
+          "emitted_ids": 15877992,
+          "count_emit_agree": true
+        },
+        "estimate": {
+          "estimate_samples": 4000,
+          "estimate_seed": 123,
+          "call_full_n": 2415374,
+          "call_n_images": 4,
+          "call_total_primitives": 9661496,
+          "tiles_per_image": 2040,
+          "sample_count_stats": {
+            "count_n": 4000,
+            "count_mean": 1.54875,
+            "count_min": 0.0,
+            "count_max": 23.0,
+            "count_p50": 1.0,
+            "count_p90": 4.0,
+            "count_p99": 9.0
+          },
+          "sample_frac_at_tile_bound": 0.0,
+          "est_isects_mean_scaled": 14963241.930000002,
+          "est_isects_p90_scaled": 38645984.0,
+          "projected_bytes_lower": 179558903.16000003,
+          "projected_bytes_documented_conservative": 538676709.48,
+          "gpu_free_bytes": 30422269952,
+          "gpu_total_bytes": 42405855232,
+          "gpu_allocated_bytes_at_gate": 4380645376,
+          "memory_margin_bytes": 6442450944,
+          "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+          "decision": "RUN_FULL",
+          "headroom_after_projection_bytes": 23441142298.52
+        },
+        "aborted": false,
+        "seconds": 0.7250890731811523
+      },
+      "estimate": {
+        "estimate_samples": 4000,
+        "estimate_seed": 123,
+        "call_full_n": 2415374,
+        "call_n_images": 4,
+        "call_total_primitives": 9661496,
+        "tiles_per_image": 2040,
+        "sample_count_stats": {
+          "count_n": 4000,
+          "count_mean": 1.54875,
+          "count_min": 0.0,
+          "count_max": 23.0,
+          "count_p50": 1.0,
+          "count_p90": 4.0,
+          "count_p99": 9.0
+        },
+        "sample_frac_at_tile_bound": 0.0,
+        "est_isects_mean_scaled": 14963241.930000002,
+        "est_isects_p90_scaled": 38645984.0,
+        "projected_bytes_lower": 179558903.16000003,
+        "projected_bytes_documented_conservative": 538676709.48,
+        "gpu_free_bytes": 30422269952,
+        "gpu_total_bytes": 42405855232,
+        "gpu_allocated_bytes_at_gate": 4380645376,
+        "memory_margin_bytes": 6442450944,
+        "note": "Estimate = per-primitive tile counts from a seeded subset of the same real projected tensors, scaled by call size (full_n x n_images). Byte projection is an engineering projection (int64 isect ids + int32 flatten ids, two passes, x1.5 sort slack), NOT a measurement of any allocation site.",
+        "decision": "RUN_FULL",
+        "headroom_after_projection_bytes": 23441142298.52
+      },
+      "nan": {
+        "frame": {
+          "shape": [
+            1,
+            4,
+            540,
+            960,
+            3
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "alpha": {
+          "shape": [
+            1,
+            4,
+            540,
+            960,
+            1
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "grad_means": {
+          "shape": [
+            4413928,
+            3
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "grad_quats": {
+          "shape": [
+            4413928,
+            4
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "grad_scales": {
+          "shape": [
+            4413928,
+            3
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "grad_opacities": {
+          "shape": [
+            4413928
+          ],
+          "has_nan": false,
+          "has_inf": false
+        },
+        "grad_shs": {
+          "shape": [
+            4413928,
+            16,
+            3
+          ],
+          "has_nan": false,
+          "has_inf": false
+        }
+      },
+      "seconds": 1.3025057315826416,
+      "vs_r8_reported_request": {
+        "r8_requested_bytes": 119485990174.72,
+        "r17_projected_bytes_conservative": 538676709.48,
+        "ratio_r17_over_r8": 0.004508283428812974
+      }
+    }
+  },
+  "status": "EXECUTED"
+}

@@ -1,0 +1,164 @@
+﻿=== trainer lines 120-280 (arm bootstrap + render_with_meta defs) ===
+    args = ap.parse_args()
+
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(args.gpu))
+    torch.manual_seed(42)
+    np.random.seed(42)
+    random.seed(42)
+
+    if args.arm == "b1a":
+        ident = bootstrap_b1a()
+    else:
+        ident = bootstrap_c0()
+
+    # shared recipe imports (after bootstrap)
+    from gaussian_model import GaussianModel
+    from config import ReferenceV1Config
+    from colmap_reader import read_points3D_binary, sfm_to_pcd_data
+    from dataset import GTDataset
+    if args.arm == "b1a":
+        from gsplat import rasterization
+    else:
+        from gsplat.experimental import rasterize_gaussian_higs_dynamic
+        from gsplat.experimental.render.functional.gaussian_inference import _HIGS_DYNAMIC_SCENE
+
+    # ---------------- SepSSIM / PSNR (verbatim from b1a_13scene_train.py) ----
+    class SepSSIM:
+        def __init__(self, device="cuda", window_size=11, sigma=1.5):
+            coords = torch.arange(window_size, dtype=torch.float32, device=device)
+            coords -= window_size // 2
+            k1d = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
+            k1d = k1d / k1d.sum()
+            self.k_h = k1d.unsqueeze(0).unsqueeze(0).repeat(15, 1, 1, 1).contiguous()
+            self.k_v = k1d.unsqueeze(0).unsqueeze(0).repeat(15, 1, 1, 1).permute(0, 1, 3, 2).contiguous()
+            self.padding = window_size // 2
+
+        def __call__(self, pred, target):
+            if pred.ndim == 3:
+                pred = pred.unsqueeze(0).permute(0, 3, 1, 2)
+                target = target.unsqueeze(0).permute(0, 3, 1, 2)
+            stacked = torch.cat([pred, target, pred ** 2, target ** 2, pred * target], dim=1)
+            b = F.conv2d(stacked, self.k_h, padding=(0, self.padding), groups=15)
+            b = F.conv2d(b, self.k_v, padding=(self.padding, 0), groups=15)
+            mu_p, mu_t = b[:, 0:3], b[:, 3:6]
+            bp2, bt2, bpt = b[:, 6:9], b[:, 9:12], b[:, 12:15]
+            mu_p2, mu_t2, mu_pt = mu_p ** 2, mu_t ** 2, mu_p * mu_t
+            sp2, st2, spt = bp2 - mu_p2, bt2 - mu_t2, bpt - mu_pt
+            ssim_map = (2 * mu_pt + 0.01 ** 2) * (2 * spt + 0.03 ** 2) / \
+                       ((mu_p2 + mu_t2 + 0.01 ** 2) * (sp2 + st2 + 0.03 ** 2))
+            return 1.0 - ssim_map.mean()
+
+    def compute_psnr(pred, gt):
+        mse = F.mse_loss(pred, gt)
+        return float(20 * math.log10(1.0 / math.sqrt(mse.item()))) if mse > 1e-10 else 100.0
+
+    def compute_scene_extent(dataset, n_samples=50):
+        centers = []
+        n = min(n_samples, len(dataset))
+        for i in range(n):
+            cam = dataset.get_camera(i)
+            centers.append(cam.camera_center.cpu().numpy())
+        centers = np.array(centers)
+        extent = 0.0
+        for i in range(n):
+            for j in range(i + 1, n):
+                d = np.linalg.norm(centers[i] - centers[j])
+                extent = max(extent, d)
+        return max(extent, 0.1)
+
+    # ---------------- arm-specific render ---------------------------------
+    def render_with_meta(model, cam, sh_degree):
+        if args.arm == "b1a":
+            r, _, meta = rasterization(
+                means=model.get_xyz, quats=model.get_rotation,
+                scales=model.get_scaling, opacities=model.get_opacity,
+                colors=model.get_features,
+                viewmats=cam.viewmatrix.unsqueeze(0), Ks=cam.K.unsqueeze(0),
+                width=cam.image_width, height=cam.image_height,
+                tile_size=16, packed=False, sh_degree=sh_degree,
+                radius_clip=0.0, eps2d=0.1, render_mode="RGB",
+                absgrad=True, accutile=True)
+            means2d = meta["means2d"]
+            if means2d.requires_grad:
+                means2d.retain_grad()
+            return r[0].clamp(0, 1), meta["radii"], means2d
+        else:
+            out = rasterize_gaussian_higs_dynamic(
+                model.get_xyz, model.get_rotation, model.get_scaling,
+                model.get_opacity, model.get_features,
+                sh_degree=sh_degree,
+                viewmats=cam.viewmatrix.unsqueeze(0).unsqueeze(0),
+                Ks=cam.K.unsqueeze(0).unsqueeze(0),
+                width=cam.image_width, height=cam.image_height,
+                backward_mode="higs_native", enable_culling=True,
+                camera_model="pinhole", render_mode="RGB")  # eps2d default 0.3 (frozen C0)
+            info = out["densification_info"]
+            means2d = info["means2d"]
+            frame = out["frame"].reshape(cam.image_height, cam.image_width, 3)
+            return frame.clamp(0, 1), info["radii"], means2d
+
+    # ---------------- setup ------------------------------------------------
+    os.makedirs(args.outdir, exist_ok=True)
+    config = ReferenceV1Config()
+    config.scene = args.scene
+    config.repo_root = HERE
+    config.iterations = args.iterations
+
+    print(f"\n{'=' * 60}\n  FINAL-30K TRAINER  arm={args.arm} scene={args.scene} "
+          f"iters={args.iterations}\n  gpu={args.gpu} timing_grade={args.timing_grade}\n{'=' * 60}")
+
+    dataset = GTDataset(scene=args.scene, repo_root=HERE, resolution="1080p",
+                        device="cuda", background="black")
+    n_cameras = len(dataset)
+    scene_extent = compute_scene_extent(dataset)
+
+    sfm_path = os.path.join(HERE, "data", "datasets", "mipnerf360", args.scene,
+                            "sparse", "0", "points3D.bin")
+    points3d = read_points3D_binary(sfm_path)
+    pcd_data = sfm_to_pcd_data(points3d, sh_degree=config.sh_degree)
+
+    model = GaussianModel(max_sh_degree=config.sh_degree)
+    model.create_from_pcd(pcd_data, spatial_lr_scale=scene_extent)
+    initial_N = model._xyz.shape[0]
+    model.training_setup({
+        "position_lr_init": config.position_lr_init,
+        "position_lr_final": config.position_lr_final,
+        "position_lr_delay_mult": config.position_lr_delay_mult,
+        "position_lr_max_steps": config.position_lr_max_steps,
+        "feature_lr": config.feature_lr,
+        "opacity_lr": config.opacity_lr,
+        "scaling_lr": config.scaling_lr,
+        "rotation_lr": config.rotation_lr,
+        "percent_dense": config.percent_dense,
+    })
+    print(f"  cameras={n_cameras} extent={scene_extent:.4f} initial_N={initial_N}")
+
+    lpips_fn = None
+    if args.lpips:
+        try:
+            import lpips
+            lpips_fn = lpips.LPIPS(net="vgg").to("cuda")
+            lpips_fn.eval()
+        except Exception as e:
+            print(f"  WARNING: LPIPS unavailable: {e}")
+
+    ssim_fn = SepSSIM(device="cuda")
+
+    # frozen camera sequence (identical both arms: same rng, same seed)
+    viewpoint_stack = list(range(n_cameras))
+    camera_sequence = []
+    rng = random.Random(config.seed)
+    for iteration in range(1, config.iterations + 1):
+        if not viewpoint_stack:
+            viewpoint_stack = list(range(n_cameras))
+        rand_idx = rng.randint(0, len(viewpoint_stack) - 1)
+        camera_sequence.append(viewpoint_stack.pop(rand_idx))
+    camera_sequence = np.array(camera_sequence, dtype=np.int32)
+    np.save(os.path.join(args.outdir, "camera_sequence.npy"), camera_sequence)
+
+    eval_indices = list(range(0, n_cameras, max(1, n_cameras // 10)))
+    eval_iterations = set(i for i in config.eval_iterations if i <= args.iterations)
+
+    # ---------------- recording structures ---------------------------------
+DONE
+

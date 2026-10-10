@@ -1,0 +1,1 @@
+python C:\Users\36570\3dgs-renderer-benchmark\extract_r16.py

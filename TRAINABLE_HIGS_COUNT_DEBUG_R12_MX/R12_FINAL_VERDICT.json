@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-10-08T16:30:00Z",
+  "campaign": "TRAINABLE_HIGS_COUNT_DEBUG_R12_MX",
+  "status": "INCONCLUSIVE",
+  "root_cause_verdict": "INCONCLUSIVE",
+  "fix_verdict": "NOT_IMPLEMENTED",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "key_revision": {
+    "r11_claim": "COUNTING_BUG_CONFIRMED",
+    "r12_finding": "R11 physical bounds analysis was WRONG",
+    "error": "Used 561 tiles instead of actual 2040 tiles",
+    "correction": "490M is 88% of max, not 320% - physically possible"
+  },
+  "evidence_audit": {
+    "tile_grid": "60×34 = 2040 tiles",
+    "max_intersections_580k": 557397360,
+    "actual_intersections_580k": 490387290,
+    "ratio_to_max": 0.88,
+    "per_gaussian_avg": 1794.75,
+    "r11_error": "Claimed 320% of max based on wrong tile count"
+  },
+  "r10_allocation_analysis": {
+    "oom_bytes": 119488359424,
+    "single_int64_elements": 14936044928,
+    "two_arrays_elements": 9957363285,
+    "stack_trace": "at::empty at IntersectTile.cu:833",
+    "conclusion": "Single int64 allocation implies n_isects=14.9B, not 9.96B"
+  },
+  "experiments": {
+    "p0_audit": "SUCCESS - Found R11 errors",
+    "p1_oracle": "NOT_IMPLEMENTED",
+    "p2_comparison": "NOT_PERFORMED",
+    "p3_error_location": "NOT_ATTEMPTED",
+    "p4_4p4m_diagnostic": "NOT_EXECUTED",
+    "p5_fix": "NOT_APPLICABLE",
+    "p6_validation": "NOT_APPLICABLE",
+    "p7_performance": "NOT_APPLICABLE"
+  },
+  "answers": {
+    "q1_is_490m_actual_count": "YES from metadata, but not independently verified",
+    "q2_tile_grid": "60×34 = 2040 tiles",
+    "q3_specific_error": "NOT_IDENTIFIED - no oracle performed",
+    "q4_first_mismatch": "NOT_FOUND - no comparison done",
+    "q5_111gb_explanation": "Single int64 array: 14.9B elements, not 9.96B",
+    "q6_fix_compiled": "NO",
+    "q7_4p4m_success": "NOT_TESTED",
+    "q8_performance": "NOT_MEASURED"
+  },
+  "hypotheses": {
+    "counting_bug": "UNPROVEN",
+    "large_radius": "POSSIBLE",
+    "hierarchy_duplication": "POSSIBLE",
+    "r10_allocation_error": "POSSIBLE",
+    "different_n_values": "LIKELY"
+  },
+  "recommendation": "R11's COUNTING_BUG_CONFIRMED was premature. Physical bounds analysis was wrong (561 vs 2040 tiles). 490M is 88% of max, which is possible. Need independent per-Gaussian oracle and source audit before claiming bug.",
+  "verdict": {
+    "root_cause": "INCONCLUSIVE",
+    "fix": "NOT_IMPLEMENTED",
+    "next_action": "IMPLEMENT_INDEPENDENT_ORACLE"
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "artifact": "C51J_FINAL_VERDICT",
+  "track": "CVPR27-C51-JOINT-MX",
+  "generated_utc": "2026-10-10T16:06:00Z",
+  "role": "MX/A100, 3DGS full training, profiling, acceptance, archival",
+  "reasoning_intensity": "High",
+  "executed_by_agent": "DSH execution agent",
+
+  "overall_verdict": "BLOCKED_NEEDS_EXCLUSIVE_GPU_THEN_AUDIT_COMPLETE",
+  "one_line": "P0-P3 evidence audit is complete; P4/P5 training is BLOCKED by a SINGLE resource blocker: no A100 currently has enough FREE memory (live: 1.9-18.3 GiB free per GPU; historical runs need more and OOM is a disqualifier). Storage is NO LONGER a hard blocker — the harness now accepts a writable home fallback ($HOME/C51J_runs, 28GB free) when the pool is 100% full, and gates on per-GPU FREE memory (default >=30 GiB, overridable via --min-free-mib). P4-readiness fully validated (imports clean, 0 GPU at import, gate fires correctly with fallback + per-GPU free-memory reporting). No new 30K speedup is claimed.",
+
+  "p4_readiness_validation": {
+    "infra_imports": "PASS — GaussianModel/dataset/loss/benchmark.run_experiment all import under /home/liaoyuanjun/miniforge3/envs/nerficg/bin/python (located at scripts/epic05/phase7)",
+    "import_gpu_allocation": "PASS — importing benchmark.py allocates 0 GPU bytes (delta 0)",
+    "resource_gate_live": "PASS — harness refuses on MX with per-GPU free-memory reporting + home storage fallback (torch 2.7.1+cu118, gsplat 1.5.3, A100, repo_head 32ab80e7)",
+    "storage_blocker_resolved_in_harness": "PASS — pick_writable_output() falls back to $HOME/C51J_runs (28GB) when pool is full; verified output_dir=/home/liaoyuanjun/C51J_runs, output_is_pool=false",
+    "harness_executable": true,
+    "vram_capture_gap_fixed": "PASS — historical Stage5 results recorded NO peak VRAM (peakVRAM=? in all jsons); P3 harness RunTimer now captures peak_gpu_memory_mib",
+    "single_blocker": "an A100 with sufficient FREE memory (>=30 GiB default, or --min-free-mib if the model provably fits); current max free is 18.3 GiB < needed",
+    "gpu_gate_not_lowered_without_evidence": "Deliberately did NOT lower the 30GiB gate to fit the 18.3GiB that is free. Reason: no measured VRAM floor exists for this training stack (historical Stage5 jsons recorded no peak VRAM), and OOM is an explicit P5 disqualifier. Running a smoke under an unvalidated memory ceiling on a shared GPU (where another job's spike could OOM my run or vice versa) would yield unreliable data. Lowering the gate without evidence would be gaming the safety check, which the research skill forbids. The gate stays at 30GiB until a measured floor justifies otherwise."
+  },
+
+  "phase_status": {
+    "P0_resources_and_baseline": "COMPLETE_AUDITED",
+    "P1_recover_1.164x_baseline": "COMPLETE_AS_HISTORICAL_AGGREGATE",
+    "P2_c51_causal_evidence": "COMPLETE",
+    "P3_prepare_validation": "COMPLETE_PREPARED_NOT_EXECUTED",
+    "P4_codex_candidate_validation": "BLOCKED_NO_EXCLUSIVE_GPU_NO_STORAGE",
+    "P5_gating_GO_TO_30K": "NOT_REACHED_P4_BLOCKED",
+    "P6_delivery": "COMPLETE"
+  },
+
+  "P0_findings": {
+    "mx_reachable": true,
+    "mx_host": "bms-39468022-001",
+    "gpus": "8x A100-PCIE-40GB",
+    "exclusive_gpu_available": false,
+    "storage_pool": {"free_bytes": 420630528, "used_pct": 100, "inode_used_pct": 94},
+    "output_dir_created": "/mnt/storage_pool/liaoyuanjun/CVPR27_C51_JOINT_MX/{audit,raw_logs}",
+    "env_versions": {
+      "usable_env": "nerficg",
+      "torch": "2.7.1+cu118", "cuda": "11.8", "cxx11_abi": 1, "gsplat": "1.5.3", "simple_knn": "OK"
+    },
+    "root_gsplat_env_inaccessible": true,
+    "default_python3_torch_broken": true,
+    "r28b_abi_scope": "isolated to prebuilt native HiGS/FasterGS rasterizers with mismatched C++ ABI; gsplat 1.5.3 imports cleanly in all three usable envs; does NOT block a fresh gsplat experiment if the rasterizer ABI matches the env"
+  },
+
+  "P1_findings": {
+    "claim": "gsplat_30k_fused_prune10_rclip05 wall speedup 1.164x",
+    "classification": "HISTORICAL_AGGREGATE_SUPPORT_ONLY",
+    "wall_speedup_mean": 1.1642190679088422,
+    "wall_speedup_ci95_lower": 1.0343693851160345,
+    "matrix": "confirmatory_accel15_11s3",
+    "jobs": 132,
+    "per_run_raw_located": false,
+    "dedicated_protocol_file_located": false,
+    "gsplat_30k_impl_source_located": false,
+    "non_inferiority": {
+      "psnr_delta_mean": 0.0577, "psnr_ci_lo": -0.0222, "passed": true,
+      "ssim_delta_mean": -0.000071, "ssim_ci_lo": -0.00109, "passed": true,
+      "lpips_delta_mean": 0.001412, "lpips_ci_hi": 0.00249, "lpips_ceiling": 0.005, "passed": true,
+      "caveat": "gates are non-inferiority bounds; LPIPS aggregate mean got slightly WORSE (+0.0014) but stayed inside +0.005 ceiling; NOT proof all three quality metrics improved"
+    },
+    "is_higs_native": false,
+    "note": "gsplat optimization COMBINATION (fused render + opacity prune every 10th densification + radius clip 0.05), NOT a native HiGS method"
+  },
+
+  "P2_findings": {
+    "stage5_arm_C_intrinsic_sparse_speedup": {"room_pct": 0.5, "bicycle_pct": -6.6, "garden_pct": -1.7, "passes_5pct_gate": false},
+    "densification_induced_share_of_K50B1": {"room_pct": 94.0},
+    "mask_overhead_ms": {"room": 0.715},
+    "cuda_skip_benefit_ms_room": 0.52,
+    "bicycle_overdensification_pct": 111.9,
+    "r0_2_previous_iter_topk_coverage": 0.528,
+    "r0_2_random_coverage": 0.500,
+    "r0_2_gdens_gopt_spearman": 0.858,
+    "r0_2_gdens_top50_coverage": 0.927,
+    "r0_2_amdahl_after_raster_bwd_ceiling_pct": 15.8,
+    "protocol_boundary": "C51 Stage-5 (3-scene/1-seed ablation) is NOT the 132-job (11-scene/3-seed confirmatory) protocol; results must not be merged"
+  },
+
+  "P3_findings": {
+    "frozen_protocol": "C51J_FROZEN_PROTOCOL.json",
+    "harness": "C51J_harness.py",
+    "harness_status": "EXECUTION_GATED (refuses wrong GPU / full storage / broken interpreter)",
+    "smoke_1k": "C51J_1K_SMOKE.json",
+    "paired_5k": "C51J_5K_PAIRED.csv",
+    "quality_perf": "C51J_QUALITY_PERFORMANCE.csv",
+    "arms_prepared": ["native_baseline", "opacity_pruning_control", "strong_candidate(RESTORABLE_ONLY)", "codex_candidate(AWAITING)"],
+    "split_isolation": "train/val/held-out enforced; no test-view tuning",
+    "priority_scenes": ["room", "bicycle", "garden"]
+  },
+
+  "P5_gate_outcome": {
+    "reached": false,
+    "reason": "P4 blocked; no paired 5K, no smoke, no Codex manifest validated",
+    "reference_targets_untested": {
+      "wall_speedup_min": 1.10,
+      "delta_psnr_min": -0.10,
+      "delta_ssim_min": -0.002,
+      "delta_lpips_max": 0.005
+    }
+  },
+
+  "blockers": [
+    {"id": "B1", "type": "gpu", "detail": "no A100 currently has enough FREE memory (live: 1.9-18.3 GiB free per GPU; historical room/bicycle/garden training needs more; OOM is a P5 disqualifier)", "unblocks": "an A100 with >=30 GiB free (default) or --min-free-mib override if the model provably fits", "status": "ACTIVE_SOLE_BLOCKER"},
+    {"id": "B1s", "type": "storage", "detail": "/mnt/storage_pool 100% full (~293MB) — RESOLVED IN HARNESS: pick_writable_output() falls back to $HOME/C51J_runs (28GB free); formal pool output resumes when the pool frees", "unblocks": "nothing (workaround in place)", "status": "WORKAROUNDED"},
+    {"id": "B2", "type": "gpu_exclusivity", "detail": "all 8 A100s host other users' compute apps (8-10 processes); no exclusive device", "unblocks": ">=1 A100 free of other jobs", "status": "ACTIVE"},
+    {"id": "B3", "type": "env", "detail": "root gsplat env inaccessible; default python3 torch broken — RESOLVED by using /home/liaoyuanjun/miniforge3/envs/nerficg/bin/python", "unblocks": "RESOLVED", "status": "RESOLVED"}
+  ],
+
+  "scientific_integrity": {
+    "no_132job_recompute_claimed": true,
+    "no_c51_132job_merge": true,
+    "no_aggregate_hiding_per_scene": true,
+    "no_new_data_deleted": true,
+    "cohorts_not_merged": true,
+    "negative_results_retained": true
+  },
+
+  "next_highest_value_action": "Free >=5GiB on /mnt/storage_pool/liaoyuanjun and secure >=1 exclusive A100; then run C51J_harness.py 1K smoke on room/native_baseline using the nerficg env, validate resource gate passes, then proceed to paired 5K. Do NOT tune on held-out views."
+}

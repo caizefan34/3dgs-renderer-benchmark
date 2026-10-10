@@ -1,0 +1,239 @@
+﻿=== FINAL RUN_STATUS ===
+{
+  "summary": {
+    "required": 6,
+    "executed": 6,
+    "not_executed": [],
+    "all_steps_exit_zero": true
+  },
+  "step_exit_codes": {
+    "preflight": 0,
+    "p0_integrity": 0,
+    "p1_correctness": 0,
+    "p2_performance": 0,
+    "p3_verdict": 0,
+    "collect": 0
+  },
+  "r18_out": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_VALIDATED_BENCHMARK_R18_MX",
+  "p0_binaries_all_match": true,
+  "p0_checkpoint_match": true,
+  "p1_config_status": {
+    "580K_B1": "PASS",
+    "580K_B4": "PASS",
+    "4M_B1": "PASS",
+    "4M_B4": "PASS"
+  },
+  "p2_config_backend_status": {
+    "580K_540p_B1/std_ll": "PASS",
+    "580K_540p_B1/higs_native": "PASS",
+    "580K_540p_B4/std_ll": "PASS",
+    "580K_540p_B4/higs_native": "PASS",
+    "4M_540p_B1/std_ll": "PASS",
+    "4M_540p_B1/higs_native": "PASS",
+    "4M_540p_B4/std_ll": "PASS",
+    "4M_540p_B4/higs_native": "PASS",
+    "4M_1080p_B4/std_ll": "PASS",
+    "4M_1080p_B4/higs_native": "PASS"
+  },
+  "verdicts": {
+    "CORRECTNESS": "PASS",
+    "LARGE_SCALE_FB": "PASS",
+    "PERFORMANCE": "IMPROVED",
+    "MEMORY": "IMPROVED",
+    "RESEARCH_DECISION": "KEEP"
+  },
+  "missing_inputs": []
+}
+=== FINAL VERDICT ===
+{
+  "deliverable": "R18_RESEARCH_VERDICT",
+  "generated_utc": "2026-10-08T16:03:28Z",
+  "question": "Under correct (activated) inputs, can HiGS render 4,413,928 Gaussians stably, correctly, and significantly faster than std_ll?",
+  "backing": {
+    "p0_binaries_all_match": true,
+    "p0_checkpoint_match": true,
+    "p1_rows": {
+      "580K_B1": "PASS",
+      "580K_B4": "PASS",
+      "4M_B1": "PASS",
+      "4M_B4": "PASS"
+    },
+    "p2_4M_540p_B4": {
+      "std_status": "PASS",
+      "higs_status": "PASS",
+      "std_fb_median_ms": 91.55225467681885,
+      "higs_fb_median_ms": 72.89856147766113,
+      "speedup": 1.2558856144901283
+    }
+  },
+  "verdicts": {
+    "CORRECTNESS": "PASS",
+    "LARGE_SCALE_FB": "PASS",
+    "PERFORMANCE": "IMPROVED",
+    "MEMORY": "IMPROVED",
+    "RESEARCH_DECISION": "KEEP"
+  },
+  "evidence": {
+    "CORRECTNESS": {
+      "per_config_status": {
+        "580K_B1": "PASS",
+        "580K_B4": "PASS",
+        "4M_B1": "PASS",
+        "4M_B4": "PASS"
+      },
+      "tolerances": {
+        "rgb_max_abs": 0.02,
+        "alpha_max_abs": 0.02,
+        "grad_cosine_min": 0.999
+      },
+      "worst_rgb_max_abs": 2.86102294921875e-06,
+      "worst_alpha_max_abs": 0.0,
+      "worst_grad_cosine": 0.9999995844778072,
+      "non_pass_or_missing": [],
+      "finite_failures": []
+    },
+    "LARGE_SCALE_FB": {
+      "p2_4M_540p_B4_higs_status": "PASS",
+      "p1_4M_B4_finite_grads": "True",
+      "p2_4M_1080p_B4_higs_status": "PASS",
+      "p2_4M_540p_B4_std_status": "PASS"
+    },
+    "PERFORMANCE": {
+      "4M_540p_B4": {
+        "std_status": "PASS",
+        "higs_status": "PASS",
+        "std_fb_median_ms": 91.55225467681885,
+        "higs_fb_median_ms": 72.89856147766113,
+        "speedup_higs_over_std": 1.2558856144901283
+      },
+      "580K_540p_B1": {
+        "std_fb": 5.797375917434692,
+        "higs_fb": 5.608960032463074,
+        "speedup": 1.0335919464359027
+      },
+      "580K_540p_B4": {
+        "std_fb": 12.878336310386658,
+        "higs_fb": 11.003391981124878,
+        "speedup": 1.1703969405505177
+      }
+    },
+    "MEMORY": {
+      "4M_540p_B4": {
+        "std_peak_reserved_gb": 5.440012288,
+        "higs_peak_reserved_gb": 4.99122176
+      }
+    },
+    "RESEARCH_DECISION": {
+      "rationale": "Correct, completes 4.41M fwd+bwd, and is faster than std_ll at 4.41M/540p B4."
+    }
+  },
+  "missing_inputs": []
+}
+=== FINAL REPORT ===
+# R18 Validated Benchmark — Research Verdict
+
+_Generated 2026-10-08T16:03:28Z_
+
+**Question:** Under correct (activated) inputs, can HiGS render 4,413,928 Gaussians stably, correctly, and significantly faster than std_ll?
+
+## Verdicts
+
+| Verdict | Result |
+|---|---|
+| CORRECTNESS | **PASS** |
+| LARGE_SCALE_FB | **PASS** |
+| PERFORMANCE | **IMPROVED** |
+| MEMORY | **IMPROVED** |
+| RESEARCH_DECISION | **KEEP** |
+
+## Direct answer
+
+- **CORRECTNESS = PASS**: worst RGB max-abs 0.00000, worst alpha max-abs 0.00000, worst grad cosine 1.000000 (tolerances RGB/alpha<=0.02, cosine>=0.999).
+- **LARGE_SCALE_FB = PASS**: HiGS 4.41M/540p/B4 fwd+bwd = PASS.
+- **PERFORMANCE = IMPROVED**: 4.41M/540p/B4 fwd+bwd median std_ll 91.552 ms vs HiGS 72.899 ms → speedup 1.256x.
+- **MEMORY = IMPROVED**: 4.41M/540p/B4 peak reserved std_ll 5.440012288 GB vs HiGS 4.99122176 GB.
+- **RESEARCH_DECISION = KEEP**: Correct, completes 4.41M fwd+bwd, and is faster than std_ll at 4.41M/540p B4.
+
+## Evidence (P1 correctness)
+
+```json
+{
+  "per_config_status": {
+    "580K_B1": "PASS",
+    "580K_B4": "PASS",
+    "4M_B1": "PASS",
+    "4M_B4": "PASS"
+  },
+  "tolerances": {
+    "rgb_max_abs": 0.02,
+    "alpha_max_abs": 0.02,
+    "grad_cosine_min": 0.999
+  },
+  "worst_rgb_max_abs": 0.0,
+  "worst_alpha_max_abs": 0.0,
+  "worst_grad_cosine": 1.0,
+  "non_pass_or_missing": [],
+  "finite_failures": []
+}
+```
+
+## Evidence (P2 performance)
+
+```json
+{
+  "4M_540p_B4": {
+    "std_status": "PASS",
+    "higs_status": "PASS",
+    "std_fb_median_ms": 91.55225467681885,
+    "higs_fb_median_ms": 72.89856147766113,
+    "speedup_higs_over_std": 1.2558856144901283
+  },
+  "580K_540p_B1": {
+    "std_fb": 5.797375917434692,
+    "higs_fb": 5.608960032463074,
+    "speedup": 1.0335919464359027
+  },
+  "580K_540p_B4": {
+    "std_fb": 12.878336310386658,
+    "higs_fb": 11.003391981124878,
+    "speedup": 1.1703969405505177
+  }
+}
+```
+=== step_exit_codes.txt ===
+preflight 0
+p0_integrity 0
+p1_correctness 0
+p2_performance 0
+p3_verdict 0
+collect 0
+=== deliverable file list ===
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun 12872 Oct  8 23:52 /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_VALIDATED_BENCHMARK_R18_MX/R18_MANIFEST_CORRECTED.json
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun  1249 Oct  8 23:52 /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_VALIDATED_BENCHMARK_R18_MX/R18_MANIFEST_CORRECTIONS.json
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun 27563 Oct  8 23:52 /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_VALIDATED_BENCHMARK_R18_MX/R18_P0_INTEGRITY_AUDIT.json
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun  3450 Oct  9 00:03 /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_VALIDATED_BENCHMARK_R18_MX/R18_P1_CORRECTNESS.csv
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun  4113 Oct  8 23:57 /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_VALIDATED_BENCHMARK_R18_MX/R18_P2_PERFORMANCE.csv
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun  1891 Oct  9 00:03 /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_VALIDATED_BENCHMARK_R18_MX/R18_RESEARCH_REPORT.md
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun  2378 Oct  9 00:03 /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_VALIDATED_BENCHMARK_R18_MX/R18_RESEARCH_VERDICT.json
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun  1135 Oct  9 00:03 /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_VALIDATED_BENCHMARK_R18_MX/RUN_STATUS.json
+=== raw/ ===
+total 48
+drwxrwxr-x 2 liaoyuanjun liaoyuanjun    60 Oct  9 00:03 .
+drwxrwxr-x 6 liaoyuanjun liaoyuanjun  4096 Oct  9 00:01 ..
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun 25353 Oct  9 00:03 R18_P1_details.json
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun 13578 Oct  8 23:57 R18_P2_details.json
+=== logs/ ===
+total 56
+drwxrwxr-x 2 liaoyuanjun liaoyuanjun  4096 Oct  8 23:44 .
+drwxrwxr-x 6 liaoyuanjun liaoyuanjun  4096 Oct  9 00:01 ..
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun  1376 Oct  8 23:57 collect.log
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun 12606 Oct  8 23:57 launch.log
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun   626 Oct  8 23:52 p0_integrity.log
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun  1844 Oct  8 23:55 p1_correctness.log
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun  3592 Oct  8 23:57 p2_performance.log
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun   634 Oct  8 23:57 p3_verdict.log
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun   277 Oct  8 23:52 preflight.log
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun  2726 Oct  8 23:52 runner.log
+-rw-rw-r-- 1 liaoyuanjun liaoyuanjun    84 Oct  9 00:00 step_exit_codes.txt
+DONE
+

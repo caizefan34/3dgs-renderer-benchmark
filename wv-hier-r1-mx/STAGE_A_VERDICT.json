@@ -1,0 +1,148 @@
+{
+  "schema": "WV_HIER_R1_MX.stage_a_verdict.v1",
+  "round": "WV-HIER-R1-MX",
+  "stage": "A",
+  "date": "2026-10-08",
+  "evidence_access": {
+    "mx_live_filesystem": "NOT_REACHABLE",
+    "uploaded_evidence_zip": "PRESENT_AND_VERIFIED",
+    "evidence_zip_sha256": "CB4181FE49783DE0651019FB96022B0BDDFF6B967F5DD76C2E3750573B26AF42",
+    "manifest_entries": 2798,
+    "priority_files_verified": "8/8 MATCH",
+    "cuda_binary_sha256": "405D4BBDCF168EBEDC566B0F064785722CC33C9DD1665C0393880F9BA06538A0",
+    "cuda_binary_matches_audit": true,
+    "this_host": "Windows, RTX 5070 Laptop sm_120, 8GiB, no torch/CUDA env",
+    "mx_target_gpu": "8x A100-PCIE-40GB sm_80",
+    "gpu_compute_seconds_this_stage": 0,
+    "cuda_source_edits_this_stage": 0,
+    "new_training_steps": 0
+  },
+  "question": "Can hierarchical work-constrained sampling (shared 16x16 parent list+sort, internal 4x4 child sampling) beat G16 on gradient quality at lower real GPU work, specifically undercut Native G4?",
+  "hypothesis": "H-HWCS: two-stage sampling (parent q, child r, marginal p=q*r, HT 1/p) yields an unbiased estimator whose (work, NMSE) point lies below the G16<->NativeG4 segment.",
+  "falsification_conditions": [
+    "hierarchical variance not a convex blend of G4/G16 variance (MC-validated, NOT falsified)",
+    "HWCS structural work >= Native-G4 work under the ASSUMED cost model AND the N1 dense-bin-then-mask baseline. NOTE: the undercut is a property of the structural cost model + N1 only; it is NOT a GPU-time result and does NOT apply if Native-G4 uses N2 (mask-then-bin). kappa is a cost-model parameter, not count-identifiable.",
+    "at matched work a G16/G4 mixture beats HWCS (HWCS loses only at kappa=1.0 in 5/9 states)",
+    "measured GPU-time advantage absent (BLOCKED: no Native-G4 or HWCS CUDA exists)"
+  ],
+  "evidence_classes": {
+    "OBSERVED": "G16/G4/G8/G1 geometry-macro NMSE at p in {0.25,0.4}; dense bbox intersection proxies I_G16,I_G4; audit hashes; MX GPU snapshots",
+    "RECOMPUTED": "K-calibration, HWCS NMSE blend, work model, dominance, equal-cost ratios",
+    "DERIVED": "variance identity, alpha blend, work-floor break-even kappa*, segment sweep",
+    "HYPOTHESIS": "HWCS NMSE (predicted), child-refine efficiency kappa, GPU-time realization",
+    "BLOCKED": "real HWCS NMSE, real CUDA timing, kappa, native-G4 baseline design (N1 vs N2), time-to-quality, camera heterogeneity, paired CIs"
+  },
+  "key_findings": {
+    "variance_identity": "Var_HWCS = (1-alpha)*Var_G4 + alpha*Var_G16, alpha = r*(1-q)/(1-p); HWCS-1 alpha=1/3, HWCS-2 alpha=1/9  [CORRECTED: denominator was mis-typed 1-p*q*r=1-p^2; numerical alpha always used 1-p, MC-verified]",
+    "mc_validation_rel_err_pct": {
+      "G4": 0.52,
+      "HWCS_1": 0.22,
+      "HWCS_2": 0.32,
+      "G16": 0.26
+    },
+    "nmse_ordering": "G4 <= HWCS-2 <= HWCS-1 <= G16 in 9/9 OBSERVED states (valid because within-parent cross-terms were non-negative there); scene-dependent, NOT universal - blend identity is the universal part",
+    "hwcs_beats_G16_at_matched_p": true,
+    "hwcs_beats_nativeG4_at_matched_p": false,
+    "work_saving_vs_nativeG4_p25_conservative": {
+      "HWCS1_mean": 0.271,
+      "HWCS1_range": [
+        0.228,
+        0.313
+      ],
+      "HWCS2_mean": 0.071,
+      "HWCS2_range": [
+        0.028,
+        0.113
+      ],
+      "_conditioning": "VALID ONLY under (a) the assumed structural cost model (bin+sort ~ linear in intersection entries, GAM=1) and (b) Native-G4 = N1 dense-bin-then-mask. If Native-G4 = N2 (mask-then-bin), Native-G4 avoids dense work and HWCS has NO structural edge. These are intersection-count proxies, NOT measured GPU time."
+    },
+    "g4_work_floor_undercut": "UNDER N1 + the assumed cost model only: HWCS-1 structural work < Native-G4 dense-binning floor in 9/9 states for every cost-model kappa in [0,1] (break-even kappa*=2-4/rho in [1.14,1.57], all >1; all states rho>4). This is NOT unconditional: it fails for N2 and is a proxy, not GPU time. kappa* is a cost-model break-even, NOT an empirically measurable threshold.",
+    "matched_work_vs_nativeG4": {
+      "HWCS1": "below G4 floor 9/9",
+      "HWCS2": "lower NMSE than G4-at-matched-work 9/9",
+      "_conditioning": "N1 + assumed cost model only. HWCS-2 result also requires the cost model; not a GPU-time claim."
+    },
+    "segment_mixture_dominance": {
+      "finding": "HWCS BELOW G16/G4 mixture for kappa<=0.75 (9/9); ABOVE (dominated) at kappa=1.0 in 5/9",
+      "_conditioning": "Cost-model dependent (kappa sweep). 'Below mixture' means below the G16/G4 chord UNDER THE ASSUMED WORK MODEL; not a measured result and assumes N1."
+    },
+    "equal_cost_audit_reproduction": "G4/G16 eqcost ratio 3.84-5.17 (audit 3.84-6.35), consistent"
+  },
+  "decisive_unmeasured": [
+    "real HWCS gradient NMSE (predicted only)",
+    "child-refine operation-cost efficiency kappa: a COST-MODEL parameter that CANNOT be uniquely identified from intersection counts. Stage B-min reports child-refine ENTRY COUNTS (a structural count) and per-camera paired gradient statistics; it does NOT measure kappa. kappa requires Stage C CUDA timing with identical baselines.",
+    "GPU-time realization (no Native-G4 or HWCS CUDA; all timing NOT_MEASURED)",
+    "native-G4 baseline design: dense-binning N1 (HWCS-favorable) vs mask-then-bin N2 (HWCS-neutral)",
+    "time-to-quality / training impact"
+  ],
+  "stage_b_feasibility": {
+    "feasibility_falsified": false,
+    "executable_from_this_host": false,
+    "blocking_reasons": [
+      "MX /mnt absent",
+      "no torch locally",
+      "local GPU sm_120 != A100 sm_80",
+      "checkpoints reside on MX"
+    ],
+    "must_not_preempt": "TEMPORAL_COVERAGE-R1 dedicated GPU",
+    "minimal_stage": "Stage B-min PyTorch oracle, full-render+matched-loss, NO CUDA build, 0 training steps",
+    "estimated_cost_idle_A100": "~10-30 min, 256 sparse + 2 dense evals"
+  },
+  "verdict": "CONDITIONAL_RESEARCH",
+  "verdict_options_considered": {
+    "CODEX_FEASIBILITY_GO": "REJECTED - all quality/cost numbers are proxy or predicted; nothing measured on GPU; hinges on unmeasured kappa and unconfirmed N1 baseline",
+    "CONDITIONAL_RESEARCH": "SELECTED - math sound (MC-validated <0.3%); HWCS-1 undercuts Native-G4 work floor in structural model; one cheap measurement (Stage B-min) decides GO vs DROP",
+    "DROP_HWCS_CURRENT_DESIGN": "REJECTED - feasibility NOT falsified; mechanism plausible and potentially Pareto-improving",
+    "BLOCKED_EVIDENCE": "REJECTED for Stage A - unlike WV0 we have a validated analytic model + reproducible proxies; but realization is blocked on measurement"
+  },
+  "rationale": "Stage A proved the hierarchical variance math correct (MC <0.3%), reproduced the audit's equal-cost result, and showed HWCS-1 undercuts the Native-G4 N1 dense-binning work floor in 9/9 states UNDER THE ASSUMED STRUCTURAL COST MODEL (not N2, not GPU time) while beating G16 on quality. But every quality number is a blend prediction and every cost number is an intersection-count proxy; the decisive variable kappa and the GPU-time realization are unmeasured, and the advantage depends on Native-G4 using dense-binning (N1). Basic feasibility is not falsified, so the correct next step is the cheap Stage B-min measurement, not a Codex CUDA GO and not a DROP.",
+  "next_experiment": "Stage B-min (controlling protocol = WV_HIER_R1_MX_STAGE_B_REVISED): extend _wv0_grad.py with the HWCS two-stage mask using COMMON RANDOM NUMBERS; run G16/G4(N1)/HWCS-1/HWCS-2 at matched p=0.25 on bicycle__iter15000 x 2 cams x 32 paired seeds; measure per-camera real HWCS gradient NMSE + paired bootstrap CI (blend-identity check), and report child-refine/parent ENTRY COUNTS as STRUCTURAL COUNTS (NOT kappa, NOT GPU time). Report BOTH N1 and N2 Native-G4 structural work. All full-render+masked-loss timing labeled SUPERVISION_ORACLE. 0 training steps, no CUDA edit. If evidence insufficient -> ORACLE_INCONCLUSIVE. See STAGE_B_REPORT.md.",
+  "answers_to_core_questions": {
+    "1_can_HWCS_reduce_native_G4_cost": "PLAUSIBLE_YES_IN_MODEL, N1+cost-model-conditional only - HWCS-1 undercuts the Native-G4 N1 dense-binning work floor by 22.8-31.3% in 9/9 states (structural proxy). Fails for N2. Not GPU time.",
+    "2_credible_quality_advantage_at_matched_cost": "IN-MODEL ONLY - under the assumed work model HWCS sits below the G16/G4 chord for kappa<=0.75 (9/9); but NMSE is blend-predicted not measured, ordering is scene-dependent, and at kappa=1.0 it is dominated in 5/9. Stage B-min must confirm with per-camera paired CIs.",
+    "3_cannot_determine_from_raw_data": "real HWCS NMSE, kappa, GPU-time realization, N1-vs-N2 baseline, CUDA intersection counts, time-to-quality, camera heterogeneity, paired CIs",
+    "4_worth_cuda_investment": "NOT_YET. Stage B-min (gradient oracle + N1/N2 structural counts) first. A Codex CUDA prototype requires INDEPENDENT design + performance thresholds: (a) measured GPU kernel/F+B time vs BOTH N1 and N2 Native-G4 on matched p, (b) gradient-quality preservation vs G16, (c) a minimum E2E time-to-quality target. NO count-based kappa threshold (e.g. kappa<=0.5) is a valid CUDA GO gate; kappa is not count-identifiable. Any STRUCTURAL_POTENTIAL verdict is NOT CODEX_GO.",
+    "5_next_minimal_falsifiable_experiment": "Stage B-min (STAGE_B_SPEC.md): 256 sparse + 2 dense evals, ~10-30 min on one idle A100, no CUDA build, 0 training steps"
+  },
+  "provenance": {
+    "analysis_scripts": [
+      "stage_a_variance.py",
+      "stage_a_analysis.py",
+      "stage_a_sensitivity.py",
+      "stage_a_summarize.py"
+    ],
+    "output_csvs": [
+      "stage_a_hwcs_predictions.csv",
+      "stage_a_cost_model.csv",
+      "stage_a_dominance.csv",
+      "stage_a_K_calibration.csv",
+      "stage_a_equal_cost_ratio.csv",
+      "stage_a_sensitivity.csv",
+      "stage_a_breakeven.csv",
+      "stage_a_segment_sweep.csv"
+    ],
+    "prior_evidence_dir": "wv-hier-r1-mx/evidence/"
+  },
+  "corrections_accepted_20261008": {
+    "source_bundle": "WV_HIER_R1_MX_STAGE_B_REVISED_20261008.zip (SHA256 2C3AC529...C4B55, 4/4 files verified)",
+    "independently_re_audited": true,
+    "numpy_oracle_audit": "endpoint identities bitwise PASS; per-pixel inclusion=p (0.249-0.251); variance blend exact (0.06-0.43%) with SIGNED contributions (s2-s1=-23.8)",
+    "C1_alpha_denominator_typo": "FIXED",
+    "C2_kappa_not_count_identifiable": "ACCEPTED",
+    "C3_ordering_scene_dependent": "ACCEPTED",
+    "C4_crn_bitwise_validation": "ACCEPTED",
+    "N1_N2_baseline_split": "ADDED",
+    "note": "Corrections tighten framing; they do NOT change the CONDITIONAL_RESEARCH verdict (nothing measured on GPU)."
+  },
+  "residual_conflicts_resolved_20261008": {
+    "goal_requirements": {
+      "1_kappa_not_count_identifiable": "RESOLVED - decisive_unmeasured + g4_work_floor_undercut + work_saving conditioning all state kappa is a cost-model parameter not identifiable from counts",
+      "2_stage_b_min_no_kappa_measurement_claim": "RESOLVED - next_experiment now says Stage B-min reports child-refine ENTRY COUNTS (structural), explicitly NOT kappa",
+      "3_remove_kappa_le_0.5_cuda_GO_gate": "RESOLVED - 4_worth_cuda_investment rewritten; no count-based kappa threshold; CUDA GO requires independent design+performance (measured GPU time vs N1 AND N2) thresholds",
+      "4_native_g4_floor_N1_cost_model_limited": "RESOLVED - all floor/saving/segment findings carry N1 + cost-model conditioning; 'unconditionally' removed",
+      "5_N2_independent_strong_baseline": "RESOLVED - N2 (mask-then-bin) named throughout as an independent baseline that must be audited; HWCS edge declared N2-negative"
+    },
+    "verdict_unchanged": "CONDITIONAL_RESEARCH (corrections tighten framing; nothing measured on GPU)",
+    "controlling_stage_b_protocol": "WV_HIER_R1_MX_STAGE_B_REVISED_20261008"
+  }
+}

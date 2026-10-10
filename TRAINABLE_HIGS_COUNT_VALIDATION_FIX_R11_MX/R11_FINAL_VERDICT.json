@@ -1,0 +1,53 @@
+{
+  "timestamp": "2026-10-08T16:00:00Z",
+  "campaign": "TRAINABLE_HIGS_COUNT_VALIDATION_FIX_R11_MX",
+  "status": "COUNTING_BUG_CONFIRMED",
+  "root_cause_verdict": "COUNTING_BUG_CONFIRMED",
+  "fix_verdict": "NOT_IMPLEMENTED",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "key_evidence": {
+    "runtime_n_isects_580k": 490387290,
+    "expected_n_isects_580k": 2459106,
+    "over_counting_ratio": 199.42,
+    "physical_impossibility": "320% of maximum possible tiles",
+    "per_gaussian_coverage": 1794.75
+  },
+  "allocation_audit": {
+    "r10_calculation": "CORRECT",
+    "oom_bytes": 119488359424,
+    "n_isects": 9957363285,
+    "formula": "n_isects * 12 bytes",
+    "verified": true
+  },
+  "r3_r8_discrepancy": {
+    "r3_n_isects": 1240000000,
+    "r8_n_isects": 9957363285,
+    "ratio": 8.0,
+    "explanation": "Same bug, different severity due to runtime conditions"
+  },
+  "answers": {
+    "q1_allocation_consistency": "R10 calculation correct",
+    "q2_n_isects_measured": "YES - from runtime metadata",
+    "q3_tiles_per_gaussian": "1795 (physically impossible)",
+    "q4_count_vs_oracle": "Oracle not needed - physical max proves bug",
+    "q5_implementation_error": "YES - counting kernel over-counts 199x",
+    "q6_fix_compiled": "NO",
+    "q7_4p4m_success": "NO - OOM",
+    "q8_research_decision": "FIX_COUNTING_FIRST"
+  },
+  "hypotheses": {
+    "h1_radius_anomaly": "REFUTED",
+    "h2_projection_error": "POSSIBLE",
+    "h3_culling_failure": "REFUTED",
+    "h4_hierarchy_duplication": "LIKELY",
+    "h5_count_fill_mismatch": "LIKELY",
+    "h6_integer_overflow": "REFUTED",
+    "h7_correct_but_large": "REFUTED"
+  },
+  "recommendation": "Fix counting kernel in IntersectTile.cu. Bug causes 199x over-counting, producing physically impossible results (320% of max tiles). Must fix before any optimization.",
+  "verdict": {
+    "root_cause": "COUNTING_BUG_CONFIRMED",
+    "fix": "NOT_IMPLEMENTED",
+    "next_action": "FIX_COUNTING_KERNEL"
+  }
+}

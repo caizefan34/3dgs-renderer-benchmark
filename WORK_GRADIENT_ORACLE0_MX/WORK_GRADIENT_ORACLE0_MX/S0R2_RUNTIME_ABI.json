@@ -1,0 +1,55 @@
+{
+  "schema": "S0R2_RUNTIME_ABI",
+  "timestamp_utc": "2026-10-08T15:14:00Z",
+  "campaign": "WORK-GRADIENT-ORACLE0-MX",
+  "phase": "S0R2",
+
+  "selected_runtime": {
+    "python_env": "/mnt/storage_pool/liaoyuanjun/higs-13scene-env/bin/python",
+    "python_version": "3.10.21",
+    "torch": "2.9.1+cu128",
+    "torch_cuda": "12.8",
+    "cuda_available": true,
+    "gpu": "NVIDIA A100-PCIE-40GB",
+    "compute_capability": [8, 0],
+    "gsplat_version": "1.5.3",
+    "gsplat_resolves_to": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat"
+  },
+
+  "abi_match_analysis": {
+    "binary_built_against": "torch 2.9.1+cu128 / CUDA 12.8 / py3.10 (higs-13scene-env)",
+    "runtime_selected": "torch 2.9.1+cu128 / CUDA 12.8 / py3.10 (higs-13scene-env)",
+    "match": true,
+    "verdict": "EXACT ABI MATCH - prebuilt gsplat_scene_cuda.so loads and executes in the same env it was built in"
+  },
+
+  "nerficg_env_comparison": {
+    "python": "3.11",
+    "torch": "2.7.1+cu118",
+    "cuda": "11.8",
+    "verdict": "NOT USABLE for this binary - py311 + cu118 ABI incompatible with py310 cu128 prebuilt .so. The prior S0 BLOCKED_BINARY_MISMATCH was because gsplat 1.5.3 in nerficg lacked experimental.HiGS. The higs-13scene-env resolves it.",
+    "note": "CUDA 12.x .so is NOT loaded into CUDA 11.8 env; separate env used."
+  },
+
+  "import_hygiene": {
+    "PYTHONNOUSERSITE": "1",
+    "reason": "Prevents stale ~/.local gsplat overlay (older, missing _maybe_evaluate_sh and tile_mask isect_tiles) from shadowing the source-consistent tree. With NOUSERSITE=1, all gsplat submodules (cuda._wrapper, rendering, scene, experimental) resolve to source commit 77ab983.",
+    "verified_consistent_tree": true
+  },
+
+  "environment_variables_used": {
+    "PYTHONNOUSERSITE": "1",
+    "TMPDIR": "/mnt/storage_pool/liaoyuanjun/work_gradient_oracle0_tmp",
+    "TORCH_EXTENSIONS_DIR": "/mnt/storage_pool/liaoyuanjun/work_gradient_oracle0_tmp/torch_ext"
+  },
+
+  "module_identity_traceability": {
+    "gsplat.experimental": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/experimental/__init__.py",
+    "gsplat.experimental.render.functional.gaussian_inference": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/experimental/render/functional/gaussian_inference.py",
+    "gsplat.cuda._wrapper (isect_tiles with tile_mask)": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/cuda/_wrapper.py",
+    "gsplat_scene_cuda (native ext)": "/home/liaoyuanjun/higs-13scene/artifacts/cuda-build/gsplat-higs-mx-py310/gsplat_scene_cuda/gsplat_scene_cuda.so",
+    "all_trace_to_commit": "77ab983ffe43420b2131669cb35776b883ca4c3c"
+  },
+
+  "gate_status": "PASS"
+}

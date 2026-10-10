@@ -1,0 +1,29 @@
+{
+  "schema": "BACKWARD_CORRECTNESS_GATE_RUN_STATUS",
+  "state": "BACKWARD_CORRECT",
+  "verdict": "both renderers correct; earlier near-orthogonality was a subset-selection bug (randperm without fixed seed in separate subprocesses), not a backward bug",
+  "date": "2026-10-08",
+  "identity": {
+    "torch": "2.9.1+cu128",
+    "cuda": "12.8",
+    "python": "3.10.21",
+    "gpu": "A100-PCIE-40GB sm_80",
+    "gsplat_so_sha256": "e4b0bc5bf358ec43875a3b7e0d84591763968021b7c7eabcc6d60572490627c8",
+    "gsplat_so_bytes": 236744,
+    "gsplat_git": "77ab983ffe43420b2131669cb35776b883ca4c3c"
+  },
+  "key_evidence": {
+    "same_subset_B_vs_C_cosine": {
+      "means": 1.0,
+      "quats": 1.0,
+      "scales": 1.0,
+      "opac": 1.0,
+      "colors": 0.9985
+    },
+    "render_MAE_same_subset": 0.0,
+    "autograd_vs_own_FD_cos_min": 0.9949,
+    "phase1_worker_cos_means": 0.0054,
+    "root_cause": "torch.randperm without fixed seed inside each subprocess -> B and C used different 200K subsets"
+  },
+  "impact_on_prior_work": "HiGS per-tile gradient Oracle evidence remains valid; GRADIENT-PROXY-P0 DROP verdict unaffected"
+}

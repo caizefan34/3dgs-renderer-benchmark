@@ -1,0 +1,611 @@
+R20_SOURCE_PATCH.diff
+Status: SOURCE_PATCH_COMPLETE; FROZEN_MX_PARITY_NOT_EXECUTED
+
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.cu
+@@ -56,7 +56,7 @@
+ // ============================================================================
+ // Stage 1: pixel-blend backward (per-tile, warp-reduced, atomicAdd scatter)
+ // ============================================================================
+-template<uint32_t CDIM>
++template<uint32_t CDIM, bool ABSGRAD>
+ __global__ void __launch_bounds__(256, 5) higs_blend_bwd_kernel(
+     const uint32_t I,
+     const uint32_t N,
+@@ -85,6 +85,7 @@
+     const float *__restrict__ v_render_alphas, // [I, H, W]
+     // gradient outputs (flat [I * N, ...])
+     vec2 *__restrict__ v_means2d,
++    vec2 *__restrict__ v_means2d_abs, // optional [I*N, 2]
+     vec3 *__restrict__ v_conics,
+     float *__restrict__ v_colors,
+     float *__restrict__ v_opacities,
+@@ -238,6 +239,7 @@
+             float v_rgb_local[CDIM] = {0.f};
+             vec3 v_conic_local      = {0.f, 0.f, 0.f};
+             vec2 v_xy_local         = {0.f, 0.f};
++            vec2 v_xy_abs_local     = {0.f, 0.f};
+             float v_opacity_local   = 0.f;
+             // initialize everything to 0, only set if the lane is valid
+             if(valid)
+@@ -263,9 +265,17 @@
+                     v_opacity_local
+                 );
+             }
++            if constexpr(ABSGRAD)
++            {
++                v_xy_abs_local = {fabsf(v_xy_local.x), fabsf(v_xy_local.y)};
++            }
+             warpSum<CDIM>(v_rgb_local, warp);
+             warpSum(v_conic_local, warp);
+             warpSum(v_xy_local, warp);
++            if constexpr(ABSGRAD)
++            {
++                warpSum(v_xy_abs_local, warp);
++            }
+             warpSum(v_opacity_local, warp);
+             if(warp.thread_rank() == 0)
+             {
+@@ -285,6 +295,12 @@
+                 float *v_xy_ptr = (float *)(v_means2d) + 2 * (int64_t)g;
+                 atomicAdd(v_xy_ptr, v_xy_local.x);
+                 atomicAdd(v_xy_ptr + 1, v_xy_local.y);
++                if constexpr(ABSGRAD)
++                {
++                    float *v_abs_ptr = (float *)v_means2d_abs + 2 * (int64_t)g;
++                    atomicAdd(v_abs_ptr, v_xy_abs_local.x);
++                    atomicAdd(v_abs_ptr + 1, v_xy_abs_local.y);
++                }
+ 
+                 atomicAdd(v_opacities + g, v_opacity_local);
+             }
+@@ -300,7 +316,7 @@
+ // and atomic scatters scale as 1/PX (same total per-pixel math), trading
+ // register pressure (PX pixel states) for fewer reduction/atomic operations.
+ // ============================================================================
+-template<uint32_t CDIM, uint32_t PX>
++template<uint32_t CDIM, uint32_t PX, bool ABSGRAD>
+ __global__ void __launch_bounds__(256 / PX, PX == 1 ? 5 : PX == 2 ? 5 : PX == 4 ? 8 : 10)
+ higs_blend_bwd_px_kernel(
+     const uint32_t I,
+@@ -325,6 +341,7 @@
+     const float *__restrict__ v_render_colors,
+     const float *__restrict__ v_render_alphas,
+     vec2 *__restrict__ v_means2d,
++    vec2 *__restrict__ v_means2d_abs, // optional [I*N, 2]
+     vec3 *__restrict__ v_conics,
+     float *__restrict__ v_colors,
+     float *__restrict__ v_opacities,
+@@ -455,6 +472,7 @@
+             float v_rgb_local[CDIM] = {0.f};
+             vec3 v_conic_local      = {0.f, 0.f, 0.f};
+             vec2 v_xy_local         = {0.f, 0.f};
++            vec2 v_xy_abs_local     = {0.f, 0.f};
+             float v_opacity_local   = 0.f;
+             bool any_valid          = false;
+             for(uint32_t q = 0; q < PX; ++q)
+@@ -518,6 +536,11 @@
+                         v_conic_local.x += v_conic_q.x;
+                         v_conic_local.y += v_conic_q.y;
+                         v_conic_local.z += v_conic_q.z;
++                        if constexpr(ABSGRAD)
++                        {
++                            v_xy_abs_local.x += fabsf(v_xy_q.x);
++                            v_xy_abs_local.y += fabsf(v_xy_q.y);
++                        }
+                         v_xy_local.x += v_xy_q.x;
+                         v_xy_local.y += v_xy_q.y;
+                         v_opacity_local += v_opacity_q;
+@@ -531,6 +554,10 @@
+             warpSum<CDIM>(v_rgb_local, warp);
+             warpSum(v_conic_local, warp);
+             warpSum(v_xy_local, warp);
++            if constexpr(ABSGRAD)
++            {
++                warpSum(v_xy_abs_local, warp);
++            }
+             warpSum(v_opacity_local, warp);
+             if(warp.thread_rank() == 0)
+             {
+@@ -548,6 +575,12 @@
+                 float *v_xy_ptr = (float *)(v_means2d) + 2 * (int64_t)g;
+                 atomicAdd(v_xy_ptr, v_xy_local.x);
+                 atomicAdd(v_xy_ptr + 1, v_xy_local.y);
++                if constexpr(ABSGRAD)
++                {
++                    float *v_abs_ptr = (float *)v_means2d_abs + 2 * (int64_t)g;
++                    atomicAdd(v_abs_ptr, v_xy_abs_local.x);
++                    atomicAdd(v_abs_ptr + 1, v_xy_abs_local.y);
++                }
+                 atomicAdd(v_opacities + g, v_opacity_local);
+             }
+         }
+@@ -1149,9 +1182,10 @@
+     at::Tensor, // v_opacities [N]
+     at::Tensor, // v_colors_master
+     at::Tensor, // v_backgrounds [3]
+-    at::Tensor  // v_means2d [I*N, 2]
++    at::Tensor, // v_means2d [I*N, 2]
++    at::Tensor  // v_means2d_abs [I*N, 2] or undefined when disabled
+     >
+-higs_rasterize_backward(
++higs_rasterize_backward_with_absgrad(
+     const at::Tensor &means2d,
+     const at::Tensor &conics,
+     const at::Tensor &colors_eval,
+@@ -1182,7 +1216,8 @@
+     const at::Tensor &grad_quats,   // [M, 4]
+     const at::Tensor &grad_scales,  // [M, 3]
+     const at::Tensor &grad_opacities, // [M]
+-    const at::Tensor &grad_colors   // [M, K, D] (SH) or [M, D] (RGB)
++    const at::Tensor &grad_colors,  // [M, K, D] (SH) or [M, D] (RGB)
++    bool absgrad
+ )
+ {
+     check_float_cuda(means2d, "means2d");
+@@ -1270,6 +1305,8 @@
+ 
+     at::Tensor v_backgrounds = at::zeros({color_dim}, opts);
+     at::Tensor v_means2d     = at::zeros({I * N, 2}, opts);
++    TORCH_CHECK(!absgrad || tile_size == 16, "True AbsGrad requires tile_size == 16");
++    at::Tensor v_means2d_abs = absgrad ? at::zeros({I * N, 2}, opts) : at::Tensor();
+     at::Tensor v_conics_out  = at::zeros({I * N, 3}, opts);
+     at::Tensor v_colors_flat = at::zeros({I * N, color_dim}, opts);
+     at::Tensor v_opacities_flat = at::zeros({I * N}, opts);
+@@ -1314,7 +1351,7 @@
+                 static_cast<uint32_t>(tile_w)
+             );
+         }
+-#define LAUNCH_BLEND_BWD(CDIM)                                                                     \
++#define LAUNCH_BLEND_BWD(CDIM, ABSGRAD)                                                                     \
+     {                                                                                              \
+         const char *px_env = std::getenv("HIGS_PX_RUNTIME");                                       \
+         const int64_t px_use = (px_env != nullptr) ? atoi(px_env) : 2;                             \
+@@ -1327,9 +1364,9 @@
+                         static_cast<uint32_t>(thrs / tile_size), 1);                                \
+         if(px_safe == 0)                                                                            \
+         {                                                                                           \
+-            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_kernel<(CDIM)>,                      \
++            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_kernel<(CDIM), (ABSGRAD)>,                      \
+                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shmem_size)));        \
+-            higs_blend_bwd_kernel<(CDIM)><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
++            higs_blend_bwd_kernel<(CDIM), (ABSGRAD)><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
+                 static_cast<uint32_t>(I), static_cast<uint32_t>(N), static_cast<uint32_t>(n_isects),\
+                 reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                    \
+                 reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
+@@ -1343,6 +1380,7 @@
+                 last_ids.const_data_ptr<int32_t>(), v_render_colors.const_data_ptr<float>(),        \
+                 v_render_alphas.const_data_ptr<float>(),                                            \
+                 reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                              \
++                absgrad ? reinterpret_cast<vec2 *>(v_means2d_abs.data_ptr<float>()) : nullptr, \
+                 reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                           \
+                 v_colors_flat.data_ptr<float>(), v_opacities_flat.data_ptr<float>(),                \
+                 v_backgrounds.data_ptr<float>());                                                   \
+@@ -1350,9 +1388,9 @@
+         }                                                                                           \
+         else if(px_safe == 1)                                                                       \
+         {                                                                                           \
+-            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_px_kernel<(CDIM), 1>,                \
++            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_px_kernel<(CDIM), 1, (ABSGRAD)>,                \
+                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shmem_size)));        \
+-            higs_blend_bwd_px_kernel<(CDIM), 1><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
++            higs_blend_bwd_px_kernel<(CDIM), 1, (ABSGRAD)><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
+                 static_cast<uint32_t>(I), static_cast<uint32_t>(N), static_cast<uint32_t>(n_isects),\
+                 reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                    \
+                 reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
+@@ -1366,6 +1404,7 @@
+                 last_ids.const_data_ptr<int32_t>(), v_render_colors.const_data_ptr<float>(),        \
+                 v_render_alphas.const_data_ptr<float>(),                                            \
+                 reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                              \
++                absgrad ? reinterpret_cast<vec2 *>(v_means2d_abs.data_ptr<float>()) : nullptr, \
+                 reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                           \
+                 v_colors_flat.data_ptr<float>(), v_opacities_flat.data_ptr<float>(),                \
+                 v_backgrounds.data_ptr<float>());                                                   \
+@@ -1373,9 +1412,9 @@
+         }                                                                                           \
+         else if(px_safe == 2)                                                                       \
+         {                                                                                           \
+-            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_px_kernel<(CDIM), 2>,                \
++            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_px_kernel<(CDIM), 2, (ABSGRAD)>,                \
+                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shmem_size)));        \
+-            higs_blend_bwd_px_kernel<(CDIM), 2><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
++            higs_blend_bwd_px_kernel<(CDIM), 2, (ABSGRAD)><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
+                 static_cast<uint32_t>(I), static_cast<uint32_t>(N), static_cast<uint32_t>(n_isects),\
+                 reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                    \
+                 reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
+@@ -1389,6 +1428,7 @@
+                 last_ids.const_data_ptr<int32_t>(), v_render_colors.const_data_ptr<float>(),        \
+                 v_render_alphas.const_data_ptr<float>(),                                            \
+                 reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                              \
++                absgrad ? reinterpret_cast<vec2 *>(v_means2d_abs.data_ptr<float>()) : nullptr, \
+                 reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                           \
+                 v_colors_flat.data_ptr<float>(), v_opacities_flat.data_ptr<float>(),                \
+                 v_backgrounds.data_ptr<float>());                                                   \
+@@ -1396,9 +1436,9 @@
+         }                                                                                           \
+         else if(px_safe == 4)                                                                       \
+         {                                                                                           \
+-            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_px_kernel<(CDIM), 4>,                \
++            C10_CUDA_CHECK(cudaFuncSetAttribute(higs_blend_bwd_px_kernel<(CDIM), 4, (ABSGRAD)>,                \
+                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shmem_size)));        \
+-            higs_blend_bwd_px_kernel<(CDIM), 4><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
++            higs_blend_bwd_px_kernel<(CDIM), 4, (ABSGRAD)><<<grid, threads_px, static_cast<size_t>(shmem_size), stream>>>( \
+                 static_cast<uint32_t>(I), static_cast<uint32_t>(N), static_cast<uint32_t>(n_isects),\
+                 reinterpret_cast<const vec2 *>(means2d.const_data_ptr<float>()),                    \
+                 reinterpret_cast<const vec3 *>(conics.const_data_ptr<float>()),                     \
+@@ -1412,6 +1452,7 @@
+                 last_ids.const_data_ptr<int32_t>(), v_render_colors.const_data_ptr<float>(),        \
+                 v_render_alphas.const_data_ptr<float>(),                                            \
+                 reinterpret_cast<vec2 *>(v_means2d.data_ptr<float>()),                              \
++                absgrad ? reinterpret_cast<vec2 *>(v_means2d_abs.data_ptr<float>()) : nullptr, \
+                 reinterpret_cast<vec3 *>(v_conics_out.data_ptr<float>()),                           \
+                 v_colors_flat.data_ptr<float>(), v_opacities_flat.data_ptr<float>(),                \
+                 v_backgrounds.data_ptr<float>());                                                   \
+@@ -1426,13 +1467,16 @@
+         switch(color_dim)
+         {
+         case 1:
+-            LAUNCH_BLEND_BWD(1);
++            if(absgrad) { LAUNCH_BLEND_BWD(1, true); }
++            else { LAUNCH_BLEND_BWD(1, false); }
+             break;
+         case 3:
+-            LAUNCH_BLEND_BWD(3);
++            if(absgrad) { LAUNCH_BLEND_BWD(3, true); }
++            else { LAUNCH_BLEND_BWD(3, false); }
+             break;
+         default: // 4
+-            LAUNCH_BLEND_BWD(4);
++            if(absgrad) { LAUNCH_BLEND_BWD(4, true); }
++            else { LAUNCH_BLEND_BWD(4, false); }
+             break;
+         }
+ #undef LAUNCH_BLEND_BWD
+@@ -1589,8 +1633,58 @@
+         grad_opacities,
+         grad_colors,
+         v_backgrounds,
+-        v_means2d
++        v_means2d,
++        v_means2d_abs
+     };
+ }
++std::tuple<
++    at::Tensor, // v_means [N, 3]
++    at::Tensor, // v_quats [N, 4]
++    at::Tensor, // v_scales [N, 3]
++    at::Tensor, // v_opacities [N]
++    at::Tensor, // v_colors_master
++    at::Tensor, // v_backgrounds [3]
++    at::Tensor  // v_means2d [I*N, 2]
++    >
++higs_rasterize_backward(
++    const at::Tensor &means2d,
++    const at::Tensor &conics,
++    const at::Tensor &colors_eval,
++    const at::Tensor &opacities,
++    const at::optional<at::Tensor> &backgrounds,
++    const at::Tensor &tile_offsets,
++    const at::Tensor &flatten_ids,
++    const at::optional<at::Tensor> &active_tiles, // [AT] int32 selected tile ids or nullopt
++    const at::Tensor &render_alphas,
++    const at::Tensor &last_ids,
++    const at::Tensor &means,
++    const at::Tensor &quats,
++    const at::Tensor &scales,
++    const at::Tensor &radii,
++    const at::Tensor &viewmats,
++    const at::Tensor &Ks,
++    int64_t width,
++    int64_t height,
++    int64_t tile_size,
++    double eps2d,
++    int64_t camera_model,
++    const at::Tensor &v_render_colors,
++    const at::Tensor &v_render_alphas,
++    const at::optional<at::Tensor> &sh_coeffs,
++    int64_t sh_degree,
++    const at::Tensor &visible_ids,  // [N] int64 ascending master indices
++    const at::Tensor &grad_means,   // [M, 3] pre-zeroed master gradients
++    const at::Tensor &grad_quats,   // [M, 4]
++    const at::Tensor &grad_scales,  // [M, 3]
++    const at::Tensor &grad_opacities, // [M]
++    const at::Tensor &grad_colors   // [M, K, D] (SH) or [M, D] (RGB)
++)
++{
++    auto out = higs_rasterize_backward_with_absgrad(
++        means2d, conics, colors_eval, opacities, backgrounds, tile_offsets, flatten_ids, active_tiles, render_alphas, last_ids, means, quats, scales, radii, viewmats, Ks, width, height, tile_size, eps2d, camera_model, v_render_colors, v_render_alphas, sh_coeffs, sh_degree, visible_ids, grad_means, grad_quats, grad_scales, grad_opacities, grad_colors, false
++    );
++    return {std::get<0>(out), std::get<1>(out), std::get<2>(out), std::get<3>(out), std::get<4>(out), std::get<5>(out), std::get<6>(out)};
++}
++
+ } // namespace gaussian_render_inference_scene
+ } // namespace gsplat
+--- a/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
++++ b/gsplat/experimental/render/kernels/cuda/csrc/gaussian_inference/HigsNativeBackward.h
+@@ -92,5 +92,57 @@
+         const at::Tensor &grad_opacities, // [M] float32
+         const at::Tensor &grad_colors     // [M, K, D] (SH) or [M, D] (RGB) float32
+     );
++
++    // R20 opt-in API: first seven outputs retain the legacy contract.
++    std::tuple<
++        at::Tensor, // v_means    [N, 3]
++        at::Tensor, // v_quats    [N, 4]
++        at::Tensor, // v_scales   [N, 3]
++        at::Tensor, // v_opacities [N]
++        at::Tensor, // v_colors_master
++        at::Tensor, // v_backgrounds [3]
++        at::Tensor, // v_means2d [I*N, 2]
++        at::Tensor  // v_means2d_abs [I*N, 2] or undefined
++        >
++    higs_rasterize_backward_with_absgrad(
++        // ---- forward-captured rasterization state (flattened [I*N, ...]) ----
++        const at::Tensor &means2d,      // [I*N, 2] float32
++        const at::Tensor &conics,       // [I*N, 3] float32
++        const at::Tensor &colors_eval,  // [I*N, 3] float32 (RGB actually fed to rasterize)
++        const at::Tensor &opacities,    // [I*N] float32 (compensated == raw in classic mode)
++        const at::optional<at::Tensor> &backgrounds, // [I, 3] float32 or nullopt
++        const at::Tensor &tile_offsets, // [I, tile_h, tile_w] int32
++        const at::Tensor &flatten_ids,  // [n_isects] int32
++        const at::optional<at::Tensor> &active_tiles, // [AT] int32 selected tile ids or nullopt
++        const at::Tensor &render_alphas, // [I, H, W] float32
++        const at::Tensor &last_ids,     // [I, H, W] int32
++        // ---- projection VJP inputs ----
++        const at::Tensor &means,        // [N, 3] float32
++        const at::Tensor &quats,        // [N, 4] float32
++        const at::Tensor &scales,       // [N, 3] float32
++        const at::Tensor &radii,        // [I, N, 2] int32
++        const at::Tensor &viewmats,     // [1, C, 4, 4] float32
++        const at::Tensor &Ks,           // [1, C, 3, 3] float32
++        // ---- forward hyper params ----
++        int64_t width,
++        int64_t height,
++        int64_t tile_size,
++        double eps2d,
++        int64_t camera_model,
++        // ---- output gradients (from the loss) ----
++        const at::Tensor &v_render_colors, // [I, H, W, 3] float32
++        const at::Tensor &v_render_alphas, // [I, H, W] float32
++        // ---- SH evaluation backward inputs (nullopt for pre-activated RGB) ----
++        const at::optional<at::Tensor> &sh_coeffs, // [N, K, D] float32
++        int64_t sh_degree,
++        // ---- master-gradient outputs (pre-zeroed, written in place) ----
++        const at::Tensor &visible_ids,    // [N] int64 ascending master indices
++        const at::Tensor &grad_means,     // [M, 3] float32
++        const at::Tensor &grad_quats,     // [M, 4] float32
++        const at::Tensor &grad_scales,    // [M, 3] float32
++        const at::Tensor &grad_opacities, // [M] float32
++        const at::Tensor &grad_colors,    // [M, K, D] (SH) or [M, D] (RGB) float32
++        bool absgrad
++    );
+ } // namespace gaussian_render_inference_scene
+ } // namespace gsplat
+--- a/gsplat/experimental/render/kernels/cuda/ext.cpp
++++ b/gsplat/experimental/render/kernels/cuda/ext.cpp
+@@ -95,6 +95,46 @@
+         py::arg("grad_colors")
+     );
+ 
++    m.attr("higs_true_absgrad_version") = 1;
++    m.def(
++        "higs_rasterize_backward_with_absgrad",
++        &gsplat::gaussian_render_inference_scene::higs_rasterize_backward_with_absgrad,
++        "Native CUDA backward for the differentiable HiGS training path. "
++        "Consumes forward-captured rasterization state and returns FP32 master gradients.",
++        py::arg("means2d"),
++        py::arg("conics"),
++        py::arg("colors_eval"),
++        py::arg("opacities"),
++        py::arg("backgrounds"),
++        py::arg("tile_offsets"),
++        py::arg("flatten_ids"),
++        py::arg("active_tiles"),
++        py::arg("render_alphas"),
++        py::arg("last_ids"),
++        py::arg("means"),
++        py::arg("quats"),
++        py::arg("scales"),
++        py::arg("radii"),
++        py::arg("viewmats"),
++        py::arg("Ks"),
++        py::arg("width"),
++        py::arg("height"),
++        py::arg("tile_size"),
++        py::arg("eps2d"),
++        py::arg("camera_model"),
++        py::arg("v_render_colors"),
++        py::arg("v_render_alphas"),
++        py::arg("sh_coeffs"),
++        py::arg("sh_degree"),
++        py::arg("visible_ids"),
++        py::arg("grad_means"),
++        py::arg("grad_quats"),
++        py::arg("grad_scales"),
++        py::arg("grad_opacities"),
++        py::arg("grad_colors"),
++        py::arg("absgrad") = false
++    );
++
+     m.def(
+         "higs_gather_visible",
+         &gsplat::gaussian_render_inference_scene::higs_gather_visible,
+--- a/gsplat/experimental/render/functional/gaussian_inference.py
++++ b/gsplat/experimental/render/functional/gaussian_inference.py
+@@ -1633,6 +1633,7 @@
+         tile_mask=None,
+         cull_refresh_interval=1,
+         cull_cache_key="default",
++        absgrad=False,
+     ):
+         if backward_mode not in ("higs_native", "gsplat_recompute"):
+             raise ValueError(
+@@ -1661,6 +1662,13 @@
+                 )
+ 
+         native = backward_mode == "higs_native" and _higs_backend_available()
++        ctx.absgrad = bool(absgrad)
++        if ctx.absgrad:
++            from ..kernels import _backend as _abs_backend
++            if (not native or
++                    getattr(_abs_backend._C, "higs_true_absgrad_version", 0) != 1):
++                raise RuntimeError("absgrad=True requires the R20 native HiGS extension; "
++                                   "rebuild it before requesting true absgrad.")
+         ctx.native = native
+         ctx.backward_backend = "higs_native" if native else "gsplat_recompute"
+         ctx.native_available = _higs_backend_available()
+@@ -2269,6 +2277,8 @@
+             v_render_alphas = v_render_alphas + v_alpha_from_depth
+ 
+         if ctx.N_visible == 0:
++            if ctx.absgrad:
++                means2d_proxy.absgrad = torch.zeros_like(means2d_proxy)
+             # All Gaussians invisible -> zero gradients, background still gets
+             # the constant-image gradient if it was provided.
+             grad_means = torch.zeros_like(means)
+@@ -2321,7 +2331,10 @@
+         if getattr(ctx, "sampled_tile_ratio", 1.0) < 1.0:
+             tm_flat = ctx.tile_mask.reshape(-1)
+             active_tiles = torch.nonzero(tm_flat, as_tuple=False).squeeze(1).to(torch.int32)
+-        out = backend.higs_rasterize_backward(
++        backward_fn = (backend.higs_rasterize_backward_with_absgrad
++                       if ctx.absgrad else backend.higs_rasterize_backward)
++        abs_kwargs = {"absgrad": True} if ctx.absgrad else {}
++        out = backward_fn(
+             means2d=means2d_f,
+             conics=conics_f,
+             colors_eval=colors_eval_f,
+@@ -2357,11 +2370,17 @@
+             grad_scales=grad_scales,
+             grad_opacities=grad_opacities,
+             grad_colors=grad_colors,
++            **abs_kwargs,
+         )
+         (
+             _v_means_g, _v_quats_g, _v_scales_g, _v_opacities_g,
+             _v_colors_master_g, v_backgrounds_g, v_means2d_g,
+-        ) = out
++        ) = out[:7]
++
++        if ctx.absgrad:
++            abs_full = torch.zeros_like(means2d_proxy)
++            abs_full.index_copy_(1, visible_ids, out[7].reshape(I, ctx.N_visible, 2))
++            means2d_proxy.absgrad = abs_full
+ 
+         grad_means2d = torch.zeros_like(means2d_proxy)
+         grad_means2d.index_copy_(
+@@ -2528,6 +2547,7 @@
+             None,  # tile_mask (bool tensor, non-differentiable input)
+             None,  # cull_refresh_interval (non-tensor input)
+             None,  # cull_cache_key (non-tensor input)
++            None,  # absgrad (non-tensor input)
+         )
+ 
+ 
+@@ -2592,6 +2612,7 @@
+     tile_mask=None,
+     cull_refresh_interval: int = 1,
+     scene=None,
++    absgrad: bool = False,
+ ) -> dict:
+     """Forward pass for frozen-topology HiGS diff. path (Stage B).
+ 
+@@ -2600,6 +2621,8 @@
+     Function.
+ 
+     Args:
++        absgrad: Compute native per-pixel componentwise absolute gradients in
++            backward and expose means2d.absgrad (requires the R20 extension).
+         backward_mode: "higs_native" (default, native CUDA backward) or
+             "gsplat_recompute" (explicit standard-gsplat recomputation
+             fallback; metadata then reports ``backward_backend="gsplat_recompute"``).
+@@ -2624,7 +2647,7 @@
+         render_mode, camera_model,
+         enable_culling, use_higs_culling,
+         backward_mode, scene, sh_compression_mode, tile_sampling_ratio,
+-        sampling_mode, tile_mask, cull_refresh_interval, "default",
++        sampling_mode, tile_mask, cull_refresh_interval, "default", absgrad,
+     )
+     fwd_meta = dict(_HigsAutogradFunction.last_forward_metadata)
+     N_total = fwd_meta["n_gaussians"]
+@@ -2675,6 +2698,7 @@
+             "culling_ratio": fwd_meta["culling_ratio"],
+             "backward_backend": fwd_meta["backward_backend"],
+             "native_available": fwd_meta["native_available"],
++            "absgrad": absgrad,
+             "scene_version": fwd_meta["scene_version"],
+             "topology_rebuilt": fwd_meta["topology_rebuilt"],
+             "packed_dtype": fwd_meta["packed_dtype"],
+@@ -2723,6 +2747,7 @@
+     tile_mask=None,
+     cull_refresh_interval: int = 1,
+     scene=None,
++    absgrad: bool = False,
+ ) -> dict:
+     """Differentiable HiGS rendering with per-frame visibility culling (Stage B).
+ 
+@@ -2738,6 +2763,8 @@
+         freeze_topology: If True, validate Gaussian count consistency.
+         use_higs_culling: If True, use HiGS-native culling.
+         return_higs_preview: If True, include HiGS inference output.
++        absgrad: Compute native per-pixel componentwise absolute gradients in
++            backward and expose means2d.absgrad (requires the R20 extension).
+         backward_mode: "higs_native" (default) or "gsplat_recompute".
+         sh_compression_mode: "none" (default); PACKED_16B/32B modes are
+             supported via a straight-through FP16 quantization in training.
+@@ -2764,6 +2791,7 @@
+         tile_mask=tile_mask,
+         cull_refresh_interval=cull_refresh_interval,
+         scene=scene,
++        absgrad=absgrad,
+     )
+ 
+ def _higs_dynamic_forward(
+@@ -2797,6 +2825,7 @@
+     cull_refresh_interval: int = 1,
+     cull_cache_key: str = "default",
+     scene=None,
++    absgrad: bool = False,
+ ) -> dict:
+     """Forward pass for dynamic-topology HiGS diff. path (Stage C).
+ 
+@@ -2831,7 +2860,7 @@
+         enable_culling, use_higs_culling,
+         backward_mode, handle, sh_compression_mode, tile_sampling_ratio,
+         sampling_mode, tile_mask, cull_refresh_interval,
+-        cull_cache_key,
++        cull_cache_key, absgrad,
+     )
+ 
+     scene_version = tracker.next_version(means.shape[0])
+@@ -2879,6 +2908,7 @@
+             "scene_version": scene_version,
+             "backward_backend": fwd_meta["backward_backend"],
+             "native_available": fwd_meta["native_available"],
++            "absgrad": absgrad,
+             "n_visible": fwd_meta["n_visible"],
+             "culling_ratio": fwd_meta["culling_ratio"],
+             "topology_rebuilt": fwd_meta["topology_rebuilt"],
+@@ -2927,6 +2957,7 @@
+     cull_refresh_interval: int = 1,
+     cull_cache_key: str = "default",
+     scene=None,
++    absgrad: bool = False,
+ ) -> dict:
+     """Differentiable HiGS rendering with dynamic-topology support (Stage C).
+ 
+@@ -2939,6 +2970,8 @@
+     :class:`HigsRendererHandle`) to indicate the change.
+ 
+     Args:
++        absgrad: Compute native per-pixel componentwise absolute gradients in
++            backward and expose means2d.absgrad (requires the R20 extension).
+         backward_mode: "higs_native" (default) or "gsplat_recompute".
+         sh_compression_mode: "none" (default); PACKED_16B/32B modes are
+             supported via a straight-through FP16 quantization in training.
+@@ -2963,4 +2996,5 @@
+         cull_refresh_interval=cull_refresh_interval,
+         cull_cache_key=cull_cache_key,
+         scene=scene,
++        absgrad=absgrad,
+     )

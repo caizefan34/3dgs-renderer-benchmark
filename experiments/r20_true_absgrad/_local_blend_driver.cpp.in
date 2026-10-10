@@ -1,0 +1,103 @@
+// Generated test links real extracted kernels; this is not an alternate renderer.
+#include <cstdio>
+#include <vector>
+#include <cmath>
+#include <cstdlib>
+using namespace gsplat;
+#define CU(x) do { auto e=(x); if(e!=cudaSuccess) { std::fprintf(stderr,"%s\n",cudaGetErrorString(e)); std::exit(2); } } while(0)
+template<typename T> T* upload(const std::vector<T>& x) {
+    T* p; CU(cudaMalloc(&p,x.size()*sizeof(T))); CU(cudaMemcpy(p,x.data(),x.size()*sizeof(T),cudaMemcpyHostToDevice)); return p;
+}
+struct Out {
+    vec2 *xy,*absolute; vec3 *conic; float *rgb,*opacity,*bg; int n;
+    Out(int size):n(size) {
+        CU(cudaMalloc(&xy,n*sizeof(vec2))); CU(cudaMalloc(&absolute,n*sizeof(vec2)));
+        CU(cudaMalloc(&conic,n*sizeof(vec3))); CU(cudaMalloc(&rgb,n*3*sizeof(float)));
+        CU(cudaMalloc(&opacity,n*sizeof(float))); CU(cudaMalloc(&bg,3*sizeof(float))); zero();
+    }
+    void zero() { CU(cudaMemset(xy,0,n*sizeof(vec2))); CU(cudaMemset(absolute,0,n*sizeof(vec2)));
+        CU(cudaMemset(conic,0,n*sizeof(vec3))); CU(cudaMemset(rgb,0,n*3*sizeof(float)));
+        CU(cudaMemset(opacity,0,n*sizeof(float))); CU(cudaMemset(bg,0,3*sizeof(float))); }
+    std::vector<float> values(bool abs) { std::vector<float> v(n*2); CU(cudaMemcpy(v.data(),abs?absolute:xy,n*2*sizeof(float),cudaMemcpyDeviceToHost)); return v; }
+    std::vector<float> parameters() { std::vector<float> v(n*7);
+        CU(cudaMemcpy(v.data(),conic,n*3*sizeof(float),cudaMemcpyDeviceToHost));
+        CU(cudaMemcpy(v.data()+n*3,rgb,n*3*sizeof(float),cudaMemcpyDeviceToHost));
+        CU(cudaMemcpy(v.data()+n*6,opacity,n*sizeof(float),cudaMemcpyDeviceToHost)); return v; }
+    ~Out() { cudaFree(xy);cudaFree(absolute);cudaFree(conic);cudaFree(rgb);cudaFree(opacity);cudaFree(bg); }
+};
+bool equal(const std::vector<float>& a,const std::vector<float>& b,float &maxerr) {
+    bool ok=true; for(size_t k=0;k<a.size();++k) { float d=std::fabs(a[k]-b[k]);
+        maxerr=std::fmax(maxerr,d); if(!std::isfinite(b[k]) || d>2e-6f+2e-3f*std::fabs(a[k])) ok=false; } return ok;
+}
+__global__ void capture_forward(int I,int N,int W,int H,int tw,int th,const vec2* xy,
+    const vec3* conic,const float* opacity,const float* color,float* alpha,int32_t* last) {
+    int p=blockIdx.x*blockDim.x+threadIdx.x;if(p>=I*W*H)return;
+    int im=p/(W*H), y=(p/W)%H, x=p%W, tile=im*tw*th+(y/16)*tw+x/16;
+    float T=1.f,pix[3]={0,0,0};int32_t end=0;
+    for(int g=0;g<N;++g) {
+        int index=im*N+g;vec3 xo(xy[index].x,xy[index].y,opacity[index]);
+        if(rasterize_to_pixels_3dgs_blend_fwd<3>(conic[index],xo,x+.5f,y+.5f,color+index*3,tile*N+g,T,pix,end))break;
+    }
+    alpha[p]=1-T;last[p]=end;
+}
+int main() {
+    bool passed=true; float maxerr=0; int comparisons=0;
+    for(int scene=0;scene<5;++scene) {
+        int I=scene==3?2:1, N=scene>=2?3:1, W=scene==3?33:32, H=scene==3?19:32;
+        int tw=(W+15)/16, th=(H+15)/16, nt=I*tw*th;
+        std::vector<vec2> xy(I*N); std::vector<vec3> conic(I*N,vec3(.1f,0.f,.1f));
+        std::vector<float> color(I*N*3,.7f), opacity(I*N,.4f), alpha(I*W*H,0.f), vc(I*W*H*3,0.f), va(I*W*H,.0f);
+        for(int image=0;image<I;++image) for(int g=0;g<N;++g) xy[image*N+g]=vec2(16.5f+g*.2f,20.5f-g*.3f);
+        if(scene==4) for(int g=0;g<I*N;++g) opacity[g]=0;
+        std::vector<int32_t> offsets(nt), ids(nt*N), last(I*W*H,0);
+        for(int t=0;t<nt;++t) { offsets[t]=t*N; for(int g=0;g<N;++g) ids[t*N+g]=(t/(tw*th))*N+g; }
+        // Prepare cotangents; capture actual device forward state below.
+        for(int im=0;im<I;++im) for(int y=0;y<H;++y) for(int x=0;x<W;++x) {
+            int p=im*W*H+y*W+x;
+            if(scene>=2) {vc[p*3]=((x+y)%3-1)*.03f; vc[p*3+1]=.02f; va[p]=.01f;}
+        }
+        // PX=2 owns row y and row y+8: opposing gradients within ONE thread.
+        if(scene<2) {vc[(16*W+16)*3]=1; vc[((scene==0?15:24)*W+16)*3]=1;}
+        auto dxy=upload(xy);auto dconic=upload(conic);auto dc=upload(color);auto dop=upload(opacity);
+        auto dto=upload(offsets);auto did=upload(ids);auto da=upload(alpha);auto dlast=upload(last);
+        auto dvc=upload(vc);auto dva=upload(va);
+        capture_forward<<<(I*W*H+255)/256,256>>>(I,N,W,H,tw,th,dxy,dconic,dop,dc,da,dlast);
+        CU(cudaGetLastError());CU(cudaDeviceSynchronize());
+        Out reference(I*N), trial(I*N), off(I*N);
+        size_t shared=256*(sizeof(int32_t)+2*sizeof(vec3)+3*sizeof(float));
+        reference_kernels::rasterize_to_pixels_3dgs_bwd_kernel<3,float><<<nt,dim3(16,16),shared>>>(
+            I,N,ids.size(),false,dxy,dconic,dc,dop,nullptr,nullptr,W,H,16,tw,th,0,dto,did,da,dlast,dvc,dva,
+            reference.absolute,reference.xy,reference.conic,reference.rgb,reference.opacity);
+        CU(cudaGetLastError()); CU(cudaDeviceSynchronize());
+        auto absref=reference.values(true), signedref=reference.values(false), paramref=reference.parameters();
+        if(scene==1 && !(absref[1]>std::fabs(signedref[1])*100 && absref[1]>0)) passed=false;
+        for(int px: {0,1,2,4}) {
+            trial.zero();off.zero();dim3 grid(I,th,tw);int threads=256/(px?px:1);
+            shared=threads*(sizeof(int32_t)+2*sizeof(vec3)+3*sizeof(float));
+#define RUN_KERNEL(PX, ENABLE, OUT) \
+            higs_kernels::higs_blend_bwd_px_kernel<3,PX,ENABLE><<<grid,dim3(16,threads/16),shared>>>( \
+                I,N,ids.size(),dxy,dconic,dc,dop,nullptr,tw,th,nullptr,false,W,H,16,dto,did,da,dlast,dvc,dva, \
+                OUT.xy,ENABLE?OUT.absolute:nullptr,OUT.conic,OUT.rgb,OUT.opacity,OUT.bg)
+#define RUN_DENSE(ENABLE, OUT) \
+            higs_kernels::higs_blend_bwd_kernel<3,ENABLE><<<grid,dim3(16,16),shared>>>( \
+                I,N,ids.size(),dxy,dconic,dc,dop,nullptr,tw,th,nullptr,false,W,H,16,dto,did,da,dlast,dvc,dva, \
+                OUT.xy,ENABLE?OUT.absolute:nullptr,OUT.conic,OUT.rgb,OUT.opacity,OUT.bg)
+            switch(px) {
+                case 0: RUN_DENSE(true,trial);RUN_DENSE(false,off);break;
+                case 1: RUN_KERNEL(1,true,trial);RUN_KERNEL(1,false,off);break;
+                case 2: RUN_KERNEL(2,true,trial);RUN_KERNEL(2,false,off);break;
+                case 4: RUN_KERNEL(4,true,trial);RUN_KERNEL(4,false,off);break;
+            }
+            CU(cudaGetLastError()); CU(cudaDeviceSynchronize());
+            passed &= equal(absref,trial.values(true),maxerr);
+            passed &= equal(signedref,trial.values(false),maxerr);
+            passed &= equal(paramref,trial.parameters(),maxerr);
+            passed &= equal(off.values(false),trial.values(false),maxerr);
+            passed &= equal(off.parameters(),trial.parameters(),maxerr);
+            comparisons+=5;
+        }
+        cudaFree(dxy);cudaFree(dconic);cudaFree(dc);cudaFree(dop);cudaFree(dto);cudaFree(did);cudaFree(da);cudaFree(dlast);cudaFree(dvc);cudaFree(dva);
+    }
+    std::printf("{\"status\":\"%s\",\"scope\":\"LOCAL_EXTRACTED_PIXEL_KERNELS_ONLY\",\"comparisons\":%d,\"max_absolute_error\":%.9g,\"frozen_MX_parity\":\"NOT_EXECUTED\"}\n",passed?"PASS":"FAIL",comparisons,maxerr);
+    return passed?0:1;
+}

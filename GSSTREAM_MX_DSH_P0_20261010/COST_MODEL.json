@@ -1,0 +1,101 @@
+{
+  "kit": "GSSTREAM-P0",
+  "gate": "G2 (representation density) + G4 (headroom) + G5 (cost)",
+  "date": "2026-10-10",
+  "compute": "CPU-only, NumPy 2.5.3, Python 3.13. No GPU. Estimates are hypotheses, not measured GPU time.",
+  "hardware_scope": "Local Windows x86-64 CPU; NOT the A100-PCIE-40GB MX target. Ratios are hardware-independent structure counts; GPU latencies not measured.",
+  "provenance": {
+    "synthetic_seeds": [42, 123],
+    "synthetic_source": "cpu_oracle.py packaged synthetic (H=W=40, N=75)",
+    "synthetic_sha256": {
+      "cpu_oracle.py": "d639c5227a95e9cc31e382b8bcb7f5fda377bf8f11312dfba9d688a034f3efe1",
+      "test_properties.py": "07c82377eddefcd7881e5d234063a439fcd38b6471bea10275311a9a196cbf06"
+    },
+    "real_cohort": {
+      "scene": "room (Mip-NeRF360)",
+      "renderer": "FastGS / INRIA diff-gaussian-rasterization (CUDA) projection capture",
+      "stage": "iteration 30000 point_cloud.ply",
+      "N_total_per_view": 572546,
+      "frame_WxH": [1600, 1066],
+      "tile_size": 16,
+      "tile_grid_WxH": [100, 67],
+      "n_cameras": 8,
+      "capture_dir": "experiments/training_solver_design/TILE_PREFIX_TRANSMITTANCE_GATE_20260928",
+      "arrays": ["projected_xy(means2d)", "conic_opacity(conics a,b,c + opacity)", "rgb(colors)", "depth", "gaussian_ids", "offsets", "tile_ids", "native_n_contrib", "native_final_T"],
+      "native_tiles_sha256": {
+        "DSCF4668": "75d2d24392b20c4dce6c6c950e279da46196cb49fad774b235e8d341771eed12",
+        "DSCF4712": "affde20d8abacde7510a4ae142c86fe98f2a8abb5481705d7ad1aac55ca2b53e",
+        "DSCF4756": "059cfb876582b1df55e7aaaa939fdeb7dea0b889a768e8e0663aa12a587442a5",
+        "DSCF4800": "82249b98ef36509e65ac59c8428511c15f9d8d07417eabacd26c806b6eb51e9d",
+        "DSCF4845": "6b36d4670ae3f8d386ac81c25804050a11e71cb217ed1654151caf7aaed26ed3",
+        "DSCF4889": "88f60d61c0fadb425b6ade372069ba675ce6a2ac03edb332c1111bfe8c0e2ec5b",
+        "DSCF4933": "dff69e1c82a625f883176ad7c61966849a9c25088eb0423deb0f56ab0ae0d9ff",
+        "DSCF4977": "006f7196024374fbd8a99e430b380b2e1db76c4436e5c168b3b52ebc46502d2d"
+      },
+      "sidecar_sha256": {
+        "camera_tile_manifest.json": "02790f223a203223f8c966a4301bf32baa367a4d5c6397f0785c365db6498249"
+      }
+    }
+  },
+
+  "synthetic_cost_model": {
+    "note": "Reproduced faithfully from packaged cpu_oracle.py (logical content byte-identical to packaged out/s42, out/s123).",
+    "seed_42": {
+      "N": 75, "H": 40, "W": 40,
+      "exact_hits": 18881,
+      "stream_candidates_conservative": 23554,
+      "row_intervals": 1263,
+      "ratio_active_hit_to_tilebbox_candidate": {"8": 0.3073, "16": 0.2709, "32": 0.2124}
+    },
+    "seed_123": {
+      "N": 75, "H": 40, "W": 40,
+      "exact_hits": 20242,
+      "stream_candidates_conservative": 24447,
+      "row_intervals": 1254,
+      "ratio_active_hit_to_tilebbox_candidate": {"8": 0.3783, "16": 0.3361, "32": 0.2439}
+    },
+    "g2_synthetic_read": "active_hit/tile_bbox_candidate at tile32 = 0.21-0.24 (seed42) and 0.24 (seed123). Borderline vs gate <=0.20. stream_candidates not directly comparable (kit counts conservative padded candidates, not exact-support hits). Synthetic tiny-workload; NOT scene evidence."
+  },
+
+  "real_cohort_cost_model": {
+    "method": "Per-camera over SPD+opacity>=cutoff AND actually-intersected gaussians. Candidate baselines: (a) conservative per-Gaussian tile footprint from 3-sigma screen radius (gsplat/FastGS math, tiles/gaussian); (b) row-span conservative pixel candidates from the kit's xy_bounds. Intersection pairs from the kernel's own gaussian_ids. H,W=1600x1066, tile=16.",
+    "aggregate_median": {
+      "real_intersect_over_footprint_tile_pairs": 0.0198,
+      "footprint_tiles_over_real_intersect": 50.43,
+      "rowspan_candidates_over_footprint_pixels": 6.792,
+      "mean_rowspan_over_footprint": 7.298,
+      "footprint_tiles_per_visible_gaussian_median": 59.1
+    },
+    "per_camera": [
+      {"file": "DSCF4668", "N_visible": 31721, "real_intersect_pairs": 35658, "footprint_tile_pairs": 1493187, "row_intervals": 103720, "row_span_candidates": 7768494, "rowspan/footprint": 5.20, "footprint_tiles/g": 47.1},
+      {"file": "DSCF4712", "N_visible": 34781, "real_intersect_pairs": 40880, "footprint_tile_pairs": 2008636, "row_intervals": 148991, "row_span_candidates": 13950677, "rowspan/footprint": 6.95, "footprint_tiles/g": 57.8},
+      {"file": "DSCF4756", "N_visible": 22337, "real_intersect_pairs": 27520, "footprint_tile_pairs": 1466215, "row_intervals": 98466, "row_span_candidates": 10422047, "rowspan/footprint": 7.11, "footprint_tiles/g": 65.6},
+      {"file": "DSCF4800", "N_visible": 27920, "real_intersect_pairs": 33375, "footprint_tile_pairs": 1613964, "row_intervals": 125615, "row_span_candidates": 10712991, "rowspan/footprint": 6.64, "footprint_tiles/g": 57.8},
+      {"file": "DSCF4845", "N_visible": 38757, "real_intersect_pairs": 42346, "footprint_tile_pairs": 1624077, "row_intervals": 92042, "row_span_candidates": 7095703, "rowspan/footprint": 4.37, "footprint_tiles/g": 41.9},
+      {"file": "DSCF4889", "N_visible": 12612, "real_intersect_pairs": 17379, "footprint_tile_pairs": 1081021, "row_intervals": 96696, "row_span_candidates": 13432037, "rowspan/footprint": 12.43, "footprint_tiles/g": 85.7},
+      {"file": "DSCF4933", "N_visible": 9932, "real_intersect_pairs": 14512, "footprint_tile_pairs": 1036139, "row_intervals": 89106, "row_span_candidates": 11123125, "rowspan/footprint": 10.74, "footprint_tiles/g": 104.3},
+      {"file": "DSCF4977", "N_visible": 24712, "real_intersect_pairs": 28890, "footprint_tile_pairs": 1494474, "row_intervals": 74284, "row_span_candidates": 7411828, "rowspan/footprint": 4.96, "footprint_tiles/g": 60.5}
+    ]
+  },
+
+  "gate_evaluation": {
+    "G2": {
+      "preregistered": "CONTINUE requires (a) active_hit/tile_bbox_candidate <=0.20 AND (b) stream_candidate/tile_bbox_candidate <=0.35 on >=2/3 scenes (=> >=5x exact-hit arithmetic gap and >=~2.86x conservative-stream candidate reduction).",
+      "real_data_result": "FAIL. (a) real kernel intersections are ~2% of the conservative footprint, i.e. the EXISTING renderer already achieves >>5x over its own conservative footprint via exact ellipse + opacity culling; the opportunity is already captured by the baseline, not by a new structure. (b) The proposed row-span candidate stream is ~6.8x DENSER than the conservative footprint pixel count it would replace (median rowspan/footprint = 6.79, per-gaussian footprint tiles median ~59 vs row-span candidates ~183-1120/g). The 'compressed stream' is larger, not smaller, than the structure it targets.",
+      "synthetic_note": "tile32 active/bbox ~0.21-0.24 borderline; but synthetic tiny-workload is not scene evidence and the kit's own stream_candidate metric is padded-conservative, not exact-support.",
+      "verdict": "FAIL"
+    },
+    "G4": {
+      "preregistered": "Same-hardware measured f of affected complete training time; S_max = 1/(1-f); 3x requires f>=2/3. Count projection/optimizer/loss/densification separately.",
+      "real_data_result": "BLOCKED (not measured). No GPU authorized; no same-hardware Faster-GS fused f captured. On REAL room data the rasterizer binning/intersection build already performs exact opacity+ellipse culling (real_intersect/footprint ~0.02), so the residual addressable fraction of *binning/intersection build* is small AND already occupied by the existing culling. Amdahl ceiling on the remaining gap is far below the f>=2/3 needed for 3x.",
+      "verdict": "BLOCKED"
+    },
+    "G5": {
+      "preregistered": "Model worst-case memory/bytes of materializing sparse list incl sort+prefix offsets+fwd/bwd reuse vs exact tile32 + AccuTile and gsplat index extraction; optimistic model must allow >=1.30x full-step with nonnegative extra memory.",
+      "real_data_result": "FAIL (headroom negative). The proposed per-row span materialization costs ~6.8x the candidate bytes of the per-tile footprint it replaces (row_span_candidates vs footprint_tile_pixels), plus it must ADD a separate CSR/segment materialization on top of gsplat's already-shipped packed per-tile index (which #3 of prior art already reuses in both passes). Net: more global bytes and more build traffic than the current renderer, not less. Optimistic upper bound is <1.0x on the intersection stage and cannot reach the >=1.30x full-step requirement with nonnegative memory budget.",
+      "verdict": "FAIL"
+    }
+  },
+
+  "headroom_summary": "On real room-scene data the strongest existing renderer (FastGS/gsplat-class) already culls to ~2% of its conservative footprint via exact ellipse + opacity tests. The proposed compressed per-row support stream is ~6.8x DENSER than the structure it would replace and adds a materialization pass on top of an already-shipped packed/sparse index. Theoretical headroom is negative for the intersection/binning stage; no path to the preregistered >=1.30x full-step or 3x E2E."
+}

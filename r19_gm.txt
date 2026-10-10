@@ -1,0 +1,149 @@
+﻿=== gaussian_model: densification + absgrad + add_densification_stats ===
+22:  - means2d from gsplat meta dict with retain_grad() for view-space gradient
+58:        self.xyz_gradient_accum = torch.empty(0)
+99:    def oneupSHdegree(self):
+106:    def create_from_pcd(self, pcd_data: dict, spatial_lr_scale: float):
+162:        self.xyz_gradient_accum = torch.zeros((N, 1), device="cuda")
+194:    def training_setup(self, config: dict):
+204:        self.xyz_gradient_accum = torch.zeros((N, 1), device="cuda")
+243:    def update_learning_rate(self, iteration: int):
+252:    def add_densification_stats(self, means2d: torch.Tensor, visibility_filter: torch.Tensor,
+257:            xyz_gradient_accum[update_filter] += norm(viewspace_point_tensor.grad[update_filter,:2])
+261:        1. Use absgrad (absolute gradient) instead of .grad (signed). gsplat's .grad 
+267:        # Prefer absgrad (absolute gradient, populated with absgrad=True)
+268:        grad = getattr(means2d, "absgrad", None)
+270:            grad = means2d.grad
+283:        self.xyz_gradient_accum[visibility_filter] += grad_norm
+409:        self.xyz_gradient_accum = torch.zeros((self._xyz.shape[0], 1), device="cuda")
+429:        self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
+437:    def densify_and_clone(self, grads, grad_threshold, scene_extent):
+465:    def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
+543:    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size,
+549:        grads = self.xyz_gradient_accum / self.denom
+589:    def reset_opacity(self):
+614:            "xyz_gradient_accum": self.xyz_gradient_accum.detach().cpu(),
+630:        self.xyz_gradient_accum = state["xyz_gradient_accum"].cuda()
+
+=== add_densification_stats body ===
+    def add_densification_stats(self, means2d: torch.Tensor, visibility_filter: torch.Tensor,
+                                 width: int = None, height: int = None):
+        """Accumulate view-space mean2D gradient for densification.
+
+        Official:
+            xyz_gradient_accum[update_filter] += norm(viewspace_point_tensor.grad[update_filter,:2])
+            denom[update_filter] += 1
+
+        gsplat adaptation: 
+        1. Use absgrad (absolute gradient) instead of .grad (signed). gsplat's .grad 
+           produces tiny values due to per-pixel gradient cancellation.
+        2. Scale from normalized [-1,1] screen space to pixel space, matching 
+           diff_gaussian_rasterization's pixel-space gradient.
+           gsplat DefaultStrategy does: grads[...,0] *= width/2, grads[...,1] *= height/2
+        """
+        # Prefer absgrad (absolute gradient, populated with absgrad=True)
+        grad = getattr(means2d, "absgrad", None)
+        if grad is None:
+            grad = means2d.grad
+        if grad is None:
+            return
+        # grad is [1, N, 2] — slice to [N, 2]
+        if grad.dim() == 3:
+            grad = grad[0]  # [N, 2]
+        # Scale from normalized [-1,1] to pixel space (gsplat adaptation)
+        if width is not None and height is not None:
+            grad = grad.clone()  # avoid in-place on grad tensor
+            grad[:, 0] *= width / 2.0
+            grad[:, 1] *= height / 2.0
+        grad_2d = grad[visibility_filter, :2]  # [N_vis, 2]
+
+=== config.py ===
+"""
+Reference V1 configuration 鈥?canonical Room 30K training parameters.
+
+Semantic label: REFERENCE_V1_ABSGRAD
+  Densification uses absgrad=True with grow_grad2d=0.0008 (gsplat AbsGS adaptation).
+  This is NOT literal original-3DGS signed-gradient densification (which uses 0.0002).
+
+All other values match official Graphdeco OptimizationParams (arguments/__init__.py L74-100)
+at commit 54c035f, with explicit documentation of any gsplat adaptations.
+"""
+
+from dataclasses import dataclass, asdict
+from typing import Dict
+
+
+@dataclass
+class ReferenceV1Config:
+    """Canonical reference training configuration.
+
+    Every field is explicitly defined. No hidden thresholds in source code.
+    """
+
+    # === Scene ===
+    scene: str = "room"
+    resolution: str = "1080p"  # 1920脳1080
+    repo_root: str = "C:\\Users\\36570\\3dgs-renderer-benchmark"
+
+    # === Training ===
+    iterations: int = 30_000
+    seed: int = 42
+
+    # === Learning rates (official OptimizationParams) ===
+    position_lr_init: float = 0.00016
+    position_lr_final: float = 0.0000016
+    position_lr_delay_mult: float = 0.01
+    position_lr_max_steps: int = 30_000
+    feature_lr: float = 0.0025
+    opacity_lr: float = 0.025
+    scaling_lr: float = 0.005
+    rotation_lr: float = 0.001
+
+    # === Densification (official + gsplat adaptation) ===
+    densify_from_iter: int = 500
+    densify_until_iter: int = 15_000
+    densification_interval: int = 100
+    # gsplat adaptation: absgrad requires 4x higher threshold.
+    # Official: 0.0002 (signed gradient in pixel space)
+    # gsplat absgrad: 0.0008 (absolute gradient in pixel space)
+    # See: gsplat/strategy/default.py docstring
+    densify_grad_threshold: float = 0.0008
+    percent_dense: float = 0.01
+
+    # === Pruning (official) ===
+    min_opacity: float = 0.005
+    max_screen_size: int = 20  # official: size_threshold = 20 if iter > opacity_reset_interval
+
+    # === Opacity reset (official) ===
+    opacity_reset_interval: int = 3000
+
+    # === SH progression (official) ===
+    sh_degree: int = 3
+    sh_progress_interval: int = 1000  # oneupSHdegree every 1000 iters
+
+    # === Loss (official) ===
+    lambda_dssim: float = 0.2  # loss = (1-位)L1 + 位(1-SSIM)
+
+    # === Renderer (gsplat adaptation) ===
+    renderer: str = "gsplat"
+    gsplat_version: str = "1.5.3"
+    tile_size: int = 16
+    packed: bool = False
+    semantic_label: str = "REFERENCE_V1_ABSGRAD"
+
+    # === Evaluation checkpoints ===
+    eval_iterations: tuple = (500, 1000, 2000, 5000, 10000, 15000, 20000, 25000, 30000)
+
+    # === C49/C50/C53 instrumentation checkpoints ===
+    instrument_iterations: tuple = (500, 1000, 2000, 5000, 10000, 15000, 20000, 25000)
+
+    # === Model checkpoints (for continuation experiments) ===
+    checkpoint_iterations: tuple = ()
+
+    def to_dict(self) -> Dict:
+        d = asdict(self)
+        d["eval_iterations"] = list(self.eval_iterations)
+        d["instrument_iterations"] = list(self.instrument_iterations)
+        d["checkpoint_iterations"] = list(self.checkpoint_iterations)
+        return d
+DONE
+

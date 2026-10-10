@@ -1,0 +1,747 @@
+START Thu Oct  8 15:13:34 UTC 2026
+== R17 runner ==
+Thu Oct  8 15:13:35 UTC 2026
+HIGS_PROJECT=/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx
+R17_OUT=/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX
+R17_CKPT=/mnt/storage_pool/liaoyuanjun/r4_13scene_v2/bicycle/candidate_c/checkpoints/iter_30000.pt
+CUDA_VISIBLE_DEVICES=0
+python: /mnt/storage_pool/liaoyuanjun/higs-13scene-env/bin/python3 3.10.21 | packaged by conda-forge | (main, Aug 21 2026, 22:42:31) [GCC 14.4.0]
+Thu Oct  8 23:13:35 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.71.05              Driver Version: 595.71.05      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A100-PCIE-40GB          Off |   00000000:3D:00.0 Off |                  Off |
+| N/A   34C    P0             60W /  250W |    6569MiB /  40960MiB |     39%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA A100-PCIE-40GB          Off |   00000000:3E:00.0 Off |                  Off |
+| N/A   35C    P0             59W /  250W |    6591MiB /  40960MiB |     39%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA A100-PCIE-40GB          Off |   00000000:40:00.0 Off |                  Off |
+| N/A   40C    P0             93W /  250W |   24021MiB /  40960MiB |     38%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA A100-PCIE-40GB          Off |   00000000:41:00.0 Off |                  Off |
+| N/A   33C    P0             52W /  250W |   22289MiB /  40960MiB |     38%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   4  NVIDIA A100-PCIE-40GB          Off |   00000000:B1:00.0 Off |                  Off |
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/md0        3.5T  3.5T   29G 100% /mnt/storage_pool
+
+########## STEP preflight ##########
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_PREFLIGHT.json
+[]
+preflight done (violations are recorded, not auto-blocking)
+########## STEP preflight EXIT 0 ##########
+
+########## STEP p0_arithmetic ##########
+/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/scripts/r17_p0_arithmetic_audit.py:53: RuntimeWarning: invalid value encountered in log
+  raw_mid = int(((o > alpha) & (np.log(o / alpha) < cap)).sum())
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/R17_R16_ARITHMETIC_AUDIT.json
+{
+  "deliverable": "R17_R16_ARITHMETIC_AUDIT.json",
+  "purpose": "Recompute every R16-reported arithmetic quantity from raw data; flag non-reproducible figures.",
+  "sources": {
+    "r16_dir": "/mnt/storage_pool/liaoyuanjun/HIGS_R16_OPACITY_SEMANTICS_MX",
+    "r16_csv": "/mnt/storage_pool/liaoyuanjun/HIGS_R16_OPACITY_SEMANTICS_MX/R16_REPLAY_COUNTS.csv",
+    "r16_csv_exists": true,
+    "r16_report_json": "/mnt/storage_pool/liaoyuanjun/HIGS_R16_OPACITY_SEMANTICS_MX/R16_OPACITY_SEMANTICS_REPORT.json",
+    "r16_report_json_exists": true,
+    "r15_capture": "/mnt/storage_pool/liaoyuanjun/HIGS_R15_CAPTURE_ORACLE_MX/captured_projected_inputs.pt",
+    "r15_capture_exists": true,
+    "r15_capture_sha256": "516efaaffb758c215694b9ee41a5d751923f7c9d173083b41a8f138904a4fc51",
+    "r16_csv_sha256": "1e8e61eb39e21e6984fcde0a4cfd9bb6122f8f10af2248e6928a31e2ca7f99f2"
+  },
+  "constants": {
+    "header": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/cuda/include/Common.h",
+    "sha256": "31cefccf8159caa862139f934926b1c3bec6699a392a4108babea63f44294d08",
+    "alpha_threshold": 0.00392156862745098,
+    "gaussian_extend": 3.33,
+    "found": true
+  },
+  "status": "EXECUTED",
+  "recomputed": {
+    "gpu_raw_sum": 1804447,
+    "gpu_sigmoid_sum": 1453128,
+    "gpu_threshold_mode_sum": 1453128,
+    "raw_minus_sigmoid_sum_difference": 351319,
+    "raw_minus_sigmoid_elementwise_abs_sum": 360251,
+    "changed_pairs": 400,
+    "max_single_pair_reduction": 2040,
+    "activation_never_increases_counts": false,
+    "sigmoid_minus_threshold_sum_difference": 0,
+    "sigmoid_vs_threshold_identical": true
+  },
+  "oracle": {
+    "raw": {
+      "reference_sum_valid": 132796,
+      "gpu_sample_sum_all": 1804447,
+      "mismatch_pairs": 915,
+      "count_above_physical_tiles": 0,
+      "count_above_padded_aabb_upper_bound": 0,
+      "verdict": "GEOMETRIC_DISCREPANCY_REQUIRES_CUDA_SEMANTIC_AUDIT"
+    },
+    "sigmoid": {
+      "reference_sum_valid": 1453128,
+      "gpu_sample_sum_all": 1453128,
+      "mismatch_pairs": 0,
+      "count_above_physical_tiles": 0,
+      "count_above_padded_aabb_upper_bound": 0,
+      "verdict": "ALL_COMPARABLE_COUNTS_EQUAL"
+    },
+    "sigmoid_threshold_skip": {
+      "reference_sum_valid": 1453128,
+      "gpu_sample_sum_all": 1453128,
+      "mismatch_pairs": 0,
+      "count_above_physical_tiles": 0,
+      "count_above_padded_aabb_upper_bound": 0,
+      "verdict": "ALL_COMPARABLE_COUNTS_EQUAL"
+    }
+  },
+  "branch_coverage": {
+    "alpha_threshold": 0.00392156862745098,
+    "n": 1000,
+    "raw_logit_le_0__logf_of_negative__t_forced_by_fminf_nan": 916,
+    "raw_logit_in_(0,alpha]__logf_negative__t_negative": 0,
+    "raw_logit_capped_t_equals_1": 84,
+    "raw_logit_in_(alpha, alpha*e^0.5)__t_in_(0,1)": 0,
+    "activated_opacity_le_alpha__true_skip_branch_coverage": 0,
+    "activated_opacity_gt_alpha": 1000,
+    "activation_fixes_skip_coverage": false
+  },
+  "radii_skipped_rows_in_threshold_mode": 0,
+  "max_count_case": {
+    "mode": "raw",
+    "camera": "0",
+    "gaussian_id": "1446",
+    "gpu_count": 2040,
+    "raw_opacity": -4.835511684417725,
+    "activated_opacity": 0.007880034856498241,
+    "tile_bound_per_image": 2040
+  },
+  "r15_capture_raw_exact_match": {
+    "status": "EXECUTED",
+    "n": 1000,
+    "r15_capture_sha256": "516efaaffb758c215694b9ee41a5d751923f7c9d173083b41a8f138904a4fc51",
+    "exact_match": true,
+    "sum_abs_diff": 0,
+    "changed_pairs": 0
+  },
+  "report_claims_reconciliation": {
+    "status": "EXECUTED",
+    "report_status_field": "REPLAY_COMPLETED",
+    "claimed_raw_gpu_sum": 1804447,
+    "claimed_sigmoid_gpu_sum": 1453128,
+    "raw_matches_csv": true,
+    "sigmoid_matches_csv": true,
+    "note": "Any reduction figure quoted in R16 prose must equal raw_minus_sigmoid_sum_difference above; the CSV is authoritative."
+  },
+  "arithmetic_note": "R17 recomputation definitions: reduction = raw_sum - sigmoid_sum over the SAME seeded 1000-sample set; threshold-mode difference = sigmoid_sum - threshold_sum. A claimed reduction that equals neither is flagged in R17_FINAL_REPORT.md."
+}
+########## STEP p0_arithmetic EXIT 0 ##########
+
+########## STEP p1_parameter_contract ##########
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/R17_PARAMETER_DISTRIBUTIONS.json
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/R17_PARAMETER_CONTRACT.md
+{
+  "verdicts": {
+    "opacity": "VIOLATED",
+    "scaling": "VIOLATED",
+    "rotation": "VIOLATED"
+  },
+  "alpha": 0.00392156862745098,
+  "raw_branch": {
+    "n": 4413928,
+    "opacity_le_0_logf_of_negative": 4025614,
+    "opacity_in_(0,alpha]_t_would_be_negative": 918,
+    "opacity_in_(alpha,alpha*e^0.5)_t_in_(0,1)": 598,
+    "opacity_ge_alpha*e^0.5_t_saturates_at_1": 386798,
+    "frac_with_no_real_threshold_behavior": 0.9122332761204985
+  }
+}
+########## STEP p1_parameter_contract EXIT 0 ##########
+
+########## STEP p2_camera_identity ##########
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/R17_CAMERA_IDENTITY.json
+{
+  "status": "EXECUTED",
+  "r3_synthetic": {
+    "status": "SYNTHETIC_CIRCULAR_NOT_FROM_CAMERAS_JSON",
+    "cam0_K": {
+      "shape": [
+        3,
+        3
+      ],
+      "rows": [
+        [
+          960.0,
+          0.0,
+          480.0
+        ],
+        [
+          0.0,
+          540.0,
+          270.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "cam0_viewmatrix": {
+      "shape": [
+        4,
+        4
+      ],
+      "rows": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          2.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.5
+        ],
+        [
+          -0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "cam0_viewmatrix_translation": [
+      2.0,
+      0.5,
+      0.0
+    ],
+    "cam0_camera_center": [
+      -2.0,
+      -0.5,
+      0.0
+    ],
+    "note": "fx=width=960, fy=height=540, cx=480, cy=270; radius-2 circle around origin, height 0.5. At angle=0 (i=0) R is the identity matrix and viewmatrix translation t=(2.0, 0.5, 0.0) (camera center = -R^T t = (-2.0, -0.5, 0.0)), so camera-z depth equals world-z (same as R8 identity camera), but the projection has a +2 x-offset.",
+    "call_site_discrepancy": {
+      "status": "UNRESOLVED_FROM_LOCAL_ARTIFACTS",
+      "script_main_call": "get_bicycle_cameras(n_train=1, n_eval=0, ...) => 1 camera (angle=0), each forward = single viewmat.unsqueeze(0) call (batch 1)",
+      "script_main_call_matches_n1_cam0": true,
+      "protocol_identity_json_claim": "cameras.n_train=4, batch=4 (HN-540-B4 naming)",
+      "run_status_mitigation": "RUN_STATUS.json lists 'Reduce batch size to 1 camera' as an attempted OOM mitigation",
+      "interpretation": "R3 cell names say B4 but the on-disk script generates and loops over a single camera; the protocol JSON claims n_train=4. R17 benchmark (P4) does not depend on resolving this: it uses the real cameras.json protocol instead."
+    }
+  },
+  "r8_identity": {
+    "status": "IDENTITY_SYNTHETIC_NOT_FROM_CAMERAS_JSON",
+    "K": {
+      "shape": [
+        3,
+        3
+      ],
+      "rows": [
+        [
+          960.0,
+          0.0,
+          480.0
+        ],
+        [
+          0.0,
+          540.0,
+          270.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "viewmatrix": {
+      "shape": [
+        4,
+        4
+      ],
+      "
+########## STEP p2_camera_identity EXIT 0 ##########
+
+########## STEP p3_controlled ##########
+CUDA available: True
+constants: alpha=0.00392156862745098 extend=3.33
+{
+  "tag": "preflight",
+  "cuda": true,
+  "device": "NVIDIA A100-PCIE-40GB",
+  "free_gb": 35.07585024,
+  "total_gb": 42.405855232,
+  "allocated_gb": 0.0,
+  "reserved_gb": 0.0,
+  "peak_allocated_gb": 0.0
+}
+checkpoint N=4,413,928 sha=ccec425c8da02d423fb66e89450e3c837209f280deea24dbf4a507bc3cd4ea14
+subset n=580000 cameras=/home/liaoyuanjun/higs-13scene/data/official/mipnerf360/bicycle/cameras.json
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_P3_PREAMBLE.json
+
+===== CELL A: R8/R15/R16 protocol reproduction =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/A_r15_style_capture.json
+{
+  "capture": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/A_r15_style_capture.pt",
+  "method": "independent exact continuous ellipse-versus-tile overlap; not byte-equivalent CUDA AccuTile",
+  "alpha_threshold": 0.00392156862745098,
+  "gaussian_extend": 3.33,
+  "n_cameras": 1,
+  "sample_n_per_camera": 1000,
+  "valid_pairs": 1000,
+  "invalid_or_skipped_pairs": {},
+  "mismatch_pairs": 915,
+  "count_above_physical_tiles": 0,
+  "count_above_padded_aabb_upper_bound": 0,
+  "gpu_sum_valid_and_skipped": 1804447,
+  "reference_sum_valid": 132796,
+  "gpu_sample_sum_all": 1804447,
+  "verdict": "GEOMETRIC_DISCREPANCY_REQUIRES_CUDA_SEMANTIC_AUDIT"
+}
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/A_cell.json
+{
+  "cell": "A",
+  "fwd_status": "PASS",
+  "bwd_status": "PASS",
+  "sum_counts_first_call": 490387290,
+  "n_isects_metadata": 490387290,
+  "coverage_frac": 1.0,
+  "peak_vram_gb": 12.065439232,
+  "oracle_mismatch_pairs": 915,
+  "oracle_verdict": "GEOMETRIC_DISCREPANCY_REQUIRES_CUDA_SEMANTIC_AUDIT",
+  "r15_gate": "{\"r15_full_n\": 273234, \"r17_full_n\": 273234, \"same_call_size\": true, \"same_sample_ids\": true, \"same_counts\": true, \"r15_sha256\": \"516efaaffb758c215694b9ee41a5d751923f7c9d173083b41a8f138904a4fc51\"}"
+}
+cell A done in 3.6s
+
+===== CELL B: opacity activation only =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/B_r15_style_capture.json
+{
+  "capture": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/B_r15_style_capture.pt",
+  "method": "independent exact continuous ellipse-versus-tile overlap; not byte-equivalent CUDA AccuTile",
+  "alpha_threshold": 0.00392156862745098,
+  "gaussian_extend": 3.33,
+  "n_cameras": 1,
+  "sample_n_per_camera": 1000,
+  "valid_pairs": 1000,
+  "invalid_or_skipped_pairs": {},
+  "mismatch_pairs": 0,
+  "count_above_physical_tiles": 0,
+  "count_above_padded_aabb_upper_bound": 0,
+  "gpu_sum_valid_and_skipped": 1453128,
+  "reference_sum_valid": 1453128,
+  "gpu_sample_sum_all": 1453128,
+  "verdict": "ALL_COMPARABLE_COUNTS_EQUAL"
+}
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/B_cell.json
+{
+  "cell": "B",
+  "fwd_status": "PASS",
+  "bwd_status": "PASS",
+  "sum_counts_first_call": 399549407,
+  "n_isects_metadata": 399549407,
+  "coverage_frac": 1.0,
+  "peak_vram_gb": 9.900014592,
+  "oracle_mismatch_pairs": 0,
+  "oracle_verdict": "ALL_COMPARABLE_COUNTS_EQUAL",
+  "r15_gate": ""
+}
+cell B done in 2.1s
+
+===== CELL B2: scale activation only =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/B2_r15_style_capture.json
+{
+  "capture": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/B2_r15_style_capture.pt",
+  "method": "independent exact continuous ellipse-versus-tile overlap; not byte-equivalent CUDA AccuTile",
+  "alpha_threshold": 0.00392156862745098,
+  "gaussian_extend": 3.33,
+  "n_cameras": 1,
+  "sample_n_per_camera": 1000,
+  "valid_pairs": 1000,
+  "invalid_or_skipped_pairs": {},
+  "mismatch_pairs": 905,
+  "count_above_physical_tiles": 0,
+  "count_above_padded_aabb_upper_bound": 0,
+  "gpu_sum_valid_and_skipped": 6887,
+  "reference_sum_valid": 397,
+  "gpu_sample_sum_all": 6887,
+  "verdict": "GEOMETRIC_DISCREPANCY_REQUIRES_CUDA_SEMANTIC_AUDIT"
+}
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/B2_cell.json
+{
+  "cell": "B2",
+  "fwd_status": "PASS",
+  "bwd_status": "PASS",
+  "sum_counts_first_call": 298577,
+  "n_isects_metadata": 298577,
+  "coverage_frac": 1.0,
+  "peak_vram_gb": 0.334925312,
+  "oracle_mismatch_pairs": 905,
+  "oracle_verdict": "GEOMETRIC_DISCREPANCY_REQUIRES_CUDA_SEMANTIC_AUDIT",
+  "r15_gate": ""
+}
+cell B2 done in 1.7s
+
+===== CELL B3: quaternion normalization only =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/B3_r15_style_capture.json
+{
+  "capture": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/B3_r15_style_capture.pt",
+  "method": "independent exact continuous ellipse-versus-tile overlap; not byte-equivalent CUDA AccuTile",
+  "alpha_threshold": 0.00392156862745098,
+  "gaussian_extend": 3.33,
+  "n_cameras": 1,
+  "sample_n_per_camera": 1000,
+  "valid_pairs": 1000,
+  "invalid_or_skipped_pairs": {},
+  "mismatch_pairs": 915,
+  "count_above_physical_tiles": 0,
+  "count_above_padded_aabb_upper_bound": 0,
+  "gpu_sum_valid_and_skipped": 1804447,
+  "reference_sum_valid": 132796,
+  "gpu_sample_sum_all": 1804447,
+  "verdict": "GEOMETRIC_DISCREPANCY_REQUIRES_CUDA_SEMANTIC_AUDIT"
+}
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/B3_cell.json
+{
+  "cell": "B3",
+  "fwd_status": "PASS",
+  "bwd_status": "PASS",
+  "sum_counts_first_call": 490387290,
+  "n_isects_metadata": 490387290,
+  "coverage_frac": 1.0,
+  "peak_vram_gb": 12.079341056,
+  "oracle_mismatch_pairs": 915,
+  "oracle_verdict": "GEOMETRIC_DISCREPANCY_REQUIRES_CUDA_SEMANTIC_AUDIT",
+  "r15_gate": ""
+}
+cell B3 done in 1.9s
+
+===== CELL C: all-activated params, synthetic camera =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/C_r15_style_capture.json
+{
+  "capture": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/C_r15_style_capture.pt",
+  "method": "independent exact continuous ellipse-versus-tile overlap; not byte-equivalent CUDA AccuTile",
+  "alpha_threshold": 0.00392156862745098,
+  "gaussian_extend": 3.33,
+  "n_cameras": 1,
+  "sample_n_per_camera": 1000,
+  "valid_pairs": 1000,
+  "invalid_or_skipped_pairs": {},
+  "mismatch_pairs": 0,
+  "count_above_physical_tiles": 0,
+  "count_above_padded_aabb_upper_bound": 0,
+  "gpu_sum_valid_and_skipped": 3867,
+  "reference_sum_valid": 3867,
+  "gpu_sample_sum_all": 3867,
+  "verdict": "ALL_COMPARABLE_COUNTS_EQUAL"
+}
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/C_cell.json
+{
+  "cell": "C",
+  "fwd_status": "PASS",
+  "bwd_status": "PASS",
+  "sum_counts_first_call": 160081,
+  "n_isects_metadata": 160081,
+  "coverage_frac": 1.0,
+  "peak_vram_gb": 0.334101504,
+  "oracle_mismatch_pairs": 0,
+  "oracle_verdict": "ALL_COMPARABLE_COUNTS_EQUAL",
+  "r15_gate": ""
+}
+cell C done in 2.1s
+
+===== CELL C2: raw params, real cam0 =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/C2_r15_style_capture.json
+{
+  "capture": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/C2_r15_style_capture.pt",
+  "method": "independent exact continuous ellipse-versus-tile overlap; not byte-equivalent CUDA AccuTile",
+  "alpha_threshold": 0.00392156862745098,
+  "gaussian_extend": 3.33,
+  "n_cameras": 1,
+  "sample_n_per_camera": 1000,
+  "valid_pairs": 1000,
+  "invalid_or_skipped_pairs": {},
+  "mismatch_pairs": 910,
+  "count_above_physical_tiles": 0,
+  "count_above_padded_aabb_upper_bound": 0,
+  "gpu_sum_valid_and_skipped": 1826968,
+  "reference_sum_valid": 143023,
+  "gpu_sample_sum_all": 1826968,
+  "verdict": "GEOMETRIC_DISCREPANCY_REQUIRES_CUDA_SEMANTIC_AUDIT"
+}
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/C2_cell.json
+{
+  "cell": "C2",
+  "fwd_status": "PASS",
+  "bwd_status": "PASS",
+  "sum_counts_first_call": 705992313,
+  "n_isects_metadata": 705992313,
+  "coverage_frac": 1.0,
+  "peak_vram_gb": 17.284425728,
+  "oracle_mismatch_pairs": 910,
+  "oracle_verdict": "GEOMETRIC_DISCREPANCY_REQUIRES_CUDA_SEMANTIC_AUDIT",
+  "r15_gate": ""
+}
+cell C2 done in 2.8s
+
+===== CELL D: all-activated params, real cam0 (fully correct protocol) =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/D_r15_style_capture.json
+{
+  "capture": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/D_r15_style_capture.pt",
+  "method": "independent exact continuous ellipse-versus-tile overlap; not byte-equivalent CUDA AccuTile",
+  "alpha_threshold": 0.00392156862745098,
+  "gaussian_extend": 3.33,
+  "n_cameras": 1,
+  "sample_n_per_camera": 1000,
+  "valid_pairs": 1000,
+  "invalid_or_skipped_pairs": {},
+  "mismatch_pairs": 0,
+  "count_above_physical_tiles": 0,
+  "count_above_padded_aabb_upper_bound": 0,
+  "gpu_sum_valid_and_skipped": 3026,
+  "reference_sum_valid": 3026,
+  "gpu_sample_sum_all": 3026,
+  "verdict": "ALL_COMPARABLE_COUNTS_EQUAL"
+}
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/D_cell.json
+{
+  "cell": "D",
+  "fwd_status": "PASS",
+  "bwd_status": "PASS",
+  "sum_counts_first_call": 545285,
+  "n_isects_metadata": 545285,
+  "coverage_frac": 1.0,
+  "peak_vram_gb": 0.378532864,
+  "oracle_mismatch_pairs": 0,
+  "oracle_verdict": "ALL_COMPARABLE_COUNTS_EQUAL",
+  "r15_gate": ""
+}
+cell D done in 2.5s
+
+===== CELL D2: opacity activation only, real cam0 =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/D2_r15_style_capture.json
+{
+  "capture": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/D2_r15_style_capture.pt",
+  "method": "independent exact continuous ellipse-versus-tile overlap; not byte-equivalent CUDA AccuTile",
+  "alpha_threshold": 0.00392156862745098,
+  "gaussian_extend": 3.33,
+  "n_cameras": 1,
+  "sample_n_per_camera": 1000,
+  "valid_pairs": 1000,
+  "invalid_or_skipped_pairs": {},
+  "mismatch_pairs": 0,
+  "count_above_physical_tiles": 0,
+  "count_above_padded_aabb_upper_bound": 0,
+  "gpu_sum_valid_and_skipped": 1520864,
+  "reference_sum_valid": 1520864,
+  "gpu_sample_sum_all": 1520864,
+  "verdict": "ALL_COMPARABLE_COUNTS_EQUAL"
+}
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/D2_cell.json
+{
+  "cell": "D2",
+  "fwd_status": "PASS",
+  "bwd_status": "PASS",
+  "sum_counts_first_call": 586492927,
+  "n_isects_metadata": 586492927,
+  "coverage_frac": 1.0,
+  "peak_vram_gb": 14.419236864,
+  "oracle_mismatch_pairs": 0,
+  "oracle_verdict": "ALL_COMPARABLE_COUNTS_EQUAL",
+  "r15_gate": ""
+}
+cell D2 done in 2.5s
+P3 COMPLETE
+########## STEP p3_controlled EXIT 0 ##########
+
+########## STEP p4_benchmark ##########
+{
+  "tag": "p4_preflight",
+  "cuda": true,
+  "device": "NVIDIA A100-PCIE-40GB",
+  "free_gb": 35.07585024,
+  "total_gb": 42.405855232,
+  "allocated_gb": 0.0,
+  "reserved_gb": 0.0,
+  "peak_allocated_gb": 0.0
+}
+
+===== B1 / std_ll (1 cam) =====
+{
+  "protocol": "B1",
+  "backend": "std_ll",
+  "fwd_median_ms": 2.499071955680847,
+  "bwd_median_ms": 3.057663917541504,
+  "fb_median_ms": 5.556735873222351,
+  "peak_vram_gb": 0.495011328,
+  "n_isects_instrumented": null
+}
+
+===== B1 / higs_native (1 cam) =====
+{
+  "protocol": "B1",
+  "backend": "higs_native",
+  "fwd_median_ms": 2.6536959409713745,
+  "bwd_median_ms": 2.8262399435043335,
+  "fb_median_ms": 5.479935884475708,
+  "peak_vram_gb": 0.532861952,
+  "n_isects_instrumented": 545285
+}
+
+===== B4 / std_ll (4 cam) =====
+{
+  "protocol": "B4",
+  "backend": "std_ll",
+  "fwd_median_ms": 4.0273919105529785,
+  "bwd_median_ms": 8.80947208404541,
+  "fb_median_ms": 12.836863994598389,
+  "peak_vram_gb": 0.808638464,
+  "n_isects_instrumented": null
+}
+
+===== B4 / higs_native (4 cam) =====
+{
+  "protocol": "B4",
+  "backend": "higs_native",
+  "fwd_median_ms": 4.362239837646484,
+  "bwd_median_ms": 6.578175783157349,
+  "fb_median_ms": 10.940415620803833,
+  "peak_vram_gb": 0.88796416,
+  "n_isects_instrumented": 2092255
+}
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_P4_details.json
+P4 COMPLETE
+########## STEP p4_benchmark EXIT 0 ##########
+
+########## STEP p5_safety_gate ##########
+{
+  "tag": "p5_preflight",
+  "cuda": true,
+  "device": "NVIDIA A100-PCIE-40GB",
+  "free_gb": 35.07585024,
+  "total_gb": 42.405855232,
+  "allocated_gb": 0.0,
+  "reserved_gb": 0.0,
+  "peak_allocated_gb": 0.0
+}
+
+===== P5 SCENARIO raw_identity_b1: raw params + identity camera (R8 protocol core) =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_raw_identity_b1_SAFETY_GATE.json
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_P5_raw_identity_b1.json
+{
+  "status": "ESTIMATED_GATE_SKIPPED_FULL",
+  "fwd_status": "SAFE_ABORT_estimate_only",
+  "bwd_status": "NOT_RUN",
+  "fwd_ms": null,
+  "bwd_ms": null,
+  "peak_vram_gb": 2.090044416
+}
+
+===== P5 SCENARIO raw_identity_b4: raw params + 4 identity cams in ONE call (R8 4.4M OOM scenario) =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_raw_identity_b4_SAFETY_GATE.json
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_P5_raw_identity_b4.json
+{
+  "status": "ESTIMATED_GATE_SKIPPED_FULL",
+  "fwd_status": "SAFE_ABORT_estimate_only",
+  "bwd_status": "NOT_RUN",
+  "fwd_ms": null,
+  "bwd_ms": null,
+  "peak_vram_gb": 3.723114496
+}
+
+===== P5 SCENARIO activated_real_b1: contract-activated params + real cam0 =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/activated_real_b1_r15_style_capture.json
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_activated_real_b1_SAFETY_GATE.json
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_P5_activated_real_b1.json
+{
+  "status": "FULL_EXECUTED",
+  "fwd_status": "PASS",
+  "bwd_status": "PASS",
+  "fwd_ms": 731.556884765625,
+  "bwd_ms": 18.111295700073242,
+  "peak_vram_gb": 3.314783744
+}
+
+===== P5 SCENARIO activated_real_b4: contract-activated params + real cam0..3 (ONE call) =====
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/activated_real_b4_r15_style_capture.json
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_activated_real_b4_SAFETY_GATE.json
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/raw/R17_P5_activated_real_b4.json
+{
+  "status": "FULL_EXECUTED",
+  "fwd_status": "PASS",
+  "bwd_status": "PASS",
+  "fwd_ms": 35.160064697265625,
+  "bwd_ms": 45.41155242919922,
+  "peak_vram_gb": 5.084178432
+}
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/R17_4P4M_SAFETY_GATE.json
+P5 COMPLETE
+########## STEP p5_safety_gate EXIT 0 ##########
+
+########## STEP p6_verdict ##########
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/R17_FINAL_VERDICT.json
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/R17_FINAL_REPORT.md
+{
+  "verdicts": {
+    "OPACITY_INPUT_CONTRACT": "VIOLATED",
+    "SCALE_INPUT_CONTRACT": "VIOLATED",
+    "ROTATION_INPUT_CONTRACT": "VIOLATED",
+    "_contract_rule": "VIOLATED = harness inputs of R3-R16 violated the renderer's documented contract (activated opacity/scales, normalized quats); computed from the real checkpoint distributions + harness source evidence.",
+    "CAMERA_PROTOCOL": "SYNTHETIC",
+    "_camera_rule": "SYNTHETIC = R3 used circular synthetic cameras and R8 used an identity viewmatrix; neither is the training protocol; real cameras.json resolved and used by R17 P3/P4.",
+    "BENCHMARK_VALIDITY": "INVALIDATED",
+    "HIGS_MEMORY_SCALABILITY": "PASS"
+  },
+  "status": "EXECUTED",
+  "missing": []
+}
+########## STEP p6_verdict EXIT 0 ##########
+
+########## STEP collect ##########
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/RUN_STATUS.json
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/MANIFEST_SHA256.json
+collector: 10/10 required deliverables executed; 126 files hashed
+########## STEP collect EXIT 0 ##########
+{
+  "preflight": 0,
+  "p0_arithmetic": 0,
+  "p1_parameter_contract": 0,
+  "p2_camera_identity": 0,
+  "p3_controlled": 0,
+  "p4_benchmark": 0,
+  "p5_safety_gate": 0,
+  "p6_verdict": 0,
+  "collect": 0
+}
+
+==== R17 RUN FINISHED ====
+Deliverables: /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX
+preflight 0
+p0_arithmetic 0
+p1_parameter_contract 0
+p2_camera_identity 0
+p3_controlled 0
+p4_benchmark 0
+p5_safety_gate 0
+p6_verdict 0
+collect 0
+RUNNER_DONE RC=0 Thu Oct  8 15:15:02 UTC 2026
+ALLDONE

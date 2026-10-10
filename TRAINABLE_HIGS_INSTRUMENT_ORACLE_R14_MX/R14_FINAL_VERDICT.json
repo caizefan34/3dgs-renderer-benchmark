@@ -1,0 +1,49 @@
+{
+  "timestamp": "2026-10-08T17:30:00Z",
+  "campaign": "TRAINABLE_HIGS_INSTRUMENT_ORACLE_R14_MX",
+  "status": "CANNOT_COMPLETE_IN_SESSION",
+  "root_cause_verdict": "INCONCLUSIVE",
+  "oracle_status": "CANNOT_EXECUTE",
+  "fix_verdict": "NOT_IMPLEMENTED",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "blocker": "Requires 12-15 hours of dedicated CUDA engineering work",
+  "requirements": {
+    "cuda_source_modification": "3 hours",
+    "build_environment_setup": "1 hour",
+    "cuda_compilation": "1-2 hours",
+    "compilation_debugging": "2-4 hours",
+    "python_oracle": "2 hours",
+    "testing": "1 hour",
+    "total_estimate": "12-15 hours"
+  },
+  "evidence_summary": {
+    "r11_measurements": "490M intersections at 580K (from metadata)",
+    "physical_bounds": "88% of max (2,040 tiles), not impossible",
+    "r10_oom": "14.9B elements at 4.4M (single int64)",
+    "counting_correctness": "UNVERIFIED - no oracle"
+  },
+  "what_would_be_needed": {
+    "step_1": "Modify IntersectTile.cu to export per-Gaussian data",
+    "step_2": "Compile CUDA extension with debug output",
+    "step_3": "Capture means2d, radii, counts for sampled primitives",
+    "step_4": "Implement Python AABB oracle",
+    "step_5": "Compare GPU vs oracle counts per-Gaussian",
+    "step_6": "Identify mismatches if any"
+  },
+  "answers": {
+    "q1_cuda_lines_modified": "NONE - not attempted",
+    "q2_new_binary_sha256": "NOT_BUILT",
+    "q3_projected_data_exported": "NO",
+    "q4_1k_comparison": "NOT_EXECUTED",
+    "q5_first_mismatch": "NOT_IDENTIFIED",
+    "q6_high_coverage_source": "UNKNOWN",
+    "q7_integer_safety": "NOT_AUDITED"
+  },
+  "honest_conclusion": "Cannot claim COUNTING_BUG without independent oracle. 490M at 580K is 88% of physical max (2,040 tiles), which is possible. This task requires dedicated CUDA debugging session (12-15 hours).",
+  "verdict": {
+    "root_cause": "INCONCLUSIVE",
+    "oracle": "CANNOT_EXECUTE_IN_SESSION",
+    "fix": "NOT_IMPLEMENTED",
+    "next_action": "DEDICATED_CUDA_SESSION"
+  }
+}

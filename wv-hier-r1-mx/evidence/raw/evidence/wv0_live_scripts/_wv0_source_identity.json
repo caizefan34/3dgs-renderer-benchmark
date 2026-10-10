@@ -1,0 +1,20 @@
+{
+  "schema": "WV0_SOURCE_IDENTITY.v1",
+  "host": "bms-39468022-001",
+  "repo": "/home/liaoyuanjun/3dgs-renderer-benchmark",
+  "env": {
+    "conda_env": "anysplat",
+    "python": "/home/liaoyuanjun/miniforge3/envs/anysplat/bin/python",
+    "torch": "2.4.1+cu124",
+    "cuda": "12.4 (conda nvcc) + driver 595.71.05",
+    "gsplat": "1.5.3 (user-site ~/.local/lib/python3.10/site-packages/gsplat)",
+    "gsplat_cuda_build": "JIT-rebuilt against torch 2.4.1 / CUDA 12.4 in /dev/shm/txext/gsplat_cuda/gsplat_cuda.so (system nvcc 11.5 failed with gcc-11; conda CUDA 12.4 succeeded)",
+    "gpu": "NVIDIA A100-PCIE-40GB (used GPUs 4,5,6,7 idle)"
+  },
+  "reference_v1_gaussian_model": "baseline/reference_v1/gaussian_model.py (capture/restore format)",
+  "renderer_entrypoint": "gsplat.rasterization (tile_size=16, packed=False, sh_degree=3, eps2d=0.3)",
+  "checkpoint_source": "results/reference_v1/{room_30k, s22/garden, s22/bicycle}/checkpoints/*.pt",
+  "camera_source": "data/official/mipnerf360/<scene>/cameras.json; GT images data/datasets/mipnerf360/<scene>/images",
+  "data_sync": "cameras.json + 24 subset cameras' GT images synced from local to /mnt/storage_pool/liaoyuanjun/wv0_data",
+  "substrate_choice_note": "backend is infrastructure, not a paper contribution. gsplat 1.5.3 chosen as the most reliable existing renderer path allowing valid gradient + structural-work measurement."
+}

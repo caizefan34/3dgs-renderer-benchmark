@@ -1,0 +1,43 @@
+{
+  "kit": "GSSTREAM-MX-DSH-P0",
+  "date": "2026-10-10",
+  "compute": "CPU-only (NumPy 2.5.3, Python 3.13). No CUDA, no GPU, no training.",
+  "preregistered_source": "GSSTREAM_MX_DSH_P0_20261010/DSH_TASK.md",
+  "local_git_head": "ddb2354f299aa10ae1567309111df66a586061ae (this local checkout; MX-pinned 387a7b3 not present here)",
+  "verdict": "STOP_NOVELTY",
+  "verdict_reason": "G0 novelty FAIL. The core mechanism (build a compressed ordered support structure during binning and consume it in both forward and backward without dense per-pixel O(A) global materialization) is already published on the raster path in gsplat packed/sparse active-tile forward/backward (isect_tiles + rasterize_to_indices_in_range, packed=True/sparse_grad=True) and structurally in 3DGART. Per preregistered G0 rule, same-mechanism prior art => STOP regardless of work counts.",
+  "gates": {
+    "G0_novelty": "FAIL",
+    "G0_novelty_evidence": "PRIOR_ART_MATRIX.md; collision = gsplat packed/sparse active-tile fwd/bwd (#3) + 3DGART backward-buffer pattern (#4); per-row ellipse math = Speedy-Splat/AccuTile (#1). Citation-integrity flag: FlashGS is arXiv:2408.07967 (Aug 2024), not 'CVPR 2025 FlashSplat/multi-resolution'.",
+    "G1_cpu_correctness": "PASS_WITH_CAVEAT",
+    "G1_cpu_correctness_evidence": "400/400 SPD property tests pass; dense-vs-sparse parity exact (0.0) on rgb/gcol/gopa/gmean for seeds 42/123, reproduced faithfully. CAVEAT: parity test is NON-INDEPENDENT (dense and sparse share alpha/composite/gradient code; can only catch row-interval culling bugs). Independent finite-difference check (scratch_audit/fd_gradcheck.py) confirms analytic opacity/mean2d/color gradients match central FD to ~1e-9. Native fp32/clamp/sort/SH/absgrad parity NOT TESTED by design.",
+    "G2_representation_density": "FAIL",
+    "G2_representation_density_evidence": "REAL room cohort (8 cameras, FastGS, N=572546, 1600x1066): real kernel intersections are ~2% of the conservative per-tile footprint (footprint_tiles/real_intersect median 50.4) — the existing renderer already achieves >>5x over its own conservative footprint. The proposed row-span candidate stream is ~6.8x DENSER than the footprint it replaces (rowspan/footprint median 6.79). stream_candidate/tile_bbox gate <=0.35 and active-hit gate <=0.20 both FAIL.",
+    "G3_data_robustness": "HOLD",
+    "G3_data_robustness_evidence": "Real projected data located and authenticated (Tier-1 native_tiles_*.npz + sidecar). BUT oracle validate() hard-asserts SPD and drops the 99.76% conics that gsplat zero-pads for culled Gaussians; no dense fallback path for non-SPD/near-singular conics, so the preregistered near-singular robustness scenario is NOT testable with the shipped code.",
+    "G4_headroom": "BLOCKED",
+    "G4_headroom_evidence": "No GPU / no same-hardware Faster-GS fused f captured. On real data the existing renderer's exact opacity+ellipse culling already removes ~98% of footprint candidates, so residual addressable fraction of binning/intersection build is small and already occupied; Amdahl ceiling far below f>=2/3 needed for 3x.",
+    "G5_cost": "FAIL",
+    "G5_cost_evidence": "Per-row span materialization ~6.8x the candidate bytes of the per-tile footprint it replaces, PLUS an added CSR/segment pass on top of gsplat's already-shipped packed per-tile index. Net more global bytes + build traffic than current renderer. Optimistic full-step upper bound <1.0x; cannot reach preregistered >=1.30x with nonnegative memory budget."
+  },
+  "preregistered_outcome_rule": "P0 verdict: STOP for G0 fail or G1 fail; HOLD if real data/native semantics/model unavailable; P0_CANDIDATE_ONLY only if G0 truly distinct AND G1/G2/G4/G5 all pass.",
+  "outcome_rule_application": "G0 = FAIL (and G2 = FAIL, G5 = FAIL) => STOP. Not P0_CANDIDATE_ONLY (G0 not distinct). Not HOLD (real data IS available; the STOP is on novelty/cost, not on data availability).",
+  "p0_authorizes": "NOTHING. A P0 pass would only authorize a proposed P1 experiment, not GPU execution. This is a STOP, so no P1 is authorized.",
+  "failure_reasons_ranked": [
+    "1. NOVELTY: mechanism already published (gsplat packed/sparse active-tile fwd/bwd; 3DGART backward buffer).",
+    "2. COST (G5): proposed row-span stream ~6.8x denser than the structure it replaces; net negative headroom.",
+    "3. DENSITY (G2): existing renderer already culls to ~2% of conservative footprint; opportunity already captured by baseline.",
+    "4. HEADROOM (G4, BLOCKED): no measured f; Amdahl ceiling on residual gap far below 3x requirement.",
+    "5. ROBUSTNESS (G3, HOLD): oracle cannot ingest non-SPD/near-singular conics (no dense fallback)."
+  ],
+  "artifacts": {
+    "PRIOR_ART_MATRIX.md": "G0 prior-art matrix (5 sources + collision + citation-integrity flag)",
+    "COST_MODEL.json": "G2/G4/G5 synthetic + real-room cost model with provenance hashes",
+    "REPORT.md": "OBSERVED/EVIDENCE/HYPOTHESIS/FALSIFICATION/DECISION report",
+    "CORRECTNESS_AUDIT.md": "independent correctness audit + FD gradient check",
+    "real_cohort_cost_honest.json": "per-camera real footprint-vs-rowspan measurements",
+    "reality_gate_report.md": "real-data availability search (DATA FOUND)",
+    "preflight_reproduction.md": "faithful re-run of packaged preflight on seeds 42/123",
+    "scratch_audit/": "fd_gradcheck.py, real_data_cost.py, real_data_cost_honest.py (independent, CPU-only)"
+  }
+}

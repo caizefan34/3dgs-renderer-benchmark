@@ -1,0 +1,67 @@
+﻿{
+  "schema": "S0R2_SOURCE_IDENTITY",
+  "timestamp_utc": "2026-10-08T15:10:00Z",
+  "campaign": "WORK-GRADIENT-ORACLE0-MX",
+  "phase": "S0R2",
+
+  "selected_source": {
+    "path": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx",
+    "git_commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+    "git_commit_short": "77ab983",
+    "branch": "(detached HEAD)",
+    "remote": "https://github.com/nerfstudio-project/gsplat",
+    "worktree_dirty": true,
+    "note": "commit 77ab983 == gsplat upstream base referenced in task; HiGS differentiability patches applied as dirty worktree. Matches target commit exactly."
+  },
+
+  "file_identities_sha256": {
+    "gsplat/experimental/__init__.py": "4457948155835208dd0f341a990f501d52b3758ef82937c6fdc4a2ba7d50aae1",
+    "gsplat/experimental/render/functional/gaussian_inference.py": "7003ebf5b158b9eaf00d834873a9c76186bf54800789841aefba92d564a3c63a",
+    "gsplat/rendering.py": "b1c3c493c8be2462692bdfc5a62aadf6a8476f1c97e0600aa6b58f216aee77f6",
+    "gsplat/cuda/_wrapper.py": "1a19bdf1e32c1b30ac0f29ee956047146f9cab927abea33f47f6990c0ff75b1f"
+  },
+
+  "api_surface": {
+    "rasterize_gaussian_higs_dynamic": true,
+    "tile_mask_parameter": true,
+    "tile_mask_shape": "[C, tile_height, tile_width] bool",
+    "tile_mask_semantics": "applied verbatim into isect_tiles; harness responsible for estimator/weights",
+    "tile_sampling_ratio_parameter": true,
+    "native_higs_backward": true,
+    "backward_mode_default": "higs_native"
+  },
+
+  "sparse_execution_evidence": {
+    "isect_tiles_has_tile_mask": true,
+    "isect_tile_call_site": "gaussian_inference.py _native_forward_capture passes ctx.tile_mask into isect_tiles so CUDA op restricts per-Gaussian counts AND emitted isects to selected tiles; full-N radix sort and Python mask filtering removed from sampled path",
+    "note": "This is genuine native sparse execution, NOT dense render + loss mask."
+  },
+
+  "candidates_audited": [
+    {
+      "path": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx",
+      "commit": "77ab983",
+      "verdict": "SELECTED - exact match to target gsplat upstream commit; has experimental.HiGS + tile_mask native sparse"
+    },
+    {
+      "path": "/mnt/storage_pool/liaoyuanjun/higs-13scene-env",
+      "verdict": "SELECTED as runtime env (Python 3.10.21, torch 2.9.1+cu128, CUDA 12.8)"
+    },
+    {
+      "path": "/home/liaoyuanjun/.local/lib/python3.10/site-packages/gsplat",
+      "verdict": "STALE OVERLAY - older gsplat 1.5.3 missing _maybe_evaluate_sh and tile_mask isect_tiles; shadows source unless PYTHONNOUSERSITE=1"
+    },
+    {
+      "path": "/home/liaoyuanjun/3dgs-renderer-benchmark benchmark run_higs_train_benchmark.py",
+      "verdict": "SEPARATE concern - the WORK package benchmark expects gsplat.experimental API; consistent with HiGS source"
+    }
+  ],
+
+  "patch_verification": {
+    "method": "git apply --check not required: source already contains HiGS patches as committed worktree at 77ab983; verified by inspecting native tile-sampling (isect_tiles tile_mask) and higs_native backward paths in gaussian_inference.py and cuda/csrc",
+    "native_tile_sampling_paths_confirmed": true,
+    "native_backward_paths_confirmed": true
+  },
+
+  "gate_status": "PASS"
+}

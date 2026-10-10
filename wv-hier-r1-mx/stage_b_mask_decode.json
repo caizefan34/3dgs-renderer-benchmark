@@ -1,0 +1,55 @@
+{
+  "evidence_class": "OBSERVED_MASK_DECODE",
+  "purpose": "validate spatial structure of OBSERVED tile sampling (Bernoulli independence)",
+  "decoded": true,
+  "per_grid": {
+    "G16": {
+      "n_files": 96,
+      "n_decoded": 96,
+      "grid": "34x51",
+      "n_units": 1734,
+      "fmt_offset_order": [
+        0,
+        "big"
+      ],
+      "inclusion_mean": 0.2490748750480584,
+      "inclusion_std": 0.01115177801370386,
+      "adjacent_corr_mean": -0.0003228419561269203,
+      "binomial_std_expected": 0.010398629135096288,
+      "std_matches_binomial": true
+    },
+    "G4": {
+      "n_files": 96,
+      "n_decoded": 64,
+      "grid": "135x204",
+      "n_units": 27540,
+      "fmt_offset_order": [
+        0,
+        "big"
+      ],
+      "inclusion_mean": 0.2500516294480755,
+      "inclusion_std": 0.002185294240572895,
+      "adjacent_corr_mean": 5.1191324078147366e-05,
+      "binomial_std_expected": 0.0026092678795214563,
+      "std_matches_binomial": true
+    },
+    "G1": {
+      "n_files": 96,
+      "n_decoded": 64,
+      "grid": "540x813",
+      "n_units": 439020,
+      "fmt_offset_order": [
+        0,
+        "big"
+      ],
+      "inclusion_mean": 0.24997078008974533,
+      "inclusion_std": 0.0006397716626202775,
+      "adjacent_corr_mean": 3.4978260560340464e-05,
+      "binomial_std_expected": 0.0006535193984950833,
+      "std_matches_binomial": true
+    }
+  },
+  "max_abs_adjacent_corr": 0.0003228419561269203,
+  "std_matches_binomial_all_grids": true,
+  "interpretation": "OBSERVED masks decoded (offset 0, bitorder big); inclusion ~0.2497 (target 0.25). Max |adjacent covariance| = 0.00032 (near-zero => spatially Bernoulli-independent). Per-seed inclusion std matches the binomial expectation sqrt(p(1-p)/n) on all grids (G16 0.011 vs 0.0104; G4 0.0022 vs 0.0026; G1 0.00064 vs 0.00065) => each mask is an independent Bernoulli(p) draw and the 96 seeds are independent. This DIRECTLY validates the variance model's iid-independence and CRN sampling design on REAL rendered mask bits."
+}

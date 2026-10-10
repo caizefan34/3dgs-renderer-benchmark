@@ -1,0 +1,91 @@
+{
+  "deliverable": "R17_R16_ARITHMETIC_AUDIT.json",
+  "purpose": "Recompute every R16-reported arithmetic quantity from raw data; flag non-reproducible figures.",
+  "sources": {
+    "r16_dir": "C:\\Users\\36570\\3dgs-renderer-benchmark\\R17_EXEC_PACK\\_dryrun_fixtures",
+    "r16_csv": "C:\\Users\\36570\\3dgs-renderer-benchmark\\R17_EXEC_PACK\\_dryrun_fixtures\\R16_REPLAY_COUNTS.csv",
+    "r16_csv_exists": true,
+    "r16_report_json": "C:\\Users\\36570\\3dgs-renderer-benchmark\\R17_EXEC_PACK\\_dryrun_fixtures\\R16_OPACITY_SEMANTICS_REPORT.json",
+    "r16_report_json_exists": false,
+    "r15_capture": "C:\\Users\\36570\\3dgs-renderer-benchmark\\R17_EXEC_PACK\\_dryrun_fixtures\\fake_r15_capture.pt",
+    "r15_capture_exists": true,
+    "r15_capture_sha256": "58958d50cfc7d000166f5c2e0ccd450cb33131f7226545492a06098cbcc5a0fa",
+    "r16_csv_sha256": "bad4302bafede9049bd737eefe08949de1230faeb4404de1f29663a6731dd122"
+  },
+  "constants": {
+    "header": "\\home\\liaoyuanjun\\higs-13scene\\artifacts\\renderer-sources\\gsplat-higs-mx\\gsplat\\cuda\\include\\Common.h",
+    "found": false
+  },
+  "status": "EXECUTED",
+  "per_mode": {
+    "raw": {
+      "rows": 40,
+      "gpu_count_sum": 1372,
+      "per_primitive_max": 57,
+      "per_primitive_mean": 34.3,
+      "per_primitive_median": 34.5,
+      "per_primitive_p99": 56.61
+    },
+    "sigmoid": {
+      "rows": 40,
+      "gpu_count_sum": 1292,
+      "per_primitive_max": 55,
+      "per_primitive_mean": 32.3,
+      "per_primitive_median": 32.5,
+      "per_primitive_p99": 54.61
+    },
+    "sigmoid_threshold_skip": {
+      "rows": 40,
+      "gpu_count_sum": 1292,
+      "per_primitive_max": 55,
+      "per_primitive_mean": 32.3,
+      "per_primitive_median": 32.5,
+      "per_primitive_p99": 54.61
+    }
+  },
+  "recomputed": {
+    "gpu_raw_sum": 1372,
+    "gpu_sigmoid_sum": 1292,
+    "gpu_threshold_mode_sum": 1292,
+    "raw_minus_sigmoid_sum_difference": 80,
+    "raw_minus_sigmoid_elementwise_abs_sum": 80,
+    "changed_pairs": 40,
+    "max_single_pair_reduction": 2,
+    "activation_never_increases_counts": true,
+    "sigmoid_minus_threshold_sum_difference": 0,
+    "sigmoid_vs_threshold_identical": true
+  },
+  "oracle": {
+    "raw": {
+      "status": "NOT_EXECUTED_MISSING"
+    },
+    "sigmoid": {
+      "status": "NOT_EXECUTED_MISSING"
+    },
+    "sigmoid_threshold_skip": {
+      "status": "NOT_EXECUTED_MISSING"
+    }
+  },
+  "branch_coverage": {
+    "status": "NO_ALPHA_OR_ROWS"
+  },
+  "radii_skipped_rows_in_threshold_mode": 0,
+  "max_count_case": {
+    "mode": "raw",
+    "camera": "0",
+    "gaussian_id": "14",
+    "gpu_count": 57,
+    "raw_opacity": 3.6374625536384357,
+    "activated_opacity": 0.9743558860573592,
+    "tile_bound_per_image": 2040
+  },
+  "r15_capture_raw_exact_match": {
+    "status": "SHAPE_MISMATCH",
+    "r15_n": 100,
+    "csv_n": 40
+  },
+  "report_claims_reconciliation": {
+    "status": "NO_REPORT_JSON"
+  },
+  "arithmetic_note": "R17 recomputation definitions: reduction = raw_sum - sigmoid_sum over the SAME seeded 1000-sample set; threshold-mode difference = sigmoid_sum - threshold_sum. A claimed reduction that equals neither is flagged in R17_FINAL_REPORT.md."
+}

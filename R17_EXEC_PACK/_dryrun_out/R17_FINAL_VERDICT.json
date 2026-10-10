@@ -1,0 +1,80 @@
+{
+  "deliverable": "R17_FINAL_VERDICT.json",
+  "status": "PARTIAL_MISSING_p3_p4_p5",
+  "input_files": {
+    "p0_arithmetic": {
+      "exists": true,
+      "sha256": "9de4d2bf06567a58905c2a4a1b621161c1d1eeb38cdbf0d5f63bd870eac8a437"
+    },
+    "p1_distributions": {
+      "exists": true,
+      "sha256": "23c523961dd611e7acc667ec84efd7b6525661bc630957ba68872e48fe8b6240"
+    },
+    "p2_camera": {
+      "exists": true,
+      "sha256": "00a2960019af8b90c31e484b7f008bce3d368554a92aebc5e09d0c3e59b397e3"
+    },
+    "p3_csv_rows": 0,
+    "p4_csv_rows": 0,
+    "p5_gate": {
+      "exists": false,
+      "sha256": null
+    }
+  },
+  "verdicts": {
+    "OPACITY_INPUT_CONTRACT": "VIOLATED",
+    "SCALE_INPUT_CONTRACT": "VIOLATED",
+    "ROTATION_INPUT_CONTRACT": "VIOLATED",
+    "_contract_rule": "VIOLATED = harness inputs of R3-R16 violated the renderer's documented contract (activated opacity/scales, normalized quats); computed from the real checkpoint distributions + harness source evidence.",
+    "CAMERA_PROTOCOL": "SYNTHETIC",
+    "_camera_rule": "SYNTHETIC = R3 used circular synthetic cameras and R8 used an identity viewmatrix; neither is the training protocol; real cameras.json resolved and used by R17 P3/P4.",
+    "BENCHMARK_VALIDITY": "UNKNOWN",
+    "HIGS_MEMORY_SCALABILITY": "UNKNOWN"
+  },
+  "r3_r16_conclusion_disposition": {
+    "status": "NOT_EXECUTED_P3_MISSING"
+  },
+  "rules": {
+    "benchmark_validity": "Cells A and D must both pass before validity can be judged."
+  },
+  "missing": [
+    "p3",
+    "p4",
+    "p5"
+  ],
+  "p3_impact": {
+    "available": false
+  },
+  "p5_memory": {
+    "available": false
+  },
+  "p0_reconciliation": {
+    "claimed_reduction_r16_prose": 360251,
+    "recomputed_raw_minus_sigmoid": 80,
+    "recomputed_elementwise_abs_sum": 80,
+    "sigmoid_vs_threshold_identical": true,
+    "claimed_reduction_reproducible": false,
+    "r15_raw_exact_match": null,
+    "branch_coverage": {
+      "status": "NO_ALPHA_OR_ROWS"
+    }
+  },
+  "harness_source_evidence": {
+    "r3": {
+      "file": "C:\\Users\\36570\\3dgs-renderer-benchmark\\R17_EXEC_PACK\\TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX\\reference\\run_r3_benchmark.py",
+      "sha256": "c78b029c68378486dbe61a8bd5187a00df378ed96f6b0e47b39ebd0a64a528ad",
+      "applies_sigmoid_to_opacity": false,
+      "applies_exp_to_scaling": false,
+      "normalizes_quats": true,
+      "passes_opacity_directly": true
+    },
+    "r8": {
+      "file": "C:\\Users\\36570\\3dgs-renderer-benchmark\\R17_EXEC_PACK\\TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX\\reference\\R8_WORKING_ENTRYPOINT.py",
+      "sha256": "9f2bc47de41c2842ba92c73747f8b6a75884fd3d16a6d75ec944671aaf13f5e6",
+      "applies_sigmoid_to_opacity": false,
+      "applies_exp_to_scaling": false,
+      "normalizes_quats": false,
+      "passes_opacity_directly": true
+    }
+  }
+}

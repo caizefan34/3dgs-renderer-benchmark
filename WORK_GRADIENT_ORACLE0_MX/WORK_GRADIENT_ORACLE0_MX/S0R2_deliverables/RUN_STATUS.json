@@ -1,0 +1,84 @@
+﻿{
+  "schema": "RUN_STATUS",
+  "campaign": "WORK-GRADIENT-ORACLE0-MX",
+  "phase": "S0R2",
+  "timestamp_utc": "2026-10-08T15:20:00Z",
+
+  "objective": "Resolve BLOCKED_BINARY_MISMATCH; restore HiGS sparse-tile training interface (gsplat.experimental.rasterize_gaussian_higs_dynamic with native tile_mask sparse execution). S0R2 = software-stack recovery + smoke only; no S1A/S1B formal experiments; no 3K/30K training.",
+
+  "previous_status": "BLOCKED_BINARY_MISMATCH",
+  "status": "READY_FOR_S1A",
+  "status_scope": "S0R2 software-stack recovery + sparse smoke",
+
+  "blocker_resolved": {
+    "was": "BLOCKED_BINARY_MISMATCH",
+    "root_cause": "gsplat 1.5.3 in nerficg (py3.11/torch2.7.1+cu118) lacked gsplat.experimental.HiGS and tile_mask isect_tiles; the prebuilt py3.10/cu128 gsplat_scene_cuda.so had no matching runtime",
+    "resolution": "Switched to source-matched higs-13scene-env (py3.10.21/torch2.9.1+cu128/CUDA12.8) + gsplat source commit 77ab983; reused prebuilt gsplat_scene_cuda.so (exact ABI match); PYTHONNOUSERSITE=1 to drop stale ~/.local overlay",
+    "resolved": true
+  },
+
+  "gate_summary": {
+    "A_gsplat_experimental_import": "PASS",
+    "B_higs_dynamic_and_tile_mask": "PASS",
+    "C_identity_traceability": "PASS",
+    "D_full_sparse_fwd_bwd_smoke": "PASS",
+    "E_sparse_workload_reduction": "PASS",
+    "F_ht_gradient_consistency": "DEFERRED_TO_S1A",
+    "G_checkpoint_convention_audit": "PASS_WITH_CAVEATS"
+  },
+
+  "sparse_kernel": {
+    "operational": true,
+    "native_isect_tiles_tile_mask": true,
+    "evidence": "25% tiles -> 75.00% isect reduction (synthetic 95808->23952; real 180628->46429)",
+    "dense_render_then_mask": false
+  },
+
+  "real_checkpoint_smoke": {
+    "checkpoint": "bicycle 0005000.pt (N=2456697)",
+    "full_finite": true,
+    "sparse_finite": true,
+    "all_param_groups_gradient": true,
+    "grad_nonzero": {"means":241983,"quats":313986,"scales":241546,"opac":80681,"colors":3059833}
+  },
+
+  "caveats_for_s1a": [
+    "APPLY_PCA=true: checkpoint SH/DC likely PCA-rotated; NOT a math-comparable Oracle state until PCA inverse / FasterGS color convention resolved",
+    "garden eval_cameras.json absent + stub sparse COLMAP; use bicycle cameras or supply garden cameras for full-oracle Gate D",
+    "Gate F HT gradient-consistency (Bernoulli Horvitz-Thompson, p_min, variance) to be run in S1A with real scene tiles",
+    "Gate G oracle-comparability requires SH/opacity/scale/camera/loss convention audit before Oracle use"
+  ],
+
+  "env": {
+    "python_env": "/mnt/storage_pool/liaoyuanjun/higs-13scene-env/bin/python",
+    "torch": "2.9.1+cu128",
+    "cuda": "12.8",
+    "gsplat_source_commit": "77ab983ffe43420b2131669cb35776b883ca4c3c",
+    "gsplat_scene_cuda_so_sha256": "e4b0bc5bf358ec43875a3b7e0d84591763968021b7c7eabcc6d60572490627c8",
+    "PYTHONNOUSERSITE": "1",
+    "isolated_tmpdir": "/mnt/storage_pool/liaoyuanjun/work_gradient_oracle0_tmp"
+  },
+
+  "no_destructive_compliance": {
+    "no_delete_overwrite_move": true,
+    "no_kill_processes": true,
+    "no_nerficg_env_overwrite": true,
+    "no_root_partition_writes": true,
+    "isolated_caches_on_storage_pool": true
+  },
+
+  "deliverables": [
+    "S0R2_SOURCE_IDENTITY.json",
+    "S0R2_BUILD_IDENTITY.json",
+    "S0R2_RUNTIME_ABI.json",
+    "S0R2_CHECKPOINT_COMPATIBILITY.json",
+    "S0R2_SPARSE_SMOKE.json",
+    "S0R2_REPORT.md",
+    "RUN_STATUS.json",
+    "SHA256_MANIFEST.json",
+    "raw/ (command logs + stdout/stderr)"
+  ],
+
+  "allowed_next_phases": ["S1A", "S1B"],
+  "not_auto_started": ["S1A", "S1B", "3K training", "30K training"]
+}

@@ -1,0 +1,78 @@
+{
+  "schema": "RUN_STATUS",
+  "round": "S1A",
+  "state": "S1A_MATH_PASS",
+  "sub_state": "render_sanity_FAILED_value_comparison_BLOCKED",
+  "overall": "S1A_BLOCKED_INPUT",
+  "timestamp": "2026-10-08T15:31:16.347853",
+  "mx_node": "bms-39468022-001",
+  "gpu": "A100-PCIE-40GB cc[8,0]",
+  "gpu_index": 6,
+  "gates": {
+    "env_freeze": "PASS",
+    "convention_check": "PASS",
+    "render_sanity": "FAIL",
+    "S1A_0_ht_math": "PASS",
+    "S1A_1_gradient_value": "DERIVED_ONLY",
+    "S1A_2_cost_calibration": "PASS"
+  },
+  "S1A_0": {
+    "pass": true,
+    "additivity_rel_err": "~1e-7",
+    "p1_equals_dense": "~1e-7",
+    "mc_cos_p25": "0.995-0.999",
+    "mc_cos_p40": "0.996-0.999",
+    "groups": 5
+  },
+  "S1A_1": {
+    "label": "DERIVED",
+    "subset_oracle": true,
+    "N": 120000,
+    "tiles": 64,
+    "nmse_reduction_O_vs_U_p25": 0.38,
+    "nmse_reduction_O_vs_U_p40": 0.37,
+    "E_worse_than_U": true,
+    "O_equals_G": true,
+    "note": "estimator-efficiency math; render sanity failed; NOT training value; does NOT support GO"
+  },
+  "S1A_2": {
+    "pass": true,
+    "isect_reduction_p25": 0.726,
+    "isect_reduction_p40": 0.587,
+    "speedup_p25": 1.14,
+    "speedup_p40": 1.1,
+    "fixed_overhead_fraction": 0.84,
+    "note": "structural isect win; modest speedup at small scale (fixed overhead dominates)"
+  },
+  "render_sanity": {
+    "best_corr": 0.253,
+    "best_psnr": 13.56,
+    "cameras_tested": [
+      0,
+      2,
+      5,
+      8
+    ],
+    "benchmark_own_render_path_corr": 0.084,
+    "root_cause_hypothesis": "undertrained iter5K/10K for fused repr, or eval_images are held-out views"
+  },
+  "verdict_rationale": "HT estimator math correct (S1A-0 PASS); sparse kernel saves real isects (S1A-2 PASS); BUT checkpoint does not reconstruct GT with available gsplat-HiGS renderer (render sanity FAIL) => formal image-reconstruction gradient-value comparison and GO blocked per task Section 2. PROMISING condition (oracle MSE -38%) met only on DERIVED single-state single-camera estimator math, not on >=2 states x 2 cameras with meaningful render. No S1B.",
+  "go_decision": "NO_GO",
+  "next_action_required": "obtain checkpoint/renderer combo passing RGB/alpha render sanity, then re-run S1A-1/S1A-2 on >=2 bicycle states x >=2 cameras",
+  "s1b_started": false,
+  "deliverables": [
+    "S1A_IDENTITY.json",
+    "S1A_CHECKPOINT_COMPATIBILITY.json",
+    "S1A_HT_CORRECTNESS.json",
+    "S1A_GRADIENT_VALUE.csv",
+    "S1A_COST_CALIBRATION.csv",
+    "S1A_PARETO.csv",
+    "S1A_REPORT.md",
+    "RUN_STATUS.json",
+    "SHA256_MANIFEST.json",
+    "raw/",
+    "logs/",
+    "commands/",
+    "gpu_snapshots/"
+  ]
+}

@@ -1,0 +1,62 @@
+S0R2 RAW COMMAND LOG — WORK-GRADIENT-ORACLE0-MX
+Host: MX (bms-39468022-001, 8x A100-PCIE-40GB)
+Runtime env: /mnt/storage_pool/liaoyuanjun/higs-13scene-env/bin/python (3.10.21, torch 2.9.1+cu128, CUDA 12.8)
+Isolation: PYTHONNOUSERSITE=1; TMPDIR=/mnt/storage_pool/liaoyuanjun/work_gradient_oracle0_tmp; TORCH_EXTENSIONS_DIR=<tmp>/torch_ext
+Build dir on sys.path: /home/liaoyuanjun/higs-13scene/artifacts/cuda-build/gsplat-higs-mx-py310/gsplat_scene_cuda
+
+[CMD 1] Identity audit of gsplat-higs-mx source
+  ssh mx "cd /home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx && git rev-parse HEAD && git status | head -3 && git remote -v"
+  -> commit 77ab983ffe43420b2131669cb35776b883ca4c3c, detached, origin https://github.com/nerfstudio-project/gsplat, dirty
+
+[CMD 2] isect_tiles tile_mask presence (source vs ~/.local)
+  ssh mx "grep -c 'tile_mask' .../gsplat-higs-mx/gsplat/cuda/_wrapper.py; grep -c 'tile_mask' ~/.local/.../gsplat/cuda/_wrapper.py; grep -c '_maybe_evaluate_sh' .../gsplat-higs-mx/gsplat/rendering.py; grep -c '_maybe_evaluate_sh' ~/.local/.../gsplat/rendering.py"
+  -> source: tile_mask present, _maybe_evaluate_sh present; ~/.local: tile_mask ABSENT, _maybe_evaluate_sh ABSENT
+
+[CMD 3] Editable finder mapping
+  ssh mx "cat /mnt/storage_pool/liaoyuanjun/higs-13scene-env/lib/python3.10/site-packages/__editable___gsplat_1_5_3_finder.py | head -20"
+  -> MAPPING {'gsplat': '/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat'}
+
+[CMD 4] Resolve check WITHOUT NOUSERSITE (stale overlay wins)
+  python -c "import gsplat; print(gsplat.__file__)"
+  -> /home/liaoyuanjun/.local/lib/python3.10/site-packages/gsplat/__init__.py  (STALE)
+
+[CMD 5] Resolve check WITH PYTHONNOUSERSITE=1
+  PYTHONNOUSERSITE=1 python -c "import gsplat; print(gsplat.__file__)"
+  -> /home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/__init__.py  (SOURCE, correct)
+
+[CMD 6] Native prebuilt ext load test (from storage pool, no JIT)
+  PYTHONNOUSERSITE=1 python gate_full_smoke.py (first run)
+  -> initially failed: gsplat_scene_cuda not on path; JIT rebuild failed (root partition full)
+  FIX: sys.path.insert(0, BUILD_DIR); import gsplat_scene_cuda -> OK, exports pack_gaussian_inference_scene
+
+[CMD 7] Gate A/B/C + full/sparse synthetic smoke (128x128, N=3000)
+  PYTHONNOUSERSITE=1 python gate_full_smoke.py
+  -> gsplat base: source; isect_tiles has tile_mask: True; rendering._maybe_evaluate_sh: OK
+  -> [full] frame=(1,128,128,3) finite=True loss=0.61031 n_isects=95808 sampled_ratio=1.0
+     grad_nonzero colors=3 (geometry 0 in degenerate scene)
+  -> [sparse_mask] n_isects=23952 sampled_ratio=0.25
+  -> GATE E: reduction 75.00%
+
+[CMD 8] Gate D geometry gradient completeness (128x128, N=4000, depth [4,9])
+  PYTHONNOUSERSITE=1 python gate_d_geom.py
+  -> [full] loss=0.68854 grad_nonzero means=21 scales=21 opac=7 colors=21 (quats=0 symmetry artifact)
+  -> [sparse] n_isects=64000; all geometry groups receive nonzero grad
+
+[CMD 9] Gate G real bicycle checkpoint (0005000.pt, N=2456697, sub=300000, 640x424, sh_degree=3)
+  PYTHONNOUSERSITE=1 python gate_g_real_ckpt.py
+  -> checkpoint keys: gaussians._means/_rotations/_scales/_opacities/_sh_coefficients_0/_sh_coefficients_rest
+  -> activated: scales exp range [0,0.497] median 0.013; opac sigmoid mean 0.237; DC mean -0.043
+  -> [full] loss=0.2019 finite=True n_isects=180628 grad_nonzero means=241983 quats=313986 scales=241546 opac=80681 colors=3059833
+  -> [sparse] n_isects=46429 sampled_ratio=0.25 grad_nonzero reduced proportionally
+  -> all 5 param groups receive nonzero gradient
+
+[CMD 10] Identity collection
+  python collect_identities.py -> S0R2_IDENTITIES.json (source/binary/checkpoint/camera SHA256)
+
+[CMD 11] Manifest
+  python build_manifest.py -> SHA256_MANIFEST.json
+
+Notes:
+- All GPU work in fresh python processes.
+- No destructive ops; root partition untouched; isolated TMPDIR/torch_ext on storage pool.
+- garden eval_cameras.json ABSENT + stub sparse COLMAP (data gap, not binary mismatch); bicycle used for real-checkpoint smoke.

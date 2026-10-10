@@ -1,0 +1,126 @@
+{
+  "deliverable": "R17_R16_ARITHMETIC_AUDIT.json",
+  "purpose": "Recompute every R16-reported arithmetic quantity from raw data; flag non-reproducible figures.",
+  "sources": {
+    "r16_dir": "/mnt/storage_pool/liaoyuanjun/HIGS_R16_OPACITY_SEMANTICS_MX",
+    "r16_csv": "/mnt/storage_pool/liaoyuanjun/HIGS_R16_OPACITY_SEMANTICS_MX/R16_REPLAY_COUNTS.csv",
+    "r16_csv_exists": true,
+    "r16_report_json": "/mnt/storage_pool/liaoyuanjun/HIGS_R16_OPACITY_SEMANTICS_MX/R16_OPACITY_SEMANTICS_REPORT.json",
+    "r16_report_json_exists": true,
+    "r15_capture": "/mnt/storage_pool/liaoyuanjun/HIGS_R15_CAPTURE_ORACLE_MX/captured_projected_inputs.pt",
+    "r15_capture_exists": true,
+    "r15_capture_sha256": "516efaaffb758c215694b9ee41a5d751923f7c9d173083b41a8f138904a4fc51",
+    "r16_csv_sha256": "1e8e61eb39e21e6984fcde0a4cfd9bb6122f8f10af2248e6928a31e2ca7f99f2"
+  },
+  "constants": {
+    "header": "/home/liaoyuanjun/higs-13scene/artifacts/renderer-sources/gsplat-higs-mx/gsplat/cuda/include/Common.h",
+    "sha256": "31cefccf8159caa862139f934926b1c3bec6699a392a4108babea63f44294d08",
+    "alpha_threshold": 0.00392156862745098,
+    "gaussian_extend": 3.33,
+    "found": true
+  },
+  "status": "EXECUTED",
+  "per_mode": {
+    "raw": {
+      "rows": 1000,
+      "gpu_count_sum": 1804447,
+      "per_primitive_max": 2040,
+      "per_primitive_mean": 1804.447,
+      "per_primitive_median": 2040.0,
+      "per_primitive_p99": 2040.0
+    },
+    "sigmoid": {
+      "rows": 1000,
+      "gpu_count_sum": 1453128,
+      "per_primitive_max": 2040,
+      "per_primitive_mean": 1453.128,
+      "per_primitive_median": 2040.0,
+      "per_primitive_p99": 2040.0
+    },
+    "sigmoid_threshold_skip": {
+      "rows": 1000,
+      "gpu_count_sum": 1453128,
+      "per_primitive_max": 2040,
+      "per_primitive_mean": 1453.128,
+      "per_primitive_median": 2040.0,
+      "per_primitive_p99": 2040.0
+    }
+  },
+  "recomputed": {
+    "gpu_raw_sum": 1804447,
+    "gpu_sigmoid_sum": 1453128,
+    "gpu_threshold_mode_sum": 1453128,
+    "raw_minus_sigmoid_sum_difference": 351319,
+    "raw_minus_sigmoid_elementwise_abs_sum": 360251,
+    "changed_pairs": 400,
+    "max_single_pair_reduction": 2040,
+    "activation_never_increases_counts": false,
+    "sigmoid_minus_threshold_sum_difference": 0,
+    "sigmoid_vs_threshold_identical": true
+  },
+  "oracle": {
+    "raw": {
+      "reference_sum_valid": 132796,
+      "gpu_sample_sum_all": 1804447,
+      "mismatch_pairs": 915,
+      "count_above_physical_tiles": 0,
+      "count_above_padded_aabb_upper_bound": 0,
+      "verdict": "GEOMETRIC_DISCREPANCY_REQUIRES_CUDA_SEMANTIC_AUDIT"
+    },
+    "sigmoid": {
+      "reference_sum_valid": 1453128,
+      "gpu_sample_sum_all": 1453128,
+      "mismatch_pairs": 0,
+      "count_above_physical_tiles": 0,
+      "count_above_padded_aabb_upper_bound": 0,
+      "verdict": "ALL_COMPARABLE_COUNTS_EQUAL"
+    },
+    "sigmoid_threshold_skip": {
+      "reference_sum_valid": 1453128,
+      "gpu_sample_sum_all": 1453128,
+      "mismatch_pairs": 0,
+      "count_above_physical_tiles": 0,
+      "count_above_padded_aabb_upper_bound": 0,
+      "verdict": "ALL_COMPARABLE_COUNTS_EQUAL"
+    }
+  },
+  "branch_coverage": {
+    "alpha_threshold": 0.00392156862745098,
+    "n": 1000,
+    "raw_logit_le_0__logf_of_negative__t_forced_by_fminf_nan": 916,
+    "raw_logit_in_(0,alpha]__logf_negative__t_negative": 0,
+    "raw_logit_capped_t_equals_1": 84,
+    "raw_logit_in_(alpha, alpha*e^0.5)__t_in_(0,1)": 0,
+    "activated_opacity_le_alpha__true_skip_branch_coverage": 0,
+    "activated_opacity_gt_alpha": 1000,
+    "activation_fixes_skip_coverage": false
+  },
+  "radii_skipped_rows_in_threshold_mode": 0,
+  "max_count_case": {
+    "mode": "raw",
+    "camera": "0",
+    "gaussian_id": "1446",
+    "gpu_count": 2040,
+    "raw_opacity": -4.835511684417725,
+    "activated_opacity": 0.007880034856498241,
+    "tile_bound_per_image": 2040
+  },
+  "r15_capture_raw_exact_match": {
+    "status": "EXECUTED",
+    "n": 1000,
+    "r15_capture_sha256": "516efaaffb758c215694b9ee41a5d751923f7c9d173083b41a8f138904a4fc51",
+    "exact_match": true,
+    "sum_abs_diff": 0,
+    "changed_pairs": 0
+  },
+  "report_claims_reconciliation": {
+    "status": "EXECUTED",
+    "report_status_field": "REPLAY_COMPLETED",
+    "claimed_raw_gpu_sum": 1804447,
+    "claimed_sigmoid_gpu_sum": 1453128,
+    "raw_matches_csv": true,
+    "sigmoid_matches_csv": true,
+    "note": "Any reduction figure quoted in R16 prose must equal raw_minus_sigmoid_sum_difference above; the CSV is authoritative."
+  },
+  "arithmetic_note": "R17 recomputation definitions: reduction = raw_sum - sigmoid_sum over the SAME seeded 1000-sample set; threshold-mode difference = sigmoid_sum - threshold_sum. A claimed reduction that equals neither is flagged in R17_FINAL_REPORT.md."
+}

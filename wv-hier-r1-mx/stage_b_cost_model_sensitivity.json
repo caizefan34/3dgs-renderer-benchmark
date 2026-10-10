@@ -1,0 +1,30 @@
+{
+  "evidence_class": "DERIVED_COST_MODEL_SENSITIVITY",
+  "swept": {
+    "c_par": [
+      0.0,
+      0.5,
+      1.0,
+      1.5,
+      2.0,
+      3.0
+    ],
+    "o_N2": [
+      1.0,
+      1.1,
+      1.25,
+      1.5,
+      1.75,
+      2.0
+    ],
+    "kappa": 1.0
+  },
+  "key_unknown": "N2 (mask-then-bin) implementation overhead o_N2 and parent-binning cost c_par",
+  "finding_at_ideal": "At o_N2=1, c_par=1: HWCS loses to N2 in all states (round-2 result, GAM-invariant)",
+  "finding_with_overhead": "HWCS beats N2 at kappa=1 ONLY IF o_N2 exceeds a per-state critical threshold",
+  "o_N2_critical_range_H1": [
+    1.1443182599228934,
+    1.286297875845835
+  ],
+  "conclusion": "The 'HWCS loses to N2' result is robust to GAM and c_par, but NOT to N2 overhead. If real N2 mask-then-bin incurs >1.14-1.29x overhead (two-pass, load imbalance, extra launch), HWCS-1 can beat N2 at kappa=1. This makes N2's real CUDA overhead the KEY unmeasured quantity that Stage B-min structural counts and Stage C timing must pin down. It does NOT restore a CODEX_GO: the overhead is itself unmeasured, and a count-based proxy cannot establish it."
+}

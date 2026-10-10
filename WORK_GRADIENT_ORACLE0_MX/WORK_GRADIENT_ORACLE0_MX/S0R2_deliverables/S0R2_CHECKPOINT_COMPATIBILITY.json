@@ -1,0 +1,80 @@
+﻿{
+  "schema": "S0R2_CHECKPOINT_COMPATIBILITY",
+  "timestamp_utc": "2026-10-08T15:16:00Z",
+  "campaign": "WORK-GRADIENT-ORACLE0-MX",
+  "phase": "S0R2",
+
+  "checkpoints_audited": 6,
+  "loading": "all 6 FasterGSFused checkpoints load successfully into torch state_dict with consistent keys",
+
+  "model_state_dict_schema": {
+    "gaussians._means": "[N,3] float32 (world position)",
+    "gaussians._rotations": "[N,4] float32 (quaternion, requires normalization)",
+    "gaussians._scales": "[N,3] float32 (log-scale; activation = exp())",
+    "gaussians._opacities": "[N,1] float32 (logit; activation = sigmoid())",
+    "gaussians._sh_coefficients_0": "[N,1,3] float32 (DC SH term)",
+    "gaussians._sh_coefficients_rest": "[N,15,3] float32 (higher SH, K-1=15)",
+    "sh_degree": 3,
+    "total_sh_K": 16
+  },
+
+  "per_checkpoint": [
+    {"scene":"garden","file":"0005000.pt","N":2047889,"iter":5000,"loads":true},
+    {"scene":"garden","file":"0010000.pt","N":2404471,"iter":10000,"loads":true},
+    {"scene":"garden","file":"final.pt","N":3104845,"iter":15000,"loads":true},
+    {"scene":"bicycle","file":"0005000.pt","N":2456697,"iter":5000,"loads":true},
+    {"scene":"bicycle","file":"0010000.pt","N":3849060,"iter":10000,"loads":true},
+    {"scene":"bicycle","file":"final.pt","N":4430283,"iter":15000,"loads":true}
+  ],
+
+  "hiGS_render_layout_mapping": {
+    "rasterize_gaussian_higs_dynamic_expected": {
+      "means": "[N,3] raw world position",
+      "quats": "[N,4] (normalized)",
+      "scales": "[N,3] (exp-activated physical scale)",
+      "opacities": "[N] (sigmoid-activated)",
+      "colors": "[N,K,3] with K=(sh_degree+1)^2=16 (SH, DC-first)"
+    },
+    "conversion_applied": {
+      "means": "direct",
+      "quats": "normalize(_rotations)",
+      "scales": "exp(_scales)",
+      "opacities": "sigmoid(_opacities).squeeze(-1) -> [N]",
+      "colors": "cat([_sh_coefficients_0, _sh_coefficients_rest], dim=1) -> [N,16,3]"
+    },
+    "verified": true
+  },
+
+  "real_render_smoke": {
+    "checkpoint": "bicycle 0005000.pt (N=2456697)",
+    "subsampled_for_smoke": 300000,
+    "camera": "bicycle eval_cameras.json id=0 (_DSC8679), scaled 0.25, 640x424",
+    "sh_degree": 3,
+    "full_forward": {"frame_shape":[1,424,640,3],"finite":true,"n_isects":180628,"loss":0.2019},
+    "full_grad_nonzero": {"means":241983,"quats":313986,"scales":241546,"opac":80681,"colors":3059833},
+    "sparse_forward_25pct_tiles": {"n_isects":46429,"sampled_tile_ratio":0.25,"finite":true,"loss":0.0497},
+    "sparse_grad_nonzero": {"means":93616,"quats":120482,"scales":93199,"opac":31083,"colors":1119022},
+    "all_groups_get_gradient": true,
+    "note": "quats nonzero in real checkpoint (unlike degenerate synthetic); geometry + appearance all backprop"
+  },
+
+  "oracle_validity_caveats": {
+    "APPLY_PCA": "training_config.yaml has APPLY_PCA=true. The checkpoint colors/SH DC may be expressed in a PCA-rotated color basis, not raw RGB. Direct SH->RGB rendering therefore may not match the training appearance.",
+    "implication": "Checkpoints are STRUCTURALLY loadable and differentiable through HiGS sparse kernel (Gate D/G mechanics pass), but are NOT automatically math-comparable as an Oracle state without confirming/applying the PCA inverse and the exact FasterGS color convention.",
+    "SCALE_MODIFIER": "1.0 (no effect)",
+    "RENDER_DIFFUSE/SPECULAR": "true (fasterGS may use appearance split; requires convention audit before oracle use)",
+    "loss_convention": "LAMBDA_L1=0.8, LAMBDA_DSSIM=0.2 (matches benchmark)",
+    "near_plane": 0.2,
+    "far_plane": 10000.0,
+    "background": [0.0,0.0,0.0]
+  },
+
+  "camera_availability": {
+    "garden": "eval_cameras.json NOT present; sparse/0 COLMAP files are stubs (127/133 bytes). No usable garden cameras for full-oracle Gate D. Recorded as data-availability gap.",
+    "bicycle": "eval_cameras.json present (11 cameras) + eval_images; usable for smoke and camera convention checks.",
+    "note": "Gate D in task specifies garden; garden camera data is incomplete on this node. bicycle used to demonstrate identical HiGS code path with a real checkpoint. This is a data-availability limitation, not a binary mismatch."
+  },
+
+  "gate_status": "PASS_WITH_CAVEATS",
+  "gate_summary": "Checkpoints load and differentiate through the sparse HiGS kernel with real geometry gradients. Oracle-comparability NOT established: requires PCA/color-convention resolution (Gate G convention audit) before being used as mathematical Oracle. Sparse-kernel recovery (the S0R2 objective) is unaffected."
+}

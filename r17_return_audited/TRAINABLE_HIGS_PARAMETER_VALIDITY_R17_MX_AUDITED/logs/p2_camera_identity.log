@@ -1,0 +1,111 @@
+[write] /mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX_AUDITED/R17_CAMERA_IDENTITY.json
+{
+  "status": "EXECUTED",
+  "r3_synthetic": {
+    "status": "SYNTHETIC_CIRCULAR_NOT_FROM_CAMERAS_JSON",
+    "cam0_K": {
+      "shape": [
+        3,
+        3
+      ],
+      "rows": [
+        [
+          960.0,
+          0.0,
+          480.0
+        ],
+        [
+          0.0,
+          540.0,
+          270.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "cam0_viewmatrix": {
+      "shape": [
+        4,
+        4
+      ],
+      "rows": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          2.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.5
+        ],
+        [
+          -0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "cam0_viewmatrix_translation": [
+      2.0,
+      0.5,
+      0.0
+    ],
+    "cam0_camera_center": [
+      -2.0,
+      -0.5,
+      0.0
+    ],
+    "note": "fx=width=960, fy=height=540, cx=480, cy=270; radius-2 circle around origin, height 0.5. At angle=0 (i=0) R is the identity matrix and viewmatrix translation t=(2.0, 0.5, 0.0) (camera center = -R^T t = (-2.0, -0.5, 0.0)), so camera-z depth equals world-z (same as R8 identity camera), but the projection has a +2 x-offset.",
+    "call_site_discrepancy": {
+      "status": "UNRESOLVED_FROM_LOCAL_ARTIFACTS",
+      "script_main_call": "get_bicycle_cameras(n_train=1, n_eval=0, ...) => 1 camera (angle=0), each forward = single viewmat.unsqueeze(0) call (batch 1)",
+      "script_main_call_matches_n1_cam0": true,
+      "protocol_identity_json_claim": "cameras.n_train=4, batch=4 (HN-540-B4 naming)",
+      "run_status_mitigation": "RUN_STATUS.json lists 'Reduce batch size to 1 camera' as an attempted OOM mitigation",
+      "interpretation": "R3 cell names say B4 but the on-disk script generates and loops over a single camera; the protocol JSON claims n_train=4. R17 benchmark (P4) does not depend on resolving this: it uses the real cameras.json protocol instead."
+    }
+  },
+  "r8_identity": {
+    "status": "IDENTITY_SYNTHETIC_NOT_FROM_CAMERAS_JSON",
+    "K": {
+      "shape": [
+        3,
+        3
+      ],
+      "rows": [
+        [
+          960.0,
+          0.0,
+          480.0
+        ],
+        [
+          0.0,
+          540.0,
+          270.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "viewmatrix": {
+      "shape": [
+        4,
+        4
+      ],
+      "

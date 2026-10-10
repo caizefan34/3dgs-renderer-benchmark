@@ -1,0 +1,184 @@
+﻿=== trainer render call section (lines 280-460) ===
+    # ---------------- recording structures ---------------------------------
+    per_iter = []           # every 100 iters: {iter, n_gs, loss, n_visible, nan_loss}
+    dens_events = []        # every densification event
+    eval_rows = []
+    iter_times = []
+    peak_vram = 0.0
+
+    def dist_stats(t):
+        v = t.detach().float().reshape(-1)
+        v = v[torch.isfinite(v)]
+        if v.numel() == 0:
+            return {"n": 0}
+        return {"n": int(v.numel()), "mean": float(v.mean()), "median": float(v.median()),
+                "p90": float(torch.quantile(v, 0.90)), "p95": float(torch.quantile(v, 0.95)),
+                "p99": float(torch.quantile(v, 0.99)), "max": float(v.max()), "min": float(v.min())}
+
+    def evaluate(cam_indices, tag, step):
+        psnrs, ssims, l1s, lpips_vals = [], [], [], []
+        for ci in cam_indices:
+            cam, gt = dataset.get_item(ci)
+            with torch.no_grad():
+                img, _, _ = render_with_meta(model, cam, model.active_sh_degree)
+            psnrs.append(compute_psnr(img, gt))
+            ssims.append(1.0 - ssim_fn(img, gt).item())
+            l1s.append(float(F.l1_loss(img, gt).item()))
+            if lpips_fn is not None:
+                pred_lp = img.unsqueeze(0).permute(0, 3, 1, 2) * 2 - 1
+                gt_lp = gt.unsqueeze(0).permute(0, 3, 1, 2) * 2 - 1
+                lpips_vals.append(float(lpips_fn(pred_lp, gt_lp).item()))
+        row = {"step": step, "tag": tag,
+               "wall_time_s": time.perf_counter() - t_start,
+               "psnr": float(np.mean(psnrs)), "ssim": float(np.mean(ssims)),
+               "l1": float(np.mean(l1s)),
+               "n_eval_cameras": len(cam_indices),
+               "n_gaussians": int(model._xyz.shape[0])}
+        if lpips_vals:
+            row["lpips"] = float(np.mean(lpips_vals))
+        eval_rows.append(row)
+        lp_str = f" LPIPS={row['lpips']:.4f}" if "lpips" in row else ""
+        print(f"  [{args.arm}/{args.scene} eval@{step}] PSNR={row['psnr']:.2f} "
+              f"SSIM={row['ssim']:.4f}{lp_str} GS={row['n_gaussians']:,}", flush=True)
+        return row
+
+    # ---------------- training loop ----------------------------------------
+    t_start = time.perf_counter()
+    total_clones = total_splits = total_prunes = total_resets = 0
+
+    # phase timing (CUDA events, reused; one sync/iter as before)
+    pev = [torch.cuda.Event(enable_timing=True) for _ in range(6)]
+    phase_ms = {k: [] for k in ("forward", "loss", "backward", "densify", "optimizer")}
+
+    for iteration in range(1, config.iterations + 1):
+        model.update_learning_rate(iteration)
+        if iteration % config.sh_progress_interval == 0:
+            model.oneupSHdegree()
+
+        cam_idx = int(camera_sequence[iteration - 1])
+        cam, gt_image = dataset.get_item(cam_idx)
+
+        t0 = time.perf_counter()
+        pev[0].record()
+        image, radii_full, means2d = render_with_meta(model, cam, model.active_sh_degree)
+        pev[1].record()
+
+        L1 = F.l1_loss(image, gt_image)
+        dssim = ssim_fn(image, gt_image)
+        loss = (1.0 - config.lambda_dssim) * L1 + config.lambda_dssim * dssim
+        pev[2].record()
+
+        loss.backward()
+        pev[3].record()
+
+        if args.arm == "c0" and iteration <= config.densify_until_iter:
+            # Loud guard: under H8_MR the signed .grad fallback is moment-space
+            # (NOT the contracted reference gradient). Densification MUST consume
+            # the attached absgrad. Fail loudly rather than silently degrade.
+            assert hasattr(means2d, "absgrad"), \
+                "C0 arm: means2d.absgrad missing (HIGS_BWD_ABSGRAD not honored)"
+
+        radii = radii_full[0]
+        visibility_filter = (radii > 0).any(dim=-1)
+        n_visible = int(visibility_filter.sum())
+
+        if iteration < config.densify_until_iter:
+            model.max_radii2D[visibility_filter] = torch.max(
+                model.max_radii2D[visibility_filter],
+                radii[visibility_filter].float().max(dim=-1).values)
+            model.add_densification_stats(means2d, visibility_filter,
+                                          width=cam.image_width, height=cam.image_height)
+
+        if (iteration > config.densify_from_iter and
+                iteration < config.densify_until_iter and
+                iteration % config.densification_interval == 0):
+            size_threshold = config.max_screen_size if iteration > config.opacity_reset_interval else None
+            n_before = int(model._xyz.shape[0])
+
+            # pre-event record: the per-gaussian absgrad norm distribution
+            with torch.no_grad():
+                grads = model.xyz_gradient_accum / model.denom
+                nan_count = int(torch.isnan(grads).sum())
+                inf_count = int(torch.isinf(grads).sum())
+                grads = torch.nan_to_num(grads, nan=0.0)
+                gnorm = grads.reshape(-1)
+                selected = gnorm >= config.densify_grad_threshold
+                sel_stats = dist_stats(gnorm[selected]) if int(selected.sum()) else {"n": 0}
+
+            current_radii = radii.float().max(dim=-1).values
+            ev = model.densify_and_prune(
+                max_grad=config.densify_grad_threshold,
+                min_opacity=config.min_opacity,
+                extent=scene_extent,
+                max_screen_size=size_threshold,
+                radii=current_radii)
+            if args.arm == "c0":
+                _HIGS_DYNAMIC_SCENE.mark_dirty()  # topology changed
+
+            n_after = int(model._xyz.shape[0])
+            total_clones += ev["cloned"]
+            total_splits += ev["split"]
+            total_prunes += ev["pruned_total"]
+            dens_events.append({
+                "iter": iteration, "n_before": n_before, "n_after": n_after,
+                "cloned": ev["cloned"], "split": ev["split"],
+                "pruned_total": ev["pruned_total"], "pruned_opacity": ev["pruned_opacity"],
+                "selected": int(selected.sum()),
+                "grad_norm_stats": dist_stats(gnorm),
+                "selected_grad_norm_stats": sel_stats,
+                "grad_nan_count": nan_count, "grad_inf_count": inf_count,
+                "loss": float(loss.item()),
+            })
+
+        if iteration < config.densify_until_iter and iteration % config.opacity_reset_interval == 0:
+            model.reset_opacity()
+            total_resets += 1
+            if args.arm == "c0":
+                _HIGS_DYNAMIC_SCENE.mark_dirty()  # opacity is a packed-buffer value
+
+        pev[4].record()
+        model.optimizer.step()
+        model.optimizer.zero_grad(set_to_none=True)
+        pev[5].record()
+
+        torch.cuda.synchronize()
+        phase_ms["forward"].append(pev[0].elapsed_time(pev[1]))
+        phase_ms["loss"].append(pev[1].elapsed_time(pev[2]))
+        phase_ms["backward"].append(pev[2].elapsed_time(pev[3]))
+        phase_ms["densify"].append(pev[3].elapsed_time(pev[4]))
+        phase_ms["optimizer"].append(pev[4].elapsed_time(pev[5]))
+        iter_times.append((time.perf_counter() - t0) * 1000)
+        vram = torch.cuda.max_memory_allocated() / (1024 ** 3)
+        peak_vram = max(peak_vram, vram)
+
+        if iteration % 100 == 0 or iteration == 1:
+            lv = float(loss.item())
+            per_iter.append({"iter": iteration, "n_gs": int(model._xyz.shape[0]),
+                             "loss": lv, "n_visible": n_visible,
+                             "loss_nan": not math.isfinite(lv)})
+
+        if iteration in eval_iterations:
+            evaluate(eval_indices, "eval", iteration)
+
+        if iteration % 500 == 0:
+            print(f"  [{args.arm}/{args.scene} iter {iteration}] loss={float(loss.item()):.4f} "
+                  f"GS={model._xyz.shape[0]:,} vis={n_visible:,}", flush=True)
+
+    total_time = time.perf_counter() - t_start
+
+    # ---- phase timing aggregation (means over all iters) ----
+    phase_summary = {}
+    for k, v in phase_ms.items():
+        if v:
+            arr = np.array(v)
+            phase_summary[k] = {
+                "mean_ms": float(np.mean(arr)), "median_ms": float(np.median(arr)),
+                "min_ms": float(np.min(arr)), "max_ms": float(np.max(arr)),
+            }
+
+    if args.final_eval == "all":
+        final_eval = evaluate(list(range(n_cameras)), "final", config.iterations)
+    else:
+        final_eval = evaluate(eval_indices, "final", config.iterations)
+DONE
+

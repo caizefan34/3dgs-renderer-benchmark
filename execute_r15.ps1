@@ -1,0 +1,1 @@
+ssh mx "bash -s" < "C:\Users\36570\3dgs-renderer-benchmark\run_r15_mx.sh"

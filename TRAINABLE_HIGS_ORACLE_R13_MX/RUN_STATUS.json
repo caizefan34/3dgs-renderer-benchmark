@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-10-08T17:05:00Z",
+  "status": "ORACLE_NOT_EXECUTED",
+  "campaign": "TRAINABLE_HIGS_ORACLE_R13_MX",
+  "execution_mode": "FRESH_MX_MEASUREMENT",
+  "primary_success_criterion": "ORACLE_EXECUTED_AND_COMPARED",
+  "criterion_met": false,
+  "reason": "Technical blocker: HiGS does not expose per-Gaussian projected data",
+  "blocker_details": {
+    "missing_data": [
+      "per-Gaussian means2d (projected centers)",
+      "per-Gaussian radii (projected sizes)",
+      "per-Gaussian culling status",
+      "camera IDs per Gaussian",
+      "hierarchy node IDs"
+    ],
+    "metadata_available": [
+      "aggregate n_isects",
+      "aggregate n_visible",
+      "culling_ratio"
+    ],
+    "solution_required": "Modify IntersectTile.cu and recompile"
+  },
+  "work_completed": {
+    "r12_audit": "SUCCESS - identified R11 error",
+    "r11_measurements": "VERIFIED - 490M from metadata",
+    "physical_bounds": "CORRECTED - 88% of 2040 tiles"
+  },
+  "work_not_completed": {
+    "oracle_implementation": "NOT_DONE",
+    "1k_comparison": "NOT_EXECUTED",
+    "100k_comparison": "NOT_EXECUTED",
+    "580k_comparison": "NOT_EXECUTED",
+    "coverage_analysis": "NOT_PERFORMED",
+    "4p4m_diagnostic": "NOT_RUN"
+  },
+  "verdict": {
+    "root_cause": "INCONCLUSIVE",
+    "oracle_status": "NOT_EXECUTED",
+    "fix": "NOT_IMPLEMENTED",
+    "next_action": "MODIFY_SOURCE_AND_RECOMPILE"
+  },
+  "time_spent": "Multiple attempts blocked by technical complexity",
+  "honest_conclusion": "Cannot verify counting bug without independent oracle. 490M at 580K is 88% of physical max (2,040 tiles), which is possible. Need per-Gaussian projected data from modified CUDA source."
+}

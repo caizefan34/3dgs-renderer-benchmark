@@ -1,0 +1,203 @@
+{
+  "deliverable": "R17_FINAL_VERDICT.json",
+  "status": "EXECUTED",
+  "input_files": {
+    "p0_arithmetic": {
+      "exists": true,
+      "sha256": "bd1e647a507434108bfdab95757c48125c9142d9b7b6ae38267becb7fc7f4287"
+    },
+    "p1_distributions": {
+      "exists": true,
+      "sha256": "cac3fbaf9480e99712608d600f224b3d5db4e0e4ca92cd0702ee7652a6eb324c"
+    },
+    "p2_camera": {
+      "exists": true,
+      "sha256": "fbf7f873361566a0fc083e59eb387145557bf5ed1e830882df3ed65203a517f7"
+    },
+    "p3_csv_rows": 8,
+    "p4_csv_rows": 4,
+    "p5_gate": {
+      "exists": true,
+      "sha256": "e3f6ce6279ebdf4e1eee9f87e878777c4833a7bb1574891c0f9ba05724ee360a"
+    }
+  },
+  "verdicts": {
+    "OPACITY_INPUT_CONTRACT": "VIOLATED",
+    "SCALE_INPUT_CONTRACT": "VIOLATED",
+    "ROTATION_INPUT_CONTRACT": "VIOLATED",
+    "_contract_rule": "VIOLATED = harness inputs of R3-R16 violated the renderer's documented contract (activated opacity/scales, normalized quats); computed from the real checkpoint distributions + harness source evidence.",
+    "CAMERA_PROTOCOL": "SYNTHETIC",
+    "_camera_rule": "SYNTHETIC = R3 used circular synthetic cameras and R8 used an identity viewmatrix; neither is the training protocol; real cameras.json resolved and used by R17 P3/P4.",
+    "BENCHMARK_VALIDITY": "INVALIDATED",
+    "HIGS_MEMORY_SCALABILITY": "PASS"
+  },
+  "r3_r16_conclusion_disposition": {
+    "R3_std_vs_higs_timing_claims": "REMEASURE",
+    "R3_R8_HiGS_OOM_root_cause": "REINTERPRET: raw logit opacity + log-scale + unnormalized quats + synthetic camera violate the documented contract; see p3_attribution_deltas",
+    "R12_intersection_counts_@580K_raw": {
+      "r17_cell_A_sum_counts": "490387290",
+      "note": "direct comparison basis for the ~490M R12 claim at the same 580K/identity protocol"
+    },
+    "R16_OPACITY_SEMANTICS_CONFIRMED": {
+      "r17_cell_A_vs_B": {
+        "A_sum": "490387290",
+        "B_sum": "399549407"
+      },
+      "disposition": "CONFIRMED_AS_HARNESS_EFFECT_ONLY: real, but it quantifies the gap between a violated and an activated opacity input, not a property of the training protocol"
+    },
+    "R15_oracle_discrepancy": "REINTERPRET: oracle mismatch pairs measured under raw inputs; see per-cell oracle_mismatch_pairs (cell A vs cell D)"
+  },
+  "rules": {
+    "benchmark_validity": "INVALIDATED = the raw/identity harness protocol (used by R3-R16) changes the intersection structure versus the contract protocol by >=20% counts or >=10pp coverage; PARTIAL unchanged-structure but non-protocol cameras; VALIDATED only when both coincide.",
+    "memory_scalability": "PASS = contract protocol 4.41M fwd+bwd executed and passed; FAIL = executed full run OOMed; INCONCLUSIVE = the byte projection did not fit free VRAM so the full run was not attempted (raw scenarios are estimate-only by policy)."
+  },
+  "missing": [],
+  "p3_impact": {
+    "available": true,
+    "A_sum_counts": 490387290.0,
+    "D_sum_counts": 545285.0,
+    "A_coverage_frac": 1.0,
+    "D_coverage_frac": 1.0,
+    "A_status": "PASS",
+    "D_status": "PASS",
+    "count_ratio_A_over_D": 899.32290453616,
+    "count_gap_pct": 89832.290453616,
+    "coverage_gap_pp": 0.0,
+    "material_thresholds": {
+      "count_gap_pct_ge_20_or_coverage_gap_pp_ge_10": "material"
+    },
+    "material": true
+  },
+  "p3_attribution_deltas": {
+    "B": {
+      "sum_counts": 399549407.0,
+      "delta_vs_A_pct": -18.523702561703832,
+      "fwd_status": "PASS",
+      "oracle_mismatch_pairs": "0"
+    },
+    "B2": {
+      "sum_counts": 298577.0,
+      "delta_vs_A_pct": -99.9391140418831,
+      "fwd_status": "PASS",
+      "oracle_mismatch_pairs": "905"
+    },
+    "B3": {
+      "sum_counts": 490387290.0,
+      "delta_vs_A_pct": 0.0,
+      "fwd_status": "PASS",
+      "oracle_mismatch_pairs": "915"
+    },
+    "C": {
+      "sum_counts": 160081.0,
+      "delta_vs_A_pct": -99.96735620941563,
+      "fwd_status": "PASS",
+      "oracle_mismatch_pairs": "0"
+    },
+    "C2": {
+      "sum_counts": 705992313.0,
+      "delta_vs_A_pct": 43.96627469688295,
+      "fwd_status": "PASS",
+      "oracle_mismatch_pairs": "910"
+    },
+    "D": {
+      "sum_counts": 545285.0,
+      "delta_vs_A_pct": -99.88880523392032,
+      "fwd_status": "PASS",
+      "oracle_mismatch_pairs": "0"
+    },
+    "D2": {
+      "sum_counts": 586492927.0,
+      "delta_vs_A_pct": 19.597905361698913,
+      "fwd_status": "PASS",
+      "oracle_mismatch_pairs": "0"
+    }
+  },
+  "p5_memory": {
+    "available": true,
+    "raw_identity_b1": {
+      "status": "ESTIMATED_GATE_SKIPPED_FULL",
+      "fwd_status": "SAFE_ABORT_estimate_only",
+      "bwd_status": "NOT_RUN",
+      "peak_vram_gb": 2.090044416,
+      "estimate": 3732527759.1795,
+      "vs_r8": {
+        "r8_requested_bytes": 119485990174.72,
+        "r17_projected_bytes_conservative": 134370999330.462,
+        "ratio_r17_over_r8": 1.124575350917511
+      }
+    },
+    "raw_identity_b4": {
+      "status": "ESTIMATED_GATE_SKIPPED_FULL",
+      "fwd_status": "SAFE_ABORT_estimate_only",
+      "bwd_status": "NOT_RUN",
+      "peak_vram_gb": 3.723114496,
+      "estimate": 14930111036.718,
+      "vs_r8": {
+        "r8_requested_bytes": 119485990174.72,
+        "r17_projected_bytes_conservative": 537483997321.848,
+        "ratio_r17_over_r8": 4.498301403670044
+      }
+    },
+    "activated_real_b1": {
+      "status": "FULL_EXECUTED",
+      "fwd_status": "PASS",
+      "bwd_status": "PASS",
+      "peak_vram_gb": 3.314783744,
+      "estimate": 3913049.6999999997,
+      "vs_r8": {
+        "r8_requested_bytes": 119485990174.72,
+        "r17_projected_bytes_conservative": 140869789.2,
+        "ratio_r17_over_r8": 0.001178964906212111
+      }
+    },
+    "activated_real_b4": {
+      "status": "FULL_EXECUTED",
+      "fwd_status": "PASS",
+      "bwd_status": "PASS",
+      "peak_vram_gb": 5.084178432,
+      "estimate": 14963241.930000002,
+      "vs_r8": {
+        "r8_requested_bytes": 119485990174.72,
+        "r17_projected_bytes_conservative": 538676709.48,
+        "ratio_r17_over_r8": 0.004508283428812974
+      }
+    }
+  },
+  "p0_reconciliation": {
+    "claimed_reduction_r16_prose": 360251,
+    "recomputed_raw_minus_sigmoid": 351319,
+    "recomputed_elementwise_abs_sum": 360251,
+    "sigmoid_vs_threshold_identical": true,
+    "claimed_reduction_reproducible": false,
+    "r15_raw_exact_match": true,
+    "branch_coverage": {
+      "alpha_threshold": 0.00392156862745098,
+      "n": 1000,
+      "raw_logit_le_0__logf_of_negative__t_forced_by_fminf_nan": 916,
+      "raw_logit_in_(0,alpha]__logf_negative__t_negative": 0,
+      "raw_logit_capped_t_equals_1": 84,
+      "raw_logit_in_(alpha, alpha*e^0.5)__t_in_(0,1)": 0,
+      "activated_opacity_le_alpha__true_skip_branch_coverage": 0,
+      "activated_opacity_gt_alpha": 1000,
+      "activation_fixes_skip_coverage": false
+    }
+  },
+  "harness_source_evidence": {
+    "r3": {
+      "file": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/reference/run_r3_benchmark.py",
+      "sha256": "c78b029c68378486dbe61a8bd5187a00df378ed96f6b0e47b39ebd0a64a528ad",
+      "applies_sigmoid_to_opacity": false,
+      "applies_exp_to_scaling": false,
+      "normalizes_quats": true,
+      "passes_opacity_directly": true
+    },
+    "r8": {
+      "file": "/mnt/storage_pool/liaoyuanjun/TRAINABLE_HIGS_PARAMETER_VALIDITY_R17_MX/reference/R8_WORKING_ENTRYPOINT.py",
+      "sha256": "9f2bc47de41c2842ba92c73747f8b6a75884fd3d16a6d75ec944671aaf13f5e6",
+      "applies_sigmoid_to_opacity": false,
+      "applies_exp_to_scaling": false,
+      "normalizes_quats": false,
+      "passes_opacity_directly": true
+    }
+  }
+}

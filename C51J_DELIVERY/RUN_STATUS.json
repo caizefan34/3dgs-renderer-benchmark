@@ -1,0 +1,58 @@
+{
+  "run_status": "P0_P3_AUDIT_COMPLETE_P4_P5_RESOURCE_BLOCKED",
+  "generated_utc": "2026-10-10T17:02:00Z",
+  "last_round": "15 — GPU still max 18.3GiB free, no Codex manifest. DELIBERATELY did NOT lower the 30GiB harness gate to fit 18.3GiB: no measured VRAM floor for this stack (historical jsons recorded no peak VRAM) and OOM is a P5 disqualifier; lowering without evidence = gaming the safety check (forbidden). Recorded rationale in FINAL_VERDICT. Confirmed run_experiment supports arbitrary iters incl 1000/5000 presets; VRAM capture is added by the P3 RunTimer wrapper. Blocker stands: A100 free-mem + Codex manifest.",
+  "prior_round_11": "11 — pool-full DIAGNOSED (not clearable by me): /mnt/storage_pool/liaoyuanjun/data=2.1TB (user datasets, protected) plus run dirs (R22 62G, R21 52G, hf_home 47G, runs 43G...). Storage is NOT a hard blocker: home /home/liaoyuanjun (27GB) + /dev/shm (200GB free) are writable scratch; harness already home-fallbacks. Confirmed the SOLE real blocker = A100 free memory (other users' jobs); no legitimate action can force GPU release. P4/P5 additionally Codex-gated.",
+  "pool_composition": {"pool_used_pct": 100, "inode_used_pct": 96, "liaoyuanjun_data_tb": 2.1, "big_run_dirs_gb": {"HIGS_LONG_HORIZON_QUALITY_AUDIT_R22_MX": 62, "TRAINABLE_HIGS_OPACITY_FIX_R21_P4_MX": 52, "hf_home": 47, "runs": 43}, "reclaimable_by_agent": "NONE (own data protected; do not delete)", "scratch_alternatives": ["/home/liaoyuanjun (27GB, used by harness fallback)", "/dev/shm (200GB free, tmpfs)"]},
+  "prior_round_10": "10 — GPU free-memory UNCHANGED (best GPU1 18.3GiB, none>=30GiB); P4/P5 still resource + Codex-gated. Full MX integrity sweep: 12/13 hashed files exact-match, 0 mismatch, all JSON valid; txt manifest now also staged. No further non-fabricated work available; harness is turnkey and awaiting an A100 freeing >=30GiB + a Codex manifest.",
+  "prior_round_9": "9 — staged missing MANIFEST_SHA256.txt; full MX audit-dir integrity sweep (12/13 hash-exact, 0 bad, all JSON parse); complete 14-file verified handoff for Codex.",
+  "prior_round_8": "8 — P4 TURNKEY: harness --emit-plan prints full P4 command matrix (no GPU); storage home-fallback + per-GPU free-mem gate + VRAM capture; C51J_P4_EXECUTION_PLAN.txt delivered.",
+  "prior_round_7": "7 — storage blocker RESOLVED IN HARNESS via pick_writable_output() home fallback; gate now per-GPU free-mem; fixed historical VRAM-capture gap. Sole blocker = exclusive GPU free memory. Verdict=BLOCKED_NEEDS_EXCLUSIVE_GPU.",
+  "prior_round_6": "6 — added C51J_harness_splittest.py — unit test for the P3 anti-leakage SplitIsolator; PASSES (train/val/heldout disjoint+exhaustive for room=311/bicycle=307/garden=300 + edge cases; assert_train_only raises on val/heldout). Hardens P3 split-isolation with evidence.",
+  "prior_round_5": "5 — commit-pinned and characterized the two naive-budget controls for the P3 opacity_pruning_control arm — Speedy-Splat @ b9dd42d1 (prune(prune_ratio) scheduled fixed-budget) and FastGS @ d4d33b6 (multiview opacity prune, final_prune_fastgs min_opacity=0.1); recorded in baseline audit §2.3.2; double-ended SHA 52fd9c97... verified.",
+  "prior_round_4": "P4-READINESS VALIDATED: (a) training infra imports cleanly under nerficg env (GaussianModel/dataset/loss/benchmark.run_experiment OK at scripts/epic05/phase7); (b) importing benchmark.py allocates 0 GPU memory; (c) harness resource_gate FIRES on live MX (storage free 297 MiB < 5120 MiB), provenance torch 2.7.1+cu118/gsplat 1.5.3/A100/repo_head 32ab80e7. Harness genuinely executable + correctly gated.",
+  "p4_blocker_is_now_single": "storage only (>=5GiB on /mnt/storage_pool/liaoyuanjun). A100 availability varies (GPU3 had 31.6GiB free this round). Once storage frees, harness can run 1K smoke on GPU3 immediately.",
+  "mx_output_dir": "/mnt/storage_pool/liaoyuanjun/CVPR27_C51_JOINT_MX",
+  "local_delivery_dir": "C:\\Users\\36570\\3dgs-renderer-benchmark\\C51J_DELIVERY",
+
+  "files": {
+    "C51J_BASELINE_EVIDENCE_AUDIT.md": {"status": "DELIVERED", "content": "P1 audit; 1.164x = historical aggregate only; per-run raw + protocol file NOT located"},
+    "C51J_C51_CAUSAL_AUDIT.md": {"status": "DELIVERED", "content": "P2 audit; Stage5 four-arm cost table + R0.2 Top-K failure + protocol boundary"},
+    "C51J_WORKLOAD_COST.csv": {"status": "DELIVERED", "content": "P2 real cost table, tagged by source stage; no fabricated numbers"},
+    "C51J_FROZEN_PROTOCOL.json": {"status": "DELIVERED", "content": "P3 frozen executable protocol + MX env fingerprint"},
+    "C51J_harness.py": {"status": "DELIVERED_TURNKEY", "content": "P3/P4 harness: storage home-fallback, per-GPU FREE-memory gate (--min-free-mib), VRAM capture, --emit-plan prints the full P4 command matrix with no GPU; py_compile OK; gate verified live on MX"},
+    "C51J_P4_EXECUTION_PLAN.txt": {"status": "DELIVERED", "content": "turnkey P4 command matrix (1K smoke / paired 5K / confirmatory seeds x room,bicycle,garden x 3 arms) + P5 gate criteria + preconditions"},
+    "C51J_harness_splittest.py": {"status": "DELIVERED_TEST_PASS", "content": "P3 anti-leakage unit test for SplitIsolator; PASS — train/val/heldout disjoint+exhaustive over room(311)/bicycle(307)/garden(300)+edge; assert_train_only raises on val/heldout"},
+    "C51J_1K_SMOKE.json": {"status": "NO_DATA_RESOURCE_BLOCKED", "content": "no smoke run: no exclusive A100 + storage full; schema-only placeholder, NOT a result"},
+    "C51J_5K_PAIRED.csv": {"status": "NO_DATA_RESOURCE_BLOCKED", "content": "header-only; no paired 5K run possible"},
+    "C51J_QUALITY_PERFORMANCE.csv": {"status": "NO_DATA_RESOURCE_BLOCKED", "content": "header-only; no quality metrics from new runs"},
+    "C51J_FINAL_VERDICT.json": {"status": "DELIVERED", "content": "overall BLOCKED_NEEDS_RESOURCES_THEN_AUDIT_COMPLETE"},
+    "RUN_STATUS.json": {"status": "DELIVERED", "content": "this file"},
+    "MANIFEST_SHA256.json": {"status": "DELIVERED", "content": "sha256 of all delivery files"}
+  },
+
+  "resource_blockers": {
+    "storage_pool_free_bytes": 420630528,
+    "storage_pool_used_pct": 100,
+    "inode_used_pct": 94,
+    "exclusive_a100_available": false,
+    "a100_count": 8,
+    "usable_interpreter": "/home/liaoyuanjun/miniforge3/envs/nerficg/bin/python"
+  },
+
+  "checks_performed": [
+    "MX SSH reachability + host identity (bms-39468022-001)",
+    "GPU inventory + exclusivity (all 8 occupied)",
+    "storage + inode audit (100% full)",
+    "output dir creation (mkdir audit + raw_logs)",
+    "env/version fingerprint (nerficg torch2.7.1+cu118 gsplat1.5.3)",
+    "root gsplat env access check (Permission denied)",
+    "132-job aggregate + verdict read (local)",
+    "Stage5 + R0.2 report extraction",
+    "harness py_compile + resource-gate logic (blocked as expected)"
+  ],
+
+  "no_new_training_run": true,
+  "no_codex_manifest_received": true,
+  "timestamp_utc": "2026-10-10T16:10:00Z"
+}
